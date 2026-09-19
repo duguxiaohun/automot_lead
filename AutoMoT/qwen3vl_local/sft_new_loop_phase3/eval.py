@@ -165,8 +165,10 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     invalid_subgroup_report,
     unique_cases,
 )
+from qwen3vl_local.sft_new_loop_phase3.primary_action import count_none_prediction, PRIMARY_ACTION_VERSION
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
+    DEFAULT_ACTION_OUTPUT_MODE,
     CHOICE_SYSTEM_PROMPT,
     INVALID_KEY,
     PROMPT_NAME,
@@ -500,7 +502,7 @@ def _make_item(row: FrameRow, *, seed: int, action_output_mode: str = "binary") 
 
 
 def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, Any]:
-    """记录严格单选可用行和被拒绝的旧多标签行，供结果审计。"""
+    """记录主要动作/NONE、原始组合投影和 invalid 剔除。"""
 
     report: Counter = Counter()
     for row in rows:
@@ -514,6 +516,8 @@ def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, A
         report["eligible/total"] += 1
         report[f"eligible/context/{row.context_id}"] += 1
         report[f"eligible/action/{action}"] += 1
+        if sum(bool(row.answers.get(key)) for key in CONTEXT_BY_ID[row.context_id].action_keys) > 1:
+            report["projected/compound"] += 1
     return dict(sorted(report.items()))
 
 
@@ -544,7 +548,7 @@ def _balanced_cases(
         missing = [key for key in CONTEXT_IDS if not by_context.get(key)]
         if missing:
             raise ValueError(
-                "choice eval requires one-positive-action examples for every context; "
+                "choice eval requires valid primary-action/NONE examples for every context; "
                 f"missing={missing} rejected={dict(sorted(rejected.items()))}"
             )
         rng = random.Random(f"{seed}:phase3_choice_eval:{len(eligible)}:{cases_per_bin}")
@@ -728,7 +732,7 @@ def _resolve_history_rgb_mode(
             "--history-rgb-mode is only for base-Qwen evaluation. LoRA evaluation reads the "
             "persisted history_rgb_mode from sft_new_loop_phase3_adapter_config.json."
         )
-    persisted = adapter_cfg.get("history_rgb_mode", DEFAULT_HISTORY_RGB_MODE)
+    persisted = adapter_cfg.get("history_rgb_mode", "4rgb")
     source = "adapter_config" if "history_rgb_mode" in adapter_cfg else "legacy_adapter_default_4rgb"
     return validate_history_rgb_mode(str(persisted)), source
 
@@ -739,7 +743,7 @@ def _resolve_action_output_mode(
     """解析输出合同；LoRA 必须按保存时的 choice/binary 模式评测。"""
 
     if adapter_cfg is None:
-        return validate_action_output_mode(requested_mode or "binary"), "base_cli"
+        return validate_action_output_mode(requested_mode or DEFAULT_ACTION_OUTPUT_MODE), "base_cli"
     persisted = validate_action_output_mode(str(adapter_cfg.get("action_output_mode", "binary")))
     if requested_mode is not None and validate_action_output_mode(requested_mode) != persisted:
         raise ValueError(
@@ -1043,11 +1047,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             if balance_class != "INVALID":
                 slice_counts["valid/total"] += 1
                 slice_counts["valid/exact"] += int(all_ok)
-                if row.action_signature == "NONE":
+                if not any(gt.get(key) == "YES" for key in ACTION_KEYS):
                     slice_counts["no_action/total"] += 1
                     slice_counts["no_action/exact"] += int(all_ok)
             signature_counts[f"{row.action_signature}/total"] += 1
             signature_counts[f"{row.action_signature}/exact"] += int(all_ok)
+            if spec.action_output_mode == "choice":
+                count_none_prediction(action_counts,
+                    gt_none=not any(gt.get(key) == "YES" for key in ACTION_KEYS),
+                    predicted_none=strict_is_valid and not any(parsed.get(key) == "YES" for key in ACTION_KEYS))
             for key in ACTION_KEYS:
                 if key not in spec.output_keys:
                     continue
@@ -1194,7 +1202,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     per_key = {key: _binary_report(counter) for key, counter in metric_counts.items()}
     invalid_total = max(1.0, float(pattern_counts.get("invalid_gt_total", 0)))
     action_reports = {}
-    for key in ACTION_KEYS:
+    for key in (*ACTION_KEYS, "NONE"):
         gt_yes = float(action_counts.get(f"{key}/gt_yes", 0))
         pred_yes = float(action_counts.get(f"{key}/pred_yes", 0))
         action_reports[key] = {
@@ -1228,6 +1236,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",
         "action_output_mode": action_output_mode,
         "action_output_mode_source": action_output_mode_source,
+        "primary_action_version": PRIMARY_ACTION_VERSION if action_output_mode == "choice" else None,
+        "signature_semantics": "raw evidence signatures; choice exact uses primary-action targets",
         "history_rgb_mode": history_rgb_mode,
         "history_rgb_mode_source": history_rgb_mode_source,
         "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
@@ -1245,8 +1255,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         ),
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": (
-            "Strict context-owned 3/5-way action selection: only rows with exactly one positive asked action and "
-            "INVALID_ACTION_CONTEXT=NO are eligible; all-NO, invalid, and multi-action rows are excluded and reported."
+            "Context-owned primary action or NONE: valid all-NO rows are included; compound evidence is "
+            "projected by STOP > first crossing > speed. Only invalid contexts are excluded."
             if action_output_mode == "choice" else
             "Single-turn high-level action eval: ten contexts target 1:1; repeated inputs are deduplicated so actual counts can differ and each context "
             "is split as evenly as capacity allows over its action signatures; mismatched-context INVALID "
@@ -1404,7 +1414,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Evaluate base Qwen or new Phase3 LoRA on balanced high-level action cases"
     )
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")

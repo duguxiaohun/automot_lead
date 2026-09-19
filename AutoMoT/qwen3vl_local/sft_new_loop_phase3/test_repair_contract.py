@@ -94,13 +94,17 @@ def test_same_version_changed_rule_source_rejects_cache():
                                                 'rule_code_sha256': 'stale'}})
 
 
-def test_preflight_rejects_v10_index_manifest_after_v11_prompt_change(tmp_path):
-    """索引的动作标签虽可沿用，但训练输入合同变更后必须显式重建 v11 索引。"""
+@pytest.mark.parametrize("old_prompt", [
+    "sft_new_loop_phase3_high_level_action_v9_explicit_window_baseline",
+    "sft_new_loop_phase3_high_level_action_v11_compact_choice_v10_calibration",
+])
+def test_preflight_rejects_old_index_manifest_after_v12_prompt_change(tmp_path, old_prompt):
+    """标定保持原样，但旧输入合同不能冒充 v12。"""
     from qwen3vl_local.sft_new_loop_phase3 import preflight
     index = tmp_path / "frame_index.jsonl"
     index.write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps({
-        "prompt_contract": {"prompt_name": "sft_new_loop_phase3_high_level_action_v9_explicit_window_baseline"}
+        "prompt_contract": {"prompt_name": old_prompt}
     }))
     with pytest.raises(ValueError, match="prompt_name mismatch"):
         preflight.check_index(index)
@@ -138,7 +142,8 @@ def test_wrong_junction_quarantine_is_exact_route_not_scenario():
     assert mapped_contexts("VehicleTurningRoute", route, 72, "R1", "U-E4", ["U-E4"])[0] == ("VULNERABLE_CROSSING",)
 
 
-def test_generation_metrics_count_unique_none_and_measured_speed(monkeypatch):
+@pytest.mark.parametrize("mode", ["binary", "choice"])
+def test_generation_metrics_count_unique_none_and_measured_speed(monkeypatch, mode):
     from qwen3vl_local.sft_new_loop_phase3 import train as module
     from qwen3vl_local.sft_new_loop_phase3.prompts import build_action_target
     row = module.FrameRow(scenario="s", route_id="r", town="Town01", frame_id=10,
@@ -146,7 +151,7 @@ def test_generation_metrics_count_unique_none_and_measured_speed(monkeypatch):
         question_domain="LONGITUDINAL_YIELD", action_signature="NONE", event="U-E1", split="val",
         goal_ego_xy=(10, 0), history_rgb_paths=["a"]*4, latest_rgb_path="a", answers={},
         current_speed_mps=4.125)
-    item = module._make_item(row, seed=0)
+    item = module._make_item(row, seed=0, action_output_mode=mode)
     monkeypatch.setattr(module, "_load_images", lambda paths: [])
     observed = []
     monkeypatch.setattr(module, "_kv_start_state", lambda runtime, messages: observed.append(messages))
@@ -158,4 +163,7 @@ def test_generation_metrics_count_unique_none_and_measured_speed(monkeypatch):
     assert metrics["sampled_before_dedup"] == 2
     assert metrics["slice/no_action_samples"] == 1
     assert metrics["slice/no_action_exact"] == 1
+    if mode == "choice":
+        assert metrics["action/none_gt_yes"] == 1
+        assert metrics["action/none_precision"] == metrics["action/none_recall"] == 1
     assert "4.125 m/s" in str(observed)

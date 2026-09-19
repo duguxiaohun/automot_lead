@@ -20,7 +20,7 @@ def pipeline(tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     for name in ("run_full_pipeline.sh", "train.sh", "event_balance_common.sh", "resume.sh",
-                 "resume.py", "eval.sh", "probe.sh"):
+                 "resume.py", "eval.sh", "probe.sh", "scene_policy.py"):
         shutil.copy(SCRIPTS / name, scripts / name)
     (scripts / "launch.py").write_text('''import json, os, sys
 from pathlib import Path

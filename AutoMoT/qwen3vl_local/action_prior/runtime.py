@@ -10,7 +10,9 @@ from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 from qwen3vl_local.action_prior.prompt_versions import prompt_module
 from qwen3vl_local.action_prior.progress import report
-from qwen3vl_local.action_prior.action_input import HighLevelActionIndex, normalize_action
+from qwen3vl_local.action_prior.action_input import (
+    HighLevelActionIndex, normalize_action, gate_action, ACTION_CONDITIONING_VERSION,
+)
 
 
 class PriorEngine:
@@ -135,7 +137,7 @@ class PriorEngine:
 
     def condition(
         self, images, navigation, sample_key, identity=None, event_balanced_scene_contexts=(),
-        high_level_action=None,
+        high_level_action=None, high_level_action_contexts=(),
     ):
         """默认直接编码四图与先验提示词；显式开启时追加生成分析，最终 KV 均来自 base。"""
         if len(images) != 4:
@@ -149,6 +151,7 @@ class PriorEngine:
         # 单帧动作接口：当前查自动 Phase3 标注/显式索引，后续可接 Phase3 predictor。
         # 关闭时完全忽略外部字段，不改变默认图文输入。
         action = normalize_action(high_level_action) if self.high_level_action_prior else None
+        action_contexts = tuple(high_level_action_contexts) if self.high_level_action_prior else ()
         from qwen3vl_local.action_prior.contracts import digest
 
         def ask(phase, spec, history):
@@ -181,6 +184,7 @@ class PriorEngine:
                 f":generate_analysis={self.generate_analysis}"
                 f":high_level_planning={self.high_level_planning}"
                 f":high_level_action_prior={self.high_level_action_prior}:action={digest(action)}"
+                f":action_contexts={action_contexts}:action_policy={ACTION_CONDITIONING_VERSION}"
             )
             if self.text_cache
             else None
@@ -199,7 +203,11 @@ class PriorEngine:
             priors = dict(priors, high_level_planning=self.high_level_planning)
             priors.update(high_level_action_prior=self.high_level_action_prior)
             if self.high_level_action_prior:
-                priors["high_level_action"] = action
+                # 先获得实际消费的 Phase1/2 条件（含噪声/复核），再门控动作。
+                effective, action_gate = gate_action(action, priors["conditions"], action_contexts,
+                                                     event_balanced_scene_contexts)
+                priors.update(high_level_action=effective, high_level_action_input=action,
+                              high_level_action_contexts=action_contexts, high_level_action_gate=action_gate)
             if event_balanced_scene_contexts:
                 priors = dict(
                     priors,
@@ -313,9 +321,17 @@ class PriorEngine:
                     require_review=self.analysis_review,
                 )
             )
+        action_matches = True
+        if self.high_level_action_prior:
+            expected, expected_gate = gate_action(action, priors["conditions"], action_contexts,
+                                                  event_balanced_scene_contexts)
+            action_matches = (priors.get("high_level_action_input") == action
+                              and priors.get("high_level_action") == expected
+                              and priors.get("high_level_action_gate") == expected_gate
+                              and tuple(priors.get("high_level_action_contexts", ())) == action_contexts)
         if (not accepted or priors.get("high_level_planning", False) != self.high_level_planning
                 or priors.get("high_level_action_prior", False) != self.high_level_action_prior
-                or (self.high_level_action_prior and priors.get("high_level_action") != action)):
+                or not action_matches):
             raise ValueError(
                 "cached prior/analysis does not match the configured KV mode or review"
             )
@@ -354,6 +370,18 @@ class PriorEngine:
         )
         report("condition/base_kv_ready")
         return cache, offset
+
+
+def sample_condition_inputs(args, sample, action_index=None):
+    """分开查表动作作用域和显式场景事实，防止动作索引绕过 Phase1/2。"""
+    from qwen3vl_local.action_prior.scene_policy import scene_contexts
+    identity = (str(sample["scenario"]), str(sample["run_id"]), int(sample["anchor"]))
+    enabled = getattr(args, "high_level_action_prior", False) and action_index is not None
+    return dict(
+        high_level_action=action_index.candidate_evidence(identity) if enabled else None,
+        high_level_action_contexts=action_index.planning_contexts(identity) if enabled else (),
+        event_balanced_scene_contexts=scene_contexts(args, sample.get("event_balance_scene_contexts", ())),
+    )
 
 
 def make_runtime(args, device, contract):
@@ -438,6 +466,7 @@ def make_runtime(args, device, contract):
             self.sample_identity = None
             self.event_balanced_scene_contexts = ()
             self.high_level_action = None
+            self.high_level_action_contexts = ()
 
         def prefill_prior(self, rgb_pil_list, user_prompt):
             """仅 navigation 作为公开输入，不把 sample 字典送入 Qwen。"""
@@ -459,6 +488,7 @@ def make_runtime(args, device, contract):
                 rgb_pil_list, user_prompt, self.sample_key, self.sample_identity,
                 self.event_balanced_scene_contexts,
                 high_level_action=self.high_level_action,
+                high_level_action_contexts=self.high_level_action_contexts,
             )
 
         def forward_sample(
@@ -479,18 +509,10 @@ def make_runtime(args, device, contract):
                 str(sample["run_id"]),
                 int(sample["anchor"]),
             )
-            self.high_level_action = self.action_index.get(self.sample_identity) if self.action_index else None
-            self.event_balanced_scene_contexts = (
-                tuple(str(value) for value in sample.get("event_balance_scene_contexts", ()) if value)
-                if getattr(args, "event_balanced_scene_priors", False)
-                else ()
-            )
-            if self.action_index:
-                # Phase3 明确标注的 UE/特殊 RE 提供规划域；普通背景与不可用帧不附加。
-                self.event_balanced_scene_contexts = tuple(dict.fromkeys((
-                    *self.event_balanced_scene_contexts,
-                    *self.action_index.planning_contexts(self.sample_identity),
-                )))
+            condition_inputs = sample_condition_inputs(args, sample, self.action_index)
+            self.high_level_action = condition_inputs["high_level_action"]
+            self.high_level_action_contexts = condition_inputs["high_level_action_contexts"]
+            self.event_balanced_scene_contexts = condition_inputs["event_balanced_scene_contexts"]
 
             def decoder_with_trainable_cache(**kwargs):
                 report("train_or_eval/decoder_forward")

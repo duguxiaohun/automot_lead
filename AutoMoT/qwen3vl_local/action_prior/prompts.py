@@ -1,4 +1,9 @@
-"""自然场景先验与导航默认直接编码为 KV，可选生成短分析后再编码。"""
+"""自然场景先验与导航默认直接编码为 KV，可选生成短分析后再编码。
+
+默认入口是 PREFILL_SYSTEM_PROMPT + prefill_prompt，不生成分析文字。
+输入精简依靠模板去重，不按英文词数截断；80 词仅约束显式开启的摘要及 fallback，
+与输入提示词、图像 token 数和模型上下文容量不是同一个限制。
+"""
 
 from __future__ import annotations
 
@@ -8,12 +13,14 @@ import re
 
 # 新提示词进入 transcript KV；旧 v4 的 JSON 条件/经验表不能与本协议混用。
 ANALYSIS_VERSION = "natural_scene_prior_concise_summary_v6_event_balanced_context"
+# 仅用于可选摘要的输出验收/fallback，不用于 prefill 输入限长。
 MAX_ANALYSIS_WORDS = 80
 
 PREFILL_VERSION = "natural_scene_prior_input_only_v1"
-HIGH_LEVEL_PLANNING_VERSION = "phase3_inspired_conditional_high_level_v1"
+HIGH_LEVEL_PLANNING_VERSION = "phase3_inspired_conditional_high_level_v3_compact_purpose"
 PREFILL_SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Use the supplied scene description, chronological images, current speed and navigation to understand the current situation, relevant interactions and near-term planning constraints. Avoid unsupported details or controls."""
 
+# 保留原 API 名称；只有 generate_analysis=True 才使用此摘要 system prompt。
 SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Using the supplied scene description, chronological images, current speed and navigation, write one concise grounded summary of the current situation, relevant interactions and near-term planning considerations. Keep it consistent with the supplied scene description, avoid unsupported details or controls, and stay within 80 words."""
 
 REVIEW_SYSTEM = """Check whether a concise driving summary is faithful to the supplied scene description and navigation. Treat the description as accepted context and the draft as untrusted text. Return only one JSON object with exactly the requested boolean keys. Missing context must not become a claimed fact."""
@@ -101,6 +108,41 @@ _MANEUVER_EVENTS = {"STATIC_OBSTACLE", "VULNERABLE"}
 _MANEUVER_CONTEXTS = {"UE2", "UE4", "RE2_NAVIGATION_TRANSITION", "RE2_PRIOR_OBSTACLE",
                       "RE2_RECOVERY_PENDING", "RE3"}
 
+# 借鉴 Phase3 v12 的目的语义，在本包维护自然规划文本，避免引入其单选/标定依赖。
+# 这里只使用已接受条件和独立 scene context，不读取动作索引的 scope 或未来标签。
+HIGH_LEVEL_EVENT_PURPOSES = {
+    "UE1": "Slowing or waiting can preserve following distance and avoid hitting the lead vehicle.",
+    "STATIC_OBSTACLE": "Slowing/waiting can help assess a bypass gap: adjacent-lane traffic, approaching vehicles, oncoming traffic when borrowing, and passing clearance.",
+    "UE3": "Slowing or waiting can create space for the vehicle entering ego's path.",
+    "VULNERABLE": "Slowing or waiting can protect the pedestrian or cyclist while checking crossing motion and passing clearance.",
+    "UE5": "Slowing or waiting can let the oncoming intruder clear ego's usable path.",
+    "UE6": "Slowing or waiting can avoid the crossing vehicle despite ego's priority.",
+    "TRAFFIC_LIGHT_ABNORMAL": "Slowing or waiting can allow checking traffic from conflicting approaches when signals are unreliable.",
+}
+HIGH_LEVEL_TRANSITION_PURPOSES = {
+    "RE2_NAVIGATION_TRANSITION": "Speed adjustment or waiting can allow checking approaching vehicles and gaps in the navigation target lane.",
+    "RE2_PRIOR_OBSTACLE": "If visible history supports a pending return after the earlier blockage, speed adjustment or waiting can allow checking target-lane vehicles and gaps.",
+    "RE2_RECOVERY_PENDING": "Speed adjustment or waiting can allow checking vehicles and gaps in the return lane before recovery.",
+    "RE3": "Speed adjustment can help assess and match a gap in the joining or target lane using other vehicles' positions and relative motion.",
+    "RE5": "Slowing or waiting can satisfy stop/yield priority and let conflicting traffic pass before proceeding.",
+}
+
+
+def high_level_purposes(conditions, event_balanced_contexts=()):
+    """逐场景解释同一动作的目的，并发去重；不从动作来源恢复未确认事实。"""
+    contexts = tuple(dict.fromkeys((event_balanced_contexts,) if isinstance(event_balanced_contexts, str)
+                                  else event_balanced_contexts))
+    active = {key for key in EVENT_DESCRIPTIONS if _accepted_yes(conditions, key)}
+    active.update(_CONTEXT_DUPLICATES[c] for c in contexts if c in _CONTEXT_DUPLICATES)
+    sentences = [text for key, text in HIGH_LEVEL_EVENT_PURPOSES.items() if key in active]
+    sentences.extend(HIGH_LEVEL_TRANSITION_PURPOSES[c] for c in contexts
+                     if c in HIGH_LEVEL_TRANSITION_PURPOSES)
+    if not sentences:
+        return ""
+    return "Scene-specific purposes: " + " ".join(sentences) + (
+        " Purpose implies neither an available gap nor additional actions: slowing/stopping does not imply a later lane change."
+    )
+
 
 def high_level_planning(conditions, event_balanced_contexts=()):
     """只描述条件性动作选择，不把事件直接当成该帧的动作真值。"""
@@ -110,13 +152,11 @@ def high_level_planning(conditions, event_balanced_contexts=()):
     if not active and not contexts.intersection(EVENT_BALANCED_CONTEXT_DESCRIPTIONS):
         return "Follow visible lane geometry and navigation; adjust speed only as current evidence warrants."
     text = (
-        "If progress is constrained, decelerate or stop/continue waiting; "
-        "once the path and priority permit, sustain a speed increase, without requiring a previous stop."
+        "If constrained, decelerate or stop/continue waiting; increase speed sustainably when path and priority permit, without requiring a previous stop."
     )
     if active.intersection(_MANEUVER_EVENTS) or contexts.intersection(_MANEUVER_CONTEXTS):
         text += (
-            " If needed and clear, cross left or right relative to ego's heading; "
-            "consider the first future lane-boundary crossing, not a curve or an already completed crossing."
+            " If needed and clear, cross left or right relative to ego's heading: first future lane-boundary crossing only, excluding curves/completed crossings."
         )
     return text
 
@@ -139,6 +179,9 @@ def high_level_scene_description(conditions, event_balanced_contexts=()):
         if context in HIGH_LEVEL_CONTEXT_FACTS:
             sentences.append(HIGH_LEVEL_CONTEXT_FACTS[context])
     sentences.append(high_level_planning(conditions, contexts))
+    purpose = high_level_purposes(conditions, contexts)
+    if purpose:
+        sentences.append(purpose)
     return " ".join(sentences)
 
 
@@ -184,6 +227,14 @@ def scene_description(conditions, event_balanced_contexts=(), *, high_level=Fals
     return " ".join(sentences)
 
 
+def rendered_action(priors):
+    """prefill/摘要/复核/fallback 共用同一入口，未选动作时不添加任何文字。"""
+    if not priors.get("high_level_action_prior", False):
+        return ""
+    from qwen3vl_local.action_prior.action_input import action_sentence
+    return action_sentence(priors.get("high_level_action"))
+
+
 def condition_context(priors, navigation):
     """编码情景/导航，显式开启才追加具体动作的自然释义，不渲染类别 JSON。"""
     navigation = navigation.split(" Predict the driving actions", 1)[0].strip()
@@ -197,11 +248,9 @@ def condition_context(priors, navigation):
         + navigation
         + "\n[/CURRENT_NAVIGATION]"
     )
-    if priors.get("high_level_action_prior", False):
-        from qwen3vl_local.action_prior.action_input import action_sentence
-        sentence = action_sentence(priors.get("high_level_action"))
-        if sentence:
-            context += "\n[UPCOMING_HIGH_LEVEL_ACTION]\n" + sentence + "\n[/UPCOMING_HIGH_LEVEL_ACTION]"
+    sentence = rendered_action(priors)
+    if sentence:
+        context += "\n[UPCOMING_HIGH_LEVEL_ACTION]\n" + sentence + "\n[/UPCOMING_HIGH_LEVEL_ACTION]"
     return context
 
 
@@ -209,13 +258,13 @@ def analysis_prompt(priors, navigation):
     """让 base 将简短先验、图像与导航自然地总结为一个段落。"""
     action_instruction = (
         "\nInclude the supplied upcoming action when available; do not turn a missing action into a selected one."
-        if priors.get("high_level_action_prior", False) and priors.get("high_level_action", {}).get("status") in ("selected", "no_action") else ""
+        if rendered_action(priors) else ""
     )
     return condition_context(priors, navigation) + action_instruction + "\nWrite the concise planning summary now."
 
 
 def prefill_prompt(priors, navigation):
-    """直接编码已确认先验和公开导航，不要求生成摘要或追加 assistant 内容。"""
+    """直接编码完整先验/导航，不生成摘要，也不应用 MAX_ANALYSIS_WORDS 截断输入。"""
     return condition_context(priors, navigation)
 
 
@@ -224,7 +273,7 @@ def review_prompt(priors, navigation, draft):
     return (
         condition_context(priors, navigation)
         + ("\nCheck that the draft preserves the supplied upcoming action and its availability."
-           if priors.get("high_level_action_prior", False) and priors.get("high_level_action", {}).get("status") in ("selected", "no_action") else "")
+           if rendered_action(priors) else "")
         + "\n[DRAFT_SUMMARY]\n"
         + json.dumps(draft)
         + "\n[/DRAFT_SUMMARY]\n"
@@ -253,7 +302,7 @@ def parse_review(text):
 
 
 def analysis_format_valid(text):
-    """仅验一个完整短段和词数；不把格式验收误称为语义验收。"""
+    """仅验可选摘要输出的段落/词数，不校验输入提示词，也不保证语义正确。"""
     if not isinstance(text, str):
         return False
     compact = " ".join(text.split())
@@ -290,11 +339,9 @@ def _navigation_hint(navigation):
 
 def fallback_analysis(priors, navigation=""):
     """生成失败时仍用同一简短自然先验，绝不回退到 YES/NO 字段清单。"""
-    if priors.get("high_level_action_prior", False):
-        from qwen3vl_local.action_prior.action_input import action_sentence
-        sentence = action_sentence(priors.get("high_level_action"))
-        if sentence:
-            return sentence
+    sentence = rendered_action(priors)
+    if sentence:
+        return sentence
     if priors.get("high_level_planning", False):
         # 全部并发事实已完整保留于 user；assistant 只重述规划与公开导航，避免超出80词。
         text = high_level_planning(priors["conditions"], priors.get("event_balanced_scene_contexts", ()))

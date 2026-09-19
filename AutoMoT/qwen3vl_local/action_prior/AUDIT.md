@@ -61,5 +61,5 @@ ACTION_DATASET_PRIORS=0 bash qwen3vl_local/action_prior/eval.sh --bench2drive --
 GPU_IDS=0 ACTION_DATASET_PRIORS=0 bash qwen3vl_local/action_prior/eval.sh --bench2drive --checkpoint checkpoints/action_prior/latest/best.pt
 ```
 
-纯均衡采样模型在闭环不需要 full map；`event-balanced-scene-priors` 模型不支持闭环。
+纯均衡采样模型在闭环不需要 full map；使用离线特殊 RE 场景先验的模型不支持闭环。
 正式 220 路线只用于最终评测，不能参与训练选优。离线 ADE、CPU 测试和合成验证均不代表真实闭环成绩。

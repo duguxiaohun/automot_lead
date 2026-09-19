@@ -32,7 +32,7 @@ class ActionPriorRunner:
         if bool(state["args"].get("event_balanced_scene_priors", False)):
             raise ValueError(
                 "this checkpoint used dataset-only event-balanced scene priors (including RE2 transition history); "
-                "live CARLA has no such audited context/memory. Train/evaluate with --no-event-balanced-scene-priors "
+                "live CARLA has no such audited context/memory. Use a separately trained model without offline special RE scene priors "
                 "for closed-loop compatibility."
             )
         args.selection_manifest = ""

@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
+# v13 choice：一个主要动作或 NONE；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # 新 Phase3 的 4RGB / 2RGB_endpoints 输入合同对比矩阵。
 #
 # 从 AutoMoT/ 目录运行：
 #   bash qwen3vl_local/sft_new_loop_phase3/run_rgb_mode_matrix.sh
-#   ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_rgb_mode_matrix.sh
+#   ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_rgb_mode_matrix.sh
 #
 # 每个模式独立训练一个 adapter，再各自评测，避免用一个 adapter 混跑两种输入合同。
 
 set -euo pipefail
+
+ulimit -S -c 0 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUTOMOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${AUTOMOT_ROOT}"
 
 MODES="${MODES:-4rgb 2rgb_endpoints}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 TRAIN_MODE="${TRAIN_MODE:-ddp}"
-ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-binary}"
+ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-choice}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 MATRIX_ROOT="${MATRIX_ROOT:-checkpoints/sft_new_loop_phase3_rgb_matrix/${TIMESTAMP}}"

@@ -16,6 +16,7 @@ from qwen3vl_local.action_prior.contracts import (
     select_adapter,
 )
 from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION
+from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
 from qwen3vl_local.action_prior.prompts import (
     ANALYSIS_VERSION, SYSTEM_PROMPT, PREFILL_VERSION, PREFILL_SYSTEM_PROMPT,
     HIGH_LEVEL_PLANNING_VERSION,
@@ -71,8 +72,7 @@ DEFAULTS = dict(
     event_balanced_epoch_samples=0,
     event_balance_max_frame_repeats=8,
     best_selection_metric="natural_ade",
-    # 采样本身不改 Qwen 输入。显式开启才把已审计的上下文转成短自然 scene prior；这是
-    # dataset-only 特权条件，闭环没有对应历史/transition 标签，不能静默带入。
+    # 内部保存字段，不再暴露 CLI；新训练按 dataset/planning/noise 自动推导。
     event_balanced_scene_priors=False,
     phase1_training_index="",
     phase2_training_index="",
@@ -138,6 +138,8 @@ def parser():
     """所有正式超参数均可 CLI 覆盖。"""
     p = argparse.ArgumentParser()
     for k, v in DEFAULTS.items():
+        if k == "event_balanced_scene_priors":
+            continue
         if isinstance(v, list):
             p.add_argument("--" + k.replace("_", "-"), nargs="+", default=[])
             continue
@@ -152,6 +154,7 @@ def parser():
         )
     p.add_argument("--preflight", action="store_true")
     p.add_argument("--models-only", action="store_true")
+    p.set_defaults(event_balanced_scene_priors=None)
     from qwen3vl_local.action_prior.event_balance import add_sampling_aliases
     add_sampling_aliases(p)
     return p
@@ -222,6 +225,7 @@ def read_rows(args, split):
 
 def validate_args(args):
     """防止兼容参数改变该路线的核心条件。"""
+    resolve_scene_priors(args)
     # 缺字段只可能来自旧保存配置：其历史行为是生成摘要，不能套用新训练默认值。
     # 后续仍严格核验执行指纹，补字段不表示旧 checkpoint 可以跨源码恢复。
     if not hasattr(args, "generate_analysis"):
@@ -273,7 +277,7 @@ def validate_args(args):
     if args.event_balanced_scene_priors:
         if args.condition_mode != "prior" or not args.dataset_priors:
             raise ValueError(
-                "--event-balanced-scene-priors is a dataset-only privileged prior; "
+                "saved special RE scene priors are a dataset-only privileged prior; "
                 "use --dataset-priors --condition-mode prior"
             )
         if args.prior_noise != 0.0:
@@ -341,6 +345,7 @@ def validate_args(args):
 
 def build_contract(args):
     """冻结上游身份和运行协议；权重路径可迁移，权重字节不能变。"""
+    resolve_scene_priors(args)
     from qwen3vl_local.action_prior.action_input import action_input_contract
     action_input = action_input_contract(args)
     policy = getattr(args, "selection_policy", "strict")
@@ -461,6 +466,7 @@ def build_contract(args):
         generate_analysis=args.generate_analysis,
         high_level_planning=args.high_level_planning,
         planning_version=HIGH_LEVEL_PLANNING_VERSION if args.high_level_planning else "natural_default",
+        scene_prior_policy=args.scene_prior_policy,
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
         high_level_action_input=action_input,
         final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",

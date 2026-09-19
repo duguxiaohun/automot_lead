@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
+# v13 choice：一个主要动作或 NONE；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # 新 Phase3 全流程：RGB 审计覆盖检查 -> 构建动作索引 -> 训练 -> 独立评测 + 错例审计包。
 #
-# 从 AutoMoT/ 目录运行：
+# 从 AutoMoT/ 目录运行，默认 v13 四图 + choice（选择题）：
 #   bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 #
-# 常用覆盖：
-#   SKIP_BUILD=1 SKIP_TRAIN=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 两图 + choice：
 #   HISTORY_RGB_MODE=2rgb_endpoints bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
-#   ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+#   GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 四图 + binary（逐动作 YES/NO）：
+#   ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+#   GPU_IDS=0,1,2,3 ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 两图 + binary：
+#   HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+#   GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 复用已构建索引/训练产物（跳过训练时需指定原 RUN_ROOT）：
+#   SKIP_BUILD=1 SKIP_TRAIN=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 
 set -euo pipefail
 
@@ -23,13 +32,13 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v11}"
+DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v13}"
 INDEX="${INDEX:-${DATA_DIR}/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
-ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-binary}"
+ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-choice}"
 TRAIN_MODE="${TRAIN_MODE:-ddp}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"

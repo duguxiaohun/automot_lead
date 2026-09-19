@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# v13 Phase3 对齐：主要动作或 NONE；自动 v4 动作索引，NONE 保留 planning 但不追加具体动作。
 # 在 AutoMoT/ 下运行；自动准备索引、自动选卡，默认直接图文 KV，不生成摘要。
 # 1. 数据集先验 + 均衡采样（去掉 --event-balanced 即自然采样）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
@@ -15,9 +16,11 @@
 #
 # 可选追加：--generate-analysis 生成摘要；--prior-noise 0.1 注入先验噪声。
 # 更多开关/环境变量见 run.md，审计见 AUDIT.md；动作真值模式暂不支持闭环。
+# 干净的 dataset-priors + high-level-planning 自动提供已确认特殊 RE；无需额外场景开关。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+scene_priors="$(python "$HERE/scene_policy.py" "$@")"
 source "$HERE/event_balance_common.sh"
 action_event_balance_options "$@"
 set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
@@ -40,7 +43,6 @@ done
 ARGS=()
 sampling_mode=uniform
 if [[ "${EVENT_BALANCED:-0}" == 1 ]]; then sampling_mode=event_balanced; fi
-scene_priors="${EVENT_BALANCED_SCENE_PRIORS:-0}"
 action_priors="${HIGH_LEVEL_ACTION_PRIOR:-0}"
 sampling_explicit=0
 explicit_prior_source="$DATASET_PRIORS_ENV_SET"
@@ -77,8 +79,6 @@ while (( $# )); do
   --high-level-action-index=*) pipeline_paths[HIGH_LEVEL_ACTION_INDEX]="${1#*=}" ;;
   --prior-labels=*) PRIOR_LABELS="${1#*=}"; explicit_labels=1 ;;
   --event-balance-index=*) EVENT_BALANCE_INDEX="${1#*=}"; explicit_event_balance_index=1 ;;
-  --event-balanced-scene-priors) scene_priors=1; ARGS+=("$1") ;;
-  --no-event-balanced-scene-priors) scene_priors=0; ARGS+=("$1") ;;
   --high-level-action-prior) action_priors=1; ARGS+=("$1") ;;
   --no-high-level-action-prior) action_priors=0; ARGS+=("$1") ;;
   *) ARGS+=("$1") ;;
@@ -101,7 +101,6 @@ if [[ -n "${RESUME:-}" ]]; then
 fi
 [[ "$sampling_mode" == uniform || "$sampling_mode" == event_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
 [[ "$sampling_explicit" == 0 ]] || ARGS+=(--sampling-mode "$sampling_mode")
-export EVENT_BALANCED_SCENE_PRIORS="$scene_priors"
 if [[ -n "${RESUME:-}" && "$explicit_prior_source" == 0 ]]; then
  RESUME_CONFIG="$(dirname -- "$RESUME")/config.json"
  if [[ -f "$RESUME_CONFIG" ]]; then

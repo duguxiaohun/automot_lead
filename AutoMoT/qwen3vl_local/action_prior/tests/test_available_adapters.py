@@ -185,6 +185,7 @@ def test_full_pipeline_passes_selection_manifest_and_continues_to_test(tmp_path)
     pipeline = Path(__file__).resolve().parents[1] / "run_full_pipeline.sh"
     shutil.copy(pipeline, tmp_path / pipeline.name)
     shutil.copy(pipeline.with_name("event_balance_common.sh"), tmp_path / "event_balance_common.sh")
+    shutil.copy(pipeline.with_name("scene_policy.py"), tmp_path / "scene_policy.py")
     data = tmp_path / "data"
     data.mkdir()
     (data / "manifest.json").write_text("{}")

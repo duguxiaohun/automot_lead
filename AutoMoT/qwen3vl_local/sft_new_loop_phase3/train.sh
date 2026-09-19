@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
+# v13 choice：一个主要动作或 NONE；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # sft_new_loop_phase3 训练 launcher：单轮 high-level 动作问答 + 可选 torch DDP。
 #
 # 从 AutoMoT/ 目录运行：
 #   bash qwen3vl_local/sft_new_loop_phase3/train.sh
 #   GPU_IDS=0 bash qwen3vl_local/sft_new_loop_phase3/train.sh single
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase3/train.sh ddp
-# 默认使用四帧；HISTORY_RGB_MODE=2rgb_endpoints 时只喂第 1 帧和第 4 帧。
-# ACTION_OUTPUT_MODE=choice 时，每个事件只输出其事件域候选中的一个完整动作词组；需重新训练。
+# 默认使用 v12 四图 + choice；每个事件只输出一个完整动作词组。
+# 显式 HISTORY_RGB_MODE=2rgb_endpoints / ACTION_OUTPUT_MODE=binary 可运行独立对照。
 # 不传模式时默认四卡 DDP；需要单卡 smoke 时显式传 single 或 check。
 
 set -euo pipefail
@@ -26,10 +27,10 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
-ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-binary}"
+ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-choice}"
 case "${HISTORY_RGB_MODE}" in
   4rgb|2rgb_endpoints) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
   *)

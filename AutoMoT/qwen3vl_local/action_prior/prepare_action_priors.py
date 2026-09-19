@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from qwen3vl_local.action_prior.action_input import ACTION_INPUT_VERSION, HighLevelActionIndex, normalize_action
+from qwen3vl_local.action_prior.action_input import ACTION_INPUT_VERSION, ACTION_FORMAT, HighLevelActionIndex, normalize_action, select_primary
 from qwen3vl_local.action_prior.contracts import digest, file_hash
 from qwen3vl_local.action_prior.event_balance import EventBalanceIndex, SPECIAL_ELIGIBLE
 from qwen3vl_local.action_prior.prepare_event_balance import prepare, _publish, _reuse_or_quarantine, run_builder
@@ -50,7 +50,7 @@ def candidate_actions(path, mapping_hash):
     return result
 
 
-def project_frame(record, candidates):
+def candidate_frame(record, candidates):
     """普通/未确认/过滤帧不注入动作；并发 special 共用同帧动作，冲突立即拒绝。"""
     if record is None or record["status"] != SPECIAL_ELIGIBLE:
         return dict(status="not_applicable", actions=[]), []
@@ -68,6 +68,12 @@ def project_frame(record, candidates):
     return normalize_action(dict(status="selected" if actions else "no_action", actions=actions)), contexts
 
 
+def project_frame(record, candidates):
+    """与 Phase3 choice 共用主要动作规则；原始证据另存供上游门控。"""
+    evidence, contexts = candidate_frame(record, candidates)
+    return select_primary(evidence), contexts
+
+
 def prepare_actions(full_path, data_root, data_dir, cache_root):
     """全帧门控与 Phase3 动作标签合并，锁内校验、缓存复用并原子发布。"""
     full = EventBalanceIndex(full_path)
@@ -76,7 +82,7 @@ def prepare_actions(full_path, data_root, data_dir, cache_root):
     if file_hash(candidate_path) != full.source.candidate_sha256:
         raise ValueError("Phase3 candidate changed since full-map build")
     source = dict(
-        schema=ACTION_INPUT_VERSION, source_kind="phase3_oracle",
+        schema=ACTION_INPUT_VERSION, source_kind="phase3_oracle", action_format=ACTION_FORMAT,
         mapping_contract_hash=full.source.mapping_contract_hash,
         candidate_sha256=full.source.candidate_sha256, full_map_sha256=full.source.sha256,
         action_dataset_hashes=dict(full.source.action_dataset_hashes),
@@ -142,10 +148,12 @@ def prepare_actions(full_path, data_root, data_dir, cache_root):
                                 raise ValueError(f"duplicate action frame across splits: {key}")
                             seen.add(key)
                             record = full.records.get(key)
-                            action, contexts = project_frame(record, candidates.get(key, {}))
+                            evidence, contexts = candidate_frame(record, candidates.get(key, {}))
+                            action = select_primary(evidence)
                             status = record["status"] if record else "unconfirmed"
                             result = dict(
                                 schema=ACTION_INPUT_VERSION, source_kind="phase3_oracle", source_id=source_id,
+                                action_format=ACTION_FORMAT, candidate_actions=evidence["actions"],
                                 scenario=key[0], run_id=key[1], anchor=key[2], **action,
                                 event_status=status,
                                 event_buckets=list(record["eligible_buckets"]) if record else [],
@@ -175,6 +183,22 @@ def ensure_action_inputs(args):
         return
     if getattr(args, "resume", ""):
         raise ValueError("resume must restore its saved high-level action index; do not regenerate labels")
+    ensure_full_mapping(args)
+    args.high_level_action_index = str(prepare_actions(args.event_balance_index, args.data_root,
+                                                      args.data_dir, Path("checkpoints/action_prior_prepared")))
+
+
+def ensure_scene_inputs(args):
+    """planning-only 也自动准备 RE 来源；恢复或评测绝不重建原标签。"""
+    if not args.event_balanced_scene_priors or args.event_balance_index:
+        return
+    if getattr(args, "resume", ""):
+        raise ValueError("resume must restore its saved special RE mapping; do not regenerate labels")
+    ensure_full_mapping(args)
+
+
+def ensure_full_mapping(args):
+    """动作与场景共享完整映射准备器和数据锁，不因单开 planning 而生成动作索引。"""
     data_dir = Path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     with (data_dir / ".build.lock").open("a") as lock:
@@ -188,5 +212,3 @@ def ensure_action_inputs(args):
     if not args.event_balance_index:
         args.event_balance_index = str(prepare(args.data_root, args.data_dir,
                                               "keyframe_filter/collection_output", cache_root))
-    args.high_level_action_index = str(prepare_actions(args.event_balance_index, args.data_root,
-                                                      args.data_dir, cache_root))

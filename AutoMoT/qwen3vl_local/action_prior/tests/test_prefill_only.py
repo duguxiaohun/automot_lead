@@ -82,7 +82,7 @@ def test_default_encodes_only_images_and_prior_prompt_and_isolates_cache(tmp_pat
     assert user[:4] == images
     assert "4 m/s" in user[-1]
     assert runtime.last_audit["high_level_planning"] is high_level
-    assert ("sustain a speed increase" in user[-1]) is high_level
+    assert ("increase speed sustainably" in user[-1]) is high_level
     assert (prompts.EVENT_DESCRIPTIONS["UE3"] in user[-1]) is (not high_level)
     for forbidden_text in ("YES", "NO", "UE3", "UE5", "hidden audit", "999", "Write the concise", "Predict the driving actions"):
         assert forbidden_text not in user[-1]

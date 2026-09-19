@@ -120,14 +120,14 @@ def test_event_balanced_env_forwards_the_full_event_mapping_source(stub):
     assert value_of(tokens, "--event-balance-index") == source
 
 
-def test_uniform_scene_priors_env_also_forwards_the_full_event_mapping_source(stub):
+def test_uniform_planning_auto_forwards_the_full_event_mapping_source(stub):
     source = "/tmp/action_prior/full_event_mapping.jsonl"
     tokens = flags(run(
         "train.sh", [], stub,
-        DATASET_PRIORS="1", EVENT_BALANCED_SCENE_PRIORS="1", EVENT_BALANCE_INDEX=source,
+        DATASET_PRIORS="1", HIGH_LEVEL_PLANNING="1", EVENT_BALANCE_INDEX=source,
     ))
     assert "--sampling-mode" not in tokens  # uniform 是 parser 默认值
-    assert "--event-balanced-scene-priors" in tokens
+    assert "--event-balanced-scene-priors" not in tokens
     assert value_of(tokens, "--event-balance-index") == source
 
 
@@ -338,12 +338,19 @@ def test_bench2drive_resume_reuses_the_pinned_adapters(tmp_path, monkeypatch):
         "phase1": "auto/new_best", "phase2": "auto/new_best2"}
 
 
-def test_explicit_scene_prior_disable_overrides_env_without_requiring_unused_index(stub):
-    tokens = flags(run("train.sh", ["--no-event-balanced-scene-priors"], stub,
-                       EVENT_BALANCED_SCENE_PRIORS="1"))
-    assert "--event-balanced-scene-priors" not in tokens
-    assert "--event-balance-index" not in tokens
-    assert "--no-event-balanced-scene-priors" in tokens
+@pytest.mark.parametrize("options,overrides", [
+    (["--event-balanced-scene-priors"], {}),
+    (["--no-event-balanced-scene-priors"], {}),
+    ([], {"EVENT_BALANCED_SCENE_PRIORS": "1"}),
+])
+@pytest.mark.parametrize("script", ["train.sh", "run_full_pipeline.sh"])
+def test_retired_scene_switch_fails_before_any_preparation(stub, options, overrides, script):
+    """旧命令给出迁移说明，不能静默把显式关闭解释成自动开启。"""
+    result = subprocess.run(["bash", str(SCRIPTS / script), *options], cwd=ROOT,
+                            env=dict(stub, **overrides), capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "was removed" in result.stderr
+    assert "STUB" not in result.stdout and "PREPARE" not in result.stderr
 
 
 def test_event_preflight_demo_forwards_mode_dataset_and_index(stub):
@@ -361,7 +368,7 @@ def test_event_preflight_demo_forwards_mode_dataset_and_index(stub):
     (["--event-balanced"], {}),
     (["--sampling-mode=event_balanced"], {}),
     ([], {"EVENT_BALANCED": "1"}),
-    (["--event-balanced-scene-priors"], {}),
+    (["--high-level-planning"], {}),
 ])
 def test_pipeline_auto_prepares_before_preflight_and_passes_map_to_eval(stub, tmp_path, args, env_overrides):
     """验证真正 shell 顺序，所有昂贵入口使用桩；无需传 DATA_DIR 或索引路径。"""
@@ -433,11 +440,14 @@ def test_pipeline_balanced_resume_does_not_rebuild_inputs(stub, tmp_path):
     (["--dataset-priors", "--sampling-mode=event_balanced"], {}, True),
     (["--dataset-priors"], {"EVENT_BALANCED": "1"}, True),
     (["--dataset-priors", "--no-event-balanced"], {"EVENT_BALANCED": "1"}, False),
-    (["--dataset-priors", "--event-balanced-scene-priors"], {}, True),
-    (["--dataset-priors", "--no-event-balanced-scene-priors"], {"EVENT_BALANCED_SCENE_PRIORS": "1"}, False),
+    (["--dataset-priors", "--high-level-planning"], {}, True),
+    (["--dataset-priors", "--high-level-planning", "--prior-noise=0.1"], {}, False),
+    (["--dataset-priors", "--high-level-planning", "--prior-noise=0"], {"PRIOR_NOISE": "0.1"}, True),
+    (["--dataset-priors", "--no-high-level-planning"], {"HIGH_LEVEL_PLANNING": "1"}, False),
+    (["--dataset-priors"], {"HIGH_LEVEL_PLANNING": "1"}, True),
     (["--dataset-priors", "--high-level-planning", "--high-level-action-prior"], {}, True),
     (["--dataset-priors", "--high-level-planning"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
-    (["--dataset-priors", "--high-level-planning", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, False),
+    (["--dataset-priors", "--high-level-planning", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
 ])
 def test_pipeline_simple_switch_prepares_inputs_before_preflight_and_propagates_index(stub, tmp_path, options, env_extra, prepared):
     """执行真实 shell，用桩边界验证一条命令的准备/训练/评测顺序。"""

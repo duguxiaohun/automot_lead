@@ -1,46 +1,74 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-17，v11）
+# SFT New Loop Phase3 当前运行入口（2026-09-19，v13）
 
-默认索引 **v11**、split seed **20260916**；prompt 为
-**v11_compact_choice_v10_calibration**：恢复 09/11 v7 的紧凑表达与 choice 措辞，
-但保留 **v10** 的 RGB 映射修复、路线隔离和 **v8_bounded_window** 动作实现（数值阈值不变）。
-这是新的 prompt/index/adapter 合同，不是把 09/11 的数据、标定或权重整体回退。
-历史取舍和理由见 [V11_COMBINATION_20260917.md](V11_COMBINATION_20260917.md)。
-79 个窗口的既有审计只作为标定证据保留；**v11 不要求、也不启动新的逐帧 RGB 审计**。
-旧 run 必须使用原源码与原索引恢复评测；v10 索引与旧 adapter 会被 prompt-contract 校验拒绝，必须重建 v11 并新训。
+默认 **4rgb + choice**，索引 **v13**，split seed **20260916**。
+每次只输出一个主要动作或 `NONE`：纵向域 3 个动作加 NONE，机动域 5 个动作加 NONE。
+有效全 NO 样本进入 NONE；原始纵横组合保留，由两包共用的 `primary_action.py` 投影：
+**STOP > 首次未来跨线 > 纵向动作 > NONE**。STOP 表示原判据已确认的当前等待或 1.5 秒内近停；
+其余组合用横向动作概括配合的速度变化。不是按场景强制选动作，也不是在测试错例上调阈值。
+
+保留 v12 的条件性场景目的、v8 bounded-window 原始标定、异常 route 过滤及物理路线划分。
+`NONE` 不否定事件，不表示缺证据；invalid 前提仍不进入 choice。binary 显式可选，保留原始多标签诊断。
+choice 训练/验证按投影后的主要动作（含 NONE）平衡；单列 NONE precision/recall/support 并参与 best 守卫。
+action_prior 使用相同投影，先经 Phase1/2/RE gate，再选主要动作；NONE 只省略具体动作段，保留 planning。
+
+必须新建 **sft_new_loop_phase3_data_v13** 并重新训练；旧索引、adapter、action 动作索引和缓存合同不能混用。
+不要用 `SKIP_BUILD=1` 复用旧索引。旧 run 用原源码恢复。v13 尚无真实训练/测试成绩；
+历史 choice 成绩只覆盖唯一正动作子集，不能移植到此次加入 NONE/组合投影后的任务。
+已有 test 曾参与开发，沿用划分的成绩不称为全新独立泛化验证。
+设计与串联 demo 见 [V13_PRIMARY_ACTION_20260919.md](V13_PRIMARY_ACTION_20260919.md)。
+
+直接重新训练并自动评测（默认自动选四张空闲 GPU）：
+
+```bash
+bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 相同配置，显式指定卡：
+GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
+其它组合分别新训，默认自动选四张空闲 GPU：
+
+```bash
+# 2RGB + choice
+HISTORY_RGB_MODE=2rgb_endpoints bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 4RGB + binary
+ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+# 2RGB + binary
+HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
+流程复用已有审计记录并执行自动索引一致性检查，无需新一轮人工逐帧观看 RGB。
+仍按 validation 选择 `best_generation`，不硬编码历史 step 6000。
 
 从 `AutoMoT/` 工作目录，先构建并检查新索引（使用已有 PyTorch 环境）：
 
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 python qwen3vl_local/sft_new_loop_phase3/preflight.py \
-  --index checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl
+  --index checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl
 python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
-  --index checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl \
+  --index checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
 `preflight` 的 binary val/test 各要求至少两条同 RS 错事件**物理路线**；不同 Rep/采集时间不增加支持。
-`--sampling-only` 再核验实际生成验证采样；不读取模型权重或初始化 NCCL。choice 加 `--action-output-mode choice`。
+`--sampling-only` 再核验实际生成验证采样；不读取模型权重或初始化 NCCL。默认 choice，检查 binary 时显式加 `--action-output-mode binary`。
 不足时补充独立、盲审的路线证据，不以重复采样或关闭 guard 解决。
 
 预检后新训；已构建且通过合同检查时可显式复用索引：
 
 ```bash
-SKIP_BUILD=1 ACTION_OUTPUT_MODE=binary \
-  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
-SKIP_BUILD=1 ACTION_OUTPUT_MODE=choice \
-  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
-# 端点两图需独立训练：
-SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary \
-  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
-SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=choice \
-  bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 ```
 
 不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 仍只保留有效单动作子集。
 `INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
 新负例增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；不是完整拒绝能力证明。
-本轮暴露的 176 个 test 物理组仍为 train-only。下面按日期保留历史说明，旧索引题数不代表 v11。
+历史已隔离的 176 个 test 物理组仍为 train-only。下面按日期保留历史说明，旧索引题数不代表 v12。
+两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
 
 ## 2026-09-15：启动时报 INVALID quota 不足
 
@@ -80,7 +108,7 @@ python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
 > 2026-09-11：收到20260910四图结果：production 518/765，审计见 [AUDIT_SUMMARY_20260911.md](AUDIT_SUMMARY_20260911.md)。77例逐帧复核后，prompt改为v7 compact，默认新索引为v8；精确隔离、文本缩减及验证见 [EVAL_REVIEW_20260911.md](EVAL_REVIEW_20260911.md)。
 > 本次v8重建test每类46题，完整配对评测请用 `CASES_PER_BIN=0 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh`；默认64会先补齐再去重，不能把呈现预算当独立题数。
 >
-> 2026-09-11 新增并精修 `ACTION_OUTPUT_MODE=choice`：训练和输出改为**事件所属 high-level 的一个完整动作词组**，不是在每个事件重复问完五个 YES/NO，也不输出 A/B/C。纵向事件严格三选一 `DECELERATE / STOP / RESUME`；机动事件严格五选一。每条 case 会稳定地打乱候选词组顺序，target 始终是实际动作词组。旧标签的全 NO、invalid、或多动作同时 YES 不能凭空折成某个动作，choice 会显式排除并在 manifest/metrics 报告数量。choice 的 prompt/hash/adapter 合同独立，必须重新训练，不能拿旧 binary adapter 直接评测。
+> 历史（由顶部 v13 规则覆盖）：2026-09-11 新增并精修 `ACTION_OUTPUT_MODE=choice`：训练和输出改为**事件所属 high-level 的一个完整动作词组**，不是在每个事件重复问完五个 YES/NO，也不输出 A/B/C。纵向事件严格三选一 `DECELERATE / STOP / RESUME`；机动事件严格五选一。每条 case 会稳定地打乱候选词组顺序，target 始终是实际动作词组。旧标签的全 NO、invalid、或多动作同时 YES 不能凭空折成某个动作，choice 会显式排除并在 manifest/metrics 报告数量。choice 的 prompt/hash/adapter 合同独立，必须重新训练，不能拿旧 binary adapter 直接评测。
 
 > 2026-09-10：当前默认数据为 v7，行为预测 prompt 与旧 adapter 不兼容；修复、重建及训练状态见 [REPAIR_20260910.md](REPAIR_20260910.md)。旧成绩不表示新模型验证。
 
@@ -122,27 +150,27 @@ GPU_IDS=0,1,2,3 DDP_TIMEOUT_SECONDS=3600 GENERATION_EVAL_LOG_EVERY=10 \
 `sft_new_loop_phase3` 是 Phase1（RS + 三个可见事实）和 Phase2（EVENT）之后的
 **high-level 动作决策**阶段。它把前两阶段已经确定的道路结构与异常事件标志当作
 待核对前提写进 prompt；R-E2/R-E3/R-E5 可由显式导航/历史 gate 或
-`dispatch.plan_candidate_requests` 提出候选，再用同一轮 invalid + 动作问答核对。
+`dispatch.plan_candidate_requests` 提出候选，binary 可在同轮核对 invalid；choice 的前提有效性由上游门控承担，NONE 不能充当 invalid。
 
 - 输入只有一个 system turn 和一个 user turn；
 - user turn = 四帧（或两端点）拼接 RGB history + 场景前提文本 + route 目标点的
   ego 相对坐标；
 - 不渲染任何 `R1/R4/U-E2/UE3` 之类的数据集 code，也没有 synthetic assistant 前缀；
-- 每个问题组最后都回答 `INVALID_ACTION_CONTEXT`。
+- binary 问题组最后回答 `INVALID_ACTION_CONTEXT`；默认 choice 只输出一个主要动作名称或 NONE。
 
 ### 输出模式：`binary` 与 `choice`
 
-默认 `ACTION_OUTPUT_MODE=binary` 保持原合同：纵向 context 输出三条速度动作加
-`INVALID_ACTION_CONTEXT`，机动 context 输出五条动作加 invalid。`choice` 则由已确认的
+显式 `ACTION_OUTPUT_MODE=binary` 保持原合同：纵向 context 输出三条速度动作加
+`INVALID_ACTION_CONTEXT`，机动 context 输出五条动作加 invalid。默认 `choice` 则由已确认的
 事件 context 决定候选集合，模型只输出一行完整动作词组，例如 `STOP`。候选词组按 case
 seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，答案词组本身不变：
 
 | 事件域 | 动作候选 | 额外候选 | 输出例子 |
 | --- | --- | --- | --- |
-| 纵向让行（U-E1/U-E3/U-E5/U-E6/U-E7/R-E5） | `DECELERATE`、`STOP`、`RESUME` | 无 | `STOP` |
-| 机动（U-E2/U-E4/R-E2/R-E3） | 五个 high-level 动作 | 无 | `LANE_CHANGE_LEFT` |
+| 纵向让行（U-E1/U-E3/U-E5/U-E6/U-E7/R-E5） | `DECELERATE`、`STOP`、`RESUME` | `NONE` | `STOP` |
+| 机动（U-E2/U-E4/R-E2/R-E3） | 五个 high-level 动作 | `NONE` | `LANE_CHANGE_LEFT` |
 
-候选按 `动作名称: 简要英文释义` 显示，名称和释义一起乱序，仅展示当前事件所属的三/五项：
+候选按 `动作名称: 简要英文释义` 显示，名称和释义一起乱序，展示当前事件所属的三/五个动作加 NONE：
 
 | 动作名称 | 释义要点 |
 | --- | --- |
@@ -151,6 +179,7 @@ seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，
 | `RESUME` | 持续增速，不要求此前停过车 |
 | `LANE_CHANGE_LEFT` | 最新帧之后第一次跨越车道边界，方向为自车朝向的左侧 |
 | `LANE_CHANGE_RIGHT` | 最新帧之后第一次跨越车道边界，方向为自车朝向的右侧 |
+| `NONE` | 当前窗口没有候选动作达到判据，场景前提仍可成立 |
 
 时间窗和数值阈值仍由候选上方的统一规则限定。模型只输出冒号前的动作名称，例如
 `LANE_CHANGE_LEFT`，不能附带释义。释义进入 choice prompt hash；新训练使用此合同，
@@ -162,17 +191,17 @@ seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，
 - RESUME: Sustain a speed increase; a previous stop is not required.
 - STOP: Reach or remain at a sustained near-stop, including continued waiting.
 - DECELERATE: Reduce speed meaningfully without meeting the STOP condition.
+- NONE: No listed action qualifies in the prediction windows; retain the scene context.
 ```
 
 若答案是继续停车等待，模型只输出 `STOP`。变道问题忽略输入历史中已经发生的跨线，
 并只预测未来窗口的第一次跨线，之后的归位不另选一次。
 
-全 NO、`INVALID_ACTION_CONTEXT=YES` 与多个动作同时 YES 的旧行不进入 choice：它们没有一个
-可以从标定真值推导出的唯一动作。过滤统计会写入 choice 的训练 manifest、eval metrics 与 case
-审计；binary 保持覆盖这些行。choice parser 严格接受**恰好一行、且完全等于该 case 候选之一**的
-动作词组，用单选 exact、per-action precision/recall 与 RGB 错例审计评测；训练日志中的
-`choice_action_exact` 是完整动作词组的单选正确率。`production_ready` 同时要求严格格式、整体
-单选准确率及五种动作各自的有效支持、precision/recall，不会因仅输出合法前缀而通过。
+有效全 NO 行进入 `NONE`，纵横组合按 STOP > 首次跨线 > 纵向动作投影；仅 invalid 前提被剔除。
+原始 `answers` / `action_signature` 留在索引供 binary 与证据审计，`primary_action` 记录主要动作。
+choice 的 case `gt` 为主要动作监督，`action_answers` 为原始证据；不能混用两种 exact 指标。
+parser 严格接受恰好一行候选名称（包含 NONE），不允许解释或复合字符串。
+`production_ready` 要求严格格式、整体 exact，以及五种动作与 NONE 各自的支持、precision/recall。
 
 choice 没有独立 audit 输出格式，因而 `eval.sh` 默认将 `RUN_AUDIT_PROMPT_EVAL=auto` 解析为
 `0`，避免和 production 做一遍相同生成；仍会生成 production 错例 RGB 审计包和可视化审计。
@@ -353,10 +382,9 @@ python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 `LANE_CHANGE_*` / `NONE` / 组合）尽量均分，保证五个动作都有足够正类。
 train 用 route 轮转选帧，val/test 用确定性抽样。
 
-这段构建口径是 binary 的完整监督集。`choice` 不改索引，但训练/评测会在读取后只保留
-“当前 context 所属动作中恰有一个 YES 且 invalid=NO”的行，再在每个 context 内按该唯一动作
-平衡；全 NO、invalid 和组合动作行会以 `excluded/*` 原因写入 manifest/metrics。choice 因此不能
-宣称覆盖 binary 的 invalid、no-action 或组合动作能力。
+这段构建口径保留原始多标签证据。choice 读取后剔除 invalid，把其余行投影为主要动作或 NONE，
+在每个 context 内按主要动作平衡。`choice_filter` 报告有效动作（包含 NONE）及 invalid 剔除量；
+组合行参与主要动作任务，指标不再表示纵横两个分量都预测正确。
 
 快速 smoke（每个 scenario 只取 40 条 route）：
 

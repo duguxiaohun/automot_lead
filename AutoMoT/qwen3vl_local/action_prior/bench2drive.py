@@ -135,7 +135,7 @@ def validate_checkpoint(cli, pinned=None):
     if bool(state["args"].get("event_balanced_scene_priors", False)):
         raise ValueError(
             "Bench2Drive has no audited Phase3 transition context or memory; checkpoint was trained "
-            "with --event-balanced-scene-priors and is offline-only."
+            "with audited special RE scene priors and is offline-only."
         )
     args.selection_manifest = ""
     args.selection_output = ""

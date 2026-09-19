@@ -57,7 +57,7 @@ def test_preflight_rejects_missing_independent_support_but_choice_exempts_it(tmp
 
 def test_missing_support_fails_before_model_check_and_nccl(monkeypatch,tmp_path):
     path = write_index(tmp_path,index_rows(0))
-    monkeypatch.setattr(sys,'argv',['train.py','--index',str(path)])
+    monkeypatch.setattr(sys,'argv',['train.py','--index',str(path),'--action-output-mode','binary'])
     monkeypatch.setattr(preflight,'check_model',lambda *a: pytest.fail('model touched'))
     monkeypatch.setattr(train,'setup_distributed',lambda *a: pytest.fail('NCCL touched'))
     with pytest.raises(ValueError,match='independent physical routes'):
@@ -118,7 +118,7 @@ def test_default_eval_is_full_coverage(monkeypatch):
     monkeypatch.setattr(sys,'argv',['eval.py'])
     args=evaluation.parse_args()
     assert args.cases_per_bin==0
-    assert 'data_v11' in args.index
+    assert 'data_v13' in args.index
     rows=candidate_rows()
     selected=evaluation._balanced_cases(rows,cases_per_bin=args.cases_per_bin,seed=3)
     assert len(selected)==len(rows)

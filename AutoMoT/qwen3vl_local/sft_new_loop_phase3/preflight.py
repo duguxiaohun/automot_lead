@@ -10,17 +10,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.sft_new_loop_phase3.build_dataset import physical_route_group, development_route_groups
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import validate_action_rule
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS
+from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS, CONTEXT_BY_ID
+from qwen3vl_local.sft_new_loop_phase3.primary_action import PRIMARY_ACTION_VERSION, primary_action
 from qwen3vl_local.sft_new_loop_phase3.quality_guards import MIN_SAME_RS_PHYSICAL_ROUTES
-from qwen3vl_local.sft_new_loop_phase3.prompts import PROMPT_NAME, action_prompt_sha256
+from qwen3vl_local.sft_new_loop_phase3.prompts import DEFAULT_ACTION_OUTPUT_MODE, PROMPT_NAME, action_prompt_sha256
 
 
 def check_index(path, action_output_mode="binary"):
     """全索引检查；不加载 Qwen 或读取未来状态作为模型条件。"""
     path = Path(path)
     manifest_path = path.with_name("manifest.json")
+    primary_contract = False
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        primary_contract = manifest.get("primary_action_version") == PRIMARY_ACTION_VERSION
         prompt_contract = manifest.get("prompt_contract")
         if not isinstance(prompt_contract, dict):
             raise ValueError(
@@ -52,6 +55,11 @@ def check_index(path, action_output_mode="binary"):
         row = json.loads(line)
         validate_action_rule(row)
         validate_mapping_contract(row)
+        if primary_contract or "primary_action_version" in row:
+            expected = None if row["invalid_action_context"] else primary_action(
+                row["answers"], CONTEXT_BY_ID[row["context_id"]].action_keys)
+            if row.get("primary_action_version") != PRIMARY_ACTION_VERSION or row.get("primary_action") != expected:
+                raise ValueError("primary action label/version mismatch; rebuild index")
         speed = row.get("current_speed_mps")
         if speed is None or not math.isfinite(speed) or speed < 0:
             raise ValueError("current_speed_mps must be measured, finite and nonnegative")
@@ -109,7 +117,7 @@ def main():
     parser.add_argument("--index", type=Path)
     parser.add_argument("--model-dir", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--action-output-mode", choices=("binary", "choice"), default="binary")
+    parser.add_argument("--action-output-mode", choices=("binary", "choice"), default=DEFAULT_ACTION_OUTPUT_MODE)
     args = parser.parse_args()
     report = {}
     try:

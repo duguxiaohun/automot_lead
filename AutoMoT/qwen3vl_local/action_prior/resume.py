@@ -48,7 +48,7 @@ def main():
         cfg["phase2_adapter"] = local_paths["phase2"]
     args = []
     for k, v in cfg.items():
-        if k not in DEFAULTS or k in ("resume", "output_dir", "selection_output", "selection_manifest", "lora_bundle"):
+        if k not in DEFAULTS or k in ("resume", "output_dir", "selection_output", "selection_manifest", "lora_bundle", "event_balanced_scene_priors"):
             continue
         key = k.replace("_", "-")
         if isinstance(v, list):

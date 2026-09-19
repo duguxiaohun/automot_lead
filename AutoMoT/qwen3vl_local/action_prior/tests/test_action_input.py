@@ -9,14 +9,14 @@ from PIL import Image
 
 from qwen3vl_local.action_prior import prompts
 from qwen3vl_local.action_prior.action_input import (
-    ACTION_INPUT_VERSION, ACTION_TEXT, HighLevelActionIndex, action_sentence, normalize_action,
+    ACTION_INPUT_VERSION, ACTION_FORMAT, ACTION_TEXT, HighLevelActionIndex, action_sentence, normalize_action,
 )
 from qwen3vl_local.action_prior.config import parser, validate_args
 
 
 def record(anchor=2, **changes):
     """构造明确声明为外部提供的合成动作，不冒充真实 Phase3 预测。"""
-    value = dict(schema=ACTION_INPUT_VERSION, scenario="S", run_id="R", anchor=anchor,
+    value = dict(schema=ACTION_INPUT_VERSION, action_format=ACTION_FORMAT, scenario="S", run_id="R", anchor=anchor,
                  source_kind="provided", source_id="synthetic-test", status="selected", actions=["STOP"],
                  event_status="special_eligible", event_buckets=["UE1"], planning_contexts=["UE1"])
     value.update(changes)
@@ -39,7 +39,7 @@ def test_exact_identity_missing_no_action_and_coverage(tmp_path):
     assert index.get(("S", "R", 5))["status"] == "unavailable"
     coverage = index.coverage({"train": [dict(scenario="S", run_id="R", anchor=i) for i in (2, 3, 4, 5)]})
     assert coverage["train"] == dict(total=4, matched=3, missing=1, selected=1, no_action=1, unavailable=2)
-    assert action_sentence(index.get(("S", "R", 3))) != action_sentence(index.get(("S", "R", 5)))
+    assert action_sentence(index.get(("S", "R", 3))) == action_sentence(index.get(("S", "R", 5))) == ""
 
 
 @pytest.mark.parametrize("value", [
@@ -60,6 +60,7 @@ def test_invalid_or_conflicting_action_is_rejected(value):
 @pytest.mark.parametrize("rows", [
     [], [record(), record()], [record(source_kind="oracle")], [record(anchor=True)],
     [record(), record(3, source_id="another-model")], [record(source_id="")],
+    [record(action_format="choice")], [record(action_format=None)],
 ])
 def test_bad_index_is_rejected_before_model_loading(tmp_path, rows):
     """拒绝空文件、重复身份、来源混合和未实现的真值通道。"""
@@ -109,7 +110,9 @@ def test_action_changes_cache_and_final_kv_and_missing_does_not_reuse_previous(t
         prepare_inputs=lambda *a: {"input_ids": torch.zeros((1, 4), dtype=torch.long)},
         prefill=lambda *a: SimpleNamespace(past_key_values="kv", rope_deltas=torch.tensor([[0]])),
     )
-    labels = SimpleNamespace(path="synthetic", rows=1, priors=lambda identity: dict(conditions={}, invalid={}, calls=[]))
+    labels = SimpleNamespace(path="synthetic", rows=1, priors=lambda identity: dict(
+        conditions={"ROAD_STRUCTURE": "R1", "UE1": "YES", "ROAD_CORRIDOR/INVALID_EVENT_CONTEXT": "NO"},
+        invalid={}, calls=[]))
     cache = TextCache(tmp_path / "cache")
     runtime = PriorEngine(engine, {"identity": "same"}, labels=labels, text_cache=cache,
                           high_level_planning=True, high_level_action_prior=True, generate_analysis=generate)
@@ -117,7 +120,8 @@ def test_action_changes_cache_and_final_kv_and_missing_does_not_reuse_previous(t
     images = [Image.new("RGB", (2, 2)) for _ in range(4)]
     for action in (dict(status="selected", actions=["STOP"]), dict(status="selected", actions=["RESUME"]), None):
         for hit in (False, True):
-            runtime.condition(images, "nav", "same-frame", ("S", "R", 2), high_level_action=action)
+            runtime.condition(images, "nav", "same-frame", ("S", "R", 2), high_level_action=action,
+                              high_level_action_contexts=("UE1",))
             assert runtime.last_audit["text_cache_hit"] is hit
             assert runtime.last_audit["high_level_action"] == normalize_action(action)
             assert action_sentence(action) in seen[-1][1]["content"]

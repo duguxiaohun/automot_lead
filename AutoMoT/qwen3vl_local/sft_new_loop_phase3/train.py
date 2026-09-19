@@ -78,8 +78,10 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     require_same_rs_support,
     unique_cases,
 )
+from qwen3vl_local.sft_new_loop_phase3.primary_action import count_none_prediction
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
+    DEFAULT_ACTION_OUTPUT_MODE,
     INVALID_KEY,
     PROMPT_NAME,
     VARIANT_ORDER,
@@ -372,7 +374,7 @@ def _make_item(row: FrameRow, *, seed: int, action_output_mode: str = "binary") 
 
 
 def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, int]:
-    """统计严格三选一/五选一可用的唯一正动作标签和显式剔除原因。"""
+    """统计主要动作/NONE、原始组合投影和 invalid 剔除。"""
 
     counts: Counter = Counter()
     for row in rows:
@@ -386,6 +388,8 @@ def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, i
         counts["eligible/total"] += 1
         counts[f"eligible/context/{row.context_id}"] += 1
         counts[f"eligible/action/{action}"] += 1
+        if sum(bool(row.answers.get(key)) for key in CONTEXT_BY_ID[row.context_id].action_keys) > 1:
+            counts["projected/compound"] += 1
     return dict(sorted(counts.items()))
 
 
@@ -416,7 +420,7 @@ def _balanced_work(
         missing = [key for key in CONTEXT_IDS if class_counts.get(key, 0) <= 0]
         if missing:
             raise ValueError(
-                "choice training requires one-positive-action examples for every context; "
+                "choice training requires valid primary-action/NONE examples for every context; "
                 f"missing={missing} eligible={dict(sorted(class_counts.items()))} rejected={dict(sorted(rejected.items()))}"
             )
         effective_target = int(target_per_bin) or min(int(class_counts[key]) for key in CONTEXT_IDS)
@@ -1001,11 +1005,15 @@ def evaluate_generation_probe(
         if balance_class != "INVALID":
             slice_counts["valid/total"] += 1
             slice_counts["valid/exact"] += int(all_ok)
-            if row.action_signature == "NONE":
+            if not any(gt.get(key, False) for key in ACTION_KEYS):
                 slice_counts["no_action/total"] += 1
                 slice_counts["no_action/exact"] += int(all_ok)
         elif row.invalid_reason == "same_rs_wrong_event":
             same_rs_routes.add(physical_group_for_item(row))
+        if spec.action_output_mode == "choice":
+            count_none_prediction(action_counts,
+                gt_none=not any(gt.get(key, False) for key in ACTION_KEYS),
+                predicted_none=is_valid and not any(parsed.get(key, False) for key in ACTION_KEYS))
         for key in ACTION_KEYS:
             if key not in spec.output_keys:
                 continue
@@ -1084,7 +1092,7 @@ def evaluate_generation_probe(
         count = float(slice_counts.get(f"{key}/total", 0))
         metrics[f"slice/{key}_samples"] = count
         metrics[f"slice/{key}_exact"] = float(slice_counts.get(f"{key}/exact", 0)) / max(1.0, count)
-    for key in ACTION_KEYS:
+    for key in (*ACTION_KEYS, "NONE"):
         gt_yes = float(action_counts.get(f"{key}/gt_yes", 0))
         pred_yes = float(action_counts.get(f"{key}/pred_yes", 0))
         metrics[f"action/{key.lower()}_gt_yes"] = gt_yes
@@ -1093,7 +1101,7 @@ def evaluate_generation_probe(
         metrics[f"action/{key.lower()}_precision"] = float(
             action_counts.get(f"{key}/precision_hit", 0)
         ) / max(1.0, pred_yes)
-    for key in ACTION_KEYS:
+    for key in (*ACTION_KEYS, "NONE"):
         prefix = f"action/{key.lower()}"
         precision, recall = metrics[prefix + "_precision"], metrics[prefix + "_recall"]
         metrics[prefix + "_f1"] = 2 * precision * recall / max(1e-12, precision + recall)
@@ -1585,7 +1593,7 @@ def train(args: argparse.Namespace) -> None:
         work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         if rank == 0:
             epoch_invalid_report = (
-                {"not_applicable": "choice excludes invalid/all-NO/multi-action rows"}
+                {"not_applicable": "choice excludes invalid; includes NONE and projected compound actions"}
                 if args.action_output_mode == "choice" else invalid_subgroup_report(full_work)
             )
             epoch_balance_dir = output_dir / "balance"
@@ -1963,7 +1971,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v11/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
@@ -1972,8 +1980,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--split", default="train")
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
     p.add_argument(
-        "--action-output-mode", choices=("binary", "choice"), default="binary",
-        help="binary: per-action YES/NO lines; choice: one event-domain high-level action phrase",
+        "--action-output-mode", choices=("binary", "choice"), default=DEFAULT_ACTION_OUTPUT_MODE,
+        help="binary: per-action YES/NO lines; choice: one primary event-domain action or NONE",
     )
     p.add_argument("--device", default="auto")
     p.add_argument("--ddp-timeout-seconds", type=int, default=3600,

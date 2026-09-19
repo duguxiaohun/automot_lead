@@ -385,15 +385,15 @@ def test_target_and_strict_parser_round_trip() -> None:
     assert parsed == spec_answers(spec)
 
 
-def test_choice_longitudinal_contract_is_exactly_three_actions() -> None:
-    """纵向事件严格只列 context 所属的三个 high-level 动作。"""
+def test_choice_longitudinal_contract_has_three_actions_and_none() -> None:
+    """纵向事件三个动作与 NONE，共四个互斥选项。"""
 
     stop_spec = make_prompt_spec(
         variant="all_random_order", answers={**_no_answers(), "STOP": True}, seed_key="choice-stop",
         context_id="LEAD_BRAKE", road_structure="R1", goal_xy=(42.0, -3.0), action_output_mode="choice",
     )
-    assert len(choice_options(stop_spec)) == 3
-    assert set(choice_options(stop_spec)) == {"DECELERATE", "STOP", "RESUME"}
+    assert len(choice_options(stop_spec)) == 4
+    assert set(choice_options(stop_spec)) == {"DECELERATE", "STOP", "RESUME", "NONE"}
     target = build_action_target(stop_spec)
     assert target == "STOP"
     assert parse_action_output(target, spec=stop_spec) == spec_answers(stop_spec)
@@ -408,16 +408,16 @@ def test_choice_longitudinal_contract_is_exactly_three_actions() -> None:
         variant="all_random_order", answers={**_no_answers(), INVALID_KEY: True}, seed_key="choice-invalid",
         context_id="DYNAMIC_CUTIN", road_structure="R1", action_output_mode="choice",
     )
-    assert choice_rejection_reason(none_spec) == "no_high_level_action"
+    assert choice_rejection_reason(none_spec) is None
     assert choice_rejection_reason(invalid_spec) == "invalid_context"
-    with pytest.raises(ValueError, match="exactly one positive"):
-        build_action_target(none_spec)
-    with pytest.raises(ValueError, match="exactly one positive"):
+    assert build_action_target(none_spec) == "NONE"
+    assert parse_action_output("NONE", spec=none_spec) == spec_answers(none_spec)
+    with pytest.raises(ValueError, match="valid context"):
         build_action_target(invalid_spec)
 
 
-def test_choice_maneuver_is_exactly_five_actions_and_rejects_combinations() -> None:
-    """机动事件只给五个 high-level 动作，组合标签必须显式剔除。"""
+def test_choice_maneuver_includes_none_and_projects_combinations() -> None:
+    """机动域五动作加 NONE，组合按统一规则变为主要动作。"""
 
     spec = make_prompt_spec(
         variant="all_random_order",
@@ -425,16 +425,16 @@ def test_choice_maneuver_is_exactly_five_actions_and_rejects_combinations() -> N
         seed_key="choice-maneuver", context_id="STATIC_BLOCKAGE", road_structure="R1",
         action_output_mode="choice",
     )
-    assert len(choice_options(spec)) == 5
-    assert choice_rejection_reason(spec) == "multiple_high_level_actions"
-    with pytest.raises(ValueError, match="exactly one positive"):
-        build_action_target(spec)
+    assert len(choice_options(spec)) == 6
+    assert choice_rejection_reason(spec) is None
+    assert build_action_target(spec) == "LANE_CHANGE_LEFT"
+    assert parse_action_output("LANE_CHANGE_LEFT", spec=spec) == spec_answers(spec)
 
     left_only = make_prompt_spec(
         variant="all_random_order", answers={**_no_answers(), "LANE_CHANGE_LEFT": True},
         seed_key="choice-left", context_id="STATIC_BLOCKAGE", road_structure="R1", action_output_mode="choice",
     )
-    assert set(choice_options(left_only)) == set(ACTION_KEYS)
+    assert set(choice_options(left_only)) == {*ACTION_KEYS, "NONE"}
     assert build_action_target(left_only) == "LANE_CHANGE_LEFT"
     assert parse_action_output("LANE_CHANGE_LEFT", spec=left_only) == spec_answers(left_only)
     assert all(value is None for value in parse_action_output("D", spec=left_only).values())
@@ -469,7 +469,7 @@ def test_choice_phrase_span_and_quality_guard_cover_full_action_name() -> None:
     assert train_module._line_value_span("LANE_CHANGE_LEFT", "ACTION_CHOICE") == (0, 16)
     broken = {"format_valid_rate": 1.0, "exact_accuracy": 0.0}
     healthy = {"format_valid_rate": 1.0, "exact_accuracy": 0.8}
-    for action in ACTION_KEYS:
+    for action in (*ACTION_KEYS, "NONE"):
         prefix = f"action/{action.lower()}"
         broken.update({f"{prefix}_gt_yes": 1, f"{prefix}_precision": 1, f"{prefix}_recall": 1})
         healthy.update({f"{prefix}_gt_yes": 1, f"{prefix}_precision": 0.8, f"{prefix}_recall": 0.8})
@@ -495,7 +495,7 @@ def test_choice_descriptions_follow_options_without_entering_answers(context_id)
         assert option_lines == [
             f"- {key}: {CHOICE_ACTION_DESCRIPTIONS[key]}" for key in choice_options(spec)
         ]
-        assert len(option_lines) == len(context.action_keys)
+        assert len(option_lines) == len(context.action_keys) + 1
         assert build_action_target(spec) == action
         assert parse_action_output(action, spec=spec) == spec_answers(spec)
         described = f"{action}: {CHOICE_ACTION_DESCRIPTIONS[action]}"
@@ -514,8 +514,8 @@ def test_choice_description_changes_invalidate_only_choice_fingerprint(monkeypat
     assert action_prompt_sha256(action_output_mode="choice") != choice_before
 
 
-def test_choice_sampling_excludes_non_single_labels_without_inventing_actions() -> None:
-    """choice worklist 只保留每个 context 恰好一个正 high-level 动作的行。"""
+def test_choice_sampling_includes_none_and_projected_combinations() -> None:
+    """choice worklist 保留有效无动作和纵横组合；不训练 invalid。"""
 
     from qwen3vl_local.sft_new_loop_phase3 import train as train_module
     rows = []
@@ -529,14 +529,15 @@ def test_choice_sampling_excludes_non_single_labels_without_inventing_actions() 
             goal_ego_xy=(10.0, 0.0), context_detail="", current_speed_mps=4.0,
             answers=answers, action_signature=context.action_keys[0],
         ))
-    # 这三类不能可靠映射为三选一/五选一的某一个 token。
+    # 有效 NONE 和纵横组合保留，无效前提仍排除。
     invalid = rows[0]
     rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "invalid", "answers": {**_no_answers(), INVALID_KEY: True}}))
     rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "none", "answers": _no_answers()}))
-    rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "multi", "answers": {**_no_answers(), "DECELERATE": True, "STOP": True}}))
-    work = train_module._balanced_work(rows, target_per_bin=1, seed=7, action_output_mode="choice")
-    assert len(work) == len(CONTEXT_IDS)
-    assert {item.row.route_id for item in work}.isdisjoint({"invalid", "none", "multi"})
+    rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "multi", "context_id": "STATIC_BLOCKAGE", "answers": {**_no_answers(), "DECELERATE": True, "LANE_CHANGE_LEFT": True}}))
+    work = train_module._balanced_work(rows, target_per_bin=3, seed=7, action_output_mode="choice")
+    assert len(work) == 3 * len(CONTEXT_IDS)
+    assert "invalid" not in {item.row.route_id for item in work}
+    assert {"none", "multi"} <= {item.row.route_id for item in work}
     assert all(choice_rejection_reason(item.spec) is None for item in work)
 
 

@@ -29,7 +29,7 @@
 - RS_HIGHWAY 是独立事实，R3 不能推出高速；缺失标签不当 NO。
 - Phase1 全问加 RS 分层复核；Phase2 使用已训练的双域问法，不伪造 EVENT hierarchical 接口。
 - 复核一致只表示接受条件，摘要模型复核也不保证语义正确；失败可 fallback。
-- `event-balanced-scene-priors` 仅适用于无噪声 dataset 条件，是额外的离线实验。
+- 无噪声 `dataset-priors + high-level-planning` 自动提供已确认特殊 RE 场景；不再提供独立场景开关。LoRA、带噪声或未开启 planning 时不自动补入。
 - RE2 当前可描述导航变道或早先障碍记录；没有可靠证据时不声称“UE2 刚结束且恢复待完成”。
 
 ## 可选 high-level planning
@@ -39,8 +39,22 @@
 语义参考 Phase3 的 `CHOICE_ACTION_DESCRIPTIONS` 与三/五动作域，但不 import Phase3 runtime，
 不增加 adapter/生成，不读取未来动作标签，也不复制其单选格式和标定阈值。未确认事实与绕障历史不自动补齐。
 
+2026-09-19：planning 协议升级为 `phase3_inspired_conditional_high_level_v3_compact_purpose`。
+在 user 的场景描述中按已接受事件/独立 scene context 补充动作目的，借鉴 Phase3 v12，
+仍在本包维护自然文字。UE1 减速/等待用于保持跟车间距；UE2 用于观察相邻车道交通、接近车辆
+（借道时含对向来车）和通过空间，判断绕障空隙；RE3 根据目标车道车辆位置和相对运动判断空隙。
+RE2 导航转换、先前障碍和确认恢复分别描述，不把早先障碍记录写成已经绕过。
+并发事件保留各自目的、同一事件去重；目的不证明存在空隙或已选动作，也不规定先减速后变道。
+`high_level_action_prior` 继续渲染统一动作释义，目的边界只说明一次，不另加重复关联句，不新增动作类别，
+不从动作 scope 反向填充场景。两个开关关闭时的 prompt 和无有效动作时相对 planning-only 的 prompt 保持原行为。
+
 开关独立于 `generate_analysis`，直接 prefill、可选摘要、复核、fallback 都一致使用；高层 fallback 只重复短规划/导航，
 完整事实留在 user prompt。`HIGH_LEVEL_PLANNING_VERSION` 与开关进入条件身份，缓存另显式区分开关，审计记录实际模式。
+场景目的同样保留在 user，可选摘要的生成与复核共用；仅显式开启摘要时，fallback 才受 80 词预算约束。
+`MAX_ANALYSIS_WORDS` 不用于输入提示词校验/截断。默认 prefill 无摘要/复核/fallback，使用没有
+“within 80 words”指令的 `PREFILL_SYSTEM_PROMPT`；输入精简靠模板去重，模型 token/上下文容量另计。
+v3 压缩通用条件性规划与目的约束，保留横向首次跨线、观察空隙及不推导额外动作的语义。
+固定 R1+UE2 场景文本 120→96 个英文空白分词，加 STOP 且排除导航/区块标签为 164→126；非模型 token 数。
 resume 从原配置恢复，eval/probe/闭环从 checkpoint args 恢复；改先验来源也不能放宽 planning 合同。
 旧配置缺字段解释为关闭，严格源码校验不变。开启/关闭、CLI/环境优先级与续训 demo 见 run.md 和两个训练 shell 入口。
 
@@ -51,9 +65,17 @@ resume 从原配置恢复，eval/probe/闭环从 checkpoint args 恢复；改先
 读取当前规则的 `action_labels`，按 Phase3 三/五动作域投影后对齐 action 三 split。
 候选只是特殊帧 eligibility，缺席不能反推普通背景；不使用最终均衡 frame_index 作为全帧动作表。
 
-仅 UE1–7、RE2/3/5 中 `special_eligible` 的帧追加规划域及固定释义的具体动作。
-确认普通背景、过滤特殊帧及未确认帧都记 `not_applicable`，保持原提示词。
-`selected / no_action / unavailable` 区分选中动作、有效全 NO、缺帧/无效预测，不能互换。
+仅 UE1–7、RE2/3/5 中 `special_eligible` 的帧提供动作候选，索引上下文不再注入场景事实。
+`gate_action` 在获得实际上游先验（含噪声/复核）之后运行：UE 要求对应 YES，Phase2 的 UE 还要求
+问题域有效；所有上下文检查 Phase3 允许的道路结构，RE 要求显式的独立 transition 上下文。
+新训练在无噪声 dataset + planning 下自动从独立 full map 提供 RE2/3/5；不由动作文件、RS 或上游全 NO 推导。
+`scene_policy.py` 统一 shell/Python 判断，自动模式只补特殊 RE，UE 始终取实际 Phase1/2 条件。
+内部保存 `event_balanced_scene_priors` 和 `scene_prior_policy=dataset_planning_special_re_v1`，后者绑定合同和缓存。
+resume/eval/probe 保留原条件，不按新默认重新推导；旧 run 仍须原源码。planning-only 自动准备完整映射但不生成动作索引。
+并发事件按已确认域投影动作，未确认的机动域不能贡献横向标签。
+
+只有最终 `selected` 渲染动作段；`no_action / unavailable / not_applicable` 和被门控拒绝的动作
+都保持同一上游条件下的原始 prompt，摘要/复核/fallback 同步。审计保存原始输入、有效动作和门控理由。
 普通背景两份配额不变；动作开关不隐式改变 uniform/event_balanced 采样模式。
 
 这是用户显式开启的离线真值条件实验，来源标记 `phase3_oracle` 和
@@ -62,11 +84,20 @@ resume 从原配置恢复，eval/probe/闭环从 checkpoint args 恢复；改先
 先剔除异常 route；缓存构建有锁和原子发布，损坏的自动产物隔离后重建，续训不重新标注。
 开发路线强制 train-only；来源/状态/覆盖写入训练计划，逐帧动作进入文本缓存 key。
 
-`action_input.py` 负责严格输入校验与精确帧查表；任意上游文本不进入 prompt。
+`action_input.py` 负责严格输入校验、精确帧查表和统一门控；`prompts.rendered_action` 共用固定自然语言渲染。
+输入 schema 为 `scoped_phase3_primary_action_v4`，`action_format=primary_choice_v1`。
+与 Phase3 v13 choice 共用 `primary_action.py`：STOP > 首次跨线 > 纵向动作，空集为 NONE。
+自动索引 `actions` 最多一个；额外 `candidate_actions` 保存原始纵横证据，runtime 先按上游确认域门控，
+再投影为唯一动作（防止被挡下的机动域抢走有效纵向动作）。原始证据、有效域动作和最终动作分别审计。
+`prediction/provided` 只接受单动作或空状态，不能伪造原始 oracle 证据；`choice_action_input` 严格转换
+词组输出，NONE→no_action，非法/缺失→unavailable，绝不凭空补次选动作。
+格式、门控、主要动作版本/源码哈希及 taxonomy 哈希进入条件身份，旧 v3/binary/旧 choice 文件需重建。
+普通 RE 为 not_applicable；有效 UE/特殊 RE 无动作是 no_action；二者均无动作段，原有事实/planning 保留。
 默认 dataset 条件仍零文字生成；摘要/复核/fallback 使用同一动作，背景不出现额外动作段。
 `--high-level-action-index` 仅用于搬迁或高级 prediction/provided 输入，后者也必须提供事件作用域，
 不能给普通背景塞入动作。自动索引搬迁需携带 manifest，内容必须与 checkpoint 相同。
-闭环尚无在线 provider，入口拒绝此模式；后续可复用规范化动作接口，但需补齐在线门控及来源合同。
+闭环尚无在线 provider，入口拒绝此模式；后续 v13 choice provider 可复用规范化动作/作用域接口和同一门控，
+仍须接通在线预测、独立 RE transition gate 与来源合同。统一接口不保证 oracle/预测无分布差异，不能直接换源评测。
 无先验消融不暴露此开关；开启/关闭与恢复 demo 见 run.md。
 
 ## 均衡采样

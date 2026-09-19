@@ -5,6 +5,13 @@
 ## Qwen KV 输入与摘要开关
 
 默认 `generate_analysis=False`：**四张图像＋含自然 RS/EVENT 先验、当前速度与导航的提示词 → frozen base Qwen 一次 prefill → KV 交给轨迹 decoder**。
+
+**输入精简与摘要限长分开处理**：high-level planning/动作目的属于输入文字，默认也会编码进 KV。
+输入没有这里的 80 词上限，不会为凑词数截断场景或导航；仍须满足模型自身的 token/上下文容量。
+文中 96/126 等英文词数仅衡量模板是否简洁，不是硬阈值，也不等于模型 token 数。
+`MAX_ANALYSIS_WORDS=80` 及“within 80 words”仅用于显式 `--generate-analysis` 的摘要模式；
+默认 prefill 使用另一份 system prompt，跳过摘要生成、格式验收、复核和 fallback。
+这里“默认不生成文字”指 base 分析摘要；若使用 LoRA 先验来源，上游 Phase1/2 仍进行问答生成。
 不生成 talk/CoT/摘要，不追加 assistant 回答，也不运行摘要复核或 fallback。LoRA 来源仍执行 Phase1/2 的先验问答；
 `--dataset-priors` 则直接查标签，因此默认每帧没有文字生成，只有一次最终 base KV prefill。
 
@@ -45,7 +52,7 @@ LoRA 来源默认复核，dataset 来源在 shell 入口默认不复核，可显
 
 - 急刹前车、切入、对向侵入、路口冲突、灯故障：减速、停车/继续等待、条件允许后持续增速；增速不要求之前停车。
 - 静态障碍、弱势交通参与者：再考虑相对自车方向的左右首次未来跨线，区分弯道和已完成跨线。
-- 显式 `event-balanced-scene-priors` 的 RE2/RE3 可增加横向语义，RE5 仅纵向；不从 RS 或全 NO 推断这些事件。
+- 自动确认的特殊 RE2/RE3 可增加横向语义，RE5 仅纵向；不从 RS 或全 NO 推断这些事件。
 - 多事件事实全部保留，只写一段规划；没有确认事件时只保留车道/导航与按当前证据调速的通用提示。
 
 例如静态障碍对应的规划文字（前面仍有道路和障碍事实）：
@@ -84,19 +91,38 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume ch
 
 ## 再加入“接下来具体采取什么动作”
 
+2026-09-19 提示词更新：这两个开关现在共用场景目的说明。统一的减速/停车等动作不拆类，
+UE1 对应保持跟车间距；UE2 对应观察相邻车道车辆、接近趋势、借道时的对向来车和通过空间，
+判断绕障空隙；减速/停车本身不意味着随后变道。RE2/RE3 的目的只随独立 scene context 提供，
+不会由动作索引补出。默认关闭时不添加目的；同时开启动作输入时，仍只有门控后 selected 才追加具体动作。
+原有 `--high-level-planning --high-level-action-prior` 命令即可生效，无新参数。
+planning 版本已升级为 `phase3_inspired_conditional_high_level_v3_compact_purpose`，进入条件/缓存身份；
+请用于新 run，旧 checkpoint 仍使用原源码恢复，不能拿原 decoder 临时切换新提示词。
+本次 58 项 CPU 提示词/目的/动作门控回归通过；本地缺 torch，完整 runtime/GPU 测试未运行，尚无性能提升结论。
+v3 合并重复约束并缩短通用规划，具体观察条件与动作门控保持不变；R1+UE2 场景文本
+120→96 个英文空白分词，加 STOP（排除导航及区块标签）164→126。80 词限制仍只针对摘要。
+
 `--high-level-action-prior` / `HIGH_LEVEL_ACTION_PRIOR=1` 默认关闭，需要同时开启
 `--high-level-planning`。**新训练不需要提供 `--high-level-action-index`**：自动复用当前 Phase3
 候选与全帧事件映射，缺少产物时调用 `sft_new_loop_phase3/build_dataset.py` 的原标注逻辑生成，
 再按 `(scenario, run_id, anchor)` 对齐 action 的 train/val/test。使用完整 `candidate_frames.jsonl`，
 不会拿 Phase3 均衡抽样后的 `frame_index.jsonl` 代替全量标签。
 
-只有 `special_eligible` 的 UE1–UE7、RE2/RE3/RE5 追加条件性规划域和具体动作块
-`[UPCOMING_HIGH_LEVEL_ACTION]`。三动作域只保留 DECELERATE / STOP / RESUME，五动作域再允许
-LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT，严格复用 Phase3 的动作标签与域定义，不另设轨迹阈值。
-RE2 沿用原映射门控和导航变道/早先障碍区分，不把所有变道描述成“绕障恢复”。
+只有 `special_eligible` 的 UE1–UE7、RE2/RE3/RE5 可提供动作候选；**动作索引的 `planning_contexts`
+只用于作用域核对，不再补入场景事实或 planning 段落**。`gate_action` 在实际 Phase1/2 条件
+（含噪声和复核结果）上统一门控 oracle/外部动作，再由同一函数渲染固定自然语言释义：
 
-**普通背景保持原先提示词，不追加具体动作块**；`special_filtered` 和 `unconfirmed` 也不补动作。
-它们记录 `not_applicable`；有效特殊帧的全 NO 记录 `no_action`，缺失外部结果记 `unavailable`，不混同。
+- UE 必须对应上游 YES；Phase2 的 UE 还要求所属问题域已确认有效，道路结构须在 Phase3 允许范围内。
+- RE2/RE3/RE5 需要独立的 transition gate。无噪声 `--dataset-priors --high-level-planning` 会自动从 full map 提供这些上下文；
+  动作文件和 Phase1/2 全 NO 都不能替代该证据。LoRA、带噪声及未开启 planning 时不自动补入。
+- 三动作域只允许 DECELERATE / STOP / RESUME；已确认的五动作域才允许左右首次未来跨线。
+  并发事件只确认纵向域时，会剔除候选中的横向动作。
+- 只有门控后仍为 `selected` 才追加 `[UPCOMING_HIGH_LEVEL_ACTION]`。全 NO 的 `no_action`、缺帧/无效的
+  `unavailable`、背景/过滤/未确认的 `not_applicable` 以及被门控挡下的动作，**均不改变原 prompt**，
+  但审计状态保持区分。直接 prefill、摘要、复核及 fallback 共用此规则。
+
+因此第二个开关本身不再改善 Phase1/2 事件覆盖，也不会补回 `PRIOR_NOISE` 删除的事件。
+“保持一样”指固定同一上游和 scene-priors 条件下的图文 prompt；数据划分、来源合同和审计仍按开启模式记录。
 只有开启 `--event-balanced` 时采用十个特殊桶各一份、确认普通背景两份的配额；动作开关本身不改变采样方式。
 Phase3 已参与规则开发的物理路线仍强制放入 train，避免进入 val/test。
 
@@ -105,7 +131,7 @@ Phase3 已参与规则开发的物理路线仍强制放入 train，避免进入 
 默认 dataset-priors 仍只做一次最终图文 prefill，零文字生成。显式开启摘要时，摘要/复核/fallback 使用同一动作。
 
 ```bash
-# 自动准备动作标签，特殊十桶各一份、普通背景两份；不用填写动作索引。
+# 自动准备动作标签并按上游门控；十桶各一份、普通背景两份，不用填写动作索引。
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
 GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
 
@@ -130,24 +156,35 @@ GPU_IDS=0 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoi
 使用锁、校验和、临时目录与原子发布。需要本地原始 LEAD 数据及现有人工标注；不会下载数据或训练 Phase3。
 先剔除异常时长 route，再对齐动作。旧缓存规则/内容不匹配时隔离保留并重建；显式输入不静默替换。
 来源、规则、三 split 内容和文件 SHA256 进入 checkpoint 合同，逐帧动作进入文本缓存 key。
-训练计划记录来源、真值条件属性及各 split 的状态/覆盖统计。
+训练计划记录来源、真值条件属性及各 split 的原始状态/覆盖统计；运行审计分别记录
+`high_level_action_input`（原始）、`high_level_action`（实际注入）、`high_level_action_gate`（原因/接受上下文/剔除动作）。
+原始覆盖不等于实际注入率，训练/评测按同一门控结果统计。
 
 `--high-level-action-index` / `HIGH_LEVEL_ACTION_INDEX` 仅保留为路径搬迁或高级外部输入接口，
 正常开启不需要它。自动索引搬迁须同时携带同目录 `manifest.json`，full map 搬迁另用
 `--event-balance-index`；resume/eval/probe 只接受与 checkpoint 同内容的产物。不能在同一个 decoder
 上临时切换动作开关或替换标注，旧 run 仍需原源码恢复。
 
-高级输入使用 `scoped_phase3_high_level_action_v2`，除精确帧身份、来源、status/actions 外，
-必须明确 `event_status`、`event_buckets` 和 `planning_contexts`，普通背景必须为 `not_applicable`。
-`prediction/provided` 供后续显式接入，来源声明本身不证明模型质量；任意自由文本不注入 prompt。
-当前没有在线 Phase3 provider，Bench2Drive/CARLA 拒绝此模式。后续可复用
-`PriorEngine.condition(..., high_level_action=...)`，仍需接通预测、事件门控和来源合同。
+高级输入使用 `scoped_phase3_primary_action_v4`，必须声明 `action_format="primary_choice_v1"`，并保留精确帧身份、
+来源、status/actions、`event_status`、`event_buckets`、`planning_contexts`；后者仅为作用域元数据。
+`actions` 最多一个。自动 oracle 索引额外保存 `candidate_actions`，门控后按共享规则选主要动作：
+**STOP > 首次跨线 > 纵向动作 > NONE**；不能先压掉纵向证据再门控。
 
-2026-09-18 本地验证：本次 266 项针对性测试全部通过，包含自动准备/复用、候选缺失与动作冲突拒绝、
-异常 route 剔除、背景 prompt 不变、文件搬迁、续训和 CLI/环境变量优先级；23 个修改文件的 Python/shell
-语法与 git diff 格式检查通过。全目录测试为 397 通过、19 失败，失败来自本机缺少 PEFT 或只读
-`leaderboard/team_code/mot_lead_offline_runner.py`；未放宽正式依赖/指纹检查。
-未执行真实数据全量构建、Qwen/BEV 训练或闭环，自动准备流程以小型合成索引验证。
+后续 v13 choice 预测经 `choice_action_input(text)` 转换：动作词组→selected，NONE→no_action，
+非法输出→unavailable，再携带预测时采用的 scope 输入 `PriorEngine.condition`。
+外部 prediction/provided 不接受复合动作或 oracle candidate_actions；旧 binary/旧 choice 索引不能改名混用。
+普通 RE 不调用特殊动作分支（not_applicable）；有效 UE/特殊 RE 的 NONE 保留事件和 planning，仅不追加动作段。
+
+当前仍没有在线 provider，Bench2Drive/CARLA 拒绝此模式。接口语义统一不保证模型准确率，
+也不能用同一 decoder 临时替换来源规避合同。新训练自动生成 v4 动作索引；旧 run 用原源码恢复。
+完整示例与边界见 [Phase3 v13](../sft_new_loop_phase3/V13_PRIMARY_ACTION_20260919.md)。
+
+2026-09-18 门控修订验证：315 项针对性回归通过，覆盖七类 UE 上游确认/拒绝、RS/问题域失效、
+RE 独立 transition gate、组合动作域投影、真实 confusion/invalid 噪声及冷/热缓存的完整 prompt 对比。
+全 NO、不可用、缺帧、背景及被挡下动作在直接 prefill/摘要/复核/fallback 下均不追加文字；
+binary/choice 格式校验、自动准备、合同/续训与 CLI 回归通过，Python/shell 语法和 diff 格式检查通过。
+本机仍缺少 PEFT 和只读 `leaderboard/team_code/mot_lead_offline_runner.py`，此前全目录测试有19项因此失败；
+本次未运行真实模型、全量数据构建或闭环，不将合成回归视为 oracle/预测迁移效果验证。
 
 ## 开始训练
 
@@ -190,7 +227,9 @@ bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-ba
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --prior-noise 0.1
 ```
 
-均衡采样不改变 Qwen 提示词。独立的 `--event-balanced-scene-priors` 是离线场景文字实验，要求 `--dataset-priors` 且噪声为 0；全流程也会自动准备它的映射，但这种模型不能用于闭环。
+均衡采样本身不改变 Qwen 提示词。无噪声 `--dataset-priors --high-level-planning` 自动注入已确认特殊 RE 的场景描述及目的，独立于采样是否均衡；全流程、train.sh 和直接 Python 都自动准备所需映射。这种模型使用离线场景标注，不能用于闭环。
+
+旧 `--event-balanced-scene-priors` / `--no-event-balanced-scene-priors` 和 `EVENT_BALANCED_SCENE_PRIORS` 已移除；旧命令请删除这些参数。内部同名布尔字段仅用于保存合同，不再是用户开关。续训/评估恢复原配置，不自动迁移旧 run；源码指纹变化后旧 checkpoint 仍须原源码。噪声实验不补干净 RE，保持已有噪声含义。
 
 ## 查看 TensorBoard 和输出
 

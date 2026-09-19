@@ -125,7 +125,7 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
                                      "--action-output-mode", mode, "--history-rgb-mode", rgb,
                                      "--output-dir", str(tmp_path / "not_created")])
     args = train.parse_args()
-    assert "data_v11" in args.index
+    assert "data_v13" in args.index
     for key, value in {"WORLD_SIZE": "4", "RANK": "0", "LOCAL_RANK": "0"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
@@ -150,7 +150,7 @@ def test_strict_validation_failure_precedes_distributed_setup(monkeypatch):
     from qwen3vl_local.sft_new_loop_phase3 import preflight
 
     monkeypatch.setattr(sys, "argv", ["train.py", "--focus-balance-count", "32",
-                                     "--no-auto-eval-balance-count"])
+                                     "--no-auto-eval-balance-count", "--action-output-mode", "binary"])
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
     monkeypatch.setattr(preflight, "check_model", lambda path, **kwargs: {})
     monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
@@ -165,7 +165,8 @@ def test_generation_budget_can_increase_independently(monkeypatch):
     from qwen3vl_local.sft_new_loop_phase3 import preflight
 
     monkeypatch.setattr(sys, "argv", ["train.py", "--sampling-only", "--focus-balance-count", "32",
-                                     "--eval-balance-count", "32", "--generation-eval-balance-count", "16"])
+                                     "--eval-balance-count", "32", "--generation-eval-balance-count", "16",
+                                     "--action-output-mode", "binary"])
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
     monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
     args = train.parse_args()

@@ -44,6 +44,9 @@ def audit_counts(audit):
     if audit.get("high_level_action_prior", False):
         status = audit["high_level_action"]["status"]
         c[f"prior/high_level_action/{status}"] += 1
+        source_status = audit["high_level_action_input"]["status"]
+        c[f"prior/high_level_action_input/{source_status}"] += 1
+        c[f"prior/high_level_action_gate/{audit['high_level_action_gate']['reason']}"] += 1
     if rejection != "none":
         c[f"prior/analysis_rejection/{rejection}"] += 1
     for criterion, passed in (audit.get("analysis_review") or {}).items():
@@ -175,10 +178,15 @@ def training_device(local_rank):
 def main():
     """先验证配置和数据，再加载模型；只优化轨迹 decoder。"""
     args = parser().parse_args()
+    from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
+    from qwen3vl_local.action_prior.prepare_action_priors import ensure_scene_inputs
+    resolve_scene_priors(args)
     # 模型加载前自动复用/生成 Phase3 动作标注；rank 间通过准备器 flock 共用产物。
     if args.high_level_action_prior:
         from qwen3vl_local.action_prior.prepare_action_priors import ensure_action_inputs
         ensure_action_inputs(args)
+    ensure_scene_inputs(args)
+    print(f"[scene priors] policy={args.scene_prior_policy} special_re={args.event_balanced_scene_priors}", flush=True)
     validate_args(args)
     for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
         os.environ[name] = "1"

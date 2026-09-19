@@ -10,8 +10,8 @@ def choice_generation_guards(
 ) -> Dict[str, Any]:
     """严格单选合同的上线守卫。
 
-    choice 已明确排除 all-NO、invalid 和多动作标签，所以不复用它们的 binary 守卫。
-    仍要求整串 parser 格式、整体单选准确率，以及五个 high-level 的实际支持、精确率和召回。
+    choice 保留 NONE、投影组合动作，只排除 invalid，所以不复用前提拒绝守卫。
+    仍要求整串 parser 格式、整体单选准确率，以及五个 high-level 和 NONE 的实际支持、精确率和召回。
     """
 
     values: Dict[str, float] = {
@@ -22,7 +22,7 @@ def choice_generation_guards(
         "strict_format_valid_rate": float(min_format_valid_rate),
         "choice_exact_accuracy": float(min_exact_accuracy),
     }
-    for action in ACTION_KEYS:
+    for action in (*ACTION_KEYS, "NONE"):
         prefix = f"action/{action.lower()}"
         values[f"{action}_support"] = float(metrics.get(prefix + "_gt_yes", 0.0))
         values[f"{action}_precision"] = float(metrics.get(prefix + "_precision", 0.0))

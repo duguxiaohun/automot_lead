@@ -35,6 +35,7 @@ from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # 
 from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes as _iter_routes_stream
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _rgb_path  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3 import DATASET_NAME  # noqa: E402
+from qwen3vl_local.sft_new_loop_phase3.primary_action import PRIMARY_ACTION_VERSION, primary_action
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapped_contexts, context_detail, mapping_contract_hash
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import (  # noqa: E402
     ACTION_KEYS,
@@ -570,6 +571,8 @@ def _balanced_rows_by_split(
     with (out_dir / "candidate_frames.jsonl").open("w") as handle:
         for bases in invalid_sources.values():
             for base in bases:
+                base = {**base, "primary_action_version": PRIMARY_ACTION_VERSION,
+                        "primary_action": primary_action(base["action_labels"], CONTEXT_BY_ID[base["context_id"]].action_keys)}
                 handle.write(json.dumps(base, ensure_ascii=False) + "\n")
     (out_dir / "candidate_counts.json").write_text(json.dumps(dict(raw_counts), indent=2) + "\n")
 
@@ -716,6 +719,9 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     try:
         with temporary.open("w", encoding="utf-8") as handle:
             for row in rows:
+                row = {**row, "primary_action_version": PRIMARY_ACTION_VERSION,
+                       "primary_action": None if row["invalid_action_context"] else primary_action(
+                           row["answers"], CONTEXT_BY_ID[row["context_id"]].action_keys)}
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                 split = str(row["split"])
                 counters[f"frames/{split}"] += 1
@@ -738,6 +744,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "candidate_cache": str(getattr(args, "candidate_cache", "") or ""),
         "action_review_status": "automatic_candidates_with_explicit_rgb_exclusions",
         "action_rule_version": ACTION_RULE_VERSION,
+        "primary_action_version": PRIMARY_ACTION_VERSION,
         "mapping_contract_hash": mapping_contract_hash(),
         "prompt_contract": {
             "prompt_name": PROMPT_NAME,
@@ -827,7 +834,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v11"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v13"))
     p.add_argument(
         "--review-root",
         default=str(

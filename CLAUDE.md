@@ -1,12 +1,58 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-19 Action 特殊 RE 自动场景先验（覆盖此前独立开关）
+
+新训练在无噪声 `--dataset-priors --high-level-planning` 下自动从独立 full map 提供已确认
+RE2/3/5 的场景事实和条件性目的，无需 `--event-balanced-scene-priors`；该独立 CLI/环境开关已移除。
+普通 RE 不补成特殊事件，UE 仍来自实际 Phase1/2，动作索引 scope 不补事实。再开动作先验时经同一
+RE gate 注入一个主要动作，NONE 保留 planning。LoRA、带噪声或关闭 planning 时不自动补干净 RE。
+采样开关独立，十特殊桶各一份/普通背景两份不变。planning-only 自动准备完整映射但不生成动作索引。
+内部 `event_balanced_scene_priors` 保存实际启用值，`scene_prior_policy=dataset_planning_special_re_v1`
+绑定合同；resume/eval/probe 保留保存条件，不套用新默认值。旧 run 用原源码恢复，闭环仍拒绝离线
+场景标注条件。详见 action_prior/run.md、DESIGN.md、scene_policy.py。
+
+
+### 2026-09-19 Phase3 / Action 统一主要动作与 NONE（覆盖此前多标签输入要求）
+
+用户已要求 Phase3 只提供一个主要 high-level 动作，并允许有效 UE/特殊 RE 的 NONE。
+新训练默认 v13 四图 choice：纵向三动作+NONE，机动五动作+NONE；有效全 NO 和组合行进入训练，
+仅 invalid 前提剔除。两包共用 `sft_new_loop_phase3/primary_action.py`：STOP（当前等待/近端停车）
+优先，其余首次跨线优先于配合速度变化，再取纵向动作，空集 NONE；原始纵横证据仍保留，binary 显式诊断。
+NONE 支持/P/R 进入 choice 选优守卫。新索引 `sft_new_loop_phase3_data_v13`，旧 run 用原源码。
+Action 使用 `scoped_phase3_primary_action_v4` / `primary_choice_v1`，oracle candidate_actions 保留原始证据，
+先经真实 Phase1/2/RE gate，再归并一个主要动作。NONE/no_action 不删事件/planning，只省略具体动作段；
+普通 RE 为 not_applicable，缺失/非法为 unavailable。外部预测只接受主要动作/NONE，不伪造 oracle 证据。
+旧 schema/来源/缓存合同不混用；默认两个开关及摘要仍关闭，无在线 Phase3 provider。
+详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/V13_PRIMARY_ACTION_20260919.md` 和 action_prior/run.md。
+
+
+### 2026-09-19 Action high-level 场景目的
+
+`action_prior --high-level-planning` 按已接受事件/独立 scene context 加入简短动作目的，
+UE2 观察相邻车道、接近车辆和通过空间；减速/停车不推出随后变道。配合 `--high-level-action-prior`
+仍只注入门控后的统一 selected 动作，索引 scope 不补场景事实，RE gate 与多标签语义不变。
+planning 版本升级为 `phase3_inspired_conditional_high_level_v3_compact_purpose` 并绑定条件/缓存；
+旧 run 用原源码恢复。目的留在 user，摘要/复核共用，fallback 保持短预算。详见 action_prior/DESIGN.md、run.md。
+
+### 2026-09-19 Phase3 v12 默认四帧单选
+
+`sft_new_loop_phase3` 新训练默认 `4rgb + choice`，索引 `sft_new_loop_phase3_data_v12`；两帧/binary 可显式覆盖。
+v11 紧凑 prompt 每题补充一句条件性场景目的：UE2 观察相邻车道、接近车辆和通过空间，
+减速不推出变道；其余 context 同样不把动机当动作证据。标定/映射决定/划分不改，无新增人工 RGB 审计。
+prompt/source hash 变化需重建新索引并新训；LoRA eval 仍从保存合同恢复，binary 显式可选，
+choice 不代替 NONE/invalid/多动作或 action_prior 多标签输入。v12 尚待用户训练验证。
+运行及边界见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/V12_DEFAULT_20260919.md` 与运行手册；覆盖下文历史默认值。
+
 ### 2026-09-17 Action 自动 Phase3 high-level 动作输入
 
 在 high-level planning 基础上，`--high-level-action-prior` / `HIGH_LEVEL_ACTION_PRIOR=1`
 可追加“接下来具体采取什么动作”；默认关闭。新训练无需 `--high-level-action-index`：
 自动复用 Phase3 candidate/full map，缺失时按原构建器生成，投影当前三/五动作域并对齐 action 三 split。
-仅 `special_eligible` 的 UE1–7、RE2/3/5 注入规划域和动作；确认普通背景维持原 prompt 与两份采样权重，
-filtered/unconfirmed 不补动作。动作开关不改变采样模式，十桶各一份/背景两份仍由 event-balanced 控制。
+2026-09-18 门控修订：仅 `special_eligible` 的 UE1–7、RE2/3/5 提供动作候选，索引上下文不补入场景事实。
+动作统一经过实际 Phase1/2 条件（含噪声/复核）门控：UE 要求 YES/域有效，RS 必须兼容；RE 需要独立显式
+scene-priors transition gate。只有最终 selected 进入 prompt，全 NO/不可用/不适用/被挡下动作仅记录审计。
+普通背景维持原 prompt 与两份权重；动作开关不改采样方式。输入 v3 明确 binary 多标签语义，拒绝 choice 冒充等价输入；
+门控版本与 Phase3 taxonomy 哈希绑定合同。原始动作、有效动作及门控理由分开记录；新训练自动生成 v3 索引。
 这是显式授权的离线未来动作真值条件实验，记录 `phase3_oracle` / privileged 属性，不是 Phase3 模型预测；
 不加载 Phase3 adapter。该开关是下文“默认不注入逐帧动作”的例外，单独 planning 不读取动作标签。
 来源、规则、split、文件和开关绑定合同，逐帧动作绑定缓存；resume/eval/probe 恢复原产物，不重新标注。

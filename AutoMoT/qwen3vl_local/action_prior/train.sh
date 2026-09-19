@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# v13 Phase3 对齐：主要动作或 NONE；自动 v4 动作索引，NONE 保留 planning 但不追加具体动作。
 # 推荐自动准备数据并训练：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
@@ -26,11 +27,13 @@
 #   bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --no-high-level-action-prior
 #   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-planning --no-high-level-action-prior
 # resume 自动恢复开关；文件格式与后续 Phase3 接口见 run.md，当前尚无在线动作 provider。
+# 干净的 dataset-priors + high-level-planning 自动提供已确认特殊 RE；无需额外场景开关。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 # 参数用数组传递，路径包含空格时也不会被拆开。
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+scene_priors_requested="$(python "$HERE/scene_policy.py" "$@")"
 source "$HERE/event_balance_common.sh"
 action_event_balance_options "$@"
 set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
@@ -71,7 +74,7 @@ if [[ -n "$resume_checkpoint" ]]; then
   if [[ -v "$name" ]]; then resume_overrides+=("--$option" "${!name}"); fi
  done
  for mapping in DATASET_PRIORS:dataset-priors ANALYSIS_REVIEW:analysis-review \
-  TRAIN_SAMPLED_METRICS:train-sampled-metrics EVENT_BALANCED_SCENE_PRIORS:event-balanced-scene-priors; do
+  TRAIN_SAMPLED_METRICS:train-sampled-metrics; do
   name="${mapping%%:*}"; option="${mapping#*:}"
   if [[ -v "$name" ]]; then
    case "${!name}" in
@@ -118,16 +121,8 @@ if ! has_flag --generate-analysis "$@" && ! has_flag --no-generate-analysis "$@"
   *) echo "GENERATE_ANALYSIS must be 0 or 1" >&2; exit 2 ;;
  esac
 fi
-# EVENT_BALANCED=1 或 --sampling-mode event_balanced：按 action_prior 全帧映射的
-# UE1-7/RE2/RE3/RE5 十桶各一份、确认常规背景两份重建每个 epoch。只影响训练抽样；
-# EVENT_BALANCED_SCENE_PRIORS=1 是另一个 dataset-only 的离线自然文本条件，闭环禁用。
-# 采样课程与离线 scene prior 都读取同一份 full map。uniform + scene-priors
-# 同样必须传索引，不能只因未启用重采样而遗漏 EVENT_BALANCE_INDEX。
-scene_priors_requested=0
-if [[ "${EVENT_BALANCED_SCENE_PRIORS:-0}" == 1 ]] || has_flag --event-balanced-scene-priors "$@"; then
- scene_priors_requested=1
-fi
-if has_flag --no-event-balanced-scene-priors "$@"; then scene_priors_requested=0; fi
+# 均衡采样只改抽样；特殊 RE 场景由共用策略自动决定。
+# planning-only 与动作模式均允许 Python 在预检前自动准备完整映射。
 action_priors_requested="${HIGH_LEVEL_ACTION_PRIOR:-0}"
 for option in "$@"; do
  case "$option" in
@@ -139,14 +134,11 @@ if has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" 
  if ! has_flag --event-balance-index "$@"; then
   if [[ -n "${EVENT_BALANCE_INDEX:-}" ]]; then
    args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
-  elif [[ "$action_priors_requested" != 1 ]]; then
+  elif [[ "$action_priors_requested" != 1 && "$scene_priors_requested" != 1 ]]; then
    echo "set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl" >&2; exit 2
   fi
   # 具体动作开关允许 train.py 在预检前自动准备 full map 和 Phase3 标注。
  fi
-fi
-if [[ "$scene_priors_requested" == 1 ]] && ! has_flag --event-balanced-scene-priors "$@"; then
- args+=(--event-balanced-scene-priors)
 fi
 # 采样默认值统一由 config.DEFAULTS 提供，显式环境变量已由共享 helper 转成 CLI。
 # v5 条件 Flow Matching：10 步 Euler 是默认起点；坐标缩放/时间编码均写入 checkpoint 合同。

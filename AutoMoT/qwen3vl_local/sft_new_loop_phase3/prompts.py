@@ -52,11 +52,13 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (
     validate_history_rgb_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal
+from qwen3vl_local.sft_new_loop_phase3.primary_action import (
+    PRIMARY_ACTION_VERSION, PRIMARY_ACTION_RULES, NONE_ACTION, primary_action, primary_answers,
+)
 
 
-# v11 恢复 v7 的紧凑表达和单选措辞；动作真值仍由 trajectory_action 的
-# v8 bounded-window 合同生成。不要把这层语言合同误当成标定回退。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v11_compact_choice_v10_calibration"
+# v12 在 v11 紧凑表达上仅补充场景目的；标定仍为 v8 bounded-window。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v13_primary_action_or_none"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -70,10 +72,28 @@ GROUP_DEFINITIONS: Dict[str, Tuple[str, str, str, set]] = {}
 SYSTEM_PROMPT = "Predict the recorded ego vehicle's next actions. Follow the requested YES/NO format."
 CHOICE_SYSTEM_PROMPT = "Predict the recorded ego vehicle's next action. Output one listed high-level action only."
 ACTION_OUTPUT_MODES = ("binary", "choice")
+# 新训练入口默认单选；底层多标签 API 与旧配置缺字段回退仍保留 binary 语义。
+DEFAULT_ACTION_OUTPUT_MODE = "choice"
 CHOICE_OUTPUT_KEY = "ACTION_CHOICE"
+
+# 仅由公开的场景类型提供条件性动机，不读取答案、未来轨迹或推断绕障阶段。
+# 每题只渲染对应的一句，不能把等待空隙当成即将跨线的证据。
+CONTEXT_ACTION_PURPOSES: Dict[str, str] = {
+    "LEAD_BRAKE": "Slowing or waiting can preserve following distance and avoid hitting the lead vehicle; acceleration can follow when the gap opens.",
+    "STATIC_BLOCKAGE": "Slowing or waiting can allow checking adjacent-lane traffic, approaching vehicles (including oncoming traffic when borrowing), and clearance for a bypass gap; slowing does not imply a lane change.",
+    "DYNAMIC_CUTIN": "Slowing or waiting can create space for the entering vehicle; acceleration can follow when the conflict clears.",
+    "VULNERABLE_CROSSING": "Slowing or waiting can protect a pedestrian or cyclist; passing or accelerating depends on sufficient clearance.",
+    "ONCOMING_INVASION": "Slowing or waiting can let the oncoming intruder clear ego's path before progress resumes.",
+    "JUNCTION_RULE_CONFLICT": "Slowing or waiting can avoid a crossing vehicle despite ego's priority; acceleration can follow when the conflict clears.",
+    "SIGNAL_FAILURE": "Slowing or waiting can allow assessment of conflicting traffic when signals are unreliable; progress depends on a clear opening.",
+    "POST_BYPASS_RETURN": "Speed adjustment or waiting can allow checking approaching vehicles and gaps in the target lane; a return requires evidence of an earlier departure, not merely a slowdown.",
+    "UNSIGNALIZED_PRIORITY": "Slowing or waiting can satisfy stop/yield priority and let conflicting traffic pass before ego proceeds.",
+    "RAMP_MERGE_EXIT": "Speed adjustment can help assess and match a gap in the joining or target lane from other vehicles' positions and relative motion; slowing alone does not imply crossing.",
+}
 
 # 候选释义只解释动作含义；时间窗和阈值由下方共用规则限定，不暗示该帧真值。
 CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
+    "NONE": "No listed action qualifies in the prediction windows; retain the scene context.",
     "DECELERATE": "Reduce speed meaningfully without meeting the STOP condition.",
     "STOP": "Reach or remain at a sustained near-stop, including continued waiting.",
     "RESUME": "Sustain a speed increase; a previous stop is not required.",
@@ -85,7 +105,7 @@ CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
 # 全部边界逐条重复给模型。这里保留 v7 文本；v10 的严格时间边界只在离线标定
 # 与证据中执行，并由测试保证不会因 prompt 精简而回退。
 SPEED_ACTION_RULES = """STOP: two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds. Include the current sample: still waiting at the next sample counts, even if ego accelerates later. STOP takes priority.
-Otherwise, use the FIRST qualifying change from current speed: a drop of at least max(1.2 m/s, 20%) means DECELERATE; a gain of that size for two consecutive samples means RESUME. An isolated gain is insufficient."""
+Otherwise, use the FIRST qualifying change from current speed: a drop of at least max(1.2 m/s, 20% of current speed) means DECELERATE; a gain of that size for two consecutive samples means RESUME. An isolated gain is insufficient."""
 SPEED_RULES = ("Speed: next 2 seconds, at most one YES.\n" + SPEED_ACTION_RULES
                + " If neither qualifies, all speed answers are NO. A stop beyond 1.5 seconds does not cancel DECELERATE.")
 
@@ -198,39 +218,25 @@ def validate_action_output_mode(mode: str) -> str:
 
 
 def choice_options(spec: PromptSpec) -> Tuple[str, ...]:
-    """返回当前 context 的随机顺序三/五个 high-level 动作词组。
-
-    choice 不另加 ``NONE``、invalid 或组合动作：它严格等于 context_taxonomy.py
-    定义的三选一/五选一。顺序仅由 case seed 稳定决定；目标动作词组本身不变。
-    全 NO、invalid、多动作标签由训练/评测采样层显式排除。
-    """
+    """返回当前域动作加 NONE；无动作与组合投影均参与训练。"""
 
     keys = [question.output_key for question in spec.questions if question.output_key != INVALID_KEY]
+    keys.append(NONE_ACTION)
     _stable_rng("phase3_choice_option_order", spec.seed_key, spec.context_id).shuffle(keys)
     return tuple(keys)
 
 
 def choice_action_for_answers(spec: PromptSpec) -> Optional[str]:
-    """返回唯一正 high-level 动作；不可表示标签返回 None，交给采样层剔除。"""
+    """返回主要动作或 NONE；无效前提返回 None，交给采样层剔除。"""
 
     if bool(spec.invalid_context):
         return None
-    answers = spec_answers(spec)
-    positive = [key for key in spec.output_keys if key != INVALID_KEY and bool(answers[key])]
-    return positive[0] if len(positive) == 1 else None
+    return primary_action(spec_answers(spec), [k for k in spec.output_keys if k != INVALID_KEY])
 
 
 def choice_rejection_reason(spec: PromptSpec) -> Optional[str]:
-    """说明为何旧多标签行不能进入严格 high-level 单选数据。"""
-
-    if bool(spec.invalid_context):
-        return "invalid_context"
-    positives = sum(bool(value) for key, value in spec_answers(spec).items() if key != INVALID_KEY)
-    if positives == 0:
-        return "no_high_level_action"
-    if positives > 1:
-        return "multiple_high_level_actions"
-    return None
+    """只剔除无效前提；有效 NONE 和组合动作投影参与单选。"""
+    return "invalid_context" if spec.invalid_context else None
 
 
 def choice_target_action(spec: PromptSpec) -> str:
@@ -240,7 +246,7 @@ def choice_target_action(spec: PromptSpec) -> str:
     if action in choice_options(spec):
         return str(action)
     raise ValueError(
-        "choice mode requires exactly one positive context action and INVALID_ACTION_CONTEXT=NO: "
+        "choice mode requires a valid context and a primary action or NONE: "
         f"context={spec.context_id} answers={spec_answers(spec)}"
     )
 
@@ -275,6 +281,8 @@ def make_prompt_spec(
     rng = _stable_rng("new_phase3_action_spec", seed_key, context.context_id)
     keys = list(action_keys_for_domain(context.question_domain))
     rng.shuffle(keys)
+    if output_mode == "choice" and not answers.get(INVALID_KEY, False):
+        answers = primary_answers(answers, keys)
     questions = tuple(_question(key, answers) for key in keys)
     questions = (*questions, _question(INVALID_KEY, answers))
     goal = None if goal_xy is None else (float(goal_xy[0]), float(goal_xy[1]))
@@ -305,6 +313,7 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
         "road_structure": spec.road_structure,
         "invalid_context": bool(spec.invalid_context),
         "action_output_mode": spec.action_output_mode,
+        "primary_action_version": PRIMARY_ACTION_VERSION if spec.action_output_mode == "choice" else None,
         "current_speed_mps": spec.current_speed_mps,
         "goal_xy": list(spec.goal_xy) if spec.goal_xy is not None else None,
         "output_keys": list(spec.output_keys),
@@ -328,7 +337,7 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
 
 
 def _scene_context_block(spec: PromptSpec) -> str:
-    """仅提供可核查事实，不给建议动作；保留未确认历史的边界。"""
+    """提供场景前提及一句条件性目的，不把动机冒充该帧动作真值。"""
     context = CONTEXT_BY_ID[spec.context_id]
     detail = HISTORY_TEXT_COMPACT.get(spec.context_detail, spec.context_detail)
     history = f"\nHistory: {detail}" if detail else ""
@@ -336,7 +345,9 @@ def _scene_context_block(spec: PromptSpec) -> str:
         "[SCENE_CONTEXT]\n"
         f"Proposed road: {ROAD_STRUCTURE_TEXT[spec.road_structure]}.\n"
         f"Situation: {context.situation_text}. {context.scope_text}"
-        f"{history}\n[/SCENE_CONTEXT]"
+        f"{history}\n"
+        f"High-level purpose (if this context holds): {CONTEXT_ACTION_PURPOSES[spec.context_id]}\n"
+        "Purpose alone does not establish which action occurs next.\n[/SCENE_CONTEXT]"
     )
 
 
@@ -373,8 +384,10 @@ Predict actual driving, not recommended driving. Only past RGB and current state
 Current speed: {speed}.
 {render_navigation_goal(spec.goal_xy)}
 
-Choose exactly one listed high-level action. Speed rules: predict the first qualifying change in the next 2 seconds. STOP means two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds, including the current sample; STOP has priority. Otherwise DECELERATE needs a drop of at least max(1.2 m/s,20%) from current speed. RESUME needs that size gain for two consecutive samples; an isolated gain is insufficient. A stop beyond 1.5 seconds does not cancel DECELERATE.
+Choose one primary action or NONE. Speed: next 2 seconds.
+{SPEED_ACTION_RULES} A stop beyond 1.5 seconds does not cancel DECELERATE.
 {lane_rule}
+{PRIMARY_ACTION_RULES}
 
 Choices:
 {options}
@@ -464,7 +477,8 @@ def action_prompt_sha256(
                 "action_output_mode": output_mode,
                 "choice_output_key": CHOICE_OUTPUT_KEY,
                 "choice_system_prompt": CHOICE_SYSTEM_PROMPT,
-                "choice_target_format": "one high-level action phrase",
+                "choice_target_format": "one primary action or NONE",
+                "primary_action_version": PRIMARY_ACTION_VERSION,
                 "choice_option_order": "stable seed shuffle",
             },
             sort_keys=True,
