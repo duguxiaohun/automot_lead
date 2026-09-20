@@ -85,6 +85,50 @@ GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pip
 历史及v14曝光路线继续为 train-only，本轮没有新增 holdout 曝光。下面按日期保留历史说明，旧索引题数不代表 v19。
 两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
 
+## 2026-09-20：构建扫描结束后 INVALID target=30 / feasible_target=41
+
+这是索引构建中的配额不足，与训练时的判断格式无关。当前确定性覆盖方案需要 RE5 来源5条，
+其余9个来源在最大差1的约束下至少各4条，故该方案可行总量为41。
+它不证明数据缺失、RGB错误或 KEEP 错标；也不宣称41是所有可能覆盖方案的全局最小值。
+此前 `train._validation_work` 已对验证采样增容，但 `build_dataset._balanced_invalid_rows` 尚未接入，
+因此全量扫描后会终止。局部冒烟原 INVALID 预算64，没有触发这个分支。
+
+现在构建器仅捕获 `InvalidQuotaError` 并按可行预算重试，输出例如：
+`[new-phase3-build] split=val INVALID quota expanded 30->41; source_seed_counts=...`。
+这里的 val 只是示例，实际以新日志的 split 为准。正例配额不变，未发生不足的桶抽样保持原样；
+缺来源、坏签名、同RS人工题不足等真实数据错误不被吞掉。
+`invalid_ratio` 仍表示请求比例；实际请求和有效数量记录在
+`manifest.sampling.balance.<split>.requested_target_invalid/target_invalid` 及 `invalid_balance.quota`。
+
+新增6项纯CPU构建回归，包括真实入口30→41、重复随机种子一致、缺源/坏签名仍失败、
+充足配额不重试、上层长度断言及报告使用41。Phase3共459项CPU测试通过，
+4项取消选择、3个torch模块未收集；局部1148候选和384行除mapping哈希外一致，无全量/GPU结论。
+
+失败时构建器已经保存 `candidate_frames.jsonl`、`candidate_counts.json` 和人工候选文件，
+但构建源码参与 mapping 合同。更新本修复后应重建一次，不手工改缓存哈希绕过一致性检查。
+
+四组对照的完整命令如下（从 AutoMoT 目录运行，默认自动选卡）。
+仅第一组构建索引，后续三组复用；`&&` 在任何一组失败时停止：
+
+```bash
+HISTORY_RGB_MODE=4rgb ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh &&
+SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh &&
+SKIP_BUILD=1 HISTORY_RGB_MODE=4rgb ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh &&
+SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
+对应显式指定四张卡的写法：
+
+```bash
+GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=4rgb ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh &&
+GPU_IDS=0,1,2,3 SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh &&
+GPU_IDS=0,1,2,3 SKIP_BUILD=1 HISTORY_RGB_MODE=4rgb ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh &&
+GPU_IDS=0,1,2,3 SKIP_BUILD=1 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=choice bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
+不要全局设置 `SKIP_BUILD=1` 跳过首次重建；如设置了 DATA_DIR/INDEX 等环境变量，确保四组指向同一份新索引。
+默认题型已是 choice，前两组省略 ACTION_OUTPUT_MODE 会重复训练两次 choice。
+
 ## 2026-09-15：启动时报 INVALID quota 不足
 
 `INVALID quota cannot retain reviewed same-RS context STATIC_BLOCKAGE` 可能来自小验证预算，

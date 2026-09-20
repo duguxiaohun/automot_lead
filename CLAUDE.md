@@ -65,6 +65,17 @@ query、norm/bias 留在 AdamW；FP32 参数/优化器状态/EMA，Muon CUDA NS 
 配置/对照/日志见 `AutoMoT/qwen3vl_local/action_prior/OPTIMIZATION.md`；不改变数据、先验、
 FM 损失或采样，无真实模型提升结论。
 
+### 2026-09-20 Phase3 构建 INVALID 配额自动增容
+
+全量构建可能在候选扫描完成后遇到 INVALID target=30、覆盖方案需要41；此前仅训练验证采样自动增容，
+build_dataset入口遗漏。现仅捕获InvalidQuotaError，按required_target重试，保留随机状态；
+缺来源/坏签名等数据错误仍抛出。只增加不足的INVALID桶，正例每类预算不变，充足配额抽样不变。
+manifest记录requested_target_invalid、target_invalid及invalid_balance.quota，日志打印split和增容原因。
+v19名称/动作/prompt不变，源码合同更新需重建；459项CPU测试（含6项无torch构建回归）通过，
+局部1148候选/384行除mapping哈希均相同，未在本机跑全量构建或Qwen。
+四组对照须显式指定binary/choice；默认choice，省略题型会重复；索引构建一次后可SKIP_BUILD=1复用。
+详见 AutoMoT/qwen3vl_local/sft_new_loop_phase3/SFT_NEW_LOOP_PHASE3_RUN.md。
+
 ### 2026-09-20 Phase3 v19 风险响应与运动阶段
 
 新训练默认 `4rgb + choice`、索引 `sft_new_loop_phase3_data_v19`，prompt 为

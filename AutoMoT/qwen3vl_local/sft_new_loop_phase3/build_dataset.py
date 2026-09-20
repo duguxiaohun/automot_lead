@@ -533,14 +533,31 @@ def _balanced_invalid_rows(
             )
     # 构建与 train/eval 使用同一个配额实现；避免 index 与运行时口径漂移。
     from types import SimpleNamespace
-    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import balanced_invalid_items, invalid_subgroup_report
+    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (
+        InvalidQuotaError, balanced_invalid_items, invalid_subgroup_report,
+    )
     pool = [SimpleNamespace(**r) for bucket in candidate_buckets.values() for r in bucket]
     pool.extend(SimpleNamespace(**r) for r in same_rs_rows)
     if not pool:
         return [], {"candidate_buckets": {}, "sampled_signature_counts": {}}
-    selected = balanced_invalid_items(pool, target=target, rng=rng,
-                                     require_coverage=require_true_rs_coverage)
+    requested_target = target
+    rng_state = rng.getstate()
+    source_seeds = {}
+    try:
+        selected = balanced_invalid_items(pool, target=target, rng=rng,
+                                         require_coverage=require_true_rs_coverage)
+    except InvalidQuotaError as exc:
+        # 只补确定性覆盖方案所需容量；缺来源、错误签名等数据问题仍直接报错。
+        target = exc.required_target
+        source_seeds = exc.source_seeds
+        print(f"[new-phase3-build] split={split} INVALID quota expanded "
+              f"{requested_target}->{target}; source_seed_counts={source_seeds}", flush=True)
+        rng.setstate(rng_state)
+        selected = balanced_invalid_items(pool, target=target, rng=rng,
+                                         require_coverage=require_true_rs_coverage)
     report = invalid_subgroup_report(selected)
+    report['quota'] = {'requested_target': requested_target, 'effective_target': target,
+                       'adjusted': target != requested_target, 'source_seed_counts': source_seeds}
     report['candidate_buckets'] = {k: len(v) for k, v in sorted(candidate_buckets.items())}
     report['same_rs_candidate_rows'] = len(same_rs_rows)
     return [vars(row) for row in selected], report
@@ -629,6 +646,8 @@ def _balanced_rows_by_split(
             require_true_rs_coverage=bool(args.require_invalid_true_rs_coverage),
             same_rs_rows=same_rs_by_split.get(split, []),
         )
+        requested_invalid_target = invalid_target
+        invalid_target = invalid_balance.get('quota', {}).get('effective_target', invalid_target)
         if len(invalid_rows) != invalid_target:
             raise ValueError(
                 f"split={split} cannot construct required INVALID bucket: "
@@ -644,6 +663,7 @@ def _balanced_rows_by_split(
         balance_report[split] = {
             "raw_context_counts": context_counts,
             "target_per_context": per_context,
+            "requested_target_invalid": requested_invalid_target,
             "target_invalid": invalid_target,
             "sampled_counts": dict(Counter(row["balance_key"] for row in sampled)),
             "sampled_true_rs_counts": dict(Counter(row["true_rs"] for row in sampled)),
