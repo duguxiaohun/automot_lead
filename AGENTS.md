@@ -883,6 +883,30 @@ LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANAL
 
 ## 5. Git 规则
 
+### GitHub SSH 连接（2026-09-20）
+
+用户已在 GitHub 账号 duguxiaohun 添加名为 ubuntu 的认证密钥。本机
+`~/.ssh/id_ed25519.pub` 指纹为 `SHA256:jB6/u0qC/uwkfXtOCeiMhnhQ5wMEtlDrjuxfhYILNTM`，
+与用户提供值一致；已通过 `git@github.com:22` 身份认证和仓库 SSH fetch。
+公钥指纹不是服务器主机指纹，不能用它替代 GitHub 主机密钥校验。
+
+本机后续 GitHub fetch/push 优先使用这条已验证的 SSH 路径，尤其在 HTTPS 代理
+`127.0.0.1:17890` 未运行或直连 TLS 中断时；该代理状态只是此次观察，不当作永久事实。
+`origin` 保持 `https://github.com/duguxiaohun/automot_lead.git`，通过单次命令重写传输地址，
+不修改全局 Git/代理配置；仍只按用户授权推 main，并执行下文完整历史与白名单检查：
+
+```bash
+git -c 'url.ssh://git@github.com/.insteadOf=https://github.com/' fetch --prune origin
+git -c 'url.ssh://git@github.com/.insteadOf=https://github.com/' push origin main:main
+```
+
+连接诊断：`ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -T git@github.com`。
+返回 `Hi duguxiaohun! You've successfully authenticated, but GitHub does not provide shell access.`
+表示认证成功，即使退出码为1；仓库读写权限还要分别以实际 fetch/push 结果确认。
+本次即使没有可连接的 ssh-agent，默认密钥认证仍成功，不必因此重新生成密钥。
+其它机器需使用其自身已授权密钥，不能假定该路径和认证状态相同；不关闭主机校验，
+不把私钥、口令或访问令牌写进文档/日志/仓库。
+
 ### 清理历史后的 push 约定（2026-09-16）
 
 - 远程 `origin` 为 `https://github.com/duguxiaohun/automot_lead.git`，日常只推
