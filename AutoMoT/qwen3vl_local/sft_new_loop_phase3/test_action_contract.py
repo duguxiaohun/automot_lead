@@ -397,7 +397,7 @@ def test_choice_longitudinal_contract_has_three_actions_and_none() -> None:
     target = build_action_target(stop_spec)
     assert target == "STOP"
     assert parse_action_output(target, spec=stop_spec) == spec_answers(stop_spec)
-    assert "Output exactly one listed action phrase" in build_action_prompt(spec=stop_spec)
+    assert "Output one listed action name only" in build_action_prompt(spec=stop_spec)
     assert "DECELERATE: <YES or NO>" not in build_action_prompt(spec=stop_spec)
 
     none_spec = make_prompt_spec(

@@ -77,7 +77,7 @@ def test_v12_compact_prompt_is_answer_independent_while_v10_calibration_stays_bo
     changed = replace(spec, invalid_context=True,
         questions=tuple(replace(q, answer=not q.answer) for q in spec.questions))
     assert prompt == build_action_prompt(spec=changed, history_rgb_mode=rgb)
-    assert PROMPT_NAME.endswith("v13_primary_action_or_none")
+    assert PROMPT_NAME.endswith("v14_observed_progress")
     assert ACTION_RULE_VERSION == "current_wait_first_crossing_v8_bounded_window"
     if mode == "binary":
         assert SPEED_ACTION_RULES in prompt

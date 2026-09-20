@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from qwen3vl_local.sft_new_loop_phase3 import preflight, train, eval as evaluation
-from qwen3vl_local.sft_new_loop_phase3.build_dataset import _split, physical_route_group
+from qwen3vl_local.sft_new_loop_phase3.build_dataset import _split, _stable_unit, physical_route_group
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (
     invalid_subgroup_report, require_same_rs_support, balanced_invalid_items,
@@ -82,7 +82,10 @@ def test_real_review_decisions_stay_blind_disjoint_and_sampled():
         assert d['frozen_prompt_sha256_kind'] == 'source_file_sha256:prompts.py'
         # 历史盲审记录保留当时源码身份；后续prompt修改不能倒写审计历史。
         assert d['frozen_prompt_sha256'] == '1b31876e83bb39bed3e76090559ee27e29836eaa020f74ddca6c4516653cd27a'
-        split=_split(d['scenario'],d['route_id'],20260916,.1,.05)
+        # 验证当时的盲划分；20260920已曝光路线现应迁入train，不能倒写历史记录。
+        group=physical_route_group(d['scenario'],d['route_id'])
+        unit=_stable_unit(f'20260916:{group}')
+        split='test' if unit < .1 else 'val' if unit < .15 else 'train'
         assert split==d['review_split'] and not d['model_outputs_inspected']
         counts[split].add(physical_route_group(d['scenario'],d['route_id']))
     assert {k:len(v) for k,v in counts.items()}=={'val':2,'test':4}
@@ -118,7 +121,7 @@ def test_default_eval_is_full_coverage(monkeypatch):
     monkeypatch.setattr(sys,'argv',['eval.py'])
     args=evaluation.parse_args()
     assert args.cases_per_bin==0
-    assert 'data_v13' in args.index
+    assert 'data_v14' in args.index
     rows=candidate_rows()
     selected=evaluation._balanced_cases(rows,cases_per_bin=args.cases_per_bin,seed=3)
     assert len(selected)==len(rows)

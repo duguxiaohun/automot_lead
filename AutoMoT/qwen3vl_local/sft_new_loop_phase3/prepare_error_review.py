@@ -15,11 +15,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from PIL import Image, ImageDraw
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_trajectory, label_actions
+from qwen3vl_local.sft_new_loop_phase3.primary_action import primary_answers
 
 
 def digest(path):
     """记录原始文件身份，不把压缩拼图当作模型实际输入。"""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def compare_action_labels(row, labels):
+    """分开检查原始证据和主要动作，避免把合法的组合投影报告成错标。"""
+    valid = row['gt']['INVALID_ACTION_CONTEXT'] == 'NO'
+    raw = row.get('action_answers', row['gt'])
+    raw_mismatches = [k for k, v in raw.items() if k != 'INVALID_ACTION_CONTEXT'
+                      and valid and (labels is None or labels[k] != (v == 'YES'))]
+    projected = (primary_answers(labels, [k for k in row['gt'] if k != 'INVALID_ACTION_CONTEXT'])
+                 if labels is not None and row.get('prompt_spec', {}).get('action_output_mode') == 'choice'
+                 else labels)
+    target_mismatches = [k for k, v in row['gt'].items() if k != 'INVALID_ACTION_CONTEXT'
+                         and valid and (projected is None or projected.get(k) != (v == 'YES'))]
+    return raw_mismatches, target_mismatches
 
 
 def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
@@ -80,9 +95,10 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
         if signals['future_speeds'] != expected:
             raise ValueError(f'raw speed mismatch: case {i}')
         labels = label_actions(signals)
-        valid = r['gt']['INVALID_ACTION_CONTEXT'] == 'NO'
-        label_mismatches = [k for k, v in r['gt'].items() if k != 'INVALID_ACTION_CONTEXT'
-                            and valid and (labels is None or labels[k] != (v == 'YES'))]
+        # choice 的 gt 已投影；先核验原始纵横证据，再独立核验主要动作，不能
+        # 把被优先级合法省略的速度/横向动作当作原 meta 标定错误。
+        raw_answers = r.get('action_answers', r['gt'])
+        label_mismatches, target_mismatches = compare_action_labels(r, labels)
         # 3秒末帧的首次越线由下一采样确认；+3.25s只用于确认，不扩张预测窗口。
         frames = [int(f.stem) for f in inputs] + list(range(anchor+1, anchor+14))
         canvas = Image.new('RGB', (2304, ((len(frames)+3)//4)*224+50), '#101010')
@@ -114,6 +130,7 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
         evidence.append(dict(case_index=i, scenario=r['scenario'], route_id=r['route_id'],
             frame_id=anchor,context=r['context_id'],gt=r['gt'],pred=r['parsed'],correct=r['all_ok'],
             context_detail=r['context_detail'], label_mismatches=label_mismatches,
+            raw_action_answers=raw_answers, target_mismatches=target_mismatches,
             raw_speed_match=True, input_sha256_match=True, frames=frame_rows,
             missing_frames=missing_frames, lateral_window_issue=signals.get('lateral_window_issue'),
             sheet=str(sheet)))

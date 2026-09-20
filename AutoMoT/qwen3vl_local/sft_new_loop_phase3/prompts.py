@@ -57,8 +57,8 @@ from qwen3vl_local.sft_new_loop_phase3.primary_action import (
 )
 
 
-# v12 在 v11 紧凑表达上仅补充场景目的；标定仍为 v8 bounded-window。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v13_primary_action_or_none"
+# v14 根据逐帧审计区分冲突阶段与动作；速度/主要动作规则保持 v8/v1。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v14_observed_progress"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -79,26 +79,26 @@ CHOICE_OUTPUT_KEY = "ACTION_CHOICE"
 # 仅由公开的场景类型提供条件性动机，不读取答案、未来轨迹或推断绕障阶段。
 # 每题只渲染对应的一句，不能把等待空隙当成即将跨线的证据。
 CONTEXT_ACTION_PURPOSES: Dict[str, str] = {
-    "LEAD_BRAKE": "Slowing or waiting can preserve following distance and avoid hitting the lead vehicle; acceleration can follow when the gap opens.",
-    "STATIC_BLOCKAGE": "Slowing or waiting can allow checking adjacent-lane traffic, approaching vehicles (including oncoming traffic when borrowing), and clearance for a bypass gap; slowing does not imply a lane change.",
-    "DYNAMIC_CUTIN": "Slowing or waiting can create space for the entering vehicle; acceleration can follow when the conflict clears.",
-    "VULNERABLE_CROSSING": "Slowing or waiting can protect a pedestrian or cyclist; passing or accelerating depends on sufficient clearance.",
-    "ONCOMING_INVASION": "Slowing or waiting can let the oncoming intruder clear ego's path before progress resumes.",
-    "JUNCTION_RULE_CONFLICT": "Slowing or waiting can avoid a crossing vehicle despite ego's priority; acceleration can follow when the conflict clears.",
-    "SIGNAL_FAILURE": "Slowing or waiting can allow assessment of conflicting traffic when signals are unreliable; progress depends on a clear opening.",
-    "POST_BYPASS_RETURN": "Speed adjustment or waiting can allow checking approaching vehicles and gaps in the target lane; a return requires evidence of an earlier departure, not merely a slowdown.",
-    "UNSIGNALIZED_PRIORITY": "Slowing or waiting can satisfy stop/yield priority and let conflicting traffic pass before ego proceeds.",
-    "RAMP_MERGE_EXIT": "Speed adjustment can help assess and match a gap in the joining or target lane from other vehicles' positions and relative motion; slowing alone does not imply crossing.",
+    "LEAD_BRAKE": "Maintain following space; distinguish a closing gap from a lead vehicle pulling away.",
+    "STATIC_BLOCKAGE": "Assess adjacent-lane traffic, approaching vehicles and bypass clearance; waiting for space does not imply crossing.",
+    "DYNAMIC_CUTIN": "Make room for the entering vehicle; distinguish ongoing intrusion from established following with an opening gap.",
+    "VULNERABLE_CROSSING": "Protect the pedestrian or cyclist; distinguish occupied travel space from a cleared path and an in-lane pass.",
+    "ONCOMING_INVASION": "Allow safe passing; check whether the intruder still occupies ego's path or has cleared it.",
+    "JUNCTION_RULE_CONFLICT": "Avoid crossing traffic despite ego's priority; distinguish approaching conflict from clearance and continued progress.",
+    "SIGNAL_FAILURE": "Assess conflicting approaches independently of unreliable lights; distinguish waiting from progress through an opening.",
+    "POST_BYPASS_RETURN": "Check target-lane gaps; an earlier obstacle does not prove departure, and a pending return does not determine the next crossing.",
+    "UNSIGNALIZED_PRIORITY": "Respect stop/yield priority; distinguish approach, continued waiting, and departure after traffic clears. A passed sign does not imply stopping again.",
+    "RAMP_MERGE_EXIT": "Match a joining or exit gap using relative traffic motion; distinguish speed adjustment from ego crossing, and nearby traffic from path blockage.",
 }
 
 # 候选释义只解释动作含义；时间窗和阈值由下方共用规则限定，不暗示该帧真值。
 CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
-    "NONE": "No listed action qualifies in the prediction windows; retain the scene context.",
-    "DECELERATE": "Reduce speed meaningfully without meeting the STOP condition.",
-    "STOP": "Reach or remain at a sustained near-stop, including continued waiting.",
-    "RESUME": "Sustain a speed increase; a previous stop is not required.",
-    "LANE_CHANGE_LEFT": "Cross an ego lane boundary to the left after the newest frame, relative to ego's heading.",
-    "LANE_CHANGE_RIGHT": "Cross an ego lane boundary to the right after the newest frame, relative to ego's heading.",
+    "NONE": "No qualifying action; not uncertainty or poor visibility.",
+    "DECELERATE": "Qualifying speed reduction without STOP.",
+    "STOP": "Confirmed near-stop or continued waiting.",
+    "RESUME": "Confirmed speed gain; no previous stop required.",
+    "LANE_CHANGE_LEFT": "First ego crossing to the left.",
+    "LANE_CHANGE_RIGHT": "First ego crossing to the right.",
 }
 
 # v7 的有效长处是用一段连续、任务导向的说明约束模型，而不是把判定器的
@@ -379,6 +379,7 @@ def build_action_prompt(
         )
         return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
 Predict actual driving, not recommended driving. Only past RGB and current state are observed.
+Use temporal gaps and lane boundaries; do not invent hidden actors. Predict from now, not completed history.
 
 {_scene_context_block(spec)}
 Current speed: {speed}.
@@ -392,7 +393,7 @@ Choose one primary action or NONE. Speed: next 2 seconds.
 Choices:
 {options}
 
-Output exactly one listed action phrase (the name before ':'), with no description or extra text:
+Output one listed action name only:
 <ACTION_NAME>""".strip()
     lane = "\n\n" + LANE_RULES if spec.question_domain == DOMAIN_MANEUVER else ""
     output = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)

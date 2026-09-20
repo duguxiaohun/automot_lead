@@ -1,20 +1,22 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-19，v13）
+# SFT New Loop Phase3 当前运行入口（2026-09-20，v14）
 
-默认 **4rgb + choice**，索引 **v13**，split seed **20260916**。
+默认 **4rgb + choice**，索引 **v14**，split seed **20260920**。
 每次只输出一个主要动作或 `NONE`：纵向域 3 个动作加 NONE，机动域 5 个动作加 NONE。
 有效全 NO 样本进入 NONE；原始纵横组合保留，由两包共用的 `primary_action.py` 投影：
 **STOP > 首次未来跨线 > 纵向动作 > NONE**。STOP 表示原判据已确认的当前等待或 1.5 秒内近停；
 其余组合用横向动作概括配合的速度变化。不是按场景强制选动作，也不是在测试错例上调阈值。
 
-保留 v12 的条件性场景目的、v8 bounded-window 原始标定、异常 route 过滤及物理路线划分。
+v14 精简条件性场景目的，区分冲突占道/清空和接近/等待/释放阶段；保留 v8 bounded-window 原始标定、异常 route 过滤及物理路线划分。
 `NONE` 不否定事件，不表示缺证据；invalid 前提仍不进入 choice。binary 显式可选，保留原始多标签诊断。
 choice 训练/验证按投影后的主要动作（含 NONE）平衡；单列 NONE precision/recall/support 并参与 best 守卫。
 action_prior 使用相同投影，先经 Phase1/2/RE gate，再选主要动作；NONE 只省略具体动作段，保留 planning。
 
-必须新建 **sft_new_loop_phase3_data_v13** 并重新训练；旧索引、adapter、action 动作索引和缓存合同不能混用。
-不要用 `SKIP_BUILD=1` 复用旧索引。旧 run 用原源码恢复。v13 尚无真实训练/测试成绩；
-历史 choice 成绩只覆盖唯一正动作子集，不能移植到此次加入 NONE/组合投影后的任务。
-已有 test 曾参与开发，沿用划分的成绩不称为全新独立泛化验证。
+必须新建 **sft_new_loop_phase3_data_v14** 并重新训练；旧索引、adapter、action 动作索引和缓存合同不能混用。
+不要用 `SKIP_BUILD=1` 复用旧索引。旧 run 用原源码恢复。v14 尚无真实训练/测试成绩；v13 四组结果已审计，见下方链接；
+v13之前的历史 choice 成绩只覆盖唯一正动作子集，不能移植到加入 NONE/组合投影后的任务。
+本轮已曝光 test/导出 val 合计346个物理组加入 train-only，新 seed=20260920。
+44片段/748帧的逐帧结论、精确隔离、天气处理与验证见 [EVAL_REVIEW_20260920.md](EVAL_REVIEW_20260920.md)；
+v13结果见 [AUDIT_COMPARISON_20260920.md](AUDIT_COMPARISON_20260920.md)。
 设计与串联 demo 见 [V13_PRIMARY_ACTION_20260919.md](V13_PRIMARY_ACTION_20260919.md)。
 
 直接重新训练并自动评测（默认自动选四张空闲 GPU）：
@@ -47,9 +49,9 @@ GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash q
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 python qwen3vl_local/sft_new_loop_phase3/preflight.py \
-  --index checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl
+  --index checkpoints/sft_new_loop_phase3_data_v14/frame_index.jsonl
 python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
-  --index checkpoints/sft_new_loop_phase3_data_v13/frame_index.jsonl \
+  --index checkpoints/sft_new_loop_phase3_data_v14/frame_index.jsonl \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
@@ -64,10 +66,10 @@ SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 ```
 
-不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 仍只保留有效单动作子集。
+不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 保留有效单动作、组合投影与 NONE；仅排除 invalid。
 `INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
-新负例增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；不是完整拒绝能力证明。
-历史已隔离的 176 个 test 物理组仍为 train-only。下面按日期保留历史说明，旧索引题数不代表 v12。
+历史09/16负例曾增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；新划分支持需重验，不能沿用旧计数。
+历史隔离路线继续为 train-only，并追加本轮曝光名单。下面按日期保留历史说明，旧索引题数不代表 v14。
 两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
 
 ## 2026-09-15：启动时报 INVALID quota 不足

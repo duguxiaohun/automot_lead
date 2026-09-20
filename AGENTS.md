@@ -1,5 +1,14 @@
 # AGENTS.md
 
+### 2026-09-20 Phase3 v14 逐帧审计修订
+
+新训练默认 `4rgb + choice`、索引 `sft_new_loop_phase3_data_v14`、split seed `20260920`。
+44片段/748帧重点复核合流、对向侵入、无灯路口及主要动作混淆；目的句区分占道/清空与动作阶段，
+NONE不表示看不清，正常雨雾/黑夜保留。四个已审区间精确隔离错误道路前提或输入突变，
+不回填NONE/invalid、不改v8速度规则及v1主要动作优先级；346个已曝光物理路线组train-only。
+审计器分别核验raw动作和主要动作投影。旧run用原源码恢复；v14效果待新训练验证。
+详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/EVAL_REVIEW_20260920.md`。
+
 ### 2026-09-19 Action 特殊 RE 自动场景先验（覆盖此前独立开关）
 
 新训练在无噪声 `--dataset-priors --high-level-planning` 下自动从独立 full map 提供已确认
