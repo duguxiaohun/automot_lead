@@ -1,5 +1,31 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-20 Action 与 Phase3 manifest 格式衔接修复
+
+Action `_candidate_membership` 原写死v3，但Phase3实际产物早已为v5_binary_keep，导致扫描完成后发布失败。
+现构建器和Action读取器共用 `build_dataset.FRAME_INDEX_FORMAT`；仅接受当前格式，保留映射哈希、
+文件存在性及候选计数检查，错误分别报告format/hash/frame-index具体原因。临时目录发布路径不是此错误根因。
+测试不再写死旧v3；新增真实Phase3均衡/manifest写入→Action发布/复用回归（仅替换原始输入扫描）。
+小集合真实产物走通1148候选→3657全帧映射→1143动作索引及二次缓存复用；非全量远端/GPU验证。
+本轮46项Action数据准备测试及474项Phase3无torch测试通过。旧run用原代码；映射哈希变化需新产物。
+本地修改需更新到训练机后重跑原Action入口；不要通过改manifest字段或关闭校验绕过错误。
+详见 AutoMoT/qwen3vl_local/action_prior/run.md 的同日manifest衔接记录。
+
+### 2026-09-20 Phase3 自动 INVALID 组合与可选人工事件诊断
+
+按用户要求，不再以 val/test 人工 same-RS 负例至少两条作为 binary 开训门槛。
+自动负例枚举几何规则允许的全部错误 RS × asked event，保留十来源及真实R1–R5/十事件覆盖，
+按来源、真实RS/事件、错误RS分层抽样；不把未标注事件当不存在，不为全笛卡尔积制造错标。
+每个有自动负例的来源在覆盖规划中保留一条，防止人工种子占满索引后运行时无法重采样；
+不足预算仍按类型化配额自动增容（五人工种子加一自动种子的回归为30→51），正例预算不变。
+人工负例仍无重复输入；覆盖不足标insufficient_support、排除该子组checkpoint守卫，
+支持足够时仍检查事件拒绝率。production_ready不因子组缺证据而变为true。
+manifest/训练验证报告增加错误RS和真实RS/错误RS/事件分布；raw审计重查自动组合的几何条件。
+v19提示词、seed20260920、原动作标签/KEEP不变；映射哈希改变须重建，新训用新代码，旧run用原代码。
+不新增人工事件负例，不需要靠补盲审路线才能开训；474项无torch/41项Action数据准备测试通过，
+小集合384行原始meta回读通过，正例不变；全量远端构建及GPU尚未验证。
+详见 AutoMoT/qwen3vl_local/sft_new_loop_phase3/INVALID_COMBINATIONS_20260920.md。
+
 ### 2026-09-20 Action 仅保留所选 high-level 的一句因果描述
 
 移除 --high-level-planning / HIGH_LEVEL_PLANNING；--high-level-action-prior 独立开启。

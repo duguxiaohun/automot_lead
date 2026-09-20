@@ -1,4 +1,4 @@
-"""不依赖 torch，复现全量构建末尾的 INVALID 30→41 配额不足。"""
+"""不依赖 torch，复现全量构建末尾的 INVALID 30→51 配额不足。"""
 from collections import Counter
 import random
 from types import SimpleNamespace
@@ -35,19 +35,19 @@ def candidates(per_context=5):
 
 @pytest.mark.parametrize('seed', [0,1,19])
 def test_builder_expands_only_invalid_and_retains_coverage(seed):
-    """直接调用真实构建入口，自动重试与相同随机种子下显式41得到相同负例。"""
+    """直接调用真实构建入口，自动重试与相同随机种子下显式51得到相同负例。"""
     bases,reviewed=candidates()
     rows,report=builder._balanced_invalid_rows(bases,split='val',target=30,
         rng=random.Random(seed),same_rs_rows=reviewed)
-    assert len(rows)==41
+    assert len(rows)==51
     assert report['quota']['requested_target']==30
-    assert report['quota']['effective_target']==41 and report['quota']['adjusted']
+    assert report['quota']['effective_target']==51 and report['quota']['adjusted']
     counts=report['source_class']['counts']
-    assert counts['UNSIGNALIZED_PRIORITY']==5
-    assert sorted(counts.values())==[4]*9+[5]
+    assert counts['UNSIGNALIZED_PRIORITY']==6
+    assert sorted(counts.values())==[5]*9+[6]
     assert report['same_rs_unique_cases']==5 and report['same_rs_max_case_repeat']==1
     assert all(report['guards'].values())
-    explicit,report=builder._balanced_invalid_rows(bases,split='val',target=41,
+    explicit,report=builder._balanced_invalid_rows(bases,split='val',target=51,
         rng=random.Random(seed),same_rs_rows=reviewed)
     assert rows==explicit and not report['quota']['adjusted']
 
@@ -81,7 +81,7 @@ def test_sufficient_builder_budget_preserves_original_sampler(monkeypatch):
 
 
 def test_split_builder_uses_effective_invalid_target_in_manifest(monkeypatch,tmp_path):
-    """覆盖上层长度断言和报告；正例十类各15条，负例从30增加到41。"""
+    """覆盖上层长度断言和报告；正例十类各15条，负例从30增加到51。"""
     from qwen3vl_local.sft_new_loop_phase3 import same_rs_invalid
     bases,reviewed=candidates(15)
     # 全部视为 train，避免测试依赖外部 RGB 数据或划分。
@@ -94,8 +94,8 @@ def test_split_builder_uses_effective_invalid_target_in_manifest(monkeypatch,tmp
                          invalid_ratio=.2,split_seed=20260920,require_invalid_true_rs_coverage=True)
     rows,report=builder._balanced_rows_by_split(args,Counter())
     report=report['balance']['train']
-    assert len(rows)==191
+    assert len(rows)==201
     assert report['target_per_context']==15
-    assert report['requested_target_invalid']==30 and report['target_invalid']==41
-    assert report['sampled_counts']=={**dict.fromkeys(CONTEXT_IDS,15),'INVALID':41}
+    assert report['requested_target_invalid']==30 and report['target_invalid']==51
+    assert report['sampled_counts']=={**dict.fromkeys(CONTEXT_IDS,15),'INVALID':51}
     assert (tmp_path/'candidate_frames.jsonl').is_file()

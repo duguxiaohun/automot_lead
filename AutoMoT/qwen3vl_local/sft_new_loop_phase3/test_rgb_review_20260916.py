@@ -52,25 +52,26 @@ def write_index(tmp_path, rows):
     return path
 
 
-def test_preflight_rejects_missing_independent_support_but_choice_exempts_it(tmp_path):
+def test_preflight_reports_sparse_independent_support_without_blocking_training(tmp_path):
     rows = index_rows(1)
     # 再加不同 Rep/时间戳和不同问题，也仍只有一条物理路线。
     val = next(r for r in rows if r['split']=='val' and r['invalid_reason']=='same_rs_wrong_event')
     rows.append(dict(val, route_id=val['route_id'].replace('_Rep0_', '_Rep9_').replace('01_01_01_01_01','02_02_02_02_02'), frame_id=29))
     path = write_index(tmp_path, rows)
-    with pytest.raises(ValueError, match='val: same_rs_wrong_event has 1 independent physical routes'):
-        preflight.check_index(path)
+    report = preflight.check_index(path)
+    assert report['same_rs_evaluation']['val']['status'] == 'insufficient_support'
     assert preflight.check_index(path, 'choice')['same_rs_physical_routes']['val'] == 1
     good = preflight.check_index(write_index(tmp_path,index_rows(2)))
     assert good['same_rs_physical_routes']==dict(train=2,val=2,test=2)
 
 
-def test_missing_support_fails_before_model_check_and_nccl(monkeypatch,tmp_path):
-    path = write_index(tmp_path,index_rows(0))
+def test_missing_required_context_fails_before_model_check_and_nccl(monkeypatch,tmp_path):
+    path = write_index(tmp_path,[r for r in index_rows(0)
+                               if r['split'] != 'val' or r['context_id'] != CONTEXT_IDS[0]])
     monkeypatch.setattr(sys,'argv',['train.py','--index',str(path),'--action-output-mode','binary'])
     monkeypatch.setattr(preflight,'check_model',lambda *a: pytest.fail('model touched'))
     monkeypatch.setattr(train,'setup_distributed',lambda *a: pytest.fail('NCCL touched'))
-    with pytest.raises(ValueError,match='independent physical routes'):
+    with pytest.raises(ValueError,match='missing contexts'):
         train.train(train.parse_args())
 
 

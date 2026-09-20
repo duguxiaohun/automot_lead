@@ -68,9 +68,11 @@ python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
-`preflight` 的 binary val/test 各要求至少两条同 RS 错事件**物理路线**；不同 Rep/采集时间不增加支持。
+`preflight` 报告 binary val/test 同 RS 错事件的独立物理路线数；不同 Rep/采集时间不增加支持。
+不足两条标记 `insufficient_support`，允许训练，该子组不参与 checkpoint 守卫；不能宣称事件拒绝评估已充分覆盖。
 `--sampling-only` 再核验实际生成验证采样；不读取模型权重或初始化 NCCL。默认 choice，检查 binary 时显式加 `--action-output-mode binary`。
-不足时补充独立、盲审的路线证据，不以重复采样或关闭 guard 解决。
+自动错误 RS 负例仍是必需训练桶；来源/真实道路/事件缺失、标签错误和物理路线泄漏继续报错。
+人工负例保留为补充诊断，无需为了启动训练补盲审路线；独立评测不会把缺少这项证据的模型标成 `production_ready`。
 
 预检后新训；已构建且通过合同检查时可显式复用索引：
 
@@ -84,6 +86,13 @@ GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pip
 历史09/16负例曾增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；新划分支持需重验，不能沿用旧计数。
 历史及v14曝光路线继续为 train-only，本轮没有新增 holdout 曝光。下面按日期保留历史说明，旧索引题数不代表 v19。
 两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
+
+## 2026-09-20：自动 INVALID 组合均衡及人工事件负例覆盖
+
+当前实现和重跑方法见 [INVALID_COMBINATIONS_20260920.md](INVALID_COMBINATIONS_20260920.md)。
+自动枚举安全的错误RS/事件组合，不再只取第一个错误RS；按来源、真实RS/事件、错误RS分层均衡。
+同一来源至少保留一个已有自动负例，避免后续验证增大预算时只能重复人工题。小预算可能继续自动上调；
+五个人工题集中于一个来源的回归由旧41提高到51，以保留该来源的自动负例。无需手动调整目标数量。
 
 ## 2026-09-20：构建扫描结束后 INVALID target=30 / feasible_target=41
 

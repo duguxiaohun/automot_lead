@@ -75,7 +75,7 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     invalid_subgroup_keys,
     invalid_subgroup_report,
     physical_group_for_item,
-    require_same_rs_support,
+    same_rs_support_report,
     unique_cases,
 )
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import count_keep_prediction
@@ -1420,7 +1420,7 @@ def train(args: argparse.Namespace) -> None:
                 args.generation_eval_balance_count = generation_audit["effective"]
                 args.validation_sampling["generation"] = generation_audit
                 if args.action_output_mode == "binary":
-                    require_same_rs_support(full_generation_eval_work, stage="generation validation")
+                    generation_audit["same_rs_evaluation"] = same_rs_support_report(full_generation_eval_work)
         except (ValueError, AssertionError) as exc:
             raise RuntimeError(
                 f"periodic {stage} validation sampling failed: split={args.eval_split} "

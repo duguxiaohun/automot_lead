@@ -11,6 +11,7 @@ from qwen3vl_local.action_prior.action_input import HighLevelActionIndex
 from qwen3vl_local.action_prior.config import parser
 from qwen3vl_local.action_prior.contracts import file_hash
 from qwen3vl_local.sft_new_loop_phase3 import source_mapping
+from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import ACTION_RULE_VERSION, action_rule_sha256
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
 
@@ -37,7 +38,7 @@ def sources(tmp_path, monkeypatch):
     candidate_path.write_text("".join(json.dumps(row) + "\n" for row in candidates))
     (phase3 / "frame_index.jsonl").write_text("{}\n")
     (phase3 / "candidate_counts.json").write_text(json.dumps({"train/LEAD_BRAKE": 1, "val/POST_BYPASS_RETURN": 1}))
-    (phase3 / "manifest.json").write_text(json.dumps(dict(format="sft_new_loop_phase3_frame_index_v3_current_phase",
+    (phase3 / "manifest.json").write_text(json.dumps(dict(format=FRAME_INDEX_FORMAT,
                                                          mapping_contract_hash="a" * 64, frame_index="frame_index.jsonl")))
     records = []
     for frame, status, special, eligible, contexts in (

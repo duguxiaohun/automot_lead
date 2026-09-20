@@ -1,5 +1,26 @@
 # Action prior 使用说明
 
+## 2026-09-20：Phase3 manifest 衔接修复
+
+报错 `candidate manifest is stale, incomplete, or not the current Phase3 frame-index artifact` 的已确认原因：
+Phase3 构建器输出 `sft_new_loop_phase3_frame_index_v5_binary_keep`，Action 校验器仍写死 v3。
+因此刚构建完成的候选也会被拒绝；不是本次 RGB 损坏，也不是临时目录路径必须提前存在。
+
+现两边共用 `build_dataset.FRAME_INDEX_FORMAT`，测试 fixture 同步；增加真实Phase3构建/写manifest
+经过Action校验、原子发布和复用的回归，避免模拟产物和校验器一起停留在旧格式而测试仍通过。
+旧/未知format、旧mapping hash、缺失或错误frame-index及候选计数不一致仍然拒绝，报错分别给出原因。
+
+更新整套源码后重跑原 Action 命令即可，自动缓存会按当前来源身份准备，不需要手改manifest或删除所有缓存。
+这轮修改改变映射哈希，不直接复用旧候选；旧训练run需保持原源码。
+`TemporaryDirectory` 通常会在失败退出时清理日志中的 `.candidate-*` 目录，所以不能承诺该次扫描结果仍可恢复。
+
+验证：46项Action数据准备测试、474项Phase3无torch测试通过；还以实际小集合产物走通
+1148候选→3657全帧场景映射→1143动作索引，并验证三层缓存二次复用。
+小集合 Action split 仅包含 train；候选由真实构建器生成后复制进准备器临时目录，避免重复同一小集合扫描，
+full map和动作索引均调用正式实现。产物位于Phase3 `probe_output/action_manifest_bridge_20260920/`，不入库。
+尚未运行远端全量构建或GPU训练，不把这些检查当成完整生产验收。
+
+
 优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](OPTIMIZATION.md)。
 
 新训练默认 `muon_adamw + cosine_restarts`：隐藏矩阵 Muon、其余参数 AdamW，5% warmup 后四段周期按1:2:4:8分配。主线与两个消融共用实现。参数、四组合对照和续训边界见 [共享优化说明](OPTIMIZATION.md)。

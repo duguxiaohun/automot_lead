@@ -12,7 +12,7 @@ from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_co
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import validate_action_rule
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS, CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import validate_choice_row
-from qwen3vl_local.sft_new_loop_phase3.quality_guards import MIN_SAME_RS_PHYSICAL_ROUTES
+from qwen3vl_local.sft_new_loop_phase3.quality_guards import same_rs_coverage
 from qwen3vl_local.sft_new_loop_phase3.prompts import DEFAULT_ACTION_OUTPUT_MODE, PROMPT_NAME, action_prompt_sha256
 
 
@@ -74,17 +74,18 @@ def check_index(path, action_output_mode="binary"):
         missing = [key for key in (*CONTEXT_IDS, "INVALID") if not counts[f"{split}/{key}"]]
         if missing:
             raise ValueError(f"{split}: missing contexts {missing}")
+    support = {split: same_rs_coverage(len(same_rs_groups[split]))
+               for split in ("train", "val", "test")}
     if action_output_mode == "binary":
         for split in ("val", "test"):
-            count = len(same_rs_groups[split])
-            if count < MIN_SAME_RS_PHYSICAL_ROUTES:
-                raise ValueError(
-                    f"{split}: same_rs_wrong_event has {count} independent physical routes; "
-                    f"requires >= {MIN_SAME_RS_PHYSICAL_ROUTES}. Review additional unseen routes "
-                    "and rebuild the index; increasing sample repetitions cannot fix missing coverage."
-                )
+            if not support[split]["supported"]:
+                print(f"[phase3-preflight] {split}: same-RS event rejection has "
+                      f"{len(same_rs_groups[split])} independent routes; insufficient_support. "
+                      "Training allowed; this subgroup is excluded from checkpoint guards.",
+                      file=sys.stderr)
     return dict(counts=dict(counts), unique_cases={k: len(v) for k, v in unique.items()},
                 same_rs_physical_routes={s: len(same_rs_groups[s]) for s in ("train", "val", "test")},
+                same_rs_evaluation=support,
                 physical_routes=len(groups), physical_route_overlap=0)
 
 

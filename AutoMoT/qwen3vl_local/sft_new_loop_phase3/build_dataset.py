@@ -80,6 +80,7 @@ from qwen3vl_local.sft_new_loop_phase3.annotation_repair import repair_annotatio
 
 RGB_HISTORY_COUNT = 4
 NO_ACTION_SIGNATURE = "KEEP"
+FRAME_INDEX_FORMAT = "sft_new_loop_phase3_frame_index_v5_binary_keep"
 
 
 def _source_routes(collection_dir, scenario, args):
@@ -534,7 +535,7 @@ def _balanced_invalid_rows(
     # 构建与 train/eval 使用同一个配额实现；避免 index 与运行时口径漂移。
     from types import SimpleNamespace
     from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (
-        InvalidQuotaError, balanced_invalid_items, invalid_subgroup_report,
+        InvalidQuotaError, balanced_invalid_items, invalid_subgroup_report, same_rs_support_report,
     )
     pool = [SimpleNamespace(**r) for bucket in candidate_buckets.values() for r in bucket]
     pool.extend(SimpleNamespace(**r) for r in same_rs_rows)
@@ -559,6 +560,9 @@ def _balanced_invalid_rows(
     report['quota'] = {'requested_target': requested_target, 'effective_target': target,
                        'adjusted': target != requested_target, 'source_seed_counts': source_seeds}
     report['candidate_buckets'] = {k: len(v) for k, v in sorted(candidate_buckets.items())}
+    pairs = Counter(f'{r.true_rs}/{r.prompt_road_structure}/{r.context_id}' for r in pool)
+    report['candidate_true_prompt_rs_context'] = {'counts': dict(sorted(pairs.items()))}
+    report['candidate_same_rs_support'] = same_rs_support_report([SimpleNamespace(**r) for r in same_rs_rows])
     report['same_rs_candidate_rows'] = len(same_rs_rows)
     return [vars(row) for row in selected], report
 
@@ -762,7 +766,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     temporary.replace(target)
 
     manifest = {
-        "format": "sft_new_loop_phase3_frame_index_v5_binary_keep",
+        "format": FRAME_INDEX_FORMAT,
         "split_contract": "physical_route_without_rep_or_collection_timestamp",
         "development_route_groups": len(development_route_groups()),
         "development_route_policy": "old audit pool is train-only; new val/test exclude these physical routes",

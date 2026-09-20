@@ -63,10 +63,8 @@ def mismatched_road_contexts(*, true_rs: str, is_junction: bool,
         fake_candidates = ("R3",)
     else:
         fake_candidates = ()
-    return tuple((ctx, next(fake for fake in fake_candidates
-                            if fake in CONTEXT_BY_ID[ctx].allowed_rs))
-                 for ctx in CONTEXT_IDS
-                 if any(fake in CONTEXT_BY_ID[ctx].allowed_rs for fake in fake_candidates))
+    return tuple((ctx, fake) for ctx in CONTEXT_IDS for fake in fake_candidates
+                 if fake in CONTEXT_BY_ID[ctx].allowed_rs)
 
 
 @dataclass(frozen=True)
@@ -161,6 +159,27 @@ def _cycle_sample(items: Sequence[_T], count: int, rng: random.Random) -> List[_
     return sampled
 
 
+def _sample_prompt_roads(items, count, rng, existing):
+    """同一来源/真实道路/事件内平衡错误RS，覆盖种子也计入配额。"""
+    if count <= 0:
+        return []
+    buckets = defaultdict(list)
+    for item in items:
+        buckets[getattr(_row_of(item), "prompt_road_structure", "")].append(item)
+    if len(buckets) <= 1:
+        return _cycle_sample(items, count, rng)
+    used = Counter(getattr(_row_of(item), "prompt_road_structure", "") for item in existing)
+    order = sorted(buckets)
+    rng.shuffle(order)
+    additions = Counter()
+    for _ in range(count):
+        key = min(order, key=lambda key: used[key])
+        used[key] += 1
+        additions[key] += 1
+    return [item for key in order
+            for item in _cycle_sample(buckets[key], additions[key], rng)]
+
+
 def invalid_subgroup_keys(row: Any) -> Dict[str, str]:
     """返回一行 invalid 的三个可审计维度。"""
 
@@ -244,6 +263,19 @@ def _coverage_plan(by_source, *, require_coverage: bool):
         for asked in REQUIRED_WRONG_CONTEXTS:
             if asked not in covered_contexts:
                 add([(sig, bucket) for sig, bucket in buckets if sig.asked_context == asked])
+        # 每个来源保留可重复抽样的自动负例，避免人工种子占满构建配额后，
+        # 运行时增大验证预算只能重复人工题或直接失败。
+        for source in sorted(by_source):
+            if any(sig.source_class == source and all(
+                    getattr(_row_of(item), "invalid_reason", "") != "same_rs_wrong_event"
+                    for item in bucket) for sig, bucket in planned):
+                continue
+            automatic = [(sig, [item for item in bucket
+                          if getattr(_row_of(item), "invalid_reason", "") != "same_rs_wrong_event"])
+                         for sig, bucket in buckets if sig.source_class == source]
+            automatic = [(sig, bucket) for sig, bucket in automatic if bucket]
+            if automatic:
+                add(automatic)
     return planned, used
 
 
@@ -318,6 +350,9 @@ def balanced_invalid_items(
         source_used[signature.source_class] += 1
         signature_used[signature.canonical] += 1
 
+    seeded_by_signature = defaultdict(list)
+    for item in sampled:
+        seeded_by_signature[signature_for_row(_row_of(item)).canonical].append(item)
     for source_class in sorted(by_source):
         signature_buckets = by_source[source_class]
         remaining = source_quotas[source_class] - source_used[source_class]
@@ -331,7 +366,8 @@ def balanced_invalid_items(
             signature_used[signature] += 1
             additions[signature] += 1
         for signature in signature_order:
-            sampled.extend(_cycle_sample(signature_buckets[signature], additions[signature], rng))
+            sampled.extend(_sample_prompt_roads(
+                signature_buckets[signature], additions[signature], rng, seeded_by_signature[signature]))
     # 同 RS 人工负例按独立输入无放回补入，不用25%目标循环稀有帧。
     same_by_signature = defaultdict(list)
     for item in unique_cases(same_rs):
@@ -363,17 +399,23 @@ def balanced_invalid_items(
             sampled[index] = rng.choice(alternatives)
             capacity_reallocations += 1
     desired = min(round(target * .25), len(unique_cases(same_rs)))
+    automatic_counts = Counter(signature_for_row(_row_of(item)).source_class for item in sampled
+                               if getattr(_row_of(item), "invalid_reason", "") != "same_rs_wrong_event")
     for index in rng.sample(range(len(sampled)), len(sampled)):
         if len(seen_same) >= desired:
             break
         item = sampled[index]
         if getattr(_row_of(item), "invalid_reason", "") == "same_rs_wrong_event":
             continue
+        source = signature_for_row(_row_of(item)).source_class
+        if automatic_counts[source] <= 1:
+            continue  # 不让25%软目标耗尽该来源可重采样的自动负例。
         bucket = [x for x in same_by_signature[signature_for_row(_row_of(item)).canonical]
                   if case_identity(x) not in seen_same]
         if bucket:
             sampled[index] = rng.choice(bucket)
             seen_same.add(case_identity(sampled[index]))
+            automatic_counts[source] -= 1
     rng.shuffle(sampled)
     if len(sampled) != int(target):
         raise AssertionError(f"INVALID sampler built {len(sampled)} rows, expected {target}")
@@ -423,6 +465,14 @@ def require_same_rs_support(items, *, stage):
                          f"requires >= {MIN_SAME_RS_PHYSICAL_ROUTES}; review/rebuild the pool or its sampling coverage")
 
 
+def same_rs_support_report(items):
+    """人工事件负例只报告支持程度，不作为构建或训练的必需桶。"""
+    from qwen3vl_local.sft_new_loop_phase3.quality_guards import same_rs_coverage
+    groups = {physical_group_for_item(item) for item in items
+              if getattr(_row_of(item), "invalid_reason", "") == "same_rs_wrong_event"}
+    return same_rs_coverage(len(groups))
+
+
 def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
     """统计 source、true RS、错误上下文和三者联合签名。"""
 
@@ -432,6 +482,8 @@ def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
     signature_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
     reason_context_counts: Counter[str] = Counter()
+    prompt_rs_counts: Counter[str] = Counter()
+    prompt_pair_counts: Counter[str] = Counter()
     per_source_signature_counts: Dict[str, Counter[str]] = defaultdict(Counter)
     for item in items:
         row = _row_of(item)
@@ -441,6 +493,9 @@ def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
         reason = getattr(row, 'invalid_reason', '') or 'wrong_road_structure'
         reason_counts[reason] += 1
         reason_context_counts[f'{reason}/{signature.asked_context}'] += 1
+        prompt_rs = getattr(row, 'prompt_road_structure', '') or 'UNKNOWN'
+        prompt_rs_counts[prompt_rs] += 1
+        prompt_pair_counts[f'{signature.true_rs}/{prompt_rs}/{signature.asked_context}'] += 1
         source_counts[signature.source_class] += 1
         true_rs_counts[signature.true_rs] += 1
         context_counts[signature.asked_context] += 1
@@ -460,6 +515,10 @@ def invalid_subgroup_report(items: Sequence[Any]) -> Dict[str, Any]:
         "total": int(sum(source_counts.values())),
         "source_class": source_report,
         "true_rs": _count_report(true_rs_counts),
+        "prompt_rs": _count_report(prompt_rs_counts),
+        "true_prompt_rs_context": _count_report(prompt_pair_counts),
+        "same_rs_support": same_rs_support_report(items),
+        "balance_policy": "source_then_true_rs_context_then_prompt_rs_v2",
         "asked_context": _count_report(context_counts),
         "joint_signature": _count_report(signature_counts),
         "reason": _count_report(reason_counts),

@@ -1353,6 +1353,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             min_stop_recall=float(cfg.get("generation_eval_min_stop_recall", .8)),
             min_no_action_exact=float(cfg.get("generation_eval_min_no_action_exact", .5)))
         metrics["production_ready"] = bool(not args.audit_prompt and metrics["generation_guards"]["all_ok"]
+            and metrics["generation_guards"]["evaluation_complete"]
             and all(report.get("invalid_rate", 1) == 0 for report in per_key.values()))
     (output_dir / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [

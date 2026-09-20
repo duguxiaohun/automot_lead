@@ -14,6 +14,7 @@ from qwen3vl_local.action_prior import prepare_event_balance as preparation
 from qwen3vl_local.action_prior import event_balance as balance
 from qwen3vl_local.action_prior.contracts import file_hash
 from qwen3vl_local.sft_new_loop_phase3 import source_mapping
+from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def prepared_sources(tmp_path, monkeypatch):
             (out / 'candidate_frames.jsonl').write_text(json.dumps(row) + '\n')
             (out / 'candidate_counts.json').write_text(json.dumps({'train/UE1': 1}))
             (out / 'manifest.json').write_text(json.dumps(dict(
-                format='sft_new_loop_phase3_frame_index_v3_current_phase',
+                format=FRAME_INDEX_FORMAT,
                 frame_index=str(out / 'frame_index.jsonl'), mapping_contract_hash=state['mapping'])))
         else:
             if state['fail_full']:
@@ -85,6 +86,66 @@ def test_prepare_builds_reuses_and_rebuilds_for_changed_sources(prepared_sources
     captured = capsys.readouterr()
     assert captured.out == ''
     assert '[prepare] published:' in captured.err and '[prepare] reuse cache:' in captured.err
+
+
+def test_real_phase3_writer_passes_action_publication_and_reuse(prepared_sources, monkeypatch):
+    """只替换原始数据读取；真实Phase3均衡、manifest写入与Action发布必须相容。"""
+    from qwen3vl_local.sft_new_loop_phase3 import build_dataset as phase3, same_rs_invalid
+    from qwen3vl_local.sft_new_loop_phase3.test_build_invalid_quota import candidates
+    from qwen3vl_local.sft_new_loop_phase3.trajectory_action import longitudinal_decision
+    data, collection, cache, state = prepared_sources
+    bases, _ = candidates()
+    for base in bases:
+        base['split'] = 'train'
+        base['mapping_contract_hash'] = state['mapping']
+        base['action_evidence'].update(
+            longitudinal_decision=longitudinal_decision([8, 7, 6, 5, 5, 5, 5, 5, 5]),
+            lateral_observation_complete=True, lane_change_direction='')
+    monkeypatch.setattr(phase3, 'mapping_contract_hash', lambda: state['mapping'])
+    monkeypatch.setattr(phase3, 'iter_base_frames', lambda *a, **k: iter(bases))
+    monkeypatch.setattr(same_rs_invalid, 'reviewed_invalid_rows', lambda *a: [])
+    monkeypatch.setattr(phase3, 'load_review_coverage', lambda **k: (
+        {'synthetic': {'Town01': {'completed_routes': 1}}}, 'synthetic-input-only'))
+    original_builder = preparation.run_builder
+
+    def builder(script, arguments):
+        """Phase3调用真实构建函数，full-map继续用已有的小数据模拟。"""
+        if Path(script).name != 'build_dataset.py':
+            return original_builder(script, arguments)
+        state['calls'].append('build_dataset.py')
+        with monkeypatch.context() as patch:
+            patch.setattr(sys, 'argv', [str(script), *map(str, arguments),
+                                      '--val-ratio', '0', '--test-ratio', '0'])
+            phase3.build_dataset(phase3.parse_args())
+
+    monkeypatch.setattr(preparation, 'run_builder', builder)
+    full_path = preparation.prepare('raw', data, collection, cache)
+    candidate_dir = next(cache.glob('phase3_*'))
+    manifest = json.loads((candidate_dir / 'manifest.json').read_text())
+    assert manifest['format'] == FRAME_INDEX_FORMAT
+    assert Path(manifest['frame_index']) == candidate_dir / 'frame_index.jsonl'
+    assert len(preparation._candidate_membership(candidate_dir / 'candidate_frames.jsonl', state['mapping'])) == len(bases)
+    assert preparation.prepare('raw', data, collection, cache) == full_path
+    assert state['calls'] == ['build_dataset.py', 'build_event_balance_index.py']
+
+
+@pytest.mark.parametrize('field,value,message', [
+    ('format', 'sft_new_loop_phase3_frame_index_v3_current_phase', 'format mismatch'),
+    ('format', 'unknown_future_format', 'format mismatch'),
+    ('mapping_contract_hash', 'old-hash', 'mapping hash mismatch'),
+    ('frame_index', 'other.jsonl', 'invalid frame-index artifact'),
+])
+def test_candidate_contract_errors_are_specific(prepared_sources, field, value, message):
+    """共用新格式不代表放行旧/未知schema、旧映射或错误的产物文件。"""
+    data, collection, cache, state = prepared_sources
+    preparation.prepare('raw', data, collection, cache)
+    directory = next(cache.glob('phase3_*'))
+    path = directory / 'manifest.json'
+    manifest = json.loads(path.read_text())
+    manifest[field] = value
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match=message):
+        preparation._candidate_membership(directory / 'candidate_frames.jsonl', state['mapping'])
 
 
 @pytest.mark.parametrize('script_name', ['build_dataset.py', 'build_event_balance_index.py'])

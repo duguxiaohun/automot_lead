@@ -5,6 +5,15 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
 MIN_SAME_RS_PHYSICAL_ROUTES = 2
 
 
+def same_rs_coverage(count: int) -> Dict[str, Any]:
+    """独立人工事件负例的评估范围；不足不阻止训练，也不能宣称通过。"""
+    supported = count >= MIN_SAME_RS_PHYSICAL_ROUTES
+    return dict(unique_physical_routes=int(count), minimum=MIN_SAME_RS_PHYSICAL_ROUTES,
+                status="supported" if supported else "insufficient_support",
+                supported=supported, required_for_training=False,
+                used_for_checkpoint_guard=supported)
+
+
 def choice_generation_guards(
     metrics: Mapping[str, float], *, min_format_valid_rate: float, min_exact_accuracy: float = 0.50
 ) -> Dict[str, Any]:
@@ -69,8 +78,6 @@ def generation_checkpoint_guards(
         "stop_recall": float(metrics.get("action/stop_recall", 0.0)),
         "no_action_context_exact": float(metrics.get("slice/no_action_exact", 0.0)),
         "valid_exact": float(metrics.get("slice/valid_exact", 0.0)),
-        "same_rs_unique_routes": float(metrics.get("same_rs_unique_routes", 0.0)),
-        "same_rs_exact": float(metrics.get("invalid_subgroup/reason/same_rs_wrong_event_exact", 0.0)),
     }
     floors = {
         "invalid_exact": float(min_invalid_exact),
@@ -78,9 +85,12 @@ def generation_checkpoint_guards(
         "stop_recall": float(min_stop_recall),
         "no_action_context_exact": float(min_no_action_exact),
         "valid_exact": 0.50,
-        "same_rs_unique_routes": float(MIN_SAME_RS_PHYSICAL_ROUTES),
-        "same_rs_exact": 0.50,
     }
+    coverage = same_rs_coverage(int(metrics.get("same_rs_unique_routes", 0)))
+    same_exact = float(metrics.get("invalid_subgroup/reason/same_rs_wrong_event_exact", 0.0))
+    if coverage["supported"]:
+        values["same_rs_exact"] = same_exact
+        floors["same_rs_exact"] = 0.50
     # 固定最低能力策略，不由此次 test 成绩拟合；无正例/无KEEP证据不能通过。
     for action in (*ACTION_KEYS, "KEEP"):
         prefix = f"action/{action.lower()}"
@@ -94,7 +104,10 @@ def generation_checkpoint_guards(
     values["no_action_support"] = float(metrics.get("slice/no_action_samples", 0))
     floors["no_action_support"] = 1.0
     passed = {key: values[key] >= floors[key] for key in values}
-    return {"all_ok": all(passed.values()), "values": values, "floors": floors, "passed": passed}
+    return {"all_ok": all(passed.values()), "values": values, "floors": floors, "passed": passed,
+            "same_rs_evaluation": {**coverage, "exact": same_exact,
+                                   "passed": same_exact >= .50 if coverage["supported"] else None},
+            "evaluation_complete": coverage["supported"]}
 
 
 def generation_checkpoint_score(

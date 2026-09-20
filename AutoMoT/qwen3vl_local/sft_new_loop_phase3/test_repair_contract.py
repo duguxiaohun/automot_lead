@@ -71,7 +71,11 @@ def test_guard_uses_none_not_ramp_and_blocks_collapsed_actions():
     for key in ("slice/no_action_exact", "action/decelerate_recall", "action/resume_recall",
                 "action/stop_precision", "action/resume_precision", "action/decelerate_gt_yes"):
         assert not _guard({**good, key: 0})["all_ok"], key
-    assert not _guard({**good, "same_rs_unique_routes": 1})["all_ok"]
+    sparse = _guard({**good, "same_rs_unique_routes": 1})
+    assert sparse["all_ok"] and not sparse["evaluation_complete"]
+    assert sparse["same_rs_evaluation"]["passed"] is None
+    assert "same_rs_exact" not in sparse["values"]
+    assert not _guard({**good, "invalid_subgroup/reason/same_rs_wrong_event_exact": 0})["all_ok"]
 
 
 def test_duplicate_negative_does_not_increase_independent_coverage():

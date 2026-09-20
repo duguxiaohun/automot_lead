@@ -25,7 +25,7 @@ from qwen3vl_local.action_prior.event_balance import (
     SPECIAL_FILTERED, SPECIAL_BUCKETS, UNCONFIRMED,
 )
 from qwen3vl_local.sft_new_loop_phase3.annotation_repair import repair_annotation
-from qwen3vl_local.sft_new_loop_phase3.build_dataset import _event_codes, _last_bypass_frame, _rs_label
+from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT, _event_codes, _last_bypass_frame, _rs_label
 from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import context_detail, mapped_contexts, mapping_contract_hash
@@ -50,13 +50,16 @@ def _candidate_membership(path: Path, expected_hash: str):
         raise ValueError("candidate must be a complete current Phase3 output directory with manifest/counts")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     frame_index = path.with_name("frame_index.jsonl")
-    if (
-        manifest.get("format") != "sft_new_loop_phase3_frame_index_v3_current_phase"
-        or manifest.get("mapping_contract_hash") != expected_hash
-        or Path(manifest.get("frame_index", "")).name != frame_index.name
-        or not frame_index.is_file()
-    ):
-        raise ValueError("candidate manifest is stale, incomplete, or not the current Phase3 frame-index artifact")
+    if manifest.get("format") != FRAME_INDEX_FORMAT:
+        raise ValueError(f"{manifest_path}: candidate format mismatch: "
+                         f"actual={manifest.get('format')!r}, expected={FRAME_INDEX_FORMAT!r}; "
+                         "use matching Phase3/Action source and rebuild")
+    if manifest.get("mapping_contract_hash") != expected_hash:
+        raise ValueError(f"{manifest_path}: candidate mapping hash mismatch: "
+                         f"actual={manifest.get('mapping_contract_hash')!r}, expected={expected_hash!r}")
+    if Path(manifest.get("frame_index", "")).name != frame_index.name or not frame_index.is_file():
+        raise ValueError(f"{manifest_path}: missing or invalid frame-index artifact: "
+                         f"declared={manifest.get('frame_index')!r}, local={str(frame_index)!r}")
     expected_rows = sum(
         int(value) for key, value in json.loads(counts_path.read_text(encoding="utf-8")).items()
         if key.count("/") == 1

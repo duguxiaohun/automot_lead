@@ -10,6 +10,7 @@ from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_trajectory, label_actions
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+from qwen3vl_local.sft_new_loop_phase3.invalid_balance import mismatched_road_contexts
 
 
 def audit(index, data_root, action_output_mode="binary"):
@@ -33,6 +34,12 @@ def audit(index, data_root, action_output_mode="binary"):
             speeds = signals["future_speeds"]
             if speeds != row["action_evidence"]["future_speeds_exact_mps"]:
                 raise ValueError(f"raw speed mismatch: {run}/{row['frame_id']}")
+            if row.get("invalid_reason") == "wrong_road_structure":
+                allowed = mismatched_road_contexts(
+                    true_rs=row["true_rs"], is_junction=signals["is_junction"],
+                    distance_to_next_junction=signals["distance_to_next_junction"])
+                if (row["context_id"], row["prompt_road_structure"]) not in allowed:
+                    raise ValueError(f"unsupported synthetic INVALID: {run}/{row['frame_id']}")
             if not row["invalid_action_context"]:
                 labels = label_actions(signals)
                 keys = CONTEXT_BY_ID[row["context_id"]].action_keys

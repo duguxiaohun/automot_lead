@@ -45,39 +45,39 @@ def candidate_rows(reviewed_contexts=5):
 
 
 @pytest.mark.parametrize("seed", range(12))
-@pytest.mark.parametrize("target", [31, 32])
+@pytest.mark.parametrize("target", [41, 42])
 def test_quota_remainder_goes_to_required_reviewed_source(seed, target):
-    """总量32已有可行解，余数必须分给需要4条人工种子的来源，不能随机报错。"""
+    """总量42已有可行解，余数必须分给需要4条人工题加1条自动负例的来源，不能随机报错。"""
     rows = [row for row in candidate_rows(4) if row.invalid_source]
     sampled = balanced_invalid_items(rows, target=target, rng=random.Random(seed))
     report = invalid_subgroup_report(sampled)
     assert len(sampled) == target
-    assert report["source_class"]["counts"][CONTEXT_IDS[0]] == 4
+    assert report["source_class"]["counts"][CONTEXT_IDS[0]] == 5
     assert report["same_rs_unique_cases"] == 4
     assert report["same_rs_max_case_repeat"] == 1
     assert all(report["guards"].values())
 
 
 def test_real_shortage_reports_feasible_budget_and_retries_once():
-    """五个同来源人工题至少需41个 INVALID；验证上调到每类21、INVALID42。"""
+    """五个同来源人工题加自动负例至少需51个 INVALID；验证上调到每类26、INVALID52。"""
     rows = candidate_rows()
     for seed in range(12):
         with pytest.raises(InvalidQuotaError) as caught:
             balanced_invalid_items([r for r in rows if r.invalid_source], target=32,
                                    rng=random.Random(seed))
-        assert caught.value.required_target == 41
+        assert caught.value.required_target == 51
         work, audit = train._validation_work(rows, target_per_bin=16, seed=seed)
         assert audit["requested"] == 16
-        assert audit["effective"] == 21
+        assert audit["effective"] == 26
         assert audit["adjusted"]
-        assert audit["sampled_cases"] == 252
-        assert audit["class_counts"] == {**dict.fromkeys(CONTEXT_IDS, 21), "INVALID": 42}
+        assert audit["sampled_cases"] == 312
+        assert audit["class_counts"] == {**dict.fromkeys(CONTEXT_IDS, 26), "INVALID": 52}
         report = invalid_subgroup_report(work)
         assert report["same_rs_unique_cases"] == 5
         assert report["same_rs_max_case_repeat"] == 1
         assert all(report["guards"].values())
-        # 请求16后自动增容与显式21必须得到同一批题、同一顺序。
-        direct = train._balanced_work(rows, target_per_bin=21, seed=seed)
+        # 请求16后自动增容与显式26必须得到同一批题、同一顺序。
+        direct = train._balanced_work(rows, target_per_bin=26, seed=seed)
         assert [case_identity(x) for x in work] == [case_identity(x) for x in direct]
 
 
@@ -125,7 +125,7 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
                                      "--action-output-mode", mode, "--history-rgb-mode", rgb,
                                      "--output-dir", str(tmp_path / "not_created")])
     args = train.parse_args()
-    assert "data_v14" in args.index
+    assert "data_v19" in args.index
     for key, value in {"WORLD_SIZE": "4", "RANK": "0", "LOCAL_RANK": "0"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
@@ -140,7 +140,7 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
         monkeypatch.setattr(module, name, forbidden)
     train.train(args)
     assert not (tmp_path / "not_created").exists()
-    assert args.validation_sampling["loss"]["effective"] == (21 if mode == "binary" else 16)
+    assert args.validation_sampling["loss"]["effective"] == (26 if mode == "binary" else 16)
     assert args.validation_sampling["generation"]["effective"] == 32
     assert '[sampling-preflight] {"action_output_mode"' in capsys.readouterr().out
 
