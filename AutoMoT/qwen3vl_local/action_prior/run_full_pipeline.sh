@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# v13 Phase3 对齐：主要动作或 NONE；自动 v4 动作索引，NONE 保留 planning 但不追加具体动作。
+# 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
+# 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
+# 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
+# 续训恢复原配置并严格校验；完整参数和三组对照见 action_prior/OPTIMIZATION.md。
+# v13 Phase3 对齐：主要动作或 NONE；自动 v4 动作索引，NONE 保留场景事实 但不追加具体动作。
 # 在 AutoMoT/ 下运行；自动准备索引、自动选卡，默认直接图文 KV，不生成摘要。
 # 1. 数据集先验 + 均衡采样（去掉 --event-balanced 即自然采样）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 #
-# 2. 再加 high-level planning + Phase3 离线动作真值（自动标注，无需动作索引）：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-planning --high-level-action-prior
-#   去掉 --high-level-action-prior 只保留条件性 planning；两个开关默认均关闭。
+# 2. 再加 一句 Phase3 所选动作及场景原因（离线动作真值）（自动标注，无需动作索引）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-prior
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-prior
+#   去掉 --high-level-action-prior 保留原自然 RS/EVENT；动作开关默认关闭。
 #
 # 3. 续训（自动恢复原配置和开关）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
@@ -16,7 +20,7 @@
 #
 # 可选追加：--generate-analysis 生成摘要；--prior-noise 0.1 注入先验噪声。
 # 更多开关/环境变量见 run.md，审计见 AUDIT.md；动作真值模式暂不支持闭环。
-# 干净的 dataset-priors + high-level-planning 自动提供已确认特殊 RE；无需额外场景开关。
+# 干净的 dataset-priors + high-level-action-prior 自动提供已确认特殊 RE；无需额外场景开关。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

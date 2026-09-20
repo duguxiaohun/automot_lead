@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 import json
+import pytest
 import os
 from pathlib import Path
 import subprocess
@@ -128,6 +129,33 @@ def test_resume_args_keep_explicit_overrides(tmp_path):
     assert args.data_dir == "new_index"
     assert args.learning_rate == 3e-4
     assert args.output_dir == str(run_dir)
+
+
+@pytest.mark.parametrize("variant", ["bev_only", "qwen_simple"])
+def test_optimization_defaults_env_cli_and_saved_resume(tmp_path, monkeypatch, variant):
+    """新默认同步，环境覆盖保存值，CLI 再覆盖环境；续训不静默换算法。"""
+    from qwen3vl_local.action_prior.optimization_config import OPTIMIZATION_ENV
+    for key in OPTIMIZATION_ENV:
+        monkeypatch.delenv(key, raising=False)
+    args = common.parse_train_args(variant, [])
+    assert (args.optimizer, args.lr_scheduler) == ("muon_adamw", "cosine_restarts")
+    assert not hasattr(args, 'full_validation_policy')
+    saved = vars(args).copy()
+    saved.update(optimizer="adamw", lr_scheduler="cosine")
+    (tmp_path / "config.json").write_text(json.dumps(saved))
+    resume = ["--resume", str(tmp_path / "latest.pt")]
+    restored = common.parse_train_args(variant, resume)
+    assert (restored.optimizer, restored.lr_scheduler) == ("adamw", "cosine")
+    monkeypatch.setenv("OPTIMIZER", "muon_adamw")
+    monkeypatch.setenv("LR_SCHEDULER", "cosine_restarts")
+    override = common.parse_train_args(variant, [*resume, "--optimizer=adamw"])
+    assert (override.optimizer, override.lr_scheduler) == ("adamw", "cosine_restarts")
+    # 没有新字段的旧配置在恢复时仍解释为旧算法，后续源码合同另行核验。
+    (tmp_path / "config.json").write_text(json.dumps({"learning_rate": 1e-4}))
+    for key in OPTIMIZATION_ENV:
+        monkeypatch.delenv(key, raising=False)
+    restored = common.parse_train_args(variant, resume)
+    assert (restored.optimizer, restored.lr_scheduler) == ("adamw", "cosine")
 
 
 def test_launcher_restores_resume_world_size_default(tmp_path, monkeypatch):

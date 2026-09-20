@@ -10,8 +10,8 @@ def choice_generation_guards(
 ) -> Dict[str, Any]:
     """严格单选合同的上线守卫。
 
-    choice 保留 NONE、投影组合动作，只排除 invalid，所以不复用前提拒绝守卫。
-    仍要求整串 parser 格式、整体单选准确率，以及五个 high-level 和 NONE 的实际支持、精确率和召回。
+    choice 保留 KEEP、投影组合动作，只排除 invalid，所以不复用前提拒绝守卫。
+    仍要求整串 parser 格式、整体单选准确率，以及五个 high-level 和 KEEP 的实际支持、精确率和召回。
     """
 
     values: Dict[str, float] = {
@@ -22,7 +22,7 @@ def choice_generation_guards(
         "strict_format_valid_rate": float(min_format_valid_rate),
         "choice_exact_accuracy": float(min_exact_accuracy),
     }
-    for action in (*ACTION_KEYS, "NONE"):
+    for action in (*ACTION_KEYS, "KEEP"):
         prefix = f"action/{action.lower()}"
         values[f"{action}_support"] = float(metrics.get(prefix + "_gt_yes", 0.0))
         values[f"{action}_precision"] = float(metrics.get(prefix + "_precision", 0.0))
@@ -81,14 +81,14 @@ def generation_checkpoint_guards(
         "same_rs_unique_routes": float(MIN_SAME_RS_PHYSICAL_ROUTES),
         "same_rs_exact": 0.50,
     }
-    # 固定最低能力策略，不由此次 test 成绩拟合；无正例/无NONE证据不能通过。
-    for action in ACTION_KEYS:
+    # 固定最低能力策略，不由此次 test 成绩拟合；无正例/无KEEP证据不能通过。
+    for action in (*ACTION_KEYS, "KEEP"):
         prefix = f"action/{action.lower()}"
         values[action + "_support"] = float(metrics.get(prefix + "_gt_yes", 0))
         floors[action + "_support"] = 1.0
         values[action + "_precision"] = float(metrics.get(prefix + "_precision", 0))
         floors[action + "_precision"] = 0.50
-        if action in ("DECELERATE", "RESUME"):
+        if action in ("DECELERATE", "RESUME", "KEEP"):
             values[action + "_recall"] = float(metrics.get(prefix + "_recall", 0))
             floors[action + "_recall"] = 0.50
     values["no_action_support"] = float(metrics.get("slice/no_action_samples", 0))

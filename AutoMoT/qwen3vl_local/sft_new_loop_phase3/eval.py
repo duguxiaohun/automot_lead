@@ -165,7 +165,7 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     invalid_subgroup_report,
     unique_cases,
 )
-from qwen3vl_local.sft_new_loop_phase3.primary_action import count_none_prediction, PRIMARY_ACTION_VERSION
+from qwen3vl_local.sft_new_loop_phase3.choice_semantics import count_keep_prediction, PRIMARY_CHOICE_VERSION as PRIMARY_ACTION_VERSION
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
     DEFAULT_ACTION_OUTPUT_MODE,
@@ -324,6 +324,8 @@ def _read_rows(
             validate_action_rule(obj)
             from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
             validate_mapping_contract(obj)
+            from qwen3vl_local.sft_new_loop_phase3.choice_semantics import validate_choice_row
+            validate_choice_row(obj)
             speed = float(obj["current_speed_mps"])
             if not math.isfinite(speed) or speed < 0:
                 raise ValueError("current_speed_mps must be finite and nonnegative")
@@ -347,7 +349,7 @@ def _read_rows(
                     goal_ego_xy=(float(goal[0]), float(goal[1])),
                     history_rgb_paths=[_resolve_rgb_path(str(x), root) for x in obj.get("history_rgb_paths", [])],
                     latest_rgb_path=_resolve_rgb_path(str(obj.get("latest_rgb_path")), root),
-                    answers={key: bool(value) for key, value in (obj.get("answers") or {}).items()},
+                    answers=dict(obj["answers"]),
                     action_evidence=dict(obj.get("action_evidence") or {}),
                     invalid_source=str(obj.get("invalid_source") or ""),
                     invalid_reason=str(obj.get("invalid_reason") or "wrong_road_structure"),
@@ -502,7 +504,7 @@ def _make_item(row: FrameRow, *, seed: int, action_output_mode: str = "binary") 
 
 
 def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, Any]:
-    """记录主要动作/NONE、原始组合投影和 invalid 剔除。"""
+    """记录主要动作/KEEP、原始组合投影和 invalid 剔除。"""
 
     report: Counter = Counter()
     for row in rows:
@@ -548,7 +550,7 @@ def _balanced_cases(
         missing = [key for key in CONTEXT_IDS if not by_context.get(key)]
         if missing:
             raise ValueError(
-                "choice eval requires valid primary-action/NONE examples for every context; "
+                "choice eval requires valid primary-action/KEEP examples for every context; "
                 f"missing={missing} rejected={dict(sorted(rejected.items()))}"
             )
         rng = random.Random(f"{seed}:phase3_choice_eval:{len(eligible)}:{cases_per_bin}")
@@ -1053,9 +1055,12 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             signature_counts[f"{row.action_signature}/total"] += 1
             signature_counts[f"{row.action_signature}/exact"] += int(all_ok)
             if spec.action_output_mode == "choice":
-                count_none_prediction(action_counts,
-                    gt_none=not any(gt.get(key) == "YES" for key in ACTION_KEYS),
-                    predicted_none=strict_is_valid and not any(parsed.get(key) == "YES" for key in ACTION_KEYS))
+                count_keep_prediction(action_counts,
+                    gt_keep=not any(gt.get(key) == "YES" for key in ACTION_KEYS),
+                    predicted_keep=strict_is_valid and not any(parsed.get(key) == "YES" for key in ACTION_KEYS))
+            else:
+                count_keep_prediction(action_counts, gt_keep=gt.get("KEEP") == "YES",
+                                      predicted_keep=parsed.get("KEEP") == "YES")
             for key in ACTION_KEYS:
                 if key not in spec.output_keys:
                     continue
@@ -1202,7 +1207,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     per_key = {key: _binary_report(counter) for key, counter in metric_counts.items()}
     invalid_total = max(1.0, float(pattern_counts.get("invalid_gt_total", 0)))
     action_reports = {}
-    for key in (*ACTION_KEYS, "NONE"):
+    for key in (*ACTION_KEYS, "KEEP"):
         gt_yes = float(action_counts.get(f"{key}/gt_yes", 0))
         pred_yes = float(action_counts.get(f"{key}/pred_yes", 0))
         action_reports[key] = {
@@ -1236,7 +1241,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",
         "action_output_mode": action_output_mode,
         "action_output_mode_source": action_output_mode_source,
-        "primary_action_version": PRIMARY_ACTION_VERSION if action_output_mode == "choice" else None,
+        "primary_action_version": PRIMARY_ACTION_VERSION,
         "signature_semantics": "raw evidence signatures; choice exact uses primary-action targets",
         "history_rgb_mode": history_rgb_mode,
         "history_rgb_mode_source": history_rgb_mode_source,
@@ -1255,7 +1260,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         ),
         "audit_prompt": bool(args.audit_prompt),
         "sampling_contract": (
-            "Context-owned primary action or NONE: valid all-NO rows are included; compound evidence is "
+            "Context-owned primary action or KEEP: valid all-NO rows are included; compound evidence is "
             "projected by STOP > first crossing > speed. Only invalid contexts are excluded."
             if action_output_mode == "choice" else
             "Single-turn high-level action eval: ten contexts target 1:1; repeated inputs are deduplicated so actual counts can differ and each context "
@@ -1414,7 +1419,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Evaluate base Qwen or new Phase3 LoRA on balanced high-level action cases"
     )
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v14/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v19/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
     p.add_argument("--adapter-dir", default="")

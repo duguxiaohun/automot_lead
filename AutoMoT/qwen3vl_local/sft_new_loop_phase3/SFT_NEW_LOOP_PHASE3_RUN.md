@@ -1,23 +1,36 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-20，v14）
+# SFT New Loop Phase3 当前运行入口（2026-09-20，v19）
 
-默认 **4rgb + choice**，索引 **v14**，split seed **20260920**。
-每次只输出一个主要动作或 `NONE`：纵向域 3 个动作加 NONE，机动域 5 个动作加 NONE。
-有效全 NO 样本进入 NONE；原始纵横组合保留，由两包共用的 `primary_action.py` 投影：
-**STOP > 首次未来跨线 > 纵向动作 > NONE**。STOP 表示原判据已确认的当前等待或 1.5 秒内近停；
-其余组合用横向动作概括配合的速度变化。不是按场景强制选动作，也不是在测试错例上调阈值。
+默认 **4rgb + choice**，索引 **sft_new_loop_phase3_data_v19**，split seed **20260920**。
+模型每次输出一个主要动作，包括明确的 **KEEP**；纵向域三个变化动作加 KEEP，机动域五个变化动作加 KEEP。
+`scene_context` 仅描述道路、事件和已提供的历史；动作选项按十种上下文分别给出一至两句因果说明。
+UE2 减速/停车同时保留防碰撞、观察邻车与间隙、为可能绕行创造时机的联系；不是已经有安全空隙或必定变道。
+v16 删除全部未来数值时间窗、采样数和速度判定公式，模型判断主要的后续动作；历史RGB时间只描述已观察的输入。
+v17 将显式 KEEP 同步到判断题的提示词、标注、解析和评估；协议说明见 [V17_BINARY_KEEP_20260920.md](V17_BINARY_KEEP_20260920.md)。
+v18 复看十类26片段/506帧面板（补64帧早期历史），精确隔离两段 UE4 共35帧；
+动作说明统一条件、动作和作用，选择题明确主要机动，判断题说明纵横动作可先后发生。
+新边界审计只分桶报告，不修改速度阈值或自动过滤 KEEP；当前说明见 [V18_RGB_CAUSAL_REFINEMENT_20260920.md](V18_RGB_CAUSAL_REFINEMENT_20260920.md)。
+v18 同日复审修复：RE5 RESUME 同时覆盖等待后起步与行进中持续增速；边界审计支持训练验证的嵌套道路字段，
+报告匹配/漏配数量并对全漏配告警。该次修复当时沿用 v18；当前新训练使用下述 v19。
+v19 进一步复看 5 片段/91 帧面板，覆盖 12 条 KEEP 伴随车辆风险与零目标速度请求的题。
+十类 KEEP 明确允许阶段内短暂制动、不能解读成风险已消失；所有新候选和索引补充独立 `action_review`，
+记录控制响应、约束对象和原动作判据触发时刻，仅供审查，不进入模型输入或改变答案。
+边界审计另设 response/eval_response 桶，详见 [V19_RECORDED_RESPONSE_20260920.md](V19_RECORDED_RESPONSE_20260920.md)。
+去除未来数值倒计时的设计沿用 [V16_DIRECT_NEXT_ACTION_20260920.md](V16_DIRECT_NEXT_ACTION_20260920.md)。
+标注设计及此前26片段/442帧面板复核见 [V15_CAUSAL_KEEP_20260920.md](V15_CAUSAL_KEEP_20260920.md)，其中v15提示词是历史版本。
 
-v14 精简条件性场景目的，区分冲突占道/清空和接近/等待/释放阶段；保留 v8 bounded-window 原始标定、异常 route 过滤及物理路线划分。
-`NONE` 不否定事件，不表示缺证据；invalid 前提仍不进入 choice。binary 显式可选，保留原始多标签诊断。
-choice 训练/验证按投影后的主要动作（含 NONE）平衡；单列 NONE precision/recall/support 并参与 best 守卫。
-action_prior 使用相同投影，先经 Phase1/2/RE gate，再选主要动作；NONE 只省略具体动作段，保留 planning。
+离线标注中，KEEP 允许小幅调速：机动域还要求未来3秒无新跨线；纵向域只表示速度阶段保持，不断言车道保持。
+已完成变道后事件可以继续成立；缺证据、歧义窗、错误前提不能变成 KEEP，当前持续等待仍为 STOP。
+保留 v8 轨迹窗口/阈值、STOP > 首跨 > 速度的优先级、异常 route 过滤和物理路线隔离；
+主要跨线前可以先减速，当前标签不等于逐阶段预测最先执行的反应。
+原始动作布尔证据留作审计；binary 增加独立 KEEP 行，合法保持不再用全 NO 隐含表达。
+KEEP 与所有变化动作互斥；invalid 时包括 KEEP 在内的所有动作均 NO。默认 choice 只输出一个动作名称。
+KEEP 的 support/precision/recall 参与 best 守卫；因果说明属于公开场景知识，不是逐帧驾驶员意图真值。
 
-必须新建 **sft_new_loop_phase3_data_v14** 并重新训练；旧索引、adapter、action 动作索引和缓存合同不能混用。
-不要用 `SKIP_BUILD=1` 复用旧索引。旧 run 用原源码恢复。v14 尚无真实训练/测试成绩；v13 四组结果已审计，见下方链接；
-v13之前的历史 choice 成绩只覆盖唯一正动作子集，不能移植到加入 NONE/组合投影后的任务。
-本轮已曝光 test/导出 val 合计346个物理组加入 train-only，新 seed=20260920。
-44片段/748帧的逐帧结论、精确隔离、天气处理与验证见 [EVAL_REVIEW_20260920.md](EVAL_REVIEW_20260920.md)；
-v13结果见 [AUDIT_COMPARISON_20260920.md](AUDIT_COMPARISON_20260920.md)。
-设计与串联 demo 见 [V13_PRIMARY_ACTION_20260919.md](V13_PRIMARY_ACTION_20260919.md)。
+必须重建 v19 索引并新训，旧 run 用原源码恢复；不要用 `SKIP_BUILD=1` 复用旧索引。
+当前 Phase3 沿用 v18 精确隔离规则并完善提示词与审查证据；action_prior 保持旧 NONE/门控协议，其 oracle 继续读取原始布尔动作证据。
+不能把 v17 KEEP 文本直接塞进旧 action_prior 外部预测接口；该接口会按不支持的输入拒绝。
+历史 v14 复核和346个已曝光物理组的 train-only 隔离继续生效；本轮复用已曝光素材，不引入新 holdout。
+本轮完成覆盖十类的局部索引冒烟和 CPU 验证，尚未重建全量生产索引或训练模型。
 
 直接重新训练并自动评测（默认自动选四张空闲 GPU）：
 
@@ -49,9 +62,9 @@ GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash q
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 python qwen3vl_local/sft_new_loop_phase3/preflight.py \
-  --index checkpoints/sft_new_loop_phase3_data_v14/frame_index.jsonl
+  --index checkpoints/sft_new_loop_phase3_data_v19/frame_index.jsonl
 python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
-  --index checkpoints/sft_new_loop_phase3_data_v14/frame_index.jsonl \
+  --index checkpoints/sft_new_loop_phase3_data_v19/frame_index.jsonl \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
@@ -66,10 +79,10 @@ SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 ```
 
-不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 保留有效单动作、组合投影与 NONE；仅排除 invalid。
+不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 保留有效单动作、组合投影与 KEEP；仅排除 invalid。
 `INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
 历史09/16负例曾增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；新划分支持需重验，不能沿用旧计数。
-历史隔离路线继续为 train-only，并追加本轮曝光名单。下面按日期保留历史说明，旧索引题数不代表 v14。
+历史及v14曝光路线继续为 train-only，本轮没有新增 holdout 曝光。下面按日期保留历史说明，旧索引题数不代表 v19。
 两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
 
 ## 2026-09-15：启动时报 INVALID quota 不足
@@ -152,27 +165,27 @@ GPU_IDS=0,1,2,3 DDP_TIMEOUT_SECONDS=3600 GENERATION_EVAL_LOG_EVERY=10 \
 `sft_new_loop_phase3` 是 Phase1（RS + 三个可见事实）和 Phase2（EVENT）之后的
 **high-level 动作决策**阶段。它把前两阶段已经确定的道路结构与异常事件标志当作
 待核对前提写进 prompt；R-E2/R-E3/R-E5 可由显式导航/历史 gate 或
-`dispatch.plan_candidate_requests` 提出候选，binary 可在同轮核对 invalid；choice 的前提有效性由上游门控承担，NONE 不能充当 invalid。
+`dispatch.plan_candidate_requests` 提出候选，binary 可在同轮核对 invalid；choice 的前提有效性由上游门控承担，KEEP 不能充当 invalid。
 
 - 输入只有一个 system turn 和一个 user turn；
 - user turn = 四帧（或两端点）拼接 RGB history + 场景前提文本 + route 目标点的
   ego 相对坐标；
 - 不渲染任何 `R1/R4/U-E2/UE3` 之类的数据集 code，也没有 synthetic assistant 前缀；
-- binary 问题组最后回答 `INVALID_ACTION_CONTEXT`；默认 choice 只输出一个主要动作名称或 NONE。
+- binary 问题组最后回答 `INVALID_ACTION_CONTEXT`；默认 choice 只输出一个主要动作名称或 KEEP。
 
 ### 输出模式：`binary` 与 `choice`
 
-显式 `ACTION_OUTPUT_MODE=binary` 保持原合同：纵向 context 输出三条速度动作加
-`INVALID_ACTION_CONTEXT`，机动 context 输出五条动作加 invalid。默认 `choice` 则由已确认的
+显式 `ACTION_OUTPUT_MODE=binary` 保留逐动作二值输出：纵向 context 输出三条速度动作、
+`KEEP` 和 `INVALID_ACTION_CONTEXT`（共五行），机动 context 输出五条变化动作、KEEP 和 invalid（共七行）。默认 `choice` 则由已确认的
 事件 context 决定候选集合，模型只输出一行完整动作词组，例如 `STOP`。候选词组按 case
 seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，答案词组本身不变：
 
 | 事件域 | 动作候选 | 额外候选 | 输出例子 |
 | --- | --- | --- | --- |
-| 纵向让行（U-E1/U-E3/U-E5/U-E6/U-E7/R-E5） | `DECELERATE`、`STOP`、`RESUME` | `NONE` | `STOP` |
-| 机动（U-E2/U-E4/R-E2/R-E3） | 五个 high-level 动作 | `NONE` | `LANE_CHANGE_LEFT` |
+| 纵向让行（U-E1/U-E3/U-E5/U-E6/U-E7/R-E5） | `DECELERATE`、`STOP`、`RESUME` | `KEEP` | `STOP` |
+| 机动（U-E2/U-E4/R-E2/R-E3） | 五个 high-level 动作 | `KEEP` | `LANE_CHANGE_LEFT` |
 
-候选按 `动作名称: 简要英文释义` 显示，名称和释义一起乱序，展示当前事件所属的三/五个动作加 NONE：
+候选按 `动作名称: 场景内因果释义` 显示，名称和释义一起乱序，展示当前事件所属的三/五个动作加 KEEP：
 
 | 动作名称 | 释义要点 |
 | --- | --- |
@@ -181,29 +194,28 @@ seed 稳定打乱；同一 case 可复现，换 case 的显示顺序会变化，
 | `RESUME` | 持续增速，不要求此前停过车 |
 | `LANE_CHANGE_LEFT` | 最新帧之后第一次跨越车道边界，方向为自车朝向的左侧 |
 | `LANE_CHANGE_RIGHT` | 最新帧之后第一次跨越车道边界，方向为自车朝向的右侧 |
-| `NONE` | 当前窗口没有候选动作达到判据，场景前提仍可成立 |
+| `KEEP` | 继续当前行进阶段，允许小幅调速；机动域无新跨线，纵向域不判断横向 |
 
-时间窗和数值阈值仍由候选上方的统一规则限定。模型只输出冒号前的动作名称，例如
-`LANE_CHANGE_LEFT`，不能附带释义。释义进入 choice prompt hash；新训练使用此合同，
-此前不含释义的 choice adapter 与新提示词不兼容，binary 合同不受影响。
+时间窗和数值阈值仅由离线标注代码执行，模型输入不再显示；共用段只解释动作阶段。模型只输出冒号前的动作名称，例如
+`LANE_CHANGE_LEFT`，不能附带释义。释义进入两种模式的 prompt hash；新训练使用此合同，旧 adapter 不能套用新提示词。
 
-例如纵向事件某次乱序后的候选是：
+例如 UE1 某次乱序后的候选是（实际运行仍包含共用时间窗规则）：
 
 ```text
-- RESUME: Sustain a speed increase; a previous stop is not required.
-- STOP: Reach or remain at a sustained near-stop, including continued waiting.
-- DECELERATE: Reduce speed meaningfully without meeting the STOP condition.
-- NONE: No listed action qualifies in the prediction windows; retain the scene context.
+RESUME: Gain speed as the lead vehicle pulls away or following space opens, using the changing gap rather than the earlier braking event.
+STOP: Stop or continue waiting behind the lead vehicle to avoid a rear-end collision while the forward gap remains blocked.
+DECELERATE: Slow to avoid closing on the braking lead vehicle and rebuild following space while tracking its speed.
+KEEP: Continue at roughly the current speed while tracking the lead vehicle and following gap; earlier braking need not cause another speed change now. This speed-only choice makes no claim about lane changes.
 ```
 
 若答案是继续停车等待，模型只输出 `STOP`。变道问题忽略输入历史中已经发生的跨线，
 并只预测未来窗口的第一次跨线，之后的归位不另选一次。
 
-有效全 NO 行进入 `NONE`，纵横组合按 STOP > 首次跨线 > 纵向动作投影；仅 invalid 前提被剔除。
-原始 `answers` / `action_signature` 留在索引供 binary 与证据审计，`primary_action` 记录主要动作。
+证据完整、有效题域中的全 false 动作证据进入 `KEEP`，纵横组合按 STOP > 首次跨线 > 纵向动作投影；仅 invalid 前提被剔除。
+原始 `answers` / `action_signature` 留在索引供 binary 与证据审计，`primary_action` 记录主要动作，`keep_scope` 记录保持的题域；`primary_action_evidence_status` 记录完整性。
 choice 的 case `gt` 为主要动作监督，`action_answers` 为原始证据；不能混用两种 exact 指标。
-parser 严格接受恰好一行候选名称（包含 NONE），不允许解释或复合字符串。
-`production_ready` 要求严格格式、整体 exact，以及五种动作与 NONE 各自的支持、precision/recall。
+parser 严格接受恰好一行候选名称（包含 KEEP），不允许解释或复合字符串。
+`production_ready` 要求严格格式、整体 exact，以及五种动作与 KEEP 各自的支持、precision/recall。
 
 choice 没有独立 audit 输出格式，因而 `eval.sh` 默认将 `RUN_AUDIT_PROMPT_EVAL=auto` 解析为
 `0`，避免和 production 做一遍相同生成；仍会生成 production 错例 RGB 审计包和可视化审计。
@@ -291,7 +303,7 @@ reject a visibly incompatible candidate through `INVALID_ACTION_CONTEXT`.
 旧索引必须从原始 meta 重建；旧 prompt adapter 不能直接评测新合同。
 Phase1/2 的 prompt 和输出格式没有修改。最新审计见 `BOUNDARY_AUDIT_20260905.md`。
 
-## 3. 五个 high-level 动作
+## 3. 五个变化动作及 KEEP
 
 | 动作 | 含义 | 轨迹判据 |
 | --- | --- | --- |
@@ -301,8 +313,9 @@ Phase1/2 的 prompt 和输出格式没有修改。最新审计见 `BOUNDARY_AUDI
 | `LANE_CHANGE_LEFT` | 向左变道 / 借对向车道 / 向左合流 | 未来 3s 同 road 连续两帧确认新 Driving lane；整个观察窗必须 Driving；road 变更/路肩/缺类型不强标 NO；仍需 RGB/车道段复核 |
 | `LANE_CHANGE_RIGHT` | 向右变道 / 回原车道 / 向右驶出 | 同上，方向为右 |
 
-`DECELERATE / STOP / RESUME` 互斥；变道与纵向动作独立。五行全 NO 表示
-“没有达到所问高层动作的判据”，这是合法结果，不是 invalid；不表示逐帧精确恒速。
+`DECELERATE / STOP / RESUME` 互斥；变道与纵向动作独立。有效场景且证据完整时，
+所问变化动作均 NO 就显式标为 `KEEP:YES`；不表示逐帧精确恒速，也不表示事件已经结束。
+有任何所问动作 YES 时 KEEP 为 NO；错误前提下 INVALID 为 YES、包括 KEEP 在内的动作均 NO。
 只问纵向时，未问的横向动作保持未知。STOP 与变道 YES 使用不同时间窗，不要求同时执行。
 起步判据允许速度在正常行驶范围轻微回落；一旦达到 2 m/s，即时窗剩余部分持续不低于
 2 m/s，才将初始静止与继续停车分开，不能要求速度严格单调。
@@ -381,11 +394,11 @@ python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 比例的分母是有效样本：十桶各 N、invalid 2N，占总量 16.7%。训练默认
 `INVALID_FOCUS_MULTIPLIER=2.0`，定额 eval/generation 同样取 2N；全量 eval 保留原索引比例。
 每个上下文桶内部再按动作签名（`STOP` / `DECELERATE` / `RESUME` /
-`LANE_CHANGE_*` / `NONE` / 组合）尽量均分，保证五个动作都有足够正类。
+`LANE_CHANGE_*` / `KEEP` / 组合）尽量均分，保证五个动作都有足够正类。
 train 用 route 轮转选帧，val/test 用确定性抽样。
 
-这段构建口径保留原始多标签证据。choice 读取后剔除 invalid，把其余行投影为主要动作或 NONE，
-在每个 context 内按主要动作平衡。`choice_filter` 报告有效动作（包含 NONE）及 invalid 剔除量；
+这段构建口径保留原始多标签证据。choice 读取后剔除 invalid，把其余行投影为主要动作或 KEEP，
+在每个 context 内按主要动作平衡。`choice_filter` 报告有效动作（包含 KEEP）及 invalid 剔除量；
 组合行参与主要动作任务，指标不再表示纵横两个分量都预测正确。
 
 快速 smoke（每个 scenario 只取 40 条 route）：
@@ -515,7 +528,7 @@ python qwen3vl_local/sft_new_loop_phase3/audit_eval_cases.py \
 `decelerate_fn/fp`、`stop_fn/fp`、`resume_fn/fp`、`lane_change_left/right_fn/fp`、
 `lane_change_side_swap`（左右判反）、`longitudinal_multi_yes`（纵向互斥被破坏）、
 `invalid_context_fn/fp`、`invalid_context_not_all_no`、`no_action_fp`
-（本该全 NO 却给了动作）、`invalid_answer`（格式失效）。
+（本应 KEEP 却给了变化动作）、`invalid_answer`（格式失效）。
 每个错例目录里带一份 `audit_note.md`，含逐帧复核清单：情境是否可信、自车是否已在
 刹车/静止、是否仍在同两条车道线之间、是否被弯道误判成变道、目标点侧向是否与所需
 变道一致。

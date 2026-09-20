@@ -5,16 +5,16 @@ import json
 import os
 from pathlib import Path
 
-SCENE_PRIOR_POLICY = "dataset_planning_special_re_v1"
+SCENE_PRIOR_POLICY = "dataset_action_special_re_v2"
 LEGACY_SCENE_PRIOR_POLICY = "legacy_explicit_scene_priors"
 RE_CONTEXTS = frozenset(("RE2_NAVIGATION_TRANSITION", "RE2_PRIOR_OBSTACLE",
                          "RE2_RECOVERY_PENDING", "RE3", "RE5"))
 
 
 def automatic_scene_priors(args):
-    """仅干净的离线 planning 实验默认提供特殊 RE；不补回被扰动的条件。"""
+    """仅干净的离线动作实验默认提供特殊 RE；不补回被扰动的条件。"""
     return bool(getattr(args, "dataset_priors", False)
-                and getattr(args, "high_level_planning", False)
+                and getattr(args, "high_level_action_prior", False)
                 and getattr(args, "condition_mode", "prior") == "prior"
                 and float(getattr(args, "prior_noise", 0.0)) == 0.0)
 
@@ -52,7 +52,7 @@ def scene_contexts(args, contexts):
 def main():
     """shell 在构建索引前查询同一策略；CLI 按顺序覆盖显式环境值。"""
     parser = argparse.ArgumentParser(allow_abbrev=False)
-    for name in ("dataset_priors", "high_level_planning"):
+    for name in ("dataset_priors", "high_level_action_prior"):
         value = os.environ.get(name.upper(), "0")
         if value not in ("0", "1"):
             parser.error(f"{name.upper()} must be 0 or 1")
@@ -61,11 +61,15 @@ def main():
     parser.add_argument("--prior-noise", type=float, default=float(os.environ.get("PRIOR_NOISE", "0")))
     parser.add_argument("--condition-mode", default="prior")
     args, extra = parser.parse_known_args()
+    if "HIGH_LEVEL_PLANNING" in os.environ or any(
+        item.split("=", 1)[0] in ("--high-level-planning", "--no-high-level-planning") for item in extra
+    ):
+        parser.error("high-level-planning was removed; use only --high-level-action-prior for a selected action sentence")
     if "EVENT_BALANCED_SCENE_PRIORS" in os.environ or any(
         item.split("=", 1)[0] in ("--event-balanced-scene-priors", "--no-event-balanced-scene-priors")
         for item in extra
     ):
-        parser.error("event-balanced-scene-priors was removed; dataset-priors + high-level-planning "
+        parser.error("event-balanced-scene-priors was removed; dataset-priors + high-level-action-prior "
                      "automatically uses confirmed special RE when prior-noise is zero")
     print(int(automatic_scene_priors(args)))
 

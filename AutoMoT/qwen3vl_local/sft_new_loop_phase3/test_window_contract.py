@@ -70,22 +70,22 @@ def test_evidence_explains_label_without_changing_input_prompt():
 @pytest.mark.parametrize('rgb', ['4rgb', '2rgb_endpoints'])
 def test_v12_compact_prompt_is_answer_independent_while_v10_calibration_stays_bounded(mode, rgb):
     """v12 补充场景目的，不能泄漏答案或倒退 v10 的离线判定器。"""
-    spec = make_prompt_spec(variant='all_random_order', answers={'STOP': True}, seed_key='same-input',
+    spec = make_prompt_spec(variant='all_random_order', answers={key: key == 'STOP' for key in ('DECELERATE','STOP','RESUME','LANE_CHANGE_LEFT','LANE_CHANGE_RIGHT')}, seed_key='same-input',
         context_id='STATIC_BLOCKAGE', road_structure='R2', goal_xy=(30, 1),
         current_speed_mps=5, action_output_mode=mode)
     prompt = build_action_prompt(spec=spec, history_rgb_mode=rgb)
     changed = replace(spec, invalid_context=True,
         questions=tuple(replace(q, answer=not q.answer) for q in spec.questions))
     assert prompt == build_action_prompt(spec=changed, history_rgb_mode=rgb)
-    assert PROMPT_NAME.endswith("v14_observed_progress")
+    assert PROMPT_NAME.endswith("v19_response_aware_keep")
     assert ACTION_RULE_VERSION == "current_wait_first_crossing_v8_bounded_window"
     if mode == "binary":
         assert SPEED_ACTION_RULES in prompt
         assert LANE_ACTION_RULES in prompt
-        assert 'two consecutive samples' in prompt and 'max(1.2 m/s, 20% of current speed)' in prompt
+        assert 'sustained speed increase' in prompt and 'current waiting still counts' in prompt
     else:
-        assert "Choose one primary action or NONE. Speed: next 2 seconds." in prompt
-        assert 'two consecutive samples' in prompt and 'max(1.2 m/s, 20% of current speed)' in prompt
+        assert "Choose one main upcoming action including KEEP" in prompt
+        assert 'sustained speed increase' in prompt and 'current waiting still counts' in prompt
     assert 'crossings already in the input' in prompt
     assert 'earlier-started maneuver' not in prompt
     assert 'longitudinal_decision' not in prompt and 'future_speeds' not in prompt

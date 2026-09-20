@@ -59,7 +59,7 @@ def test_default_encodes_only_images_and_prior_prompt_and_isolates_cache(tmp_pat
     labels = SimpleNamespace(path="synthetic", rows=1, priors=read_labels)
     cache = TextCache(tmp_path / "cache")
     runtime = PriorEngine(engine, {"identity": "same"}, labels=labels,
-                          text_cache=cache, analysis_review=review, high_level_planning=high_level)
+                          text_cache=cache, analysis_review=review, high_level_action_prior=high_level)
 
     def forbidden(*args, **kwargs):
         """默认路径若发生任何摘要生成就立即失败。"""
@@ -81,15 +81,16 @@ def test_default_encodes_only_images_and_prior_prompt_and_isolates_cache(tmp_pat
     user = transcripts[0][1]["content"]
     assert user[:4] == images
     assert "4 m/s" in user[-1]
-    assert runtime.last_audit["high_level_planning"] is high_level
-    assert ("increase speed sustainably" in user[-1]) is high_level
-    assert (prompts.EVENT_DESCRIPTIONS["UE3"] in user[-1]) is (not high_level)
+    assert runtime.last_audit["high_level_action_prior"] is high_level
+    assert "sustain speed increases" not in user[-1]
+    assert transcripts[0][0]["content"] == prompts.system_prompt()
+    assert prompts.EVENT_DESCRIPTIONS["UE3"] in user[-1]
     for forbidden_text in ("YES", "NO", "UE3", "UE5", "hidden audit", "999", "Write the concise", "Predict the driving actions"):
         assert forbidden_text not in user[-1]
 
     talk = PriorEngine(engine, {"identity": "same"}, labels=labels,
                        text_cache=cache, analysis_review=review, generate_analysis=True,
-                       high_level_planning=high_level)
+                       high_level_action_prior=high_level)
     draft = "Another vehicle enters the immediate corridor; maintain clearance along the route."
 
     def generate(system, prompt, selected, **kwargs):
@@ -105,19 +106,21 @@ def test_default_encodes_only_images_and_prior_prompt_and_isolates_cache(tmp_pat
         assert talk.last_audit["analysis"] == draft
         assert talk.last_audit["final_cache_content"] == "inputs_and_analysis"
         assert transcripts[-1][-1] == {"role": "assistant", "content": draft}
+        assert transcripts[-1][0]["content"] == prompts.system_prompt(generate_analysis=True)
     assert len(labels_read) == 2 and len(prefills) == 4
     assert len(generation_calls) == 1 + int(review)
+    assert generation_calls[0] == prompts.system_prompt(generate_analysis=True)
 
     other = PriorEngine(engine, {"identity": "same"}, labels=labels, text_cache=cache,
-                        high_level_planning=not high_level)
+                        high_level_action_prior=not high_level)
     other.generate_messages = forbidden
     other.condition(images, navigation, "case", ("S", "R", 0))
     assert not other.last_audit["text_cache_hit"]
     assert len(labels_read) == 3
-    assert transcripts[-1] != transcripts[0]
+    assert transcripts[-1] == transcripts[0]  # 无动作时开关不改自然事实/系统文案。
 
 
-@pytest.mark.parametrize("option", ["generate_analysis", "high_level_planning"])
+@pytest.mark.parametrize("option", ["generate_analysis"])
 def test_mode_is_in_identity_and_cannot_be_changed_as_prior_source(tmp_path, monkeypatch, option):
     """切换 KV 模式必须训练新 decoder，允许标签来源变化不能绕过模式检查。"""
     from test_dataset_priors import dataset_args

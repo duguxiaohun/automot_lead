@@ -65,7 +65,7 @@ def test_lora_default_disables_generation_but_keeps_optional_review_setting(stub
     assert "--dataset-priors" not in tokens and "--prior-labels" not in tokens
 
 
-@pytest.mark.parametrize("option", ["generate-analysis", "high-level-planning", "high-level-action-prior"])
+@pytest.mark.parametrize("option", ["generate-analysis", "high-level-action-prior"])
 @pytest.mark.parametrize("cli,env,enabled", [
     ([], "1", True), ([], "0", False),
     (["--generate-analysis"], "0", True), (["--no-generate-analysis"], "1", False),
@@ -124,7 +124,7 @@ def test_uniform_planning_auto_forwards_the_full_event_mapping_source(stub):
     source = "/tmp/action_prior/full_event_mapping.jsonl"
     tokens = flags(run(
         "train.sh", [], stub,
-        DATASET_PRIORS="1", HIGH_LEVEL_PLANNING="1", EVENT_BALANCE_INDEX=source,
+        DATASET_PRIORS="1", HIGH_LEVEL_ACTION_PRIOR="1", EVENT_BALANCE_INDEX=source,
     ))
     assert "--sampling-mode" not in tokens  # uniform 是 parser 默认值
     assert "--event-balanced-scene-priors" not in tokens
@@ -135,7 +135,7 @@ def test_uniform_action_priors_forward_explicit_full_map_or_allow_auto_prepare(s
     """动作开关独立于重采样，显式 map 优先；不填索引交给自动准备。"""
     for source in ("", "/tmp/action/full_event_mapping.jsonl"):
         overrides = dict(EVENT_BALANCE_INDEX=source) if source else {}
-        tokens = flags(run("train.sh", ["--high-level-planning", "--high-level-action-prior"], stub, **overrides))
+        tokens = flags(run("train.sh", ["--high-level-action-prior"], stub, **overrides))
         assert "--high-level-action-index" not in tokens
         if source:
             assert value_of(tokens, "--event-balance-index") == source
@@ -368,7 +368,7 @@ def test_event_preflight_demo_forwards_mode_dataset_and_index(stub):
     (["--event-balanced"], {}),
     (["--sampling-mode=event_balanced"], {}),
     ([], {"EVENT_BALANCED": "1"}),
-    (["--high-level-planning"], {}),
+    (["--high-level-action-prior"], {}),
 ])
 def test_pipeline_auto_prepares_before_preflight_and_passes_map_to_eval(stub, tmp_path, args, env_overrides):
     """验证真正 shell 顺序，所有昂贵入口使用桩；无需传 DATA_DIR 或索引路径。"""
@@ -440,14 +440,14 @@ def test_pipeline_balanced_resume_does_not_rebuild_inputs(stub, tmp_path):
     (["--dataset-priors", "--sampling-mode=event_balanced"], {}, True),
     (["--dataset-priors"], {"EVENT_BALANCED": "1"}, True),
     (["--dataset-priors", "--no-event-balanced"], {"EVENT_BALANCED": "1"}, False),
-    (["--dataset-priors", "--high-level-planning"], {}, True),
-    (["--dataset-priors", "--high-level-planning", "--prior-noise=0.1"], {}, False),
-    (["--dataset-priors", "--high-level-planning", "--prior-noise=0"], {"PRIOR_NOISE": "0.1"}, True),
-    (["--dataset-priors", "--no-high-level-planning"], {"HIGH_LEVEL_PLANNING": "1"}, False),
-    (["--dataset-priors"], {"HIGH_LEVEL_PLANNING": "1"}, True),
-    (["--dataset-priors", "--high-level-planning", "--high-level-action-prior"], {}, True),
-    (["--dataset-priors", "--high-level-planning"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
-    (["--dataset-priors", "--high-level-planning", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
+    (["--dataset-priors", "--high-level-action-prior"], {}, True),
+    (["--dataset-priors", "--high-level-action-prior", "--prior-noise=0.1"], {}, True),
+    (["--dataset-priors", "--high-level-action-prior", "--prior-noise=0"], {"PRIOR_NOISE": "0.1"}, True),
+    (["--dataset-priors", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, False),
+    (["--dataset-priors"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
+    (["--dataset-priors", "--high-level-action-prior"], {}, True),
+    (["--dataset-priors", "--high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
+    (["--dataset-priors", "--high-level-action-prior", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, False),
 ])
 def test_pipeline_simple_switch_prepares_inputs_before_preflight_and_propagates_index(stub, tmp_path, options, env_extra, prepared):
     """执行真实 shell，用桩边界验证一条命令的准备/训练/评测顺序。"""
@@ -498,3 +498,17 @@ def test_pipeline_explicit_event_index_does_not_build_replacement(stub, tmp_path
     for call in all_flags(result.stdout):
         if len(call) > 2 and call[2] in ("train", "eval", "probe", "preflight"):
             assert value_of(call, "--event-balance-index") == str(supplied)
+
+
+@pytest.mark.parametrize("script", ["train.sh", "run_full_pipeline.sh"])
+@pytest.mark.parametrize("options,extra", [
+    (["--high-level-planning"], {}), (["--no-high-level-planning"], {}),
+    ([], {"HIGH_LEVEL_PLANNING": "1"}), ([], {"HIGH_LEVEL_PLANNING": "0"}),
+])
+def test_removed_planning_fails_before_preparation(script, options, extra, stub):
+    """旧入口不能静默改变实验，也不应先运行昂贵的数据准备。"""
+    result = subprocess.run(["bash", str(SCRIPTS / script), *options],
+                            cwd=ROOT, env=dict(stub, **extra), capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "high-level-planning was removed" in result.stderr
+    assert "PREPARE" not in result.stdout + result.stderr and "STUB" not in result.stdout

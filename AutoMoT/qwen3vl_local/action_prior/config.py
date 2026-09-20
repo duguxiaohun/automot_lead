@@ -17,12 +17,15 @@ from qwen3vl_local.action_prior.contracts import (
 )
 from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION
 from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
+from qwen3vl_local.action_prior.optimization_config import (
+    OPTIMIZATION_DEFAULTS, validate_optimization, optimization_plan,
+)
 from qwen3vl_local.action_prior.prompts import (
-    ANALYSIS_VERSION, SYSTEM_PROMPT, PREFILL_VERSION, PREFILL_SYSTEM_PROMPT,
-    HIGH_LEVEL_PLANNING_VERSION,
+    ANALYSIS_VERSION, PREFILL_VERSION, system_prompt,
 )
 
 DEFAULTS = dict(
+    **OPTIMIZATION_DEFAULTS,
     model_dir="checkpoints/Qwen3-VL-4B-Instruct",
     data_root="lead_data",
     data_dir="checkpoints/action_prior_data",
@@ -54,8 +57,7 @@ DEFAULTS = dict(
     analysis_review=True,
     # 默认图像+先验 prompt 一次 prefill，显式开启才生成摘要并追加到最终 KV。
     generate_analysis=False,
-    # 默认保留原自然先验；显式开启才替换为 Phase3 语义的条件性高层规划。
-    high_level_planning=False,
+    # 保留自然 RS/EVENT，显式开启时仅追加所选动作的 Phase3 场景因果句。
     high_level_action_prior=False,
     high_level_action_index="",
     recheck_mode="history",
@@ -72,7 +74,7 @@ DEFAULTS = dict(
     event_balanced_epoch_samples=0,
     event_balance_max_frame_repeats=8,
     best_selection_metric="natural_ade",
-    # 内部保存字段，不再暴露 CLI；新训练按 dataset/planning/noise 自动推导。
+    # 内部保存字段，不再暴露 CLI；新训练按 dataset/action/noise 自动推导。
     event_balanced_scene_priors=False,
     phase1_training_index="",
     phase2_training_index="",
@@ -230,17 +232,15 @@ def validate_args(args):
     # 后续仍严格核验执行指纹，补字段不表示旧 checkpoint 可以跨源码恢复。
     if not hasattr(args, "generate_analysis"):
         args.generate_analysis = True
-    if not hasattr(args, "high_level_planning"):
-        args.high_level_planning = False
+    if getattr(args, "high_level_planning", False):
+        raise ValueError("high-level-planning was removed; restore old runs with their original source")
     if not hasattr(args, "high_level_action_prior"):
         args.high_level_action_prior = False
     if not hasattr(args, "high_level_action_index"):
         args.high_level_action_index = ""
-    if args.high_level_action_prior and not args.high_level_planning:
-        raise ValueError("--high-level-action-prior requires --high-level-planning")
     # 关闭时路径仅为未使用的配置，允许 CLI 关闭开关覆盖环境中保留的索引路径。
-    if args.high_level_planning and args.condition_mode != "prior":
-        raise ValueError("high-level planning requires condition-mode prior")
+    if args.high_level_action_prior and args.condition_mode != "prior":
+        raise ValueError("high-level action prior requires condition-mode prior")
     if getattr(args, "selection_policy", "strict") not in ("available", "strict"):
         raise ValueError("selection_policy must be available or strict")
     if (
@@ -327,8 +327,7 @@ def validate_args(args):
         )
     if args.max_train_steps < 0 or args.val_max_samples < 0 or args.num_workers < 0:
         raise ValueError("step/sample/worker limits must be nonnegative")
-    if args.learning_rate <= 0 or not 0 <= args.warmup_ratio < 1:
-        raise ValueError("invalid LR/warmup")
+    validate_optimization(args)
     if args.loss_type != "mse":
         raise ValueError("action_prior Flow Matching requires --loss-type mse")
     from qwen3vl_local.action_prior.flow_matching import FlowMatchingConfig
@@ -462,10 +461,8 @@ def build_contract(args):
         bev=bev_hash,
         protocol=PROTOCOL_VERSION,
         analysis=ANALYSIS_VERSION if args.generate_analysis else PREFILL_VERSION,
-        system=SYSTEM_PROMPT if args.generate_analysis else PREFILL_SYSTEM_PROMPT,
+        system=system_prompt(generate_analysis=args.generate_analysis),
         generate_analysis=args.generate_analysis,
-        high_level_planning=args.high_level_planning,
-        planning_version=HIGH_LEVEL_PLANNING_VERSION if args.high_level_planning else "natural_default",
         scene_prior_policy=args.scene_prior_policy,
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
         high_level_action_input=action_input,
@@ -615,7 +612,6 @@ def training_plan(args, rows, world):
             args.prior_noise if getattr(args, "dataset_priors", False) else 0.0
         ),
         generate_analysis=args.generate_analysis,
-        high_level_planning=args.high_level_planning,
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
         final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
         independent_analysis_review=args.generate_analysis and args.analysis_review,
@@ -644,7 +640,11 @@ def training_plan(args, rows, world):
         total_planned_presentations=usable * args.num_epochs,
         partial_final_accumulation=(usable // world) % args.grad_accum_steps,
         learning_rate=args.learning_rate,
+        optimization=dict(schedule=optimization_plan(
+            args, min(args.max_train_steps, updates * args.num_epochs)
+            if args.max_train_steps else updates * args.num_epochs,
+        ), parameter_groups=None),
         validation_every_optimizer_steps=args.val_steps,
         periodic_validation_samples=args.val_max_samples,
-        epoch_validation="all validation frames",
+        epoch_validation="all validation frames; shared cycle boundaries also validate",
     )

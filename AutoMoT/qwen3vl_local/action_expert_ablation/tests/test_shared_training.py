@@ -35,7 +35,8 @@ def harness(tmp_path, monkeypatch):
         monkeypatch.setenv(key, "1")
     monkeypatch.setenv("RANK", "0")
     monkeypatch.setattr(lora_bundle, "preserve_for_training", lambda contract, out: contract)
-    contract = {"identity": "cpu_test", "phase1": {}, "phase2": {}}
+    from qwen3vl_local.action_prior.contracts import SCHEMA
+    contract = {"schema": SCHEMA, "identity": "cpu_test", "phase1": {}, "phase2": {}}
     monkeypatch.setattr(common, "build_contract", lambda *a: contract.copy())
     monkeypatch.setattr(train, "build_contract", lambda *a: contract.copy())
     rows = {}
@@ -66,11 +67,20 @@ def harness(tmp_path, monkeypatch):
                 assert kwargs["sample_trajectory"] is False
                 if state.failure == "mid_epoch" and len(state.train_cases) == 2:
                     raise RuntimeError("injected interruption")
+                if state.failure == "after_epoch" and len(state.train_cases) == 5:
+                    raise RuntimeError("injected after epoch interruption")
                 if state.failure == "sigterm" and len(state.train_cases) == 2:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                if state.failure == "sigterm_epoch" and len(state.train_cases) == 4:
                     os.kill(os.getpid(), signal.SIGTERM)
                 state.train_cases.append(sample["anchor"])
             else:
                 assert kwargs["sample_trajectory"] is True
+                if state.failure == "cycle_validation" and len(state.train_cases) == 7:
+                    raise RuntimeError("injected cycle interruption")
+                if state.failure == "sigterm_cycle" and len(state.train_cases) == 7:
+                    state.failure = "sigterm_cycle_sent"
+                    os.kill(os.getpid(), signal.SIGTERM)
                 if state.failure == "validation":
                     raise RuntimeError("injected interruption")
                 if state.failure == "sigterm_validation":
@@ -96,6 +106,67 @@ def harness(tmp_path, monkeypatch):
             common.train_main(variant)
         return torch.load(out / "latest.pt", weights_only=False)
     return run, state
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+@pytest.mark.parametrize("failure", ["cycle_validation", "sigterm_cycle"])
+def test_cycle_full_validation_deduplicates_and_resumes(harness, tmp_path, variant, failure):
+    """周期4位于epoch中，周期12与epoch/最终/小验证重合；验证中断后无更新丢失。"""
+    run, state = harness
+    cli = ("--num-epochs", "4", "--val-max-samples", "1")
+    baseline = tmp_path / "cycle_baseline"
+    reference = run(variant, baseline, extra=cli, val_steps=4)
+    # 完整验证3/4/6/9/12，各2样本；仅step8额外小验证1样本。
+    assert len(state.eval_cases) == 11
+    cycle_file = baseline / "validation/cycle_001_step00000004.json"
+    assert json.loads(cycle_file.read_text())["samples"] == 2
+    final = json.loads((baseline / "validation/epoch_004_step00000012.json").read_text())
+    assert final["validation_cycle"] == 2 and final["validation_final"]
+    assert not (baseline / "validation/step_00000004.json").exists()
+    assert not (baseline / "validation/step_00000012.json").exists()
+    tags = state.logs[str(baseline)]
+    assert [step for tag, _, step in tags if tag == 'val_cycle/route_ade_m'] == [4, 12]
+    assert any(tag.startswith('train/update/') for tag, _, _ in tags)
+
+    state.train_cases.clear(); state.eval_cases.clear()
+    state.failure = failure
+    out = tmp_path / "cycle_interrupted"
+    expected = RuntimeError if failure == "cycle_validation" else GracefulTerminationExit
+    with pytest.raises(expected):
+        run(variant, out, extra=cli, val_steps=4)
+    partial = torch.load(out / "latest.pt", weights_only=False)
+    assert partial['step'] == 4 and partial['cursor']['validation_cycle'] == 1
+    assert partial['cursor']['epoch'] == 1 and partial['cursor']['micro'] == 2
+    assert not (out / "validation/cycle_001_step00000004.json").exists()
+    state.failure = None
+    resumed = run(variant, out, resume=True, extra=cli, val_steps=4)
+    assert len(state.train_cases) == 20
+    assert resumed['cursor'] == reference['cursor']
+    for name in reference['decoder']:
+        assert torch.equal(reference['decoder'][name], resumed['decoder'][name])
+    assert resumed['best_sampled_trajectory_score'] == reference['best_sampled_trajectory_score']
+    if variant == 'prior':
+        for path in (baseline / 'epoch_audit').glob('*.json'):
+            assert json.loads(path.read_text()) == json.loads((out / 'epoch_audit' / path.name).read_text())
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+def test_cycle_validation_can_select_best(harness, tmp_path, monkeypatch, variant):
+    """周期完整验证默认参与best，最终成绩独立于历史best。"""
+    run, state = harness
+    module = train if variant == 'prior' else common
+    original = module.evaluate
+    def evaluate(*args, **kwargs):
+        metrics = original(*args, **kwargs)
+        score = 0.0 if len(state.train_cases) == 7 else 10.0
+        return dict(metrics, route_ade_m=score, waypoint_ade_m=score)
+    monkeypatch.setattr(module, 'evaluate', evaluate)
+    cli = ("--num-epochs", "4")
+    out = tmp_path / 'cycle_best'
+    run(variant, out, extra=cli, val_steps=100)
+    assert torch.load(out / 'best.pt', weights_only=False)['step'] == 4
+    final = json.loads((out / 'validation/final.json').read_text())
+    assert final['optimizer_step'] == 12 and final['selection_score'] > final['best_selection_score']
 
 
 def test_three_entries_have_identical_budget_updates_and_core_metrics(harness, tmp_path):
@@ -201,7 +272,8 @@ def test_sigterm_saves_safe_cursor_and_resumes_exactly(harness, tmp_path, varian
     partial = torch.load(out / "latest.pt", weights_only=False)
     marker = json.loads((out / "termination.json").read_text(encoding="utf-8"))
     assert partial["step"] == marker["optimizer_step"] == 2
-    assert partial["cursor"] == marker["cursor"] == {"epoch": 0, "micro": 4}
+    assert partial["cursor"] == marker["cursor"]
+    assert partial["cursor"]["epoch"] == 0 and partial["cursor"]["micro"] == 4
     assert marker["signal_name"] == "SIGTERM"
 
     state.failure = None
@@ -230,7 +302,7 @@ def test_sigterm_during_validation_preserves_pre_validation_cursor(harness, tmp_
         run("bev_only", out, val_steps=1)
     partial = torch.load(out / "latest.pt", weights_only=False)
     assert partial["step"] == 1
-    assert partial["cursor"] == {"epoch": 0, "micro": 2}
+    assert partial["cursor"]["epoch"] == 0 and partial["cursor"]["micro"] == 2
     assert not (out / "validation/step_00000001.json").exists()
 
     state.failure = None
@@ -288,3 +360,102 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
         assert result[1:] == results[0][1:]
         assert torch.equal(result[0]["decoder"]["weight"], results[0][0]["decoder"]["weight"])
         assert result[0]["best_sampled_trajectory_score"] == results[0][0]["best_sampled_trajectory_score"]
+
+
+@pytest.mark.parametrize("optimizer", ["adamw", "muon_adamw"])
+@pytest.mark.parametrize("schedule", ["cosine", "cosine_restarts"])
+def test_optimizer_matrix_three_entries_and_resume(harness, tmp_path, monkeypatch, optimizer, schedule):
+    """四种组合均执行真实矩阵更新，三入口结果相同，混合动量可精确恢复。"""
+    class MatrixFlow(TinyFlowDecoder):
+        def __init__(self, config, flow_config):
+            super().__init__(config, flow_config)
+            self.trajectory_blocks = torch.nn.Linear(2, 2)
+
+        def forward(self, **kwargs):
+            base = self.trajectory_blocks(super().forward(**kwargs)["flow_velocity"])
+            return dict(flow_velocity=base, pred_route=base[:, :10], pred_future_waypoints=base[:, 10:])
+
+    monkeypatch.setattr(flow_matching, "ConditionalFlowMatchingDecoder", MatrixFlow)
+    run, state = harness
+    cli = ("--optimizer", optimizer, "--lr-scheduler", schedule)
+    reference = None
+    for variant in ("prior", "qwen_simple", "bev_only"):
+        state.train_cases.clear(); state.eval_cases.clear()
+        result = run(variant, tmp_path / variant, extra=cli)
+        assert result["optimization_contract"]["schedule"]["optimizer"] == optimizer
+        if optimizer == "muon_adamw":
+            assert any("momentum_buffer" in s for s in result["optimizer"]["state"].values())
+        if reference is not None:
+            assert reference["optimization_contract"] == result["optimization_contract"]
+            for name, value in reference["decoder"].items():
+                assert torch.equal(value, result["decoder"][name])
+        reference = result
+        state.train_cases.clear(); state.eval_cases.clear()
+        state.failure = "mid_epoch"
+        interrupted = tmp_path / (variant + "_resume")
+        with pytest.raises(RuntimeError, match="injected interruption"):
+            run(variant, interrupted, extra=cli)
+        state.failure = None
+        resumed = run(variant, interrupted, resume=True, extra=cli)
+        for name, value in reference["decoder"].items():
+            assert torch.equal(value, resumed["decoder"][name])
+        with pytest.raises(ValueError, match="resume schedule mismatch"):
+            run(variant, interrupted, resume=True, extra=(*cli, "--learning-rate", "0.01"))
+
+
+
+@pytest.mark.parametrize('variant', ['prior', 'qwen_simple', 'bev_only'])
+@pytest.mark.parametrize('failure', ['after_epoch', 'validation'])
+def test_intermediate_audit_available_before_training_finishes(harness, tmp_path, variant, failure):
+    """第一轮后异常退出，ZIP已经可审计；验证中断明确标pending，恢复后累积更新历史。"""
+    import hashlib
+    import zipfile
+    run, state = harness
+    state.failure = failure
+    out = tmp_path / 'intermediate'
+    with pytest.raises(RuntimeError, match='interruption'):
+        run(variant, out, val_steps=100)
+    archive = out / 'training_audit.zip'
+    assert archive.is_file() and archive.stat().st_size < 30_000_000
+    with zipfile.ZipFile(archive) as z:
+        assert z.testzip() is None
+        content = json.loads(z.read('metrics.json'))
+        latest = content['latest']
+        assert latest['optimizer_step'] == 3 and latest['epoch'] == 1
+        assert latest['epoch_training_complete'] and latest['train_metrics']['samples'] == 5
+        assert latest['validation_pending'] == (failure == 'validation')
+        assert (latest['validation'] is None) == (failure == 'validation')
+        assert content['epoch_history'][0]['training_complete']
+        manifest = json.loads(z.read('AUDIT_MANIFEST.json'))
+        for item in manifest['included']:
+            assert hashlib.sha256(z.read(item['path'])).hexdigest() == item['sha256']
+        assert not any(name.endswith(('.pt', '.sqlite', '.jpg')) for name in z.namelist())
+        assert any(name.startswith('audit/step_') for name in z.namelist())
+    state.failure = None
+    resumed = run(variant, out, resume=True, val_steps=100)
+    with zipfile.ZipFile(archive) as z:
+        content = json.loads(z.read('metrics.json'))
+        assert content['latest']['optimizer_step'] == resumed['step'] == 6
+        assert not content['latest']['validation_pending']
+        assert [e['train']['samples'] for e in content['epoch_history']] == [5, 5]
+        assert all(e['validation']['samples'] == 2 for e in content['epoch_history'])
+
+
+@pytest.mark.parametrize('optimizer', ['adamw', 'muon_adamw'])
+@pytest.mark.parametrize('scheduler', ['cosine', 'cosine_restarts'])
+def test_default_shared_validation_and_audit_for_all_combinations(harness, tmp_path, optimizer, scheduler):
+    """无验证开关时四组合仍有相同完整验证机会，每个epoch都有可审计训练计数。"""
+    import zipfile
+    run, state = harness
+    cli = ('--num-epochs', '4', '--optimizer', optimizer, '--lr-scheduler', scheduler)
+    out = tmp_path / 'shared_validation'
+    ckpt = run('bev_only', out, extra=cli, val_steps=100)
+    paths = sorted(p for p in (out / 'validation').glob('*_step*.json'))
+    assert sorted(json.loads(p.read_text())['optimizer_step'] for p in paths) == [3, 4, 6, 9, 12]
+    assert ckpt['optimization_contract']['schedule']['shared_validation_updates'] == [4, 12]
+    final = json.loads((out / 'validation/final.json').read_text())
+    assert final['optimizer_step'] == 12 and final['weight_view'] == 'ema'
+    with zipfile.ZipFile(out / 'training_audit.zip') as z:
+        history = json.loads(z.read('metrics.json'))['epoch_history']
+        assert [item['epoch'] for item in history] == [1, 2, 3, 4]
+        assert all(item['training_complete'] and item['train']['samples'] == 5 for item in history)

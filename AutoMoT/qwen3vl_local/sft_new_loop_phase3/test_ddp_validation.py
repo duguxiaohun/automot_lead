@@ -85,10 +85,10 @@ def test_generation_progress_preserves_dedup_scores_and_mode(monkeypatch, capsys
         true_rs="R3", prompt_road_structure="R3", context_id="RAMP_MERGE_EXIT",
         question_domain="FULL_MANEUVER", action_signature="NONE", event="R-E3", split="val",
         goal_ego_xy=(10, 0), history_rgb_paths=["unused.jpg"] * 4, latest_rgb_path="unused.jpg",
-        answers={key: False for key in train.ANSWER_KEYS},
+        answers={key: key == "KEEP" for key in train.ANSWER_KEYS},
     )
     item = train._make_item(row, seed=1)
-    raw = "\n".join(f"{key}: NO" for key in item.spec.output_keys)
+    raw = "\n".join(f"{key}: {'YES' if key == 'KEEP' else 'NO'}" for key in item.spec.output_keys)
     monkeypatch.setattr(train, "_load_images", lambda paths: [])
     monkeypatch.setattr(train, "build_action_messages", lambda **kwargs: [])
     monkeypatch.setattr(train, "_kv_start_state", lambda *args: None)

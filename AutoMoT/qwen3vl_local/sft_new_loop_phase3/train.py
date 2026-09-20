@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """训练 sft_new_loop_phase3 的单轮 high-level 动作 LoRA adapter。
 
-训练目标是 ``DECELERATE / STOP / RESUME / LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT``
-以及 ``INVALID_ACTION_CONTEXT`` 的 YES/NO 语义 token，并以低权重监督字段格式和
-assistant 结束符。数据构建阶段保证十个动作上下文 1:1、每个上下文内部按动作签名
+默认训练目标是一个 ``DECELERATE / STOP / RESUME / LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT / KEEP``
+名称；显式 binary 诊断保留动作及 ``INVALID_ACTION_CONTEXT`` 的 YES/NO。
+以低权重监督字段格式和 assistant 结束符。数据构建阶段保证十个动作上下文 1:1、每个上下文内部按动作签名
 尽量均分，并额外注入约 20% 的上下文错配 invalid 样本。
 
 输入是单轮 image+text：RGB history + Phase1/Phase2 已确定的道路结构与情境前提 +
@@ -78,7 +78,7 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     require_same_rs_support,
     unique_cases,
 )
-from qwen3vl_local.sft_new_loop_phase3.primary_action import count_none_prediction
+from qwen3vl_local.sft_new_loop_phase3.choice_semantics import count_keep_prediction
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
     DEFAULT_ACTION_OUTPUT_MODE,
@@ -282,6 +282,8 @@ def _read_rows(
             validate_action_rule(obj)
             from qwen3vl_local.sft_new_loop_phase3.source_mapping import validate_mapping_contract
             validate_mapping_contract(obj)
+            from qwen3vl_local.sft_new_loop_phase3.choice_semantics import validate_choice_row
+            validate_choice_row(obj)
             speed = float(obj["current_speed_mps"])
             if not math.isfinite(speed) or speed < 0:
                 raise ValueError("current_speed_mps must be finite and nonnegative")
@@ -304,7 +306,7 @@ def _read_rows(
                     goal_ego_xy=(float(goal[0]), float(goal[1])),
                     history_rgb_paths=[_resolve_rgb_path(str(x), root) for x in obj.get("history_rgb_paths", [])],
                     latest_rgb_path=_resolve_rgb_path(str(obj.get("latest_rgb_path")), root),
-                    answers={key: bool(value) for key, value in (obj.get("answers") or {}).items()},
+                    answers=dict(obj["answers"]),
                     invalid_source=str(obj.get("invalid_source") or ""),
                     invalid_reason=str(obj.get("invalid_reason") or "wrong_road_structure"),
                     context_detail=str(obj.get("context_detail") or ""),
@@ -374,7 +376,7 @@ def _make_item(row: FrameRow, *, seed: int, action_output_mode: str = "binary") 
 
 
 def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, int]:
-    """统计主要动作/NONE、原始组合投影和 invalid 剔除。"""
+    """统计主要动作/KEEP、原始组合投影和 invalid 剔除。"""
 
     counts: Counter = Counter()
     for row in rows:
@@ -420,7 +422,7 @@ def _balanced_work(
         missing = [key for key in CONTEXT_IDS if class_counts.get(key, 0) <= 0]
         if missing:
             raise ValueError(
-                "choice training requires valid primary-action/NONE examples for every context; "
+                "choice training requires valid primary-action/KEEP examples for every context; "
                 f"missing={missing} eligible={dict(sorted(class_counts.items()))} rejected={dict(sorted(rejected.items()))}"
             )
         effective_target = int(target_per_bin) or min(int(class_counts[key]) for key in CONTEXT_IDS)
@@ -1011,9 +1013,12 @@ def evaluate_generation_probe(
         elif row.invalid_reason == "same_rs_wrong_event":
             same_rs_routes.add(physical_group_for_item(row))
         if spec.action_output_mode == "choice":
-            count_none_prediction(action_counts,
-                gt_none=not any(gt.get(key, False) for key in ACTION_KEYS),
-                predicted_none=is_valid and not any(parsed.get(key, False) for key in ACTION_KEYS))
+            count_keep_prediction(action_counts,
+                gt_keep=not any(gt.get(key, False) for key in ACTION_KEYS),
+                predicted_keep=is_valid and not any(parsed.get(key, False) for key in ACTION_KEYS))
+        else:
+            count_keep_prediction(action_counts, gt_keep=gt.get("KEEP") is True,
+                                  predicted_keep=parsed.get("KEEP") is True)
         for key in ACTION_KEYS:
             if key not in spec.output_keys:
                 continue
@@ -1092,7 +1097,7 @@ def evaluate_generation_probe(
         count = float(slice_counts.get(f"{key}/total", 0))
         metrics[f"slice/{key}_samples"] = count
         metrics[f"slice/{key}_exact"] = float(slice_counts.get(f"{key}/exact", 0)) / max(1.0, count)
-    for key in (*ACTION_KEYS, "NONE"):
+    for key in (*ACTION_KEYS, "KEEP"):
         gt_yes = float(action_counts.get(f"{key}/gt_yes", 0))
         pred_yes = float(action_counts.get(f"{key}/pred_yes", 0))
         metrics[f"action/{key.lower()}_gt_yes"] = gt_yes
@@ -1101,7 +1106,7 @@ def evaluate_generation_probe(
         metrics[f"action/{key.lower()}_precision"] = float(
             action_counts.get(f"{key}/precision_hit", 0)
         ) / max(1.0, pred_yes)
-    for key in (*ACTION_KEYS, "NONE"):
+    for key in (*ACTION_KEYS, "KEEP"):
         prefix = f"action/{key.lower()}"
         precision, recall = metrics[prefix + "_precision"], metrics[prefix + "_recall"]
         metrics[prefix + "_f1"] = 2 * precision * recall / max(1e-12, precision + recall)
@@ -1593,7 +1598,7 @@ def train(args: argparse.Namespace) -> None:
         work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         if rank == 0:
             epoch_invalid_report = (
-                {"not_applicable": "choice excludes invalid; includes NONE and projected compound actions"}
+                {"not_applicable": "choice excludes invalid; includes KEEP and projected compound actions"}
                 if args.action_output_mode == "choice" else invalid_subgroup_report(full_work)
             )
             epoch_balance_dir = output_dir / "balance"
@@ -1971,7 +1976,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v14/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v19/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
@@ -1981,7 +1986,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
     p.add_argument(
         "--action-output-mode", choices=("binary", "choice"), default=DEFAULT_ACTION_OUTPUT_MODE,
-        help="binary: per-action YES/NO lines; choice: one primary event-domain action or NONE",
+        help="binary: per-action YES/NO lines; choice: one primary event-domain action or KEEP",
     )
     p.add_argument("--device", default="auto")
     p.add_argument("--ddp-timeout-seconds", type=int, default=3600,

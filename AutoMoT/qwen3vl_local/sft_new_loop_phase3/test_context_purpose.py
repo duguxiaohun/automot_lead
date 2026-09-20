@@ -17,7 +17,7 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 def test_purpose_is_scoped_conditional_and_independent_of_target(mode, context_id):
     """每题只加对应目的；STOP/RESUME/invalid 答案均不能改变可见输入。"""
     spec = prompts.make_prompt_spec(
-        variant="all_random_order", answers={"STOP": True}, seed_key="purpose",
+        variant="all_random_order", answers={key: key == "STOP" for key in prompts.ACTION_KEYS}, seed_key="purpose",
         context_id=context_id, road_structure=CONTEXT_BY_ID[context_id].allowed_rs[0],
         action_output_mode=mode, current_speed_mps=5,
     )
@@ -25,13 +25,13 @@ def test_purpose_is_scoped_conditional_and_independent_of_target(mode, context_i
     changed = replace(spec, invalid_context=True,
                       questions=tuple(replace(q, answer=not q.answer) for q in spec.questions))
     assert prompt == prompts.build_action_prompt(spec=changed)
-    purpose = prompts.CONTEXT_ACTION_PURPOSES[context_id]
-    assert prompt.count(purpose) == 1
-    assert all(text not in prompt for key, text in prompts.CONTEXT_ACTION_PURPOSES.items()
-               if key != context_id)
-    assert "if this context holds" in prompt
-    assert "Purpose alone does not establish which action occurs next." in prompt
-    assert len(purpose.split()) <= 40
+    scene = prompt.split("[SCENE_CONTEXT]", 1)[1].split("[/SCENE_CONTEXT]", 1)[0]
+    for action in CONTEXT_BY_ID[context_id].action_keys:
+        text = prompts.action_description(context_id, action)
+        assert prompt.count(text) == 1
+        assert text not in scene
+    assert "High-level purpose" not in scene
+    assert "a scene alone does not establish" in prompt
     assert "four-frame history" in prompt
     assert "future_speeds" not in prompt
     target = prompts.build_action_target(spec)
@@ -43,7 +43,7 @@ def test_purpose_is_scoped_conditional_and_independent_of_target(mode, context_i
 def test_purpose_edit_invalidates_prompt_contract(monkeypatch, mode, rgb):
     """目的属于模型实际输入，修改后两种输出/图像模式都必须拒绝旧指纹。"""
     before = prompts.action_prompt_sha256(action_output_mode=mode, history_rgb_mode=rgb)
-    monkeypatch.setitem(prompts.CONTEXT_ACTION_PURPOSES, "STATIC_BLOCKAGE", "Changed purpose.")
+    monkeypatch.setitem(prompts.CONTEXT_ACTION_DESCRIPTIONS["STATIC_BLOCKAGE"], "STOP", "Changed purpose.")
     assert before != prompts.action_prompt_sha256(action_output_mode=mode, history_rgb_mode=rgb)
 
 
@@ -69,7 +69,7 @@ def test_train_defaults_and_explicit_binary_override(monkeypatch):
     monkeypatch.setattr("sys.argv", ["train.py"])
     args = parse()
     assert (args.history_rgb_mode, args.action_output_mode) == ("4rgb", "choice")
-    assert "data_v14" in args.index
+    assert "data_v19" in args.index
     monkeypatch.setattr("sys.argv", ["train.py", "--history-rgb-mode", "2rgb_endpoints", "--action-output-mode", "binary"])
     args = parse()
     assert (args.history_rgb_mode, args.action_output_mode) == ("2rgb_endpoints", "binary")

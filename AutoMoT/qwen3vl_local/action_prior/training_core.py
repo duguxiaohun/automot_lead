@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 import math
@@ -18,6 +19,52 @@ import time
 from typing import Callable
 
 from qwen3vl_local.action_prior.progress import current, report
+
+
+class TrainingTiming:
+    """本次进程会话的墙钟统计；窗口训练时间扣除验证和 checkpoint，不跨恢复拼接。"""
+
+    def __init__(self, clock=None):
+        self.clock = clock or time.monotonic
+        self.started = self.window_started = self.clock()
+        self.seconds = Counter()
+        self.window_excluded = 0.0
+        self.samples = self.window_samples = 0
+
+    @contextmanager
+    def measure(self, kind):
+        """验证或保存异常退出时仍统计耗时；调用方确保两个阶段不嵌套。"""
+        started = self.clock()
+        try:
+            yield
+        finally:
+            self.seconds[kind] += self.clock() - started
+
+    def add_samples(self, count):
+        self.samples += count
+        self.window_samples += count
+
+    def window_metrics(self):
+        """日志窗口整体吞吐与扣除验证/保存后的吞吐使用同一个样本分子。"""
+        now = self.clock()
+        excluded = sum(self.seconds.values())
+        wall = now - self.window_started
+        active = max(0.0, wall - (excluded - self.window_excluded))
+        result = dict(samples_per_second=self.window_samples / max(active, 1e-6),
+                      overall_samples_per_second=self.window_samples / max(wall, 1e-6),
+                      training_seconds=active, overall_seconds=wall)
+        self.window_started, self.window_excluded = now, excluded
+        self.window_samples = 0
+        return result
+
+    def summary(self):
+        """累计统计包含最后一次验证和保存，防止末尾开销落在最后日志点之后而漏计。"""
+        wall = self.clock() - self.started
+        active = max(0.0, wall - sum(self.seconds.values()))
+        return dict(samples=self.samples, training_seconds=active, overall_seconds=wall,
+                    validation_seconds=self.seconds['validation'], checkpoint_seconds=self.seconds['checkpoint'],
+                    samples_per_second=self.samples / max(active, 1e-6),
+                    overall_samples_per_second=self.samples / max(wall, 1e-6))
 
 
 class GracefulTerminationExit(SystemExit):
@@ -208,13 +255,15 @@ def accumulation_state(micro, samples, accumulate):
     return divisor, update
 
 
-def with_validation_pending(cursor: dict, validation_epoch: int, full_epoch: bool) -> dict:
-    """标记尚待完成的 epoch/最终验证。"""
+def with_validation_pending(cursor: dict, validation_epoch: int, full_epoch: bool, *, cycle=0) -> dict:
+    """标记尚待完成的 epoch/最终/周期验证，可在安全点恢复。"""
 
     result = dict(cursor)
     result["validation_pending"] = True
     result["validation_epoch"] = validation_epoch
     result["validation_full_epoch"] = bool(full_epoch)
+    if cycle:
+        result["validation_cycle"] = int(cycle)
     return result
 
 
@@ -222,7 +271,9 @@ def clear_validation_pending(cursor: dict) -> dict:
     """验证完成后清除待办字段及已结束的 epoch 计数。"""
 
     result = dict(cursor)
-    for key in ("validation_pending", "validation_epoch", "validation_full_epoch", "full_epoch", "epoch_counts_by_rank"):
+    if result.get("validation_full_epoch"):
+        result.pop("epoch_counts_by_rank", None)
+    for key in ("validation_pending", "validation_epoch", "validation_full_epoch", "validation_cycle", "full_epoch"):
         result.pop(key, None)
     return result
 
@@ -461,28 +512,94 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
     import torch.distributed as dist
 
     from qwen3vl_local.action_prior.flow_matching import flow_matching_loss, make_training_flow
+    from qwen3vl_local.action_prior.optimization_config import cycle_status, full_validation_due, validation_cycle_status
+    from qwen3vl_local.action_prior.optimization import optimizer_step_with_metrics
+    from qwen3vl_local.action_prior.training_audit import publish as publish_audit, record_window
 
     epoch_counts = Counter()
+    schedule = optimizer.action_contract["schedule"]
+    timing = TrainingTiming()
+    initial_step = step
+    timing_path = out / 'performance' / f'session_{time.time_ns()}_{os.getpid()}.json'
+    save_checkpoint = checkpoint
+    last_update_metrics = {}
+
+    def sync_timing_device():
+        """阶段边界清空设备队列；前一阶段的异步工作不能计入下一阶段。"""
+        if device.type == 'cuda':
+            torch.cuda.synchronize(device)
+
+    def checkpoint(*values):
+        sync_timing_device()
+        with timing.measure('checkpoint'):
+            result = save_checkpoint(*values)
+            sync_timing_device()
+        return result
+
+    def run_validation(max_samples):
+        sync_timing_device()
+        with timing.measure('validation'):
+            with ema.apply_to(model):
+                result = evaluate_fn(runtime, model, config, rows['val'], args, dtype, rank, world, max_samples)
+            sync_timing_device()
+        return result
+
+    def publish_timing(status):
+        if rank == 0:
+            sync_timing_device()
+            summary = timing.summary()
+            write_json(timing_path, dict(summary, status=status, start_step=initial_step, end_step=step,
+                                        scope='rank0_current_process_session'))
+            for key, value in summary.items():
+                writer.add_scalar(f'performance/{key}', value, step)
+            writer.flush()
+
+    def audit_snapshot(saved_cursor, reason, validation=None):
+        """rank0只读已提交计数；打包失败不覆盖旧ZIP，也不丢弃已保存的训练权重。"""
+        if rank != 0:
+            return
+        counts = Counter()
+        for part in saved_cursor.get('epoch_counts_by_rank', []):
+            counts.update(part)
+        try:
+            with timing.measure('checkpoint'):
+                publish_audit(out, step=step, cursor=saved_cursor, best=best, plan=plan, args=args,
+                              train_metrics=hooks.summarize(counts) if counts else {},
+                              validation=validation, performance=timing.summary(), reason=reason)
+        except Exception as exc:
+            print(f'[training audit warning] step={step}: {exc}; previous training_audit.zip preserved', flush=True)
+
+    def attach_epoch_counts(save_cursor):
+        """三条入口都保存本轮全rank计数，恢复后审计不会漏掉中断前样本。"""
+        parts = [None] * world
+        if world > 1:
+            dist.all_gather_object(parts, dict(epoch_counts))
+        else:
+            parts[0] = dict(epoch_counts)
+        return dict(save_cursor, epoch_counts_by_rank=parts)
 
     def save_termination(save_cursor, signum):
         """所有 rank 保存同一个安全 cursor，确认 rank0 原子落盘后再退出。"""
-        if hooks.epoch_audit and epoch_counts:
+        if epoch_counts:
             parts = [None] * world
             if world > 1:
                 dist.all_gather_object(parts, dict(epoch_counts))
             else:
                 parts[0] = dict(epoch_counts)
             save_cursor = dict(save_cursor, epoch_counts_by_rank=parts)
-            if rank == 0 and save_cursor.get("validation_full_epoch"):
+            completed_epoch = (save_cursor.get("validation_full_epoch") or
+                               (save_cursor['micro'] == 0 and save_cursor['epoch'] > 0))
+            if hooks.epoch_audit and rank == 0 and completed_epoch:
                 completed_counts = Counter()
                 for part in parts:
                     completed_counts.update(part)
-                validation_epoch = int(save_cursor["validation_epoch"])
+                validation_epoch = int(save_cursor.get("validation_epoch", save_cursor['epoch'] - 1))
                 write_json(
                     out / "epoch_audit" / f"epoch_{validation_epoch+1:03d}_step{step:08d}.json",
                     dict(completed_counts),
                 )
         checkpoint(out / "latest.pt", save_cursor, step, best)
+        audit_snapshot(save_cursor, 'terminated')
         if world > 1:
             dist.barrier()
         if rank == 0:
@@ -510,28 +627,32 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             optimizer_step=step,
             signal=signal.Signals(signum).name,
         )
+        publish_timing('terminated')
         return int(signum)
 
     def finish_pending_validation(pending_cursor):
-        """补完 epoch/最终验证，再原子发布无待办的 best/latest。"""
+        """补完完整验证，再原子发布无待办的 best/latest；重合触发只执行一次。"""
         nonlocal best
         validation_epoch = int(pending_cursor["validation_epoch"])
         try:
-            with ema.apply_to(model):
-                metrics = evaluate_fn(
-                    runtime, model, config, rows["val"], args, dtype, rank, world,
-                    # 此验证会更新 best.pt（包括 max_train_steps 提前结束）；不得用
-                    # 随机小子集，否则 event_balanced_ade 的必需桶可能随机缺失。
-                    best_validation_max_samples(args),
-                )
+            metrics = run_validation(best_validation_max_samples(args))
         except _TerminationDuringValidation:
             return pending_cursor, save_termination(
                 pending_cursor, termination.signum or signal.SIGTERM
             )
         if rank == 0:
-            write_json(out / "validation" / f"epoch_{validation_epoch+1:03d}_step{step:08d}.json", metrics)
-            for key, value in scalar_metric_items(metrics):
-                writer.add_scalar(f"val_epoch/{key}", value, step)
+            cycle = pending_cursor.get("validation_cycle", 0)
+            is_epoch = pending_cursor.get("validation_full_epoch") or step >= plan["actual_step_limit"]
+            stem = f"epoch_{validation_epoch+1:03d}" if is_epoch else f"cycle_{cycle:03d}"
+            write_json(out / "validation" / f"{stem}_step{step:08d}.json", dict(
+                metrics, validation_cycle=cycle, validation_full_epoch=bool(pending_cursor.get("validation_full_epoch")),
+                validation_final=step >= plan["actual_step_limit"],
+                validation_policy=schedule['validation_policy'], optimizer_step=step,
+            ))
+            namespaces = (["val_epoch"] if is_epoch else []) + (["val_cycle"] if cycle else [])
+            for namespace in namespaces:
+                for key, value in scalar_metric_items(metrics):
+                    writer.add_scalar(f"{namespace}/{key}", value, step)
             writer.flush()
         clean_cursor = clear_validation_pending(pending_cursor)
         score = best_selection_score(metrics, args)
@@ -539,6 +660,14 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             best = score
             checkpoint(out / "best.pt", clean_cursor, step, best)
         checkpoint(out / "latest.pt", clean_cursor, step, best)
+        audit_snapshot(pending_cursor, 'validation_complete', metrics)
+        if step >= plan['actual_step_limit'] and rank == 0:
+            # 先保存最终权重，再发布其完整 val 成绩；不把 best 的分数冒充最终 step 分数。
+            write_json(out / 'validation/final.json', dict(
+                optimizer_step=step, checkpoint='latest.pt', weight_view='ema', split='val',
+                validation_policy=schedule['validation_policy'], selection_score=score,
+                best_selection_score=best, metrics=metrics,
+            ))
         requested_signal = termination.sync_signal(world, device)
         if requested_signal:
             return clean_cursor, save_termination(clean_cursor, requested_signal)
@@ -549,10 +678,11 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         if stopped:
             return stopped
     if budget_complete(step, plan, cursor):
+        if step != initial_step or timing.seconds['validation']:
+            publish_timing('completed')
         return
     window = Counter()
     first_update_step = step + 1
-    log_started = time.monotonic()
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
     optimizer.zero_grad(set_to_none=True)
@@ -591,7 +721,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         iterator = termination.register_iterator(iter(loader))
         # 保存的是每个 rank 的计数，恢复后仍按原 world size 汇总完整 epoch。
         epoch_counts = Counter(
-            cursor.get("epoch_counts_by_rank", [{}] * world)[rank] if start and hooks.epoch_audit else {}
+            cursor.get("epoch_counts_by_rank", [{}] * world)[rank] if start else {}
         )
         dumped = Counter()
         decoder.train()
@@ -646,8 +776,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             batch_counts = hooks.sample_counts(runtime, prepared["sample"], planning)
             batch_counts.update(planning)
             window.update(batch_counts)
-            if hooks.epoch_audit:
-                epoch_counts.update(batch_counts)
+            epoch_counts.update(batch_counts)
             report("train/micro_done", announce=step < first_update_step,
                    rank_completed_micro=micro + 1, last_sample_loss=batch_counts["loss"],
                    sample_elapsed_s=round(time.monotonic() - sample_started, 2))
@@ -659,14 +788,27 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                 report("train/data_wait")
                 continue
             report("train/optimizer")
+            used_lrs = {g.get("group_name", str(i)): g["lr"] for i, g in enumerate(optimizer.param_groups)}
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), args.max_grad_norm, error_if_nonfinite=True
             )
-            optimizer.step()
+            monitor_every = schedule['optimizer_monitor_steps']
+            phase = cycle_status(step + 1, schedule)
+            cycle_boundary = phase["cycle_end"] or (phase["cycle"] > 0 and phase["progress"] == 0)
+            monitor = rank == 0 and monitor_every > 0 and (step == 0 or (step + 1) % monitor_every == 0 or cycle_boundary)
+            update_metrics = optimizer_step_with_metrics(optimizer, monitor=monitor)
+            if update_metrics:
+                last_update_metrics = dict(optimizer_step=step + 1, metrics=update_metrics)
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
             ema.update(model)
             step += 1
+            timing.add_samples(divisor * world)
+            if rank == 0:
+                for key, value in update_metrics.items():
+                    writer.add_scalar(f"train/{key}", value, step)
+            validation_phase = validation_cycle_status(step, schedule)
+            cycle_due = validation_phase['cycle_end']
             report("train/update_done", announce=step == first_update_step,
                    optimizer_step=step, lr=optimizer.param_groups[0]["lr"])
             full_epoch = micro + 1 == len(rank_rows)
@@ -675,25 +817,34 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                 if full_epoch
                 else {"epoch": epoch, "micro": micro + 1}
             )
-            if full_epoch or step >= plan["actual_step_limit"]:
-                next_cursor = with_validation_pending(next_cursor, epoch, full_epoch)
+            if full_validation_due(step, schedule, full_epoch=full_epoch, cycle_end=phase['cycle_end']):
+                next_cursor = with_validation_pending(next_cursor, epoch, full_epoch,
+                                                       cycle=validation_phase['cycle'] if cycle_due else 0)
             requested_signal = termination.sync_signal(world, device)
             if requested_signal:
                 return save_termination(next_cursor, requested_signal)
-            if step == first_update_step or step % args.logging_steps == 0:
+            if step == first_update_step or step % args.logging_steps == 0 or cycle_boundary:
                 report("train/metrics_rank_merge")
                 values = hooks.summarize(merge_counts(window, world))
                 if rank == 0:
                     values.update(
                         lr=optimizer.param_groups[0]["lr"],
                         grad_norm=float(grad_norm),
+                        cycle=phase["cycle"],
+                        cycle_progress=phase["progress"],
                         samples_seen=epoch * usable + (micro + 1) * world,
                         step_samples=divisor * world,
-                        samples_per_second=values["samples"]
-                        / max(time.monotonic() - log_started, 1e-6),
                         rank0_peak_allocated_gb=(torch.cuda.max_memory_allocated(device) / 2**30
                                                  if torch.cuda.is_available() else 0.0),
                     )
+                    values.update(timing.window_metrics())
+                    for key, value in timing.summary().items():
+                        writer.add_scalar(f'performance/{key}', value, step)
+                    # train/lr 沿用下一步 LR；显式记录刚执行更新的各组 LR，重启边界可核验。
+                    values.update({f"lr_used/{name}": lr for name, lr in used_lrs.items()})
+                    values.update({f"lr_next/{g.get('group_name', str(i))}": g["lr"]
+                                   for i, g in enumerate(optimizer.param_groups)})
+                    record_window(out, step, dict(values, last_update=last_update_metrics))
                     print(
                         f'epoch={epoch+1}/{args.num_epochs} step={step}/{plan["actual_step_limit"]} '
                         f'loss(window_global,{values["samples"]}样本均值)={values["loss"]:.4f} '
@@ -704,21 +855,9 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                         writer.add_scalar(f"train/{k}", v, step)
                     writer.flush()
                 window.clear()
-                log_started = time.monotonic()
-            if step % args.val_steps == 0:
+            if step % args.val_steps == 0 and not next_cursor.get("validation_pending"):
                 try:
-                    with ema.apply_to(model):
-                        metrics = evaluate_fn(
-                            runtime,
-                            model,
-                            config,
-                            rows["val"],
-                            args,
-                            dtype,
-                            rank,
-                            world,
-                            args.val_max_samples,
-                        )
+                    metrics = run_validation(args.val_max_samples)
                 except _TerminationDuringValidation:
                     return save_termination(
                         next_cursor, termination.signum or signal.SIGTERM
@@ -727,23 +866,23 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                     write_json(out / "validation" / f"step_{step:08d}.json", metrics)
                     for k, v in scalar_metric_items(metrics):
                         writer.add_scalar(f"val/{k}", v, step)
-                # 小验证集只观察趋势；best.pt 统一由 epoch 全量验证选取。
+                # 小验证集只观察趋势；best.pt 统一由完整验证选取。
                 requested_signal = termination.sync_signal(world, device)
                 if requested_signal:
                     return save_termination(next_cursor, requested_signal)
             if (
-                step % args.save_steps == 0
+                step == first_update_step or step % args.save_steps == 0
                 or step >= plan["actual_step_limit"]
                 or full_epoch
+                or next_cursor.get("validation_pending")
             ):
-                if hooks.epoch_audit and not full_epoch:
-                    parts = [None] * world
-                    if world > 1:
-                        dist.all_gather_object(parts, dict(epoch_counts))
-                    else:
-                        parts[0] = dict(epoch_counts)
-                    next_cursor["epoch_counts_by_rank"] = parts
+                next_cursor = attach_epoch_counts(next_cursor)
                 checkpoint(out / "latest.pt", next_cursor, step, best)
+                audit_snapshot(next_cursor, 'epoch_training_complete' if full_epoch else 'checkpoint')
+            if next_cursor.get("validation_pending") and not full_epoch and step < plan["actual_step_limit"]:
+                next_cursor, stopped = finish_pending_validation(next_cursor)
+                if stopped:
+                    return stopped
             if step >= plan["actual_step_limit"]:
                 break
             report("train/data_wait")
@@ -753,11 +892,15 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             counts = merge_counts(epoch_counts, world)
             if rank == 0:
                 write_json(out / "epoch_audit" / f"epoch_{epoch+1:03d}_step{step:08d}.json", dict(counts))
-        cursor, stopped = finish_pending_validation(next_cursor)
-        if stopped:
-            return stopped
+        if next_cursor.get('validation_pending'):
+            cursor, stopped = finish_pending_validation(next_cursor)
+            if stopped:
+                return stopped
+        else:
+            cursor = next_cursor
         if step >= plan["actual_step_limit"]:
             break
+    publish_timing('completed')
     return None
 
 
@@ -789,13 +932,9 @@ def make_model_and_config(args, device):
 
 
 def make_optimization(args, model, plan, old):
-    """统一 AdamW、学习率调度和 EMA；仅 decoder 参数进入优化器。"""
-    import torch
-    optimizer = torch.optim.AdamW(
-        old._optimizer_param_groups(model, args.weight_decay),
-        lr=args.learning_rate, betas=(0.9, 0.95),
-    )
-    scheduler = old._make_scheduler(optimizer, plan["actual_step_limit"], args.warmup_ratio)
+    """主线与消融共用 Muon/AdamW、cosine 调度和 EMA；只优化 decoder。"""
+    from qwen3vl_local.action_prior.optimization import build_optimization
+    optimizer, scheduler = build_optimization(args, model, plan)
     return optimizer, scheduler, old._DecoderEMA(model, args.ema_decay)
 
 
@@ -845,6 +984,7 @@ def save_training_checkpoint(
             decoder_config=asdict(model.config),
             flow_config=asdict(model.flow_config),
             optimizer=optimizer.state_dict(),
+            optimization_contract=optimizer.action_contract,
             scheduler=scheduler.state_dict(),
             ema_state_dict=ema.state_dict(),
             args=vars(args),
@@ -876,10 +1016,11 @@ def restore_training_state(state, *, args, dataset_hashes, world, rank, config, 
                            model, optimizer, scheduler, ema, device):
     """条件身份由入口先核验；这里统一预算、模型、优化器与恢复游标的校验。"""
     from dataclasses import asdict
+    from qwen3vl_local.action_prior.optimization_config import OPTIMIZATION_DEFAULTS
 
     if state["dataset_hashes"] != dataset_hashes or state["world_size"] != world:
         raise ValueError("resume dataset/world size differs")
-    for key in (
+    for key in (*OPTIMIZATION_DEFAULTS,
         "num_epochs",
         "grad_accum_steps",
         "learning_rate",
@@ -905,8 +1046,10 @@ def restore_training_state(state, *, args, dataset_hashes, world, rank, config, 
         "val_max_samples",
         "val_steps",
     ):
-        if state["args"][key] != getattr(args, key):
+        if key not in state["args"] or state["args"][key] != getattr(args, key):
             raise ValueError(f"resume schedule mismatch: {key}")
+    if state.get("optimization_contract") != optimizer.action_contract:
+        raise ValueError("resume optimization contract mismatch; old runs require their original source")
     if state["decoder_config"] != asdict(config) or state["flow_config"] != asdict(flow_config):
         raise ValueError("resume decoder/flow config mismatch")
     expected_best_metric = (

@@ -177,7 +177,8 @@ def training_device(local_rank):
 @observed
 def main():
     """先验证配置和数据，再加载模型；只优化轨迹 decoder。"""
-    args = parser().parse_args()
+    from qwen3vl_local.action_prior.optimization_config import optimization_env_args
+    args = parser().parse_args([*optimization_env_args(), *sys.argv[1:]])
     from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
     from qwen3vl_local.action_prior.prepare_action_priors import ensure_scene_inputs
     resolve_scene_priors(args)

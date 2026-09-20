@@ -20,7 +20,8 @@ EVENT_ADDITIONS = Path(__file__).with_name("event_rgb_additions_v1.jsonl")
 @lru_cache(maxsize=1)
 def mapping_contract_hash():
     """训练索引绑定实际语义决定；旧索引不能绕过新隔离/同 RS 负例规则。"""
-    paths = (Path(__file__).with_name("mapping_rgb_decisions_20260920.jsonl"),
+    paths = (Path(__file__).with_name("mapping_rgb_decisions_v18_20260920.jsonl"),
+             Path(__file__).with_name("mapping_rgb_decisions_20260920.jsonl"),
              Path(__file__).with_name("development_route_groups_20260920.json"),
              Path(__file__).with_name("event_rgb_exclusions_20260916.jsonl"),
              Path(__file__).with_name("development_route_groups_20260916.json"),
@@ -38,7 +39,7 @@ def mapping_contract_hash():
              Path(__file__).with_name('development_route_groups_20260907.json'),
              *(Path(__file__).with_name(name) for name in
                ('source_mapping.py', 'context_taxonomy.py', 'trajectory_action.py', 'lateral_rgb_audit.py',
-                'primary_action.py', 'same_rs_invalid.py', 'build_dataset.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
+                'primary_action.py', 'action_review.py', 'same_rs_invalid.py', 'build_dataset.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode())
@@ -65,7 +66,8 @@ def event_additions():
 def review_decisions():
     """人工隔离决定仅作用于明确 route/frame，不泛化到同名场景其他路线。"""
     rows = [json.loads(line) for path in (REVIEW_DECISIONS,
-            Path(__file__).with_name("mapping_rgb_decisions_20260920.jsonl"))
+            Path(__file__).with_name("mapping_rgb_decisions_20260920.jsonl"),
+            Path(__file__).with_name("mapping_rgb_decisions_v18_20260920.jsonl"))
             for line in path.read_text().splitlines() if line.strip()]
     return rows
 

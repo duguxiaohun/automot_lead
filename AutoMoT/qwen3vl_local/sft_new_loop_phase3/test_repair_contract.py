@@ -53,7 +53,7 @@ def _healthy_metrics():
                "slice/no_action_samples": 10, "slice/valid_exact": 1,
                "same_rs_unique_routes": 2,
                "invalid_subgroup/reason/same_rs_wrong_event_exact": 1}
-    for key in ("stop", "decelerate", "resume", "lane_change_left", "lane_change_right"):
+    for key in ("stop", "decelerate", "resume", "lane_change_left", "lane_change_right", "keep"):
         metrics.update({f"action/{key}_recall": 1, f"action/{key}_precision": 1,
                         f"action/{key}_gt_yes": 10})
     return metrics
@@ -126,7 +126,7 @@ def test_stream_reader_keeps_unicode_and_nested_escaped_braces(tmp_path):
 
 
 def test_prompt_has_measured_speed_and_first_crossing_not_future_trace():
-    spec = make_prompt_spec(variant="all_random_order", answers={}, seed_key="s",
+    spec = make_prompt_spec(variant="all_random_order", answers={k:False for k in ("STOP","DECELERATE","RESUME","LANE_CHANGE_LEFT","LANE_CHANGE_RIGHT")}, seed_key="s",
         context_id="POST_BYPASS_RETURN", road_structure="R1", current_speed_mps=2.125)
     text = build_action_prompt(spec=spec)
     assert "2.125 m/s" in text
@@ -148,8 +148,8 @@ def test_generation_metrics_count_unique_none_and_measured_speed(monkeypatch, mo
     from qwen3vl_local.sft_new_loop_phase3.prompts import build_action_target
     row = module.FrameRow(scenario="s", route_id="r", town="Town01", frame_id=10,
         true_rs="R1", prompt_road_structure="R1", context_id="LEAD_BRAKE",
-        question_domain="LONGITUDINAL_YIELD", action_signature="NONE", event="U-E1", split="val",
-        goal_ego_xy=(10, 0), history_rgb_paths=["a"]*4, latest_rgb_path="a", answers={},
+        question_domain="LONGITUDINAL_YIELD", action_signature="KEEP", event="U-E1", split="val",
+        goal_ego_xy=(10, 0), history_rgb_paths=["a"]*4, latest_rgb_path="a", answers={key:False for key in module.ANSWER_KEYS},
         current_speed_mps=4.125)
     item = module._make_item(row, seed=0, action_output_mode=mode)
     monkeypatch.setattr(module, "_load_images", lambda paths: [])
@@ -163,7 +163,6 @@ def test_generation_metrics_count_unique_none_and_measured_speed(monkeypatch, mo
     assert metrics["sampled_before_dedup"] == 2
     assert metrics["slice/no_action_samples"] == 1
     assert metrics["slice/no_action_exact"] == 1
-    if mode == "choice":
-        assert metrics["action/none_gt_yes"] == 1
-        assert metrics["action/none_precision"] == metrics["action/none_recall"] == 1
+    assert metrics["action/keep_gt_yes"] == 1
+    assert metrics["action/keep_precision"] == metrics["action/keep_recall"] == 1
     assert "4.125 m/s" in str(observed)

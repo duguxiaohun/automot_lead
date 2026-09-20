@@ -439,7 +439,7 @@ def test_scene_priors_and_sampling_require_a_full_map_not_candidate(tmp_path):
     with pytest.raises(SystemExit):
         parser().parse_args(["--event-balanced-scene-priors"])
     with pytest.raises(ValueError, match="event-balance-index"):
-        validate_args(parser().parse_args(["--dataset-priors", "--high-level-planning"]))
+        validate_args(parser().parse_args(["--dataset-priors", "--high-level-action-prior"]))
 
 
 def test_closed_loop_style_pure_sampling_args_can_drop_the_old_index_path():

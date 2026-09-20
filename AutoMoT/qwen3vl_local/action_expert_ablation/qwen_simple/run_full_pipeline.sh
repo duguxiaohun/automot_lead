@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
+# 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
+# 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
+# 续训恢复原配置并严格校验；完整参数和三组对照见 action_prior/OPTIMIZATION.md。
 # 运行示例（在 AutoMoT/ 下执行）：
 # 构建/复用索引 → 训练 → 用本次 best.pt 做 test；默认自动选四张空闲 GPU。
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh

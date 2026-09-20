@@ -163,7 +163,7 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "a static obstacle occupies ego's path"
+            "a static obstacle affects ego's travel corridor, including an ongoing bypass"
         ),
         scope_text=(
             'Parking-bay vehicles outside the path alone are insufficient.'
@@ -176,7 +176,7 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            "another vehicle is entering or visibly about to enter ego's immediate path"
+            "another vehicle is entering, visibly about to enter, or has just cut into ego's immediate path"
         ),
         scope_text=(
             ''
@@ -244,7 +244,7 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
             'a route-lane transition is pending, either bypass recovery or a navigation lane change'
         ),
         scope_text=(
-            'Check which stage is visible; pending does not mean crossing within 3 seconds.'
+            'The transition may still be pending; an earlier bypass departure is not asserted.'
         ),
     ),
     ActionContext(

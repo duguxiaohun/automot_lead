@@ -2,7 +2,7 @@
 
 import torch
 
-PRECISION_POLICY = "fp32_parameters_adamw_ema_autocast_v2"
+PRECISION_POLICY = "fp32_parameters_optimizer_state_ema_autocast_v3"
 
 
 def decoder_forward(decoder, kwargs, compute_dtype, device):

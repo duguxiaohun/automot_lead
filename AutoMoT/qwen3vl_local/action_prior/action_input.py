@@ -10,13 +10,13 @@ from pathlib import Path
 
 ACTION_INPUT_VERSION = "scoped_phase3_primary_action_v4"
 ACTION_FORMAT = "primary_choice_v1"
-ACTION_CONDITIONING_VERSION = "upstream_gated_primary_action_v2"
+ACTION_CONDITIONING_VERSION = "upstream_gated_phase3_causal_sentence_v3"
 ACTION_TEXT = {
     "DECELERATE": "reduce speed",
-    "STOP": "reach or remain at a sustained near-stop, including continued waiting",
-    "RESUME": "sustain a speed increase; a previous stop is not required",
-    "LANE_CHANGE_LEFT": "make the first upcoming lane-boundary crossing to the left relative to ego's heading",
-    "LANE_CHANGE_RIGHT": "make the first upcoming lane-boundary crossing to the right relative to ego's heading",
+    "STOP": "reach or maintain a sustained near-stop (including waiting)",
+    "RESUME": "sustain a speed increase (no prior stop required)",
+    "LANE_CHANGE_LEFT": "make the first upcoming left lane-boundary crossing (ego-relative)",
+    "LANE_CHANGE_RIGHT": "make the first upcoming right lane-boundary crossing (ego-relative)",
 }
 _SPEED = {"DECELERATE", "STOP", "RESUME"}
 _LANE = {"LANE_CHANGE_LEFT", "LANE_CHANGE_RIGHT"}
@@ -62,14 +62,24 @@ def choice_action_input(text):
     return normalize_action(None)
 
 
-def action_sentence(value):
-    """仅 selected 的固定释义进入提示词；其它状态只保留在审计中。"""
+def action_description_context(action, accepted_contexts):
+    """只在已通过门控且支持该动作的场景中按 taxonomy 固定顺序选一句，避免并发堆叠。"""
+    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_CONTEXTS
+    buckets = {"RE2" if c.startswith("RE2_") else c for c in accepted_contexts}
+    return next((spec.context_id for spec in ACTION_CONTEXTS
+                 if spec.source_event.replace("-", "") in buckets and action in spec.action_keys), None)
+
+
+def action_sentence(value, accepted_contexts=()):
+    """直接复用当前 Phase3 choice 的场景因果句；无动作不补 KEEP，无门控不猜原因。"""
     value = select_primary(value)
     if value["status"] != "selected":
         return ""
-    return "The supplied upcoming high-level action is to " + "; and to ".join(
-        ACTION_TEXT[a] for a in value["actions"]
-    ) + ". Use this action to guide near-term trajectory planning with the images and navigation."
+    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import action_description
+    context = action_description_context(value["actions"][0], accepted_contexts)
+    if context is None:
+        raise ValueError("selected action needs a confirmed compatible context for its causal description")
+    return "Next action: " + action_description(context, value["actions"][0])
 
 
 def gate_action(value, conditions, action_contexts=(), scene_contexts=()):
@@ -111,6 +121,8 @@ def gate_action(value, conditions, action_contexts=(), scene_contexts=()):
     return effective, {
         "reason": reason, "accepted_contexts": accepted, "dropped_actions": dropped,
         "eligible_actions": actions, "primary_action_version": PRIMARY_ACTION_VERSION,
+        "description_context_id": (action_description_context(effective["actions"][0], accepted)
+                                   if effective["actions"] else None),
     }
 
 
@@ -190,6 +202,9 @@ class HighLevelActionIndex:
         self.identity = {"version": ACTION_INPUT_VERSION, **self.source,
                          "sha256": hashlib.sha256(raw).hexdigest(), "rows": len(self.records),
                          "action_format": ACTION_FORMAT, "conditioning_version": ACTION_CONDITIONING_VERSION,
+                         "choice_semantics_sha256": hashlib.sha256(
+                             Path(__file__).parents[1].joinpath("sft_new_loop_phase3/choice_semantics.py").read_bytes()
+                         ).hexdigest(),
                          "primary_action_version": PRIMARY_ACTION_VERSION,
                          "primary_action_sha256": hashlib.sha256(
                              Path(__file__).parents[1].joinpath("sft_new_loop_phase3/primary_action.py").read_bytes()).hexdigest(),

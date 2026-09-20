@@ -355,7 +355,7 @@ def test_prompt_contains_context_goal_and_only_asked_action_lines() -> None:
     assert "[SCENE_CONTEXT]" in text
     assert "[NAVIGATION_GOAL]" in text
     assert "ROUTE_TARGET_XY" in text
-    assert set(spec.output_keys) == {"DECELERATE", "STOP", "RESUME", INVALID_KEY}
+    assert set(spec.output_keys) == {"DECELERATE", "STOP", "RESUME", "KEEP", INVALID_KEY}
     assert "LANE_CHANGE_LEFT" not in text
 
 
@@ -385,15 +385,15 @@ def test_target_and_strict_parser_round_trip() -> None:
     assert parsed == spec_answers(spec)
 
 
-def test_choice_longitudinal_contract_has_three_actions_and_none() -> None:
-    """纵向事件三个动作与 NONE，共四个互斥选项。"""
+def test_choice_longitudinal_contract_has_three_actions_and_keep() -> None:
+    """纵向事件三个动作与 KEEP，共四个互斥选项。"""
 
     stop_spec = make_prompt_spec(
         variant="all_random_order", answers={**_no_answers(), "STOP": True}, seed_key="choice-stop",
         context_id="LEAD_BRAKE", road_structure="R1", goal_xy=(42.0, -3.0), action_output_mode="choice",
     )
     assert len(choice_options(stop_spec)) == 4
-    assert set(choice_options(stop_spec)) == {"DECELERATE", "STOP", "RESUME", "NONE"}
+    assert set(choice_options(stop_spec)) == {"DECELERATE", "STOP", "RESUME", "KEEP"}
     target = build_action_target(stop_spec)
     assert target == "STOP"
     assert parse_action_output(target, spec=stop_spec) == spec_answers(stop_spec)
@@ -410,14 +410,14 @@ def test_choice_longitudinal_contract_has_three_actions_and_none() -> None:
     )
     assert choice_rejection_reason(none_spec) is None
     assert choice_rejection_reason(invalid_spec) == "invalid_context"
-    assert build_action_target(none_spec) == "NONE"
-    assert parse_action_output("NONE", spec=none_spec) == spec_answers(none_spec)
+    assert build_action_target(none_spec) == "KEEP"
+    assert parse_action_output("KEEP", spec=none_spec) == spec_answers(none_spec)
     with pytest.raises(ValueError, match="valid context"):
         build_action_target(invalid_spec)
 
 
-def test_choice_maneuver_includes_none_and_projects_combinations() -> None:
-    """机动域五动作加 NONE，组合按统一规则变为主要动作。"""
+def test_choice_maneuver_includes_keep_and_projects_combinations() -> None:
+    """机动域五动作加 KEEP，组合按统一规则变为主要动作。"""
 
     spec = make_prompt_spec(
         variant="all_random_order",
@@ -434,7 +434,7 @@ def test_choice_maneuver_includes_none_and_projects_combinations() -> None:
         variant="all_random_order", answers={**_no_answers(), "LANE_CHANGE_LEFT": True},
         seed_key="choice-left", context_id="STATIC_BLOCKAGE", road_structure="R1", action_output_mode="choice",
     )
-    assert set(choice_options(left_only)) == {*ACTION_KEYS, "NONE"}
+    assert set(choice_options(left_only)) == {*ACTION_KEYS, "KEEP"}
     assert build_action_target(left_only) == "LANE_CHANGE_LEFT"
     assert parse_action_output("LANE_CHANGE_LEFT", spec=left_only) == spec_answers(left_only)
     assert all(value is None for value in parse_action_output("D", spec=left_only).values())
@@ -469,7 +469,7 @@ def test_choice_phrase_span_and_quality_guard_cover_full_action_name() -> None:
     assert train_module._line_value_span("LANE_CHANGE_LEFT", "ACTION_CHOICE") == (0, 16)
     broken = {"format_valid_rate": 1.0, "exact_accuracy": 0.0}
     healthy = {"format_valid_rate": 1.0, "exact_accuracy": 0.8}
-    for action in (*ACTION_KEYS, "NONE"):
+    for action in (*ACTION_KEYS, "KEEP"):
         prefix = f"action/{action.lower()}"
         broken.update({f"{prefix}_gt_yes": 1, f"{prefix}_precision": 1, f"{prefix}_recall": 1})
         healthy.update({f"{prefix}_gt_yes": 1, f"{prefix}_precision": 0.8, f"{prefix}_recall": 0.8})
@@ -481,7 +481,7 @@ def test_choice_phrase_span_and_quality_guard_cover_full_action_name() -> None:
 def test_choice_descriptions_follow_options_without_entering_answers(context_id) -> None:
     """候选解释随顺序绑定且只显示所属动作，答案不能复制解释或带其它候选。"""
 
-    from qwen3vl_local.sft_new_loop_phase3.prompts import CHOICE_ACTION_DESCRIPTIONS
+    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import action_description
 
     context = CONTEXT_BY_ID[context_id]
     for action in context.action_keys:
@@ -491,30 +491,31 @@ def test_choice_descriptions_follow_options_without_entering_answers(context_id)
             road_structure=context.allowed_rs[0], action_output_mode="choice",
         )
         prompt = build_action_prompt(spec=spec)
-        option_lines = [line for line in prompt.splitlines() if line.startswith("- ")]
+        option_lines = [line for line in prompt.split("Action meanings and possible purposes", 1)[1].splitlines() if any(line.startswith(k + ": ") for k in choice_options(spec))]
         assert option_lines == [
-            f"- {key}: {CHOICE_ACTION_DESCRIPTIONS[key]}" for key in choice_options(spec)
+            f"{key}: {action_description(context_id, key)}" for key in choice_options(spec)
         ]
         assert len(option_lines) == len(context.action_keys) + 1
         assert build_action_target(spec) == action
         assert parse_action_output(action, spec=spec) == spec_answers(spec)
-        described = f"{action}: {CHOICE_ACTION_DESCRIPTIONS[action]}"
+        described = f"{action}: {action_description(context_id, action)}"
         assert all(value is None for value in parse_action_output(described, spec=spec).values())
 
 
-def test_choice_description_changes_invalidate_only_choice_fingerprint(monkeypatch) -> None:
-    """修改实际释义必须阻止旧 choice adapter 混用，同时保留 binary 合同。"""
+def test_action_description_changes_invalidate_both_fingerprints(monkeypatch) -> None:
+    """两种模式都使用因果动作释义，修改后都必须拒绝旧合同。"""
 
-    from qwen3vl_local.sft_new_loop_phase3.prompts import CHOICE_ACTION_DESCRIPTIONS
+    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import action_description
 
     binary_before = action_prompt_sha256()
     choice_before = action_prompt_sha256(action_output_mode="choice")
-    monkeypatch.setitem(CHOICE_ACTION_DESCRIPTIONS, "STOP", "Changed STOP definition for contract test.")
-    assert action_prompt_sha256() == binary_before
+    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import CONTEXT_ACTION_DESCRIPTIONS
+    monkeypatch.setitem(CONTEXT_ACTION_DESCRIPTIONS["STATIC_BLOCKAGE"], "STOP", "Changed STOP definition for contract test.")
+    assert action_prompt_sha256() != binary_before
     assert action_prompt_sha256(action_output_mode="choice") != choice_before
 
 
-def test_choice_sampling_includes_none_and_projected_combinations() -> None:
+def test_choice_sampling_includes_keep_and_projected_combinations() -> None:
     """choice worklist 保留有效无动作和纵横组合；不训练 invalid。"""
 
     from qwen3vl_local.sft_new_loop_phase3 import train as train_module
@@ -529,7 +530,7 @@ def test_choice_sampling_includes_none_and_projected_combinations() -> None:
             goal_ego_xy=(10.0, 0.0), context_detail="", current_speed_mps=4.0,
             answers=answers, action_signature=context.action_keys[0],
         ))
-    # 有效 NONE 和纵横组合保留，无效前提仍排除。
+    # 有效 KEEP 和纵横组合保留，无效前提仍排除。
     invalid = rows[0]
     rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "invalid", "answers": {**_no_answers(), INVALID_KEY: True}}))
     rows.append(SimpleNamespace(**{**invalid.__dict__, "route_id": "none", "answers": _no_answers()}))

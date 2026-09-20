@@ -1,4 +1,4 @@
-"""主要动作/NONE 在 Phase3 与 action 条件中保持一致；不加载模型或真实数据。"""
+"""主要动作优先级共用；Phase3 KEEP 与 action 的旧 NONE 协议明确区分。"""
 
 from collections import Counter
 import itertools
@@ -17,7 +17,7 @@ from qwen3vl_local.action_prior.action_input import select_primary, choice_actio
 @pytest.mark.parametrize("speed,lane", itertools.product(
     (None, "DECELERATE", "STOP", "RESUME"), (None, "LANE_CHANGE_LEFT", "LANE_CHANGE_RIGHT")))
 def test_training_target_parser_and_action_condition_share_projection(context_id, speed, lane):
-    """每种合法纵横组合按域投影，单选监督、解析与下游输入完全一致。"""
+    """每种合法纵横组合按域投影，正动作单选监督与下游一致，保持的两套协议不得静默混用。"""
     context = CONTEXT_BY_ID[context_id]
     answers = {key: key in (speed, lane) for key in ACTION_KEYS}
     spec = make_prompt_spec(variant="all_random_order", answers=answers, seed_key="fixed",
@@ -25,11 +25,15 @@ def test_training_target_parser_and_action_condition_share_projection(context_id
     target = build_action_target(spec)
     raw = [key for key in context.action_keys if answers[key]]
     projected = select_primary(dict(status="selected" if raw else "no_action", actions=raw))
-    assert choice_action_input(target) == projected
+    if target == "KEEP":
+        assert projected["status"] == "no_action"
+        assert choice_action_input(target)["status"] == "unavailable"  # 旧下游协议不静默混用。
+    else:
+        assert choice_action_input(target) == projected
     assert parse_action_output(target, spec=spec) == spec_answers(spec)
     assert sum(q.answer for q in spec.questions) <= 1
     assert answers == {key: key in (speed, lane) for key in ACTION_KEYS}
-    empty = make_prompt_spec(variant="all_random_order", answers={}, seed_key="fixed",
+    empty = make_prompt_spec(variant="all_random_order", answers={key: False for key in ACTION_KEYS}, seed_key="fixed",
         context_id=context_id, road_structure=context.allowed_rs[0], action_output_mode="choice")
     assert build_action_prompt(spec=spec) == build_action_prompt(spec=empty)
 

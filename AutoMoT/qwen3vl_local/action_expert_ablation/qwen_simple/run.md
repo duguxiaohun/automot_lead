@@ -1,5 +1,9 @@
 # Qwen Simple Action Expert
 
+优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](../../action_prior/OPTIMIZATION.md)。
+
+新训练默认 Muon＋辅助 AdamW、5% warmup＋四段倍增 cosine，与主线及 bev_only 共用代码。开启/基线对照与恢复说明见 [共享优化说明](../../action_prior/OPTIMIZATION.md)。
+
 这个消融使用 4 张 LEAD stitched RGB 和 LeadMoT 原本的简短导航 prompt 跑 base
 Qwen prefill，然后把 Qwen KV、frozen BEV、speed/target/final goal 送入与
 `action_prior` 相同的联合轨迹 Flow Matching decoder。
@@ -15,9 +19,8 @@ bash qwen3vl_local/action_expert_ablation/qwen_simple/eval.sh \
 TB 看 `train/loss`、`train/route_fm_mse`、`train/waypoint_fm_mse`、`val/route_ade_m`、
 `val/waypoint_ade_m`。uniform 时只有核心指标；均衡时追加共享 full-map 事件桶，不产生 prior/复核分桶。
 
-
 训练与验证由 [`action_prior/training_core.py`](../../action_prior/training_core.py) 统一执行，
-与主线共用梯度累积、AdamW/EMA、验证选优和恢复流程。
+与主线共用梯度累积、Muon/AdamW、EMA、验证选优和恢复流程。
 对齐 step 时同时核对 `train/samples_seen`（累计呈现数）和 `train/step_samples`（本次更新样本数）；
 默认四卡 × 16 累积为 64 case/完整 step，epoch 尾部可能不足。
 FM loss 用于看训练趋势，效果看采样 ADE/FDE 和独立 test。

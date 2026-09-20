@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from PIL import Image, ImageDraw
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_trajectory, label_actions
-from qwen3vl_local.sft_new_loop_phase3.primary_action import primary_answers
+from qwen3vl_local.sft_new_loop_phase3.primary_action import primary_answers, primary_action
+from qwen3vl_local.sft_new_loop_phase3.choice_semantics import PRIMARY_CHOICE_VERSION
 
 
 def digest(path):
@@ -23,13 +24,28 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def display_action(row, answers):
+    """v15 的空动作位显示 KEEP；解析失败不得在 RGB 审计图上冒充保持。"""
+    if not answers or any(value not in ("YES", "NO") for value in answers.values()):
+        return "UNPARSED"
+    positive = "+".join(key for key, value in answers.items() if value == "YES")
+    spec = row.get("prompt_spec", {})
+    empty = ("KEEP" if spec.get("action_output_mode") == "choice"
+             and spec.get("primary_action_version") in (
+                 PRIMARY_CHOICE_VERSION, "primary_choice_v2_explicit_domain_keep") else "NONE")
+    return positive or empty
+
+
 def compare_action_labels(row, labels):
     """分开检查原始证据和主要动作，避免把合法的组合投影报告成错标。"""
     valid = row['gt']['INVALID_ACTION_CONTEXT'] == 'NO'
     raw = row.get('action_answers', row['gt'])
+    allowed = [k for k in row['gt'] if k not in ('INVALID_ACTION_CONTEXT', 'KEEP')]
+    if labels is not None and ('KEEP' in raw or 'KEEP' in row['gt']):
+        labels = {**labels, 'KEEP': valid and primary_action(labels, allowed) == 'NONE'}
     raw_mismatches = [k for k, v in raw.items() if k != 'INVALID_ACTION_CONTEXT'
                       and valid and (labels is None or labels[k] != (v == 'YES'))]
-    projected = (primary_answers(labels, [k for k in row['gt'] if k != 'INVALID_ACTION_CONTEXT'])
+    projected = (primary_answers(labels, allowed)
                  if labels is not None and row.get('prompt_spec', {}).get('action_output_mode') == 'choice'
                  else labels)
     target_mismatches = [k for k, v in row['gt'].items() if k != 'INVALID_ACTION_CONTEXT'
@@ -103,9 +119,8 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
         frames = [int(f.stem) for f in inputs] + list(range(anchor+1, anchor+14))
         canvas = Image.new('RGB', (2304, ((len(frames)+3)//4)*224+50), '#101010')
         draw = ImageDraw.Draw(canvas)
-        positive = lambda d: '+'.join(k for k,v in d.items() if v == 'YES') or 'NONE'
         draw.text((8,5), f"#{i} {r['scenario']} f{anchor} {r['context_id']} RS={r['prompt_road_structure']}", fill='white')
-        draw.text((8,23), f"GT {positive(r['gt'])} | PRED {positive(r['parsed'])} | FIRST {len(inputs)} PANELS=INPUT, others=FUTURE EVIDENCE", fill='yellow')
+        draw.text((8,23), f"GT {display_action(r, r['gt'])} | PRED {display_action(r, r['parsed'])} | FIRST {len(inputs)} PANELS=INPUT, others=FUTURE EVIDENCE", fill='yellow')
         frame_rows, missing_frames = [], []
         for j, f in enumerate(frames):
             rgb, meta = run/'rgb'/f'{f:04d}.jpg', traj.metas.get(f)

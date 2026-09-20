@@ -173,8 +173,8 @@ def ensure_action_inputs(args):
     """新训练缺索引时自动准备；续训只恢复保存产物，禁止悄悄重新标定。"""
     if not getattr(args, "high_level_action_prior", False):
         return
-    if not args.high_level_planning or args.condition_mode != "prior":
-        raise ValueError("--high-level-action-prior requires --high-level-planning and condition-mode prior")
+    if args.condition_mode != "prior":
+        raise ValueError("--high-level-action-prior requires condition-mode prior")
     if getattr(args, "high_level_action_index", ""):
         index = HighLevelActionIndex(args.high_level_action_index)
         index.validate_action_dataset(args.data_dir)

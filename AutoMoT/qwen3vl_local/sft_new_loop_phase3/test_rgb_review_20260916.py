@@ -10,7 +10,9 @@ import pytest
 
 from qwen3vl_local.sft_new_loop_phase3 import preflight, train, eval as evaluation
 from qwen3vl_local.sft_new_loop_phase3.build_dataset import _split, _stable_unit, physical_route_group
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS
+from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS, ACTION_KEYS
+from qwen3vl_local.sft_new_loop_phase3.choice_semantics import choice_annotation, PRIMARY_CHOICE_VERSION
+from qwen3vl_local.sft_new_loop_phase3.trajectory_action import longitudinal_decision
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (
     invalid_subgroup_report, require_same_rs_support, balanced_invalid_items,
 )
@@ -33,6 +35,14 @@ def index_rows(same_count=2):
         for i in range(same_count):
             rows.append(dict(rows[-1], route_id=f'Town01_Rep{i}_{split}_route_{i}_route0_01_01_01_01_01',
                              frame_id=20+i, invalid_reason='same_rs_wrong_event'))
+    for row in rows:
+        row['answers'] = {**dict.fromkeys(ACTION_KEYS, False), 'KEEP': not row['invalid_action_context'], 'INVALID_ACTION_CONTEXT': row['invalid_action_context']}
+        row['action_evidence'].update(longitudinal_decision=longitudinal_decision([3.0]*9),
+                                      lateral_observation_complete=True, lane_change_direction='')
+        row.update(dict(primary_action_version=PRIMARY_CHOICE_VERSION, primary_action=None,
+                        keep_scope=None, primary_action_evidence_status='invalid_context')
+                   if row['invalid_action_context'] else
+                   choice_annotation(row['answers'], row['context_id'], row['action_evidence']))
     return rows
 
 
@@ -121,7 +131,7 @@ def test_default_eval_is_full_coverage(monkeypatch):
     monkeypatch.setattr(sys,'argv',['eval.py'])
     args=evaluation.parse_args()
     assert args.cases_per_bin==0
-    assert 'data_v14' in args.index
+    assert 'data_v19' in args.index
     rows=candidate_rows()
     selected=evaluation._balanced_cases(rows,cases_per_bin=args.cases_per_bin,seed=3)
     assert len(selected)==len(rows)

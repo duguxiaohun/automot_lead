@@ -95,7 +95,7 @@ def engine():
 def runtime(engine, labels, cache, enabled, generate=False):
     """模拟同图/同条件下是否开启动作开关，其余输入固定。"""
     value = PriorEngine(engine, {"identity": "fixture"}, labels=labels, text_cache=cache,
-                        high_level_planning=True, high_level_action_prior=enabled,
+                        high_level_action_prior=enabled,
                         generate_analysis=generate, analysis_review=False)
     value.generate_messages = lambda *a, **kw: ("", SimpleNamespace(decode_steps=[SimpleNamespace(is_eos=True)]))
     return value
@@ -130,7 +130,7 @@ def test_no_effective_action_preserves_entire_transcript_with_index_contexts(tmp
         assert enabled.last_audit["text_cache_hit"] is hit
         assert transcripts[-1] == original
         assert enabled.last_audit["high_level_action_input"] == inputs["high_level_action"]
-        assert "UPCOMING_HIGH_LEVEL_ACTION" not in transcripts[-1][1]["content"]
+        assert "Next action:" not in transcripts[-1][1]["content"]
         assert prompts.EVENT_COMPACT_NAMES["UE6"] not in transcripts[-1][1]["content"]
         for render in (lambda p: prompts.prefill_prompt(p, "nav"), lambda p: prompts.analysis_prompt(p, "nav"),
                        lambda p: prompts.review_prompt(p, "nav", "draft"), lambda p: prompts.fallback_analysis(p, "nav")):
@@ -158,13 +158,13 @@ def test_actual_prior_noise_cannot_be_repaired_by_action_context(tmp_path, engin
                     high_level_action=STOP, high_level_action_contexts=("UE6",))
     assert value.last_audit["conditions"]["UE6"] != "YES"
     assert value.last_audit["high_level_action_gate"]["reason"] == "upstream_unconfirmed"
-    assert "UPCOMING_HIGH_LEVEL_ACTION" not in transcripts[-1][1]["content"]
+    assert "Next action:" not in transcripts[-1][1]["content"]
     assert prompts.EVENT_COMPACT_NAMES["UE6"] not in transcripts[-1][1]["content"]
 
 
 def test_empty_actions_preserve_prompt_even_when_event_and_scene_priors_are_confirmed():
     """已确认的特殊事件全 NO 也不能追加负动作说明；原显式 scene priors 保留。"""
-    baseline = dict(conditions=conditions("R5", UE6="YES"), high_level_planning=True,
+    baseline = dict(conditions=conditions("R5", UE6="YES"),
                     event_balanced_scene_contexts=("RE5",))
     for status in ("no_action", "unavailable", "not_applicable"):
         effective, _ = gate_action(dict(status=status, actions=[]), baseline["conditions"], ("UE6",), ("RE5",))

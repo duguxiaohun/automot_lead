@@ -1,5 +1,9 @@
 # Action Expert 消融实验
 
+优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](../action_prior/OPTIMIZATION.md)。
+
+新训练与主线同步默认 `muon_adamw + cosine_restarts`。所有优化器、周期、warmup 参数直接复用主线，无消融副本；四组合对照、参数与恢复边界见 [共享优化说明](../action_prior/OPTIMIZATION.md)。
+
 从远端 `AutoMoT/` 目录运行。本目录只做两个不使用 RS/EVENT 标定或 LoRA 先验的 action expert 对照，
 轨迹 decoder、Flow Matching、BEV、数据索引和训练循环直接复用
 `qwen3vl_local/action_prior/`，不再分别维护主线和消融的训练循环。
@@ -22,7 +26,7 @@ engine 不初始化，decoder 每层拿到的是 zero-length prefix KV。
 主线 `action_prior/train.py` 和两个消融入口共同调用
 [`action_prior/training_core.py`](../action_prior/training_core.py)：
 
-- 模型与 FM 配置构造、FP32 AdamW、学习率调度、EMA。
+- 模型与 FM 配置构造、FP32 Muon/AdamW 状态、共享学习率调度、EMA。
 - 每轮样本打乱、DDP 分片、梯度累积及不足完整窗口的更新。
 - FM loss、固定噪声验证、Euler 采样指标、频繁验证及 epoch/final 验证选优。
 - TensorBoard 核心日志、checkpoint 保存、恢复配置校验、待完成验证和预算停止。
@@ -239,7 +243,7 @@ bash qwen3vl_local/tb_serve.sh checkpoints/action_expert_ablation/bev_only/lates
 | 对比项 | 必须对齐 |
 | --- | --- |
 | 数据预算 | 同一 train/val/test 索引及内容、GPU 数、梯度累积、seed、epoch/step 上限 |
-| 优化设置 | LR、warmup、weight decay、EMA、decoder dropout、dtype |
+| 优化设置 | optimizer、参数路由、LR、scheduler、实际周期、warmup、Muon 超参数、weight decay、EMA、decoder dropout、dtype |
 | FM 定义 | route/waypoint loss 权重、坐标缩放、trajectory layers/heads |
 | 评测口径 | 同一 val 子集/全量集、验证 seed、Euler 步数、EMA 或 raw 权重 |
 | 曲线显示 | 同一 tag、日志间隔、TensorBoard smoothing，并核对 `samples_seen` |
@@ -272,7 +276,6 @@ event，并保留 checkpoint step 本身的记录，避免续训曲线出现未�
 执行指纹绑定消融入口、共享 action_prior/LeadMoT/BEV 执行依赖和关键运行库版本；
 未使用的 Phase1/2 prompt 不参与 `bev_only` 或 `qwen_simple` 身份。
 `qwen_simple` 与 `bev_only` checkpoint 不能互相 resume/eval；合同会拒绝跨条件加载。
-
 
 ## 版本与验证
 
@@ -312,7 +315,6 @@ OUTPUT_DIR=checkpoints/action_expert_ablation/bev_only_smoke \
 GPU_IDS=0,1,2,3 OUTPUT_DIR=checkpoints/action_expert_ablation/bev_only_smoke \
   bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced --max-train-steps 4
 ```
-
 
 2026-09-14 主线续训接口已与两个消融对齐：三个 `run_full_pipeline.sh` 均支持
 `--resume 路径` / `--resume=路径` / `RESUME=路径`，并提前解析真实 checkpoint 路径。

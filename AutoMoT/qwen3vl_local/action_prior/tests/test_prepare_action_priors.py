@@ -71,7 +71,7 @@ def test_prepare_reuses_phase3_labels_and_keeps_background_unchanged(sources):
     assert index.identity["privileged_action_conditioning"] is True
     assert balance.EVENT_BALANCE_WEIGHTS[balance.REGULAR_BACKGROUND] == 2
     assert all(balance.EVENT_BALANCE_WEIGHTS[bucket] == 1 for bucket in balance.SPECIAL_BUCKETS)
-    prior = dict(conditions={"ROAD_STRUCTURE": "R1"}, high_level_planning=True)
+    prior = dict(conditions={"ROAD_STRUCTURE": "R1"})
     for frame in (3, 4, 5):
         assert index.get(("S", "R", frame))["status"] == "not_applicable"
         assert index.planning_contexts(("S", "R", frame)) == ()
@@ -106,7 +106,7 @@ def test_auto_prepare_without_action_index_and_resume_never_rebuilds(sources, mo
         return full
 
     monkeypatch.setattr(preparation, "prepare", prepare)
-    args = parser().parse_args(["--high-level-planning", "--high-level-action-prior", "--data-root", str(root), "--data-dir", str(data)])
+    args = parser().parse_args(["--high-level-action-prior", "--data-root", str(root), "--data-dir", str(data)])
     preparation.ensure_action_inputs(args)
     assert len(called) == 1 and Path(args.high_level_action_index).is_file()
     args.resume = "original.pt"
@@ -171,7 +171,7 @@ def test_missing_action_data_uses_original_builder(sources, monkeypatch):
         (data / "manifest.json").write_text("{}")
 
     monkeypatch.setattr(preparation, "run_builder", build)
-    args = parser().parse_args(["--high-level-planning", "--high-level-action-prior",
+    args = parser().parse_args(["--high-level-action-prior",
                                "--data-root", str(root), "--data-dir", str(data),
                                "--event-balance-index", str(full)])
     preparation.ensure_action_inputs(args)

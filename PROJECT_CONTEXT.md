@@ -1,5 +1,149 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-20 Action 仅保留所选 high-level 的一句因果描述
+
+移除 --high-level-planning / HIGH_LEVEL_PLANNING；--high-level-action-prior 独立开启。
+保留原自然 RS/EVENT，场景末尾只追加一句 Next action，直接复用最新 Phase3 choice_semantics
+的 action_description（五种变化动作逐场景条件→动作→目的），不枚举其它动作/目的。
+并发事实全部保留，描述只在门控通过且支持所选动作的 context 中按 taxonomy 固定顺序选一个，
+审计记录 description_context_id；不把动作 scope 变成场景证据。
+干净 dataset-priors + action-prior 自动提供独立 full map 的特殊 RE，策略 dataset_action_special_re_v2；
+LoRA/带噪声/动作关闭时不补 RE。UE 门控、标定、采样和 NONE/no_action 空状态不变，不合成 KEEP。
+新条件版本 upstream_gated_phase3_causal_sentence_v3 及 Phase3 choice 源码哈希绑定合同/缓存；
+prefill/摘要/复核/fallback 同源。旧 run 用原源码，新 prompt 新训；无真实模型效果结论。
+详见 AutoMoT/qwen3vl_local/action_prior/run.md 和 DESIGN.md。
+
+
+### 2026-09-20 Action 精简开关与每轮中途审计（覆盖此前优化细节开关）
+
+三条入口统一 `action_optimization_v4`：本轮新增优化配置只保留 optimizer/lr_scheduler 选择，
+周期4段/倍率2、Muon momentum0.95/NS5/RMS倍率1、shared decay、监控100步固定默认，
+移除这些细节及cycle/fixed验证CLI和环境开关。每个epoch和共同参考周期完整验证，
+单余弦/重启余弦在同预算下用相同完整验证候选点，无需用户选择验证策略。
+共用 training_audit.py：首步/定期checkpoint、每轮训练结束、完整验证后及安全终止时，
+原子更新当前run的 training_audit.zip（≤30MB）。包含最新提交step、轮次完整性/验证待办、
+全rank训练/验证历史、近期loss/LR/更新幅度、实际配置与合同，不含权重/缓存/RGB/完整日志。
+审计计数三入口均支持中断恢复；打包中断保留旧ZIP，强杀只能审计上次已发布结果。
+无需新开关、不自动上传；恢复训练仍用latest.pt，旧run用原源码。
+详见 AutoMoT/qwen3vl_local/action_prior/OPTIMIZATION.md。
+
+
+### 2026-09-20 Action 吞吐与公平验证计划
+
+三条入口共用 `action_optimization_v3`：默认 adaptive 延续 epoch/周期完整验证；
+显式 `full_validation_policy=fixed` 按 `full_validation_steps`（默认1000）及最终步完整验证，
+覆盖 epoch/cycle 触发，四组合使用同一候选 step，策略和间隔绑定恢复合同。
+完整最终 val 在保存 latest.pt 后写 `validation/final.json`，区分最终与 best 成绩。
+吞吐同时记录扣除验证/保存的训练口径和含全部循环开销的整体口径；最终性能汇总包含末尾
+验证/保存，`performance/session_*.json` 按进程会话计时，不混入恢复停机时间。
+EMA 仍0.999，已有 raw/EMA 配对评估说明见 action_prior/OPTIMIZATION.md；旧run用原源码。
+真实条件模型多卡恢复/吞吐尚需远端验收，不能用小矩阵检查替代。
+
+
+### 2026-09-20 Action 优化配置复审完善
+
+三条 action 入口共用 `action_optimization_v2`：默认 `decay_policy=shared`，AdamW/Muon
+对 embedding 的 decay 一致；`legacy` 独立保留旧分组。周期末完整 val 参与 best，与
+期末/最终/小验证去重；待办验证及 epoch 审计计数支持中断恢复。默认 rank0 首步、每100步及
+周期首尾监控各优化组代表参数真实更新 RMS/相对范数及算法耗时，可设0关闭。
+周期峰值保持原值；新配置进入严格恢复合同，旧 run 用原源码。
+`action_prior/check_optimization_cuda.py --gpus 1/2` 共用自动选卡/GPU_IDS，独立小矩阵
+验证不加载 Qwen/BEV。单卡 CUDA 已检查，双卡 NCCL 与真实收敛/吞吐仍需远端验证。
+详见 `AutoMoT/qwen3vl_local/action_prior/OPTIMIZATION.md`。
+
+
+### 2026-09-20 Action 共享 Muon 与 cosine restart
+
+`action_prior` 和 `action_expert_ablation/{qwen_simple,bev_only}` 新训练统一默认
+`optimizer=muon_adamw`、`lr_scheduler=cosine_restarts`：5% warmup 后按1:2:4:8分配剩余
+optimizer steps，周期内降到0后回到相同峰值，最终预算后保持0；短预算自动减少周期。
+只对 Prefix-KV/轨迹 Transformer 隐藏矩阵及向量场隐藏层用 Muon，输入/最终输出、embedding、
+query、norm/bias 留在 AdamW；FP32 参数/优化器状态/EMA，Muon CUDA NS 矩阵乘为 BF16。
+基础 LR2e-4、Muon RMS 对齐尺度、momentum0.95/NS5、辅助 AdamW betas=(0.9,0.95)。
+共用 `optimization_config.py` / `optimization.py` / `training_core.py`，`adamw + cosine`
+保留新 run 基线；算法/周期/预算/路由绑定 checkpoint，续训不能切换，旧 run 用原源码。
+配置/对照/日志见 `AutoMoT/qwen3vl_local/action_prior/OPTIMIZATION.md`；不改变数据、先验、
+FM 损失或采样，无真实模型提升结论。
+
+### 2026-09-20 Phase3 v19 风险响应与运动阶段
+
+新训练默认 `4rgb + choice`、索引 `sft_new_loop_phase3_data_v19`，prompt 为
+`v19_response_aware_keep`。复看5片段/91帧面板覆盖12条KEEP+车辆零目标速度请求题，
+全部来自已有train-only路线，先过滤异常时长，无新增holdout。十类KEEP允许阶段内短暂制动，
+不暗示风险已清空；减速/停车的避碰、观察和等待目的保留，两种题型共享，scene_context仍为事实。
+新增action_review由构建/审计共用：控制响应、约束对象、原速度/跨线判据节点和记录变化；
+缺失不补false/0，invalid证据注明来源上下文，review_only不进入提示词/标签/采样。
+边界审计独立response/eval_response桶并回读核验新字段；局部220KEEP中67运动边界、40制动请求、
+12车辆零目标速度请求，桶重叠且非错标率。v8标定及STOP>首跨>速度优先级未改，非完整阶段/动机真值。
+442项CPU测试、1148候选重算及384行索引/704次题型回放通过；原标签和采样一致，未跑Qwen或全量重建。
+需重建v19索引并新训，旧run用原源码；action_prior旧NONE协议不变。
+同日开训前修复：action_review 支持明确 None→ID 首次约束出现，未知字段仍中断连续证据；
+453项CPU测试通过，1148候选/384行重建补齐257/105条出现记录，动作/采样/prompt不变。
+v19名称不变，mapping哈希更新，开训前重建索引；未运行全量生产预检或GPU训练。
+详见 AutoMoT/qwen3vl_local/sft_new_loop_phase3/V19_RECORDED_RESPONSE_20260920.md。
+
+### 2026-09-20 Phase3 v18 RGB 因果复核
+
+新训练默认 `4rgb + choice`、索引 `sft_new_loop_phase3_data_v18`，prompt 为
+`v18_causal_maneuver`；两种题型显式 KEEP 沿用 v17。复看十类26片段/506帧面板，
+其中64帧为补充早期历史；全部为已有 train-only 开发路线，无新增 holdout。
+两段 UE4 前提问题按精确 route/frame 隔离35帧，不改成 NO/KEEP/invalid，不推广整条路线。
+十类动作说明统一条件→动作→作用；scene_context 仍为事实，目的不是逐帧意图真值。
+choice 明确主要动作，准备减速可以先于被选跨线；binary 纵横 YES 可先后发生，仍不输出阶段序列。
+KEEP 允许阶段内调速。新增 audit_label_boundaries.py 只报告阈值/窗边界/速度先于跨线，
+不修改 v8 标定或 STOP > 首跨 > 速度优先级，不自动过滤或降权。未来数值窗仍不进入模型提示词。
+本轮局部候选1183→1148，其余原始动作一致；410项CPU测试及384行索引重放通过，未跑Qwen或全量生产重建。
+新默认需要重建索引并新训，旧 run 用原源码；action_prior 旧 NONE/门控接口保持原样。
+同日独立复审修复：RE5 RESUME 覆盖等待后起步和未停车的持续增速；边界审计兼容
+`prompt_spec.road_structure`，不回退 true_rs，并报告匹配/漏配、对全漏配告警。
+417项CPU测试通过，局部1148候选/384行内容未变；v18名称不变，prompt哈希更新，重建刷新manifest。
+详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/V18_RGB_CAUSAL_REFINEMENT_20260920.md`。
+
+### 2026-09-20 Phase3 v17 判断题显式 KEEP
+
+判断题与选择题共用十类场景的 KEEP 语义和动作因果。binary 纵向域三动作+KEEP+invalid 共五行，
+机动域五动作+KEEP+invalid 共七行；有效且证据完整、所有所问变化动作均否时 KEEP:YES。
+KEEP 与变化动作互斥；持续等待仍 STOP:YES；invalid 时所有动作包括 KEEP 均 NO。
+逐动作纵横证据仍可同时为 YES，choice 沿用主要动作投影。原始五动作标定、采样和 action_prior 协议不变。
+模型提示词继续不显示未来数值时间窗。新索引 `sft_new_loop_phase3_data_v17`；训练/评估拒绝缺 KEEP 的旧索引，
+KEEP 支持/P/R 纳入 binary 评估和 best 守卫。旧 run 用原源码恢复，新训练重建索引。
+本轮复用既有26片段的轨迹及RGB指纹核验，无新增人工RGB审计或模型效果结论。
+详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/V17_BINARY_KEEP_20260920.md`。
+
+
+### 2026-09-20 Phase3 v16 直接判断下一动作
+
+按用户要求，UE1–UE7、RE2/3/5 的模型提示词不再显示未来1.5/2/3秒时间窗、连续采样数或速度阈值，
+只依据图像序列、当前速度和场景判断接下来动作；各场景动作因果、KEEP题域及当前等待/已完成跨线区分保留。
+未来窗口与精确数值判据仅在离线标注代码执行，v8标定、主要动作标签和采样规则不变。历史RGB时间仍说明已观察的输入。
+新prompt为 `v16_direct_next_action`，默认索引 `sft_new_loop_phase3_data_v16`；需重建新索引并新训，旧run用原源码。
+本轮无新增RGB人工审计或模型效果结论，复用v15开发素材验证。详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/V16_DIRECT_NEXT_ACTION_20260920.md`。
+
+
+### 2026-09-20 Phase3 v15 因果动作与 KEEP（覆盖此前 Phase3 NONE 默认）
+
+Phase3 新训练默认 `4rgb + choice`、索引 `sft_new_loop_phase3_data_v15`，seed仍为20260920。
+十类 UE/特殊RE 的 scene_context 只给RS/事件/历史事实，动作选项各给连续的场景因果说明；
+减速/停车保留避碰、观察和等待可用间隙的目的，不把目的当作安全空隙或未来跨线的证据。
+证据完整的保持阶段输出 KEEP：机动域为车道及速度阶段保持，纵向域只保持速度阶段；允许小幅调速。
+缺失/歧义/invalid不能补KEEP；当前持续等待仍为STOP。`choice_semantics.py` 绑定正向标签、题域、
+解析与KEEP指标，v8窗口和原STOP>首跨>速度优先级不变；原始布尔动作证据和binary诊断保留。
+复用已曝光的26片段/442帧面板覆盖十类，26路线重建1183候选/384行局部冒烟，非全量逐帧审计或模型效果。
+仅升级Phase3输出；action_prior仍用旧NONE门控协议，不能直接消费v15 KEEP文本。旧run用原源码恢复。
+详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/V15_CAUSAL_KEEP_20260920.md`。
+
+
+### 2026-09-20 Action high-level 提示词精简
+
+当前 planning 协议为 `phase3_inspired_conditional_high_level_v5_explicit_purpose`：缩短 system、道路、
+条件性纵横动作及各 UE/特殊 RE 观察目的；有门控通过的主要动作时省去通用动作选项，只保留事实、
+动作目的及一个 `Next action`。目的必须保留“减速/等待或调速可以帮助什么”的联系，不能退化为观察清单。
+NONE/不可用/拒绝动作仍保留 planning-only；目的不证明空隙或随后变道。
+合同、摘要生成和最终 prefill 共用 system 选择；关闭两个开关沿用原提示词。标定/门控/采样/四图导航不变。
+R1+UE2 场景文字96→75词，加STOP后126→55词；均排除导航/标签，按英文空白分词而非Qwen token。
+用于新训练，旧run用原源码恢复；无真实模型效果结论。详见 action_prior/run.md、DESIGN.md。
+
+
 ### 2026-09-19 Action 特殊 RE 自动场景先验（覆盖此前独立开关）
 
 新训练在无噪声 `--dataset-priors --high-level-planning` 下自动从独立 full map 提供已确认

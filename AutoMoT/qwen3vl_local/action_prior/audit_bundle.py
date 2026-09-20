@@ -19,6 +19,7 @@ def pack(root, output=None, max_bytes=LIMIT):
         raise ValueError("audit cap must be 4096..30,000,000 bytes")
     core_names = (
         "model_contract.json",
+        "condition_contract.json",
         "metrics.json",
         "benchmark_report.json",
         "run_manifest.json",
@@ -102,7 +103,7 @@ def pack(root, output=None, max_bytes=LIMIT):
                     "raw TensorBoard events (validation JSON preserves metrics)",
                     "full motion telemetry",
                 ],
-                note="Metrics are complete; cases/history may be sampled by size. Original outputs remain on disk.",
+                note="Included core files are complete; consult run status for pending stages. Cases/history may be sampled by size. Original outputs remain on disk.",
             )
             z.writestr(
                 "AUDIT_MANIFEST.json",

@@ -67,6 +67,31 @@ if sys.argv[1] == "train":
     return scripts, run, link, env
 
 
+@pytest.mark.parametrize("entry", ["train.sh", "run_full_pipeline.sh"])
+@pytest.mark.parametrize("override", [False, True])
+def test_optimization_resume_preserves_saved_values_and_cli_priority(pipeline, entry, override):
+    """两个 shell 恢复入口均传递原优化配置；显式更改由 checkpoint 合同进一步拒绝。"""
+    scripts, run, link, env = pipeline
+    from qwen3vl_local.action_prior.optimization_config import OPTIMIZATION_ENV
+    for key in OPTIMIZATION_ENV:
+        env.pop(key, None)
+    config_path = run / "config.json"
+    saved = json.loads(config_path.read_text())
+    saved.update(optimizer="adamw", lr_scheduler="cosine")
+    config_path.write_text(json.dumps(saved))
+    extra = []
+    if override:
+        env.update(OPTIMIZER="muon_adamw", LR_SCHEDULER="cosine_restarts")
+        extra = ["--optimizer", "adamw"]
+    result = subprocess.run(["bash", str(scripts / entry), "--resume", str(link / "latest.pt"), *extra],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    training = json.loads(Path(env["TRACE_FILE"]).read_text().splitlines()[0])
+    args = parser().parse_args(training["argv"][1:])
+    assert args.optimizer == "adamw"
+    assert args.lr_scheduler == ("cosine_restarts" if override else "cosine")
+
+
 @pytest.mark.parametrize("style", ["separate", "equals", "environment"])
 def test_resume_restores_config_and_pins_real_run(pipeline, style):
     """三种入口一致，且训练期间 latest 改指不会把最终评测切换到另一 run。"""
@@ -86,6 +111,7 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
     train, evaluate, probe = [json.loads(line) for line in Path(env["TRACE_FILE"]).read_text().splitlines()]
     assert [c["argv"][0] for c in (train, evaluate, probe)] == ["train", "eval", "probe"]
     restored = parser().parse_args(train["argv"][1:])
+    assert (restored.optimizer, restored.lr_scheduler) == ("muon_adamw", "cosine_restarts")
     assert restored.dataset_priors is True
     assert restored.generate_analysis is False
     assert restored.data_dir == "old index"
@@ -105,7 +131,7 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
     assert not (Path(env["OUTPUT_DIR"]) / "run_test").exists()
 
 
-@pytest.mark.parametrize("option", ["generate_analysis", "high_level_planning", "high_level_action_prior"])
+@pytest.mark.parametrize("option", ["generate_analysis", "high_level_action_prior"])
 @pytest.mark.parametrize("entrypoint", ["run_full_pipeline.sh", "train.sh"])
 @pytest.mark.parametrize("saved,environment,cli,expected", [
     (True, None, [], True), (False, None, [], False), (None, None, [], True),

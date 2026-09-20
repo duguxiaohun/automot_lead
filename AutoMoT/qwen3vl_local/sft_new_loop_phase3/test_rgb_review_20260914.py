@@ -71,7 +71,7 @@ def test_reviewed_topology_conflict_is_unknown_only_when_transition_is_future():
 
 def test_shared_speed_rules_and_all_exposed_test_routes_train_only():
     for mode in ('binary','choice'):
-        spec=make_prompt_spec(variant='all_random_order',answers={},seed_key='test',
+        spec=make_prompt_spec(variant='all_random_order',answers={k:False for k in ('DECELERATE','STOP','RESUME')},seed_key='test',
             context_id='LEAD_BRAKE',road_structure='R1',current_speed_mps=5,goal_xy=(42,0),
             action_output_mode=mode)
         assert SPEED_ACTION_RULES in build_action_prompt(spec=spec)

@@ -37,6 +37,9 @@ TARGETS = (
     "lane_change_left_fp",
     "lane_change_right_fn",
     "lane_change_right_fp",
+    "keep_fn",
+    "keep_fp",
+    "keep_action_conflict",
     "lane_change_side_swap",
     "longitudinal_multi_yes",
     "invalid_context_fn",
@@ -94,10 +97,10 @@ def _target_matches(payload: Mapping[str, Any]) -> List[str]:
     gt = payload.get("gt") or {}
     parsed = payload.get("parsed") or {}
     matched: List[str] = []
-    asked = [key for key in (*ACTION_KEYS, INVALID_KEY) if key in gt]
+    asked = [key for key in (*ACTION_KEYS, "KEEP", INVALID_KEY) if key in gt]
     if any(parsed.get(key) not in ("YES", "NO") for key in asked):
         matched.append("invalid_answer")
-    for key in ACTION_KEYS:
+    for key in (*ACTION_KEYS, "KEEP"):
         if key not in gt:
             continue
         lower = key.lower()
@@ -111,13 +114,15 @@ def _target_matches(payload: Mapping[str, Any]) -> List[str]:
         matched.append("lane_change_side_swap")
     if _yes_count(parsed, ("DECELERATE", "STOP", "RESUME")) > 1:
         matched.append("longitudinal_multi_yes")
+    if parsed.get("KEEP") == "YES" and _yes_count(parsed, ACTION_KEYS) > 0:
+        matched.append("keep_action_conflict")
     if gt.get(INVALID_KEY) == "YES" and parsed.get(INVALID_KEY) != "YES":
         matched.append("invalid_context_fn")
     if gt.get(INVALID_KEY) == "NO" and parsed.get(INVALID_KEY) == "YES":
         matched.append("invalid_context_fp")
-    if gt.get(INVALID_KEY) == "YES" and any(parsed.get(key) == "YES" for key in ACTION_KEYS):
+    if gt.get(INVALID_KEY) == "YES" and any(parsed.get(key) == "YES" for key in (*ACTION_KEYS, "KEEP")):
         matched.append("invalid_context_not_all_no")
-    if str(payload.get("action_signature")) == "NONE" and _yes_count(parsed, ACTION_KEYS) > 0:
+    if str(payload.get("action_signature")) in ("NONE", "KEEP") and _yes_count(parsed, ACTION_KEYS) > 0:
         matched.append("no_action_fp")
     return matched
 

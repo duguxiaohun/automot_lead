@@ -104,7 +104,6 @@ def parser(variant: str) -> argparse.ArgumentParser:
         "checkpoint_roots",
         "analysis_review",
         "analysis_tokens",
-        "high_level_planning",  # 仅 action_prior 消费该提示词，消融不能暴露无效开关。
         "high_level_action_prior",
         "high_level_action_index",
         "recheck_mode",
@@ -166,6 +165,10 @@ def _explicit_cli_dests(p: argparse.ArgumentParser, argv: list[str] | None) -> s
 def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Namespace:
     """Parse args, restoring the saved run configuration before resume validation."""
 
+    from qwen3vl_local.action_prior.optimization_config import (
+        optimization_env_args, legacy_optimization_defaults,
+    )
+    argv = [*optimization_env_args(), *(sys.argv[1:] if argv is None else argv)]
     p = parser(variant)
     cli_args = p.parse_args(argv)
     if not cli_args.resume:
@@ -179,6 +182,7 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
         )
     with config_path.open("r", encoding="utf-8") as f:
         saved = json.load(f)
+    legacy_optimization_defaults(saved)
     merged = vars(p.parse_args([]))
     merged.update(saved)
     explicit = _explicit_cli_dests(p, argv)
@@ -238,8 +242,8 @@ def validate_args(args: argparse.Namespace, variant: str) -> None:
         raise ValueError("supported dtypes are bfloat16/float32")
     if args.max_train_steps < 0 or args.val_max_samples < 0 or args.num_workers < 0:
         raise ValueError("step/sample/worker limits must be nonnegative")
-    if args.learning_rate <= 0 or not 0 <= args.warmup_ratio < 1:
-        raise ValueError("invalid LR/warmup")
+    from qwen3vl_local.action_prior.optimization_config import validate_optimization
+    validate_optimization(args)
     if args.loss_type != "mse":
         raise ValueError("Flow Matching ablations require --loss-type mse")
     FlowMatchingConfig(
@@ -341,6 +345,10 @@ def contract_source_paths(variant: str) -> list[str]:
         "qwen3vl_local/action_prior/metrics.py",
         "qwen3vl_local/action_prior/build_dataset.py",
         "qwen3vl_local/action_prior/training_core.py",
+        "qwen3vl_local/action_prior/optimization.py",
+        "qwen3vl_local/action_prior/optimization_config.py",
+        "qwen3vl_local/action_prior/training_audit.py",
+        "qwen3vl_local/action_prior/audit_bundle.py",
         "qwen3vl_local/action_prior/progress.py",
         "qwen3vl_local/action_prior/contracts.py",
         "qwen3vl_local/leadmot/config.py",

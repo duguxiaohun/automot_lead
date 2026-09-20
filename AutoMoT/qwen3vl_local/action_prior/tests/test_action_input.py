@@ -73,16 +73,17 @@ def test_prompt_supports_all_phase3_actions_and_combined_binary_output():
     from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
     assert set(ACTION_TEXT) == set(ACTION_KEYS)
     for actions in [[key] for key in ACTION_KEYS] + [["LANE_CHANGE_LEFT", "DECELERATE"]]:
-        prior = dict(conditions={"ROAD_STRUCTURE": "R1"}, high_level_planning=True,
-                     high_level_action_prior=True, high_level_action=dict(status="selected", actions=actions))
-        sentence = action_sentence(prior["high_level_action"])
+        prior = dict(conditions={"ROAD_STRUCTURE": "R1"},
+                     high_level_action_prior=True, high_level_action=dict(status="selected", actions=actions),
+                     high_level_action_gate={"accepted_contexts": ["UE2"]})
+        sentence = action_sentence(prior["high_level_action"], ("UE2",))
         for text in (prompts.prefill_prompt(prior, "nav"), prompts.analysis_prompt(prior, "nav"),
                      prompts.review_prompt(prior, "nav", "draft"), prompts.fallback_analysis(prior)):
             assert sentence in text
             for action in actions:
                 assert action not in text
         assert prompts.analysis_format_valid(prompts.fallback_analysis(prior))
-        assert "UPCOMING_HIGH_LEVEL_ACTION" not in prompts.prefill_prompt(dict(prior, high_level_action_prior=False), "nav")
+        assert "Next action:" not in prompts.prefill_prompt(dict(prior, high_level_action_prior=False), "nav")
 
 
 @pytest.mark.parametrize("generate", [False, True])
@@ -115,7 +116,7 @@ def test_action_changes_cache_and_final_kv_and_missing_does_not_reuse_previous(t
         invalid={}, calls=[]))
     cache = TextCache(tmp_path / "cache")
     runtime = PriorEngine(engine, {"identity": "same"}, labels=labels, text_cache=cache,
-                          high_level_planning=True, high_level_action_prior=True, generate_analysis=generate)
+                          high_level_action_prior=True, generate_analysis=generate)
     runtime.generate_messages = generate_messages
     images = [Image.new("RGB", (2, 2)) for _ in range(4)]
     for action in (dict(status="selected", actions=["STOP"]), dict(status="selected", actions=["RESUME"]), None):
@@ -124,7 +125,7 @@ def test_action_changes_cache_and_final_kv_and_missing_does_not_reuse_previous(t
                               high_level_action_contexts=("UE1",))
             assert runtime.last_audit["text_cache_hit"] is hit
             assert runtime.last_audit["high_level_action"] == normalize_action(action)
-            assert action_sentence(action) in seen[-1][1]["content"]
+            assert action_sentence(action, ("UE1",)) in seen[-1][1]["content"]
             if generate:
                 assert seen[-1][-1]["content"] == prompts.fallback_analysis(runtime.last_audit, "nav")
                 assert prompts.analysis_format_valid(seen[-1][-1]["content"])
@@ -141,7 +142,6 @@ def test_action_contract_binds_content_but_allows_path_relocation(tmp_path, monk
     from qwen3vl_local.action_prior import provenance
     monkeypatch.setattr(provenance, "execution_fingerprint", lambda: {"fixture": "fixed"})
     args = dataset_args(tmp_path)
-    args.high_level_planning = True
     baseline = build_contract(args)
     args.high_level_action_prior = True
     path = write_index(tmp_path / "actions.jsonl", [record()])
@@ -158,14 +158,13 @@ def test_action_contract_binds_content_but_allows_path_relocation(tmp_path, monk
         require_contract(enabled, build_contract(args), allow_prior_source_change=True)
 
 
-def test_switch_requires_planning_but_not_explicit_index():
-    """默认保持关闭，不能开了动作模式却忘记准备来源。"""
+def test_action_switch_works_alone_and_requires_prior_condition_mode():
+    """动作输入无额外 planning 开关前提；base 消融仍不能接入先验。"""
     args = parser().parse_args([])
     assert not args.high_level_action_prior
-    for argv in (["--high-level-action-prior"],):
-        with pytest.raises(ValueError):
-            validate_args(parser().parse_args(argv))
-    validate_args(parser().parse_args(["--high-level-action-prior", "--high-level-planning"]))
+    validate_args(parser().parse_args(["--high-level-action-prior"]))
+    with pytest.raises(ValueError, match="condition-mode prior"):
+        validate_args(parser().parse_args(["--high-level-action-prior", "--condition-mode", "base"]))
     validate_args(parser().parse_args(["--no-high-level-action-prior", "--high-level-action-index", "/missing/ignored.jsonl"]))
 
 

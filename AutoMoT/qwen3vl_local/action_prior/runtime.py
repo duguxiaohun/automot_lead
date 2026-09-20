@@ -31,7 +31,6 @@ class PriorEngine:
         labels=None,
         analysis_review=True,
         generate_analysis=False,
-        high_level_planning=False,
         high_level_action_prior=False,
     ):
         self.engine, self.contract = engine, contract
@@ -40,10 +39,7 @@ class PriorEngine:
         self.recheck_mode = recheck_mode
         self.labels = labels
         self.generate_analysis = bool(generate_analysis)
-        self.high_level_planning = bool(high_level_planning)
         self.high_level_action_prior = bool(high_level_action_prior)
-        if self.high_level_action_prior and not self.high_level_planning:
-            raise ValueError("specific high-level action requires high-level planning")
         self.analysis_review = bool(analysis_review) and self.generate_analysis
         self.adapters = None
         self.last_audit = None
@@ -182,7 +178,6 @@ class PriorEngine:
                 self.contract["identity"], images, navigation,
                 f"{sample_key}:event_contexts={event_balanced_scene_contexts}"
                 f":generate_analysis={self.generate_analysis}"
-                f":high_level_planning={self.high_level_planning}"
                 f":high_level_action_prior={self.high_level_action_prior}:action={digest(action)}"
                 f":action_contexts={action_contexts}:action_policy={ACTION_CONDITIONING_VERSION}"
             )
@@ -200,8 +195,7 @@ class PriorEngine:
                                         event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
             # 这是显式 opt-in 的离线 transition/evidence 条件；默认采样课程不改变
             # Qwen 输入。文本只会在 prompts.py 变成自然、无类别名的短句。
-            priors = dict(priors, high_level_planning=self.high_level_planning)
-            priors.update(high_level_action_prior=self.high_level_action_prior)
+            priors = dict(priors, high_level_action_prior=self.high_level_action_prior)
             if self.high_level_action_prior:
                 # 先获得实际消费的 Phase1/2 条件（含噪声/复核），再门控动作。
                 effective, action_gate = gate_action(action, priors["conditions"], action_contexts,
@@ -226,7 +220,7 @@ class PriorEngine:
             report("condition/base_analysis")
             with self.mode("base"):
                 text, trace = self.generate_messages(
-                    prompts.SYSTEM_PROMPT,
+                    prompts.system_prompt(generate_analysis=True),
                     prompts.analysis_prompt(priors, navigation),
                     images,
                     max_tokens=self.analysis_tokens,
@@ -329,7 +323,7 @@ class PriorEngine:
                               and priors.get("high_level_action") == expected
                               and priors.get("high_level_action_gate") == expected_gate
                               and tuple(priors.get("high_level_action_contexts", ())) == action_contexts)
-        if (not accepted or priors.get("high_level_planning", False) != self.high_level_planning
+        if (not accepted or priors.get("high_level_planning", False)
                 or priors.get("high_level_action_prior", False) != self.high_level_action_prior
                 or not action_matches):
             raise ValueError(
@@ -341,7 +335,7 @@ class PriorEngine:
             # 开启后才使用旧摘要 prompt 和 assistant transcript。
             self.engine._last_decode_state = None
             messages = self.engine.build_messages(
-                prompts.SYSTEM_PROMPT if self.generate_analysis else prompts.PREFILL_SYSTEM_PROMPT,
+                prompts.system_prompt(generate_analysis=self.generate_analysis),
                 (prompts.analysis_prompt if self.generate_analysis else prompts.prefill_prompt)(
                     priors, navigation
                 ),
@@ -451,7 +445,6 @@ def make_runtime(args, device, contract):
                 labels,
                 args.analysis_review,
                 generate_analysis=args.generate_analysis,
-                high_level_planning=args.high_level_planning,
                 high_level_action_prior=getattr(args, "high_level_action_prior", False),
             )
             self.action_index = (

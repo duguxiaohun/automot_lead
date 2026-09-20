@@ -3,7 +3,7 @@
 
 输入沿用 ``keyframe_filter/collection_output/*_result.json`` 的逐帧 RS/EVENT 标注，
 再叠加同一条 run 的 ``metas/*.pkl`` 未来真实轨迹，把每一帧折叠成动作上下文，
-并给出五个 high-level 动作的 YES/NO 目标。七个异常 U-E context 可由 Phase1/2
+保留五个 high-level 动作的布尔证据，并标定主要动作或正向 KEEP 目标。七个异常 U-E context 可由 Phase1/2
 回答直接提供；R-E2/R-E3 行仅是离线训练的 transition-gate 正例，不能反向宣称
 Phase1/2 的 all-NO 已经唯一确定它们。
 
@@ -32,10 +32,13 @@ for _path in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _path)
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
+from qwen3vl_local.sft_new_loop_phase3.action_review import ACTION_REVIEW_VERSION, build_action_review
 from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes as _iter_routes_stream
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _rgb_path  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3 import DATASET_NAME  # noqa: E402
-from qwen3vl_local.sft_new_loop_phase3.primary_action import PRIMARY_ACTION_VERSION, primary_action
+from qwen3vl_local.sft_new_loop_phase3.choice_semantics import (
+    PRIMARY_CHOICE_VERSION as PRIMARY_ACTION_VERSION, choice_annotation, binary_answers,
+)
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapped_contexts, context_detail, mapping_contract_hash
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import (  # noqa: E402
     ACTION_KEYS,
@@ -76,7 +79,7 @@ from qwen3vl_local.sft_new_loop_phase3.visual_audit import (  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3.annotation_repair import repair_annotation
 
 RGB_HISTORY_COUNT = 4
-NO_ACTION_SIGNATURE = "NONE"
+NO_ACTION_SIGNATURE = "KEEP"
 
 
 def _source_routes(collection_dir, scenario, args):
@@ -203,13 +206,10 @@ def action_signature(labels: Mapping[str, bool], *, context_id: Optional[str] = 
 def _answers_for(context_id: str, labels: Optional[Mapping[str, bool]], *, invalid: bool) -> Dict[str, bool]:
     """构造该行的完整答案字典。"""
 
-    answers = {key: False for key in ACTION_KEYS}
-    if not invalid and labels is not None:
-        asked = set(CONTEXT_BY_ID[context_id].action_keys)
-        for key in ACTION_KEYS:
-            answers[key] = bool(labels.get(key, False)) and key in asked
-    answers[INVALID_KEY] = bool(invalid)
-    return answers
+    if not invalid and labels is None:
+        raise ValueError("valid context requires action evidence")
+    answers = {**(labels or {}), INVALID_KEY: bool(invalid)}
+    return binary_answers(answers, CONTEXT_BY_ID[context_id].action_keys)
 
 
 def _make_row(
@@ -254,6 +254,8 @@ def _make_row(
         "answers": answers,
         "goal_ego_xy": [round(float(base["goal_x"]), 3), round(float(base["goal_y"]), 3)],
         "action_evidence": base["action_evidence"],
+        "action_review": {**base.get("action_review", {"status": "unavailable", "review_only": True}),
+                          "applies_to_prompt_context": not invalid},
         "visual_label_risk": bool(base["visual_label_risk"]),
         "visual_label_risk_reasons": list(base["visual_label_risk_reasons"]),
         "history_rgb_paths": list(base["history_rgb_paths"]),
@@ -382,6 +384,8 @@ def iter_base_frames(
                     continue
                 contexts, mapping = mapped_contexts(scenario, route_id, frame_id, rs, primary, codes)
                 mapping["annotation_repair"] = repair
+                if not contexts and mapping.get("rgb_quarantine") and risk_stats is not None:
+                    risk_stats["mapping_excluded/rgb_quarantine"] += 1
                 for context_id in contexts:
                     wanted.append((frame_id, ann, context_id, mapping, rs, primary, codes))
             if not wanted:
@@ -439,6 +443,7 @@ def iter_base_frames(
                     "mapping_evidence": mapping,
                     "action_labels": labels,
                     "action_evidence": action_evidence(signals),
+                    "action_review": build_action_review(trajectory, frame_id, context_id, labels, signals),
                     "goal_x": float(signals["goal_x"]),
                     "goal_y": float(signals["goal_y"]),
                     "is_junction": bool(signals["is_junction"]),
@@ -572,8 +577,7 @@ def _balanced_rows_by_split(
     with (out_dir / "candidate_frames.jsonl").open("w") as handle:
         for bases in invalid_sources.values():
             for base in bases:
-                base = {**base, "primary_action_version": PRIMARY_ACTION_VERSION,
-                        "primary_action": primary_action(base["action_labels"], CONTEXT_BY_ID[base["context_id"]].action_keys)}
+                base = {**base, **choice_annotation(base["action_labels"], base["context_id"], base["action_evidence"])}
                 handle.write(json.dumps(base, ensure_ascii=False) + "\n")
     (out_dir / "candidate_counts.json").write_text(json.dumps(dict(raw_counts), indent=2) + "\n")
 
@@ -720,9 +724,11 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     try:
         with temporary.open("w", encoding="utf-8") as handle:
             for row in rows:
-                row = {**row, "primary_action_version": PRIMARY_ACTION_VERSION,
-                       "primary_action": None if row["invalid_action_context"] else primary_action(
-                           row["answers"], CONTEXT_BY_ID[row["context_id"]].action_keys)}
+                annotation = (dict(primary_action_version=PRIMARY_ACTION_VERSION, primary_action=None,
+                                   keep_scope=None, primary_action_evidence_status="invalid_context")
+                              if row["invalid_action_context"] else
+                              choice_annotation(row["answers"], row["context_id"], row["action_evidence"]))
+                row = {**row, **annotation}
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                 split = str(row["split"])
                 counters[f"frames/{split}"] += 1
@@ -736,7 +742,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     temporary.replace(target)
 
     manifest = {
-        "format": "sft_new_loop_phase3_frame_index_v3_current_phase",
+        "format": "sft_new_loop_phase3_frame_index_v5_binary_keep",
         "split_contract": "physical_route_without_rep_or_collection_timestamp",
         "development_route_groups": len(development_route_groups()),
         "development_route_policy": "old audit pool is train-only; new val/test exclude these physical routes",
@@ -744,6 +750,8 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
                          "existing_review_cache" if getattr(args, "use_review_cache", False) else "collection_results"),
         "candidate_cache": str(getattr(args, "candidate_cache", "") or ""),
         "action_review_status": "automatic_candidates_with_explicit_rgb_exclusions",
+        "action_review_contract": {"version": ACTION_REVIEW_VERSION, "review_only": True,
+                                   "used_for_targets_sampling_or_prompts": False},
         "action_rule_version": ACTION_RULE_VERSION,
         "primary_action_version": PRIMARY_ACTION_VERSION,
         "mapping_contract_hash": mapping_contract_hash(),
@@ -778,7 +786,9 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
             "the direction resolved from the lane ordering and the lane ego entered the current continuous road visit in, "
             "so borrowing the opposing lane is LEFT and returning is RIGHT. Non-Driving or unknown waypoint "
             "windows cannot supervise lateral NO. Lane-section continuity still needs RGB/map confirmation. "
-            "Scenario names never create an action label."
+            "Scenario names never create an action label. Complete valid-domain continuation is explicitly KEEP, "
+            "with small speed adjustments allowed; maneuver KEEP requires no first crossing, whereas speed-only KEEP asserts no lateral label. "
+            "Missing evidence, invalid context and ambiguous windows cannot become KEEP. Raw boolean evidence is retained separately."
         ),
         "input_contract": (
             "The model receives one image+text user turn with the RGB history, the Phase1/Phase2 road "
@@ -835,7 +845,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v14"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v19"))
     p.add_argument(
         "--review-root",
         default=str(

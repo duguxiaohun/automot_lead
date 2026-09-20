@@ -6,7 +6,7 @@ import pytest
 
 from qwen3vl_local.sft_new_loop_phase3.audit_temporal_slices import timing_diagnostics
 from qwen3vl_local.sft_new_loop_phase3.build_dataset import _split
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
+from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID, ACTION_KEYS
 from qwen3vl_local.sft_new_loop_phase3.prompts import (
     SYSTEM_PROMPT, build_action_messages, build_action_prompt, build_action_target,
     make_prompt_spec, parse_action_output)
@@ -38,14 +38,14 @@ def test_small_real_drop_and_isolated_control_pulse_are_separate():
 @pytest.mark.parametrize('context_id', CONTEXT_BY_ID)
 def test_compact_prompt_preserves_schema_and_causal_inputs(context_id):
     context = CONTEXT_BY_ID[context_id]
-    spec = make_prompt_spec(variant='all_random_order', answers={}, seed_key='review',
+    spec = make_prompt_spec(variant='all_random_order', answers=dict.fromkeys(ACTION_KEYS, False), seed_key='review',
         context_id=context_id, road_structure=context.allowed_rs[0],
         goal_xy=(42, -3), current_speed_mps=8.125)
     prompt = build_action_prompt(spec=spec)
     assert len(SYSTEM_PROMPT.split()) <= 20
-    assert len((SYSTEM_PROMPT + ' ' + prompt).split()) <= 400
-    assert '1.5 seconds' in prompt and 'two consecutive' in prompt
-    assert 'max(1.2 m/s, 20% of current speed)' in prompt
+    assert len((SYSTEM_PROMPT + ' ' + prompt).split()) <= 610  # v17 binary增加显式KEEP选项及目的，仍设总预算。
+    assert 'seconds' not in prompt and 'continuing to wait at a near-stop' in prompt
+    assert 'first meaningful speed change' in prompt
     assert '8.125 m/s' in prompt and 'y=-3.0 m' in prompt
     assert 'negative LEFT, positive RIGHT' in prompt
     assert '[VISUAL_CHECK_ORDER]' not in prompt and '[QUESTIONS]' not in prompt
@@ -56,9 +56,9 @@ def test_compact_prompt_preserves_schema_and_causal_inputs(context_id):
     else:
         assert 'FIRST crossing' in prompt and 'crossings already in the input' in prompt
     target = build_action_target(spec)
-    assert all(v is False for v in parse_action_output(target, spec=spec).values())
+    assert parse_action_output(target, spec=spec) == {k: k == "KEEP" for k in spec.output_keys}
     evidence = '\n'.join('EVIDENCE_' + k + ': unclear' for k in spec.output_keys)
-    assert all(v is False for v in parse_action_output(target+'\n'+evidence, spec=spec, audit=True).values())
+    assert parse_action_output(target+'\n'+evidence, spec=spec, audit=True) == {k: k == 'KEEP' for k in spec.output_keys}
     messages = build_action_messages(images=['a','b','c','d'], spec=spec)
     assert [x['image'] for x in messages[1]['content'] if x['type']=='image'] == ['a','b','c','d']
     endpoint = build_action_prompt(spec=spec, history_rgb_mode='2rgb_endpoints')

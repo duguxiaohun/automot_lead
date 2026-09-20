@@ -4,13 +4,13 @@
 四帧（或两端点）拼接 RGB history、由 Phase1/Phase2 或常规候选步骤提出的场景上下文文本、
 route 目标点的 ego 相对坐标，以及本次要回答的 high-level 动作问题。
 
-本阶段只有五个 high-level 动作：``DECELERATE / STOP / RESUME /
+本阶段保留五个变化动作的原始证据，choice 和 binary 都有正向 KEEP：``DECELERATE / STOP / RESUME /
 LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT``。它们按问题域被复用：
 
 * ``LONGITUDINAL_YIELD``（U-E1 / U-E3 / U-E5 / U-E6 / U-E7 / R-E5）
-  只问 ``DECELERATE / STOP / RESUME``；
+  问 ``DECELERATE / STOP / RESUME``，另含速度阶段 KEEP；
 * ``FULL_MANEUVER``（U-E2、U-E4、R-E2 目标变道/恢复、R-E3 合流/驶出）
-  问全部五行。
+  问全部五种变化，另含车道及速度阶段 KEEP。
 
 标签口径来自 2026-09-04 的逐帧 meta 轨迹 + RGB 复核（见
 `probe_trajectory.py` / `render_action_contact_sheet.py` 的 probe_output 产物）：
@@ -23,7 +23,7 @@ LANE_CHANGE_LEFT / LANE_CHANGE_RIGHT``。它们按问题域被复用：
   ``LANE_CHANGE_RIGHT``；两者都以自车航向为参照，不是以画面为参照。
 
 ``INVALID_ACTION_CONTEXT=YES`` 表示“本题道路前提明显错误，或道路正确但事件被可见证据明确反驳”，此时所有动作行必须为 NO。夜间、雾、遮挡、拥堵、或者“当前不需要任何动作”
-都不是 invalid：不需要动作时应当所有动作行为 NO 且 invalid 也为 NO。
+都不是 invalid。默认 choice 对证据完整的保持阶段输出 KEEP；binary 诊断仍保留逐动作 YES/NO。
 """
 
 from __future__ import annotations
@@ -53,14 +53,18 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (
 )
 from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal
 from qwen3vl_local.sft_new_loop_phase3.primary_action import (
-    PRIMARY_ACTION_VERSION, PRIMARY_ACTION_RULES, NONE_ACTION, primary_action, primary_answers,
+    primary_answers,
 )
 
+from qwen3vl_local.sft_new_loop_phase3.choice_semantics import (
+    PRIMARY_CHOICE_VERSION as PRIMARY_ACTION_VERSION, PRIMARY_CHOICE_RULES, LONGITUDINAL_CHOICE_RULES, KEEP_ACTION,
+    primary_choice, binary_answers, action_description, CONTEXT_ACTION_DESCRIPTIONS,
+)
 
-# v14 根据逐帧审计区分冲突阶段与动作；速度/主要动作规则保持 v8/v1。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v14_observed_progress"
+# v19：条件性因果与主要机动语义；两种题型都有 KEEP，未来数值判据仅留在标定器。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v19_response_aware_keep"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
-ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, INVALID_KEY)
+ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, KEEP_ACTION, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
 VARIANT_WEIGHTS = {"all_random_order": 1}
 TRAIN_VARIANT_WEIGHTS = dict(VARIANT_WEIGHTS)
@@ -69,54 +73,42 @@ SUBSET_COUNTS: Tuple[int, ...] = ()
 GROUP_DEFINITIONS: Dict[str, Tuple[str, str, str, set]] = {}
 
 # 规则只说一次；不把安全建议混入采集行为预测，详见 20260911 RGB 审计。
-SYSTEM_PROMPT = "Predict the recorded ego vehicle's next actions. Follow the requested YES/NO format."
-CHOICE_SYSTEM_PROMPT = "Predict the recorded ego vehicle's next action. Output one listed high-level action only."
+SYSTEM_PROMPT = "Predict the recorded ego vehicle's upcoming speed action and maneuver. Follow the requested YES/NO format."
+CHOICE_SYSTEM_PROMPT = "Predict the recorded ego vehicle's main upcoming action. Output one listed high-level action only."
 ACTION_OUTPUT_MODES = ("binary", "choice")
 # 新训练入口默认单选；底层多标签 API 与旧配置缺字段回退仍保留 binary 语义。
 DEFAULT_ACTION_OUTPUT_MODE = "choice"
 CHOICE_OUTPUT_KEY = "ACTION_CHOICE"
 
-# 仅由公开的场景类型提供条件性动机，不读取答案、未来轨迹或推断绕障阶段。
-# 每题只渲染对应的一句，不能把等待空隙当成即将跨线的证据。
-CONTEXT_ACTION_PURPOSES: Dict[str, str] = {
-    "LEAD_BRAKE": "Maintain following space; distinguish a closing gap from a lead vehicle pulling away.",
-    "STATIC_BLOCKAGE": "Assess adjacent-lane traffic, approaching vehicles and bypass clearance; waiting for space does not imply crossing.",
-    "DYNAMIC_CUTIN": "Make room for the entering vehicle; distinguish ongoing intrusion from established following with an opening gap.",
-    "VULNERABLE_CROSSING": "Protect the pedestrian or cyclist; distinguish occupied travel space from a cleared path and an in-lane pass.",
-    "ONCOMING_INVASION": "Allow safe passing; check whether the intruder still occupies ego's path or has cleared it.",
-    "JUNCTION_RULE_CONFLICT": "Avoid crossing traffic despite ego's priority; distinguish approaching conflict from clearance and continued progress.",
-    "SIGNAL_FAILURE": "Assess conflicting approaches independently of unreliable lights; distinguish waiting from progress through an opening.",
-    "POST_BYPASS_RETURN": "Check target-lane gaps; an earlier obstacle does not prove departure, and a pending return does not determine the next crossing.",
-    "UNSIGNALIZED_PRIORITY": "Respect stop/yield priority; distinguish approach, continued waiting, and departure after traffic clears. A passed sign does not imply stopping again.",
-    "RAMP_MERGE_EXIT": "Match a joining or exit gap using relative traffic motion; distinguish speed adjustment from ego crossing, and nearby traffic from path blockage.",
-}
-
-# 候选释义只解释动作含义；时间窗和阈值由下方共用规则限定，不暗示该帧真值。
-CHOICE_ACTION_DESCRIPTIONS: Dict[str, str] = {
-    "NONE": "No qualifying action; not uncertainty or poor visibility.",
-    "DECELERATE": "Qualifying speed reduction without STOP.",
-    "STOP": "Confirmed near-stop or continued waiting.",
-    "RESUME": "Confirmed speed gain; no previous stop required.",
-    "LANE_CHANGE_LEFT": "First ego crossing to the left.",
-    "LANE_CHANGE_RIGHT": "First ego crossing to the right.",
-}
-
-# v7 的有效长处是用一段连续、任务导向的说明约束模型，而不是把判定器的
-# 全部边界逐条重复给模型。这里保留 v7 文本；v10 的严格时间边界只在离线标定
-# 与证据中执行，并由测试保证不会因 prompt 精简而回退。
-SPEED_ACTION_RULES = """STOP: two consecutive 4-Hz samples at or below 0.5 m/s within 1.5 seconds. Include the current sample: still waiting at the next sample counts, even if ego accelerates later. STOP takes priority.
-Otherwise, use the FIRST qualifying change from current speed: a drop of at least max(1.2 m/s, 20% of current speed) means DECELERATE; a gain of that size for two consecutive samples means RESUME. An isolated gain is insufficient."""
-SPEED_RULES = ("Speed: next 2 seconds, at most one YES.\n" + SPEED_ACTION_RULES
-               + " If neither qualifies, all speed answers are NO. A stop beyond 1.5 seconds does not cancel DECELERATE.")
+# 图像时间只用于交代已经看到的历史，不给模型未来数值倒计时。
+OBSERVATION_RULES = (
+    "Use the image sequence, current speed and scene to judge ego's upcoming driving behavior. "
+    "Judge visible traffic motion, gaps and lane boundaries; do not invent hidden actors "
+    "or repeat an action already completed in the images."
+)
+# 模型只读动作阶段语义；秒数、0.5m/s、两连续采样、max(1.2m/s,20%)留在标定器。
+SPEED_ACTION_RULES = (
+    "STOP means stopping or continuing to wait at a near-stop; current waiting still counts even if ego moves off later. "
+    "Otherwise, use the first meaningful speed change: slowing is DECELERATE; a sustained speed increase is RESUME, "
+    "without requiring a previous stop. Small speed adjustments are continued driving, not a new speed stage."
+)
+SPEED_RULES = (SPEED_ACTION_RULES + " At most one speed answer is YES; STOP takes priority. "
+               "Small adjustments alone leave DECELERATE, STOP and RESUME as NO.")
 
 LANE_ACTION_RULES = """Predict the FIRST crossing of an ego lane boundary after the newest frame: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore later return crossings and crossings already in the input.
 Steering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count."""
-LANE_RULES = "Lane: next 3 seconds, at most one side YES.\n" + LANE_ACTION_RULES + " Speed and lane YES can coexist."
+LANE_RULES = "Lane: at most one side YES.\n" + LANE_ACTION_RULES + " Speed and lane YES can coexist and may happen in sequence, such as slowing before crossing."
+
+# 条件性目的的边界共用一句，动作段专注条件、动作与作用，不逐项重复否定。
+PURPOSE_RULES = (
+    "Use these conditional meanings to interpret behavior: a scene alone does not establish "
+    "the cause of an action, a safe gap or an inevitable maneuver."
+)
 
 # 只压缩已知旧索引模板；未知在线历史原样保留，不补写未观察到的绕障状态。
 HISTORY_TEXT_COMPACT = {
     "Earlier ego encountered a static blockage in its normal path. Check from the visible history whether it actually left that lane and whether recovery is still pending. Waiting for a gap does not end a pending recovery state.":
-        "Earlier blockage in ego's normal path; departure and recovery are not confirmed. Check RGB.",
+        "Earlier blockage in ego's normal path; departure and recovery are not confirmed.",
     "No static-obstacle bypass history is asserted. Use visible lane geometry and the current navigation requirement to distinguish a target lane change from lane keeping.":
         "No bypass history is asserted.",
     "Concurrent observed condition: another vehicle is violating the junction rule and entering ego's conflict path while ego should have priority.":
@@ -168,10 +160,11 @@ class PromptSpec:
 
 ACTION_QUESTIONS: Dict[str, str] = {
     "DECELERATE": "Will the first meaningful speed change be a reduction, without an immediate sustained near-stop?",
-    "STOP": "Will ego reach or remain at a sustained near-stop in the immediate 1.5-second window?",
-    "RESUME": "Will the first meaningful speed change be a sustained speed gain within two seconds?",
-    "LANE_CHANGE_LEFT": "Will the FIRST lane-boundary crossing within three seconds be to ego's left?",
-    "LANE_CHANGE_RIGHT": "Will the FIRST lane-boundary crossing within three seconds be to ego's right?",
+    "STOP": "Will ego stop or continue waiting at a near-stop?",
+    "RESUME": "Will the first meaningful speed change be a sustained speed gain?",
+    "LANE_CHANGE_LEFT": "Will the FIRST upcoming lane-boundary crossing be to ego's left?",
+    "LANE_CHANGE_RIGHT": "Will the FIRST upcoming lane-boundary crossing be to ego's right?",
+    "KEEP": "Will ego continue its current driving stage without any of the listed changes?",
 }
 
 
@@ -218,24 +211,24 @@ def validate_action_output_mode(mode: str) -> str:
 
 
 def choice_options(spec: PromptSpec) -> Tuple[str, ...]:
-    """返回当前域动作加 NONE；无动作与组合投影均参与训练。"""
+    """返回当前域动作加 KEEP；无动作与组合投影均参与训练。"""
 
-    keys = [question.output_key for question in spec.questions if question.output_key != INVALID_KEY]
-    keys.append(NONE_ACTION)
+    keys = [question.output_key for question in spec.questions if question.output_key in ACTION_KEYS]
+    keys.append(KEEP_ACTION)
     _stable_rng("phase3_choice_option_order", spec.seed_key, spec.context_id).shuffle(keys)
     return tuple(keys)
 
 
 def choice_action_for_answers(spec: PromptSpec) -> Optional[str]:
-    """返回主要动作或 NONE；无效前提返回 None，交给采样层剔除。"""
+    """返回主要动作或 KEEP；无效前提返回 None，交给采样层剔除。"""
 
     if bool(spec.invalid_context):
         return None
-    return primary_action(spec_answers(spec), [k for k in spec.output_keys if k != INVALID_KEY])
+    return primary_choice(spec_answers(spec), [k for k in spec.output_keys if k in ACTION_KEYS])
 
 
 def choice_rejection_reason(spec: PromptSpec) -> Optional[str]:
-    """只剔除无效前提；有效 NONE 和组合动作投影参与单选。"""
+    """只剔除无效前提；有效 KEEP 和组合动作投影参与单选。"""
     return "invalid_context" if spec.invalid_context else None
 
 
@@ -246,7 +239,7 @@ def choice_target_action(spec: PromptSpec) -> str:
     if action in choice_options(spec):
         return str(action)
     raise ValueError(
-        "choice mode requires a valid context and a primary action or NONE: "
+        "choice mode requires a valid context and a primary action including KEEP: "
         f"context={spec.context_id} answers={spec_answers(spec)}"
     )
 
@@ -280,9 +273,12 @@ def make_prompt_spec(
         raise ValueError(f"unknown road structure for phase3 prompt: {road_structure!r}")
     rng = _stable_rng("new_phase3_action_spec", seed_key, context.context_id)
     keys = list(action_keys_for_domain(context.question_domain))
-    rng.shuffle(keys)
+    answers = binary_answers(answers, keys)
     if output_mode == "choice" and not answers.get(INVALID_KEY, False):
         answers = primary_answers(answers, keys)
+    if output_mode == "binary":
+        keys.append(KEEP_ACTION)
+    rng.shuffle(keys)
     questions = tuple(_question(key, answers) for key in keys)
     questions = (*questions, _question(INVALID_KEY, answers))
     goal = None if goal_xy is None else (float(goal_xy[0]), float(goal_xy[1]))
@@ -313,7 +309,7 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
         "road_structure": spec.road_structure,
         "invalid_context": bool(spec.invalid_context),
         "action_output_mode": spec.action_output_mode,
-        "primary_action_version": PRIMARY_ACTION_VERSION if spec.action_output_mode == "choice" else None,
+        "primary_action_version": PRIMARY_ACTION_VERSION,
         "current_speed_mps": spec.current_speed_mps,
         "goal_xy": list(spec.goal_xy) if spec.goal_xy is not None else None,
         "output_keys": list(spec.output_keys),
@@ -337,17 +333,17 @@ def prompt_spec_to_json(spec: PromptSpec) -> Dict[str, object]:
 
 
 def _scene_context_block(spec: PromptSpec) -> str:
-    """提供场景前提及一句条件性目的，不把动机冒充该帧动作真值。"""
+    """只提供道路、事件及已提供的历史事实；目的属于动作释义。"""
     context = CONTEXT_BY_ID[spec.context_id]
-    detail = HISTORY_TEXT_COMPACT.get(spec.context_detail, spec.context_detail)
+    detail = spec.context_detail
+    for previous, compact in HISTORY_TEXT_COMPACT.items():
+        detail = detail.replace(previous, compact)
     history = f"\nHistory: {detail}" if detail else ""
     return (
         "[SCENE_CONTEXT]\n"
         f"Proposed road: {ROAD_STRUCTURE_TEXT[spec.road_structure]}.\n"
         f"Situation: {context.situation_text}. {context.scope_text}"
-        f"{history}\n"
-        f"High-level purpose (if this context holds): {CONTEXT_ACTION_PURPOSES[spec.context_id]}\n"
-        "Purpose alone does not establish which action occurs next.\n[/SCENE_CONTEXT]"
+        f"{history}\n[/SCENE_CONTEXT]"
     )
 
 
@@ -369,39 +365,43 @@ def build_action_prompt(
     output_mode = validate_action_output_mode(spec.action_output_mode)
     if output_mode == "choice":
         options = "\n".join(
-            f"- {action}: {CHOICE_ACTION_DESCRIPTIONS[action]}" for action in choice_options(spec)
+            f"{action}: {action_description(spec.context_id, action)}" for action in choice_options(spec)
         )
         lane_rule = (
-            "For lane options, use only the FIRST ego lane-boundary crossing within 3 seconds; "
+            "For lane options, use only the FIRST upcoming ego lane-boundary crossing; "
             "ignore crossings already in the input and later return crossings. "
             "A curve, steering, or another vehicle changing lanes is not ego lane change."
             if spec.question_domain == DOMAIN_MANEUVER else ""
         )
+        priority_rule = (PRIMARY_CHOICE_RULES if spec.question_domain == DOMAIN_MANEUVER
+                         else LONGITUDINAL_CHOICE_RULES)
         return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
-Predict actual driving, not recommended driving. Only past RGB and current state are observed.
-Use temporal gaps and lane boundaries; do not invent hidden actors. Predict from now, not completed history.
+{OBSERVATION_RULES}
 
 {_scene_context_block(spec)}
 Current speed: {speed}.
 {render_navigation_goal(spec.goal_xy)}
 
-Choose one primary action or NONE. Speed: next 2 seconds.
-{SPEED_ACTION_RULES} A stop beyond 1.5 seconds does not cancel DECELERATE.
+Choose one main upcoming action including KEEP.
+{SPEED_ACTION_RULES}
 {lane_rule}
-{PRIMARY_ACTION_RULES}
+{priority_rule}
 
-Choices:
+{PURPOSE_RULES}
+Action meanings and possible purposes:
 {options}
 
 Output one listed action name only:
 <ACTION_NAME>""".strip()
     lane = "\n\n" + LANE_RULES if spec.question_domain == DOMAIN_MANEUVER else ""
+    meanings = "\n".join(f"{q.output_key}: {action_description(spec.context_id, q.output_key)}"
+                         for q in spec.questions if q.output_key != INVALID_KEY)
     output = "\n".join(f"{q.output_key}: <YES or NO>" for q in spec.questions)
     if audit:
         output += "\n" + "\n".join(f"EVIDENCE_{q.output_key}: <cue>" for q in spec.questions)
         output += "\nEach cue: 1-14 words; use 'unclear' when not observable. Never leave it blank."
     return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.
-Predict actual driving, not recommended driving. Only past RGB and current state are observed.
+{OBSERVATION_RULES}
 
 {_scene_context_block(spec)}
 Current speed: {speed}.
@@ -409,7 +409,12 @@ Current speed: {speed}.
 
 {SPEED_RULES}{lane}
 
-INVALID_ACTION_CONTEXT: YES only if RGB clearly contradicts the proposed road or event; then all actions NO. Otherwise NO. Poor visibility, an occluded event, or no required action alone is not invalid. All actions NO is a valid prediction.
+{PURPOSE_RULES}
+Action meanings and possible purposes:
+{meanings}
+
+KEEP: YES when the scene is valid and none of the listed speed or lane changes applies. Otherwise NO; KEEP cannot coexist with another action YES.
+INVALID_ACTION_CONTEXT: YES only if RGB clearly contradicts the proposed road or event; then all actions, including KEEP, are NO. Poor visibility or continued driving alone is not invalid.
 
 Output these lines in order, with no extra text:
 {output}""".strip()
@@ -459,6 +464,7 @@ def action_prompt_sha256(
         json.dumps(
             {
                 "prompt_name": PROMPT_NAME,
+                "primary_action_version": PRIMARY_ACTION_VERSION,
                 "system_prompt": SYSTEM_PROMPT,
                 "answer_keys": list(ANSWER_KEYS),
                 "question_domains": list(QUESTION_DOMAINS),
@@ -478,7 +484,7 @@ def action_prompt_sha256(
                 "action_output_mode": output_mode,
                 "choice_output_key": CHOICE_OUTPUT_KEY,
                 "choice_system_prompt": CHOICE_SYSTEM_PROMPT,
-                "choice_target_format": "one primary action or NONE",
+                "choice_target_format": "one primary action including KEEP",
                 "primary_action_version": PRIMARY_ACTION_VERSION,
                 "choice_option_order": "stable seed shuffle",
             },
