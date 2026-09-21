@@ -76,9 +76,9 @@ def harness(tmp_path, monkeypatch):
                 state.train_cases.append(sample["anchor"])
             else:
                 assert kwargs["sample_trajectory"] is True
-                if state.failure == "cycle_validation" and len(state.train_cases) == 7:
+                if state.failure == "cycle_validation" and len(state.train_cases) == 5:
                     raise RuntimeError("injected cycle interruption")
-                if state.failure == "sigterm_cycle" and len(state.train_cases) == 7:
+                if state.failure == "sigterm_cycle" and len(state.train_cases) == 5:
                     state.failure = "sigterm_cycle_sent"
                     os.kill(os.getpid(), signal.SIGTERM)
                 if state.failure == "validation":
@@ -111,21 +111,21 @@ def harness(tmp_path, monkeypatch):
 @pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
 @pytest.mark.parametrize("failure", ["cycle_validation", "sigterm_cycle"])
 def test_cycle_full_validation_deduplicates_and_resumes(harness, tmp_path, variant, failure):
-    """周期4位于epoch中，周期12与epoch/最终/小验证重合；验证中断后无更新丢失。"""
+    """周期3/9与epoch重合，最终12与epoch/小验证重合；验证中断后无更新丢失。"""
     run, state = harness
     cli = ("--num-epochs", "4", "--val-max-samples", "1")
     baseline = tmp_path / "cycle_baseline"
     reference = run(variant, baseline, extra=cli, val_steps=4)
-    # 完整验证3/4/6/9/12，各2样本；仅step8额外小验证1样本。
-    assert len(state.eval_cases) == 11
-    cycle_file = baseline / "validation/cycle_001_step00000004.json"
+    # 完整验证3/6/9/12，各2样本；step4/8各小验证1样本。
+    assert len(state.eval_cases) == 10
+    cycle_file = baseline / "validation/epoch_001_step00000003.json"
     assert json.loads(cycle_file.read_text())["samples"] == 2
     final = json.loads((baseline / "validation/epoch_004_step00000012.json").read_text())
-    assert final["validation_cycle"] == 2 and final["validation_final"]
-    assert not (baseline / "validation/step_00000004.json").exists()
+    assert final["validation_cycle"] == 3 and final["validation_final"]
+    assert (baseline / "validation/step_00000004.json").exists()
     assert not (baseline / "validation/step_00000012.json").exists()
     tags = state.logs[str(baseline)]
-    assert [step for tag, _, step in tags if tag == 'val_cycle/route_ade_m'] == [4, 12]
+    assert [step for tag, _, step in tags if tag == 'val_cycle/route_ade_m'] == [3, 9, 12]
     assert any(tag.startswith('train/update/') for tag, _, _ in tags)
 
     state.train_cases.clear(); state.eval_cases.clear()
@@ -135,9 +135,9 @@ def test_cycle_full_validation_deduplicates_and_resumes(harness, tmp_path, varia
     with pytest.raises(expected):
         run(variant, out, extra=cli, val_steps=4)
     partial = torch.load(out / "latest.pt", weights_only=False)
-    assert partial['step'] == 4 and partial['cursor']['validation_cycle'] == 1
-    assert partial['cursor']['epoch'] == 1 and partial['cursor']['micro'] == 2
-    assert not (out / "validation/cycle_001_step00000004.json").exists()
+    assert partial['step'] == 3 and partial['cursor']['validation_cycle'] == 1
+    assert partial['cursor']['epoch'] == 1 and partial['cursor']['micro'] == 0
+    assert not (out / "validation/epoch_001_step00000003.json").exists()
     state.failure = None
     resumed = run(variant, out, resume=True, extra=cli, val_steps=4)
     assert len(state.train_cases) == 20
@@ -158,13 +158,13 @@ def test_cycle_validation_can_select_best(harness, tmp_path, monkeypatch, varian
     original = module.evaluate
     def evaluate(*args, **kwargs):
         metrics = original(*args, **kwargs)
-        score = 0.0 if len(state.train_cases) == 7 else 10.0
+        score = 0.0 if len(state.train_cases) == 5 else 10.0
         return dict(metrics, route_ade_m=score, waypoint_ade_m=score)
     monkeypatch.setattr(module, 'evaluate', evaluate)
     cli = ("--num-epochs", "4")
     out = tmp_path / 'cycle_best'
     run(variant, out, extra=cli, val_steps=100)
-    assert torch.load(out / 'best.pt', weights_only=False)['step'] == 4
+    assert torch.load(out / 'best.pt', weights_only=False)['step'] == 3
     final = json.loads((out / 'validation/final.json').read_text())
     assert final['optimizer_step'] == 12 and final['selection_score'] > final['best_selection_score']
 
@@ -451,11 +451,36 @@ def test_default_shared_validation_and_audit_for_all_combinations(harness, tmp_p
     out = tmp_path / 'shared_validation'
     ckpt = run('bev_only', out, extra=cli, val_steps=100)
     paths = sorted(p for p in (out / 'validation').glob('*_step*.json'))
-    assert sorted(json.loads(p.read_text())['optimizer_step'] for p in paths) == [3, 4, 6, 9, 12]
-    assert ckpt['optimization_contract']['schedule']['shared_validation_updates'] == [4, 12]
+    assert sorted(json.loads(p.read_text())['optimizer_step'] for p in paths) == [3, 6, 9, 12]
+    assert ckpt['optimization_contract']['schedule']['shared_validation_updates'] == [3, 9, 12]
     final = json.loads((out / 'validation/final.json').read_text())
     assert final['optimizer_step'] == 12 and final['weight_view'] == 'ema'
     with zipfile.ZipFile(out / 'training_audit.zip') as z:
         history = json.loads(z.read('metrics.json'))['epoch_history']
         assert [item['epoch'] for item in history] == [1, 2, 3, 4]
         assert all(item['training_complete'] and item['train']['samples'] == 5 for item in history)
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+def test_seven_epochs_cycle_boundaries_and_audit(harness, tmp_path, variant):
+    """三条真实训练入口共用首轮warmup与1/2/4周期，最终审计覆盖完整七轮。"""
+    import zipfile
+    run, state = harness
+    out = tmp_path / variant
+    checkpoint = run(variant, out, extra=("--num-epochs", "7"), val_steps=100)
+    schedule = checkpoint["optimization_contract"]["schedule"]
+    assert checkpoint["step"] == 21 and checkpoint["args"]["num_epochs"] == 7
+    assert schedule["optimizer_steps_per_epoch"] == 3
+    assert schedule["warmup_steps"] == 1
+    assert schedule["cycle_steps"] == [2, 6, 12]
+    assert schedule["shared_validation_updates"] == [3, 9, 21]
+    assert [step for tag, _, step in state.logs[str(out)] if tag == "val_cycle/route_ade_m"] == [3, 9, 21]
+    with zipfile.ZipFile(out / "training_audit.zip") as archive:
+        history = json.loads(archive.read("metrics.json"))["epoch_history"]
+        assert [item["epoch"] for item in history] == list(range(1, 8))
+        assert all(item["training_complete"] and item["train"]["samples"] == 5 for item in history)
+    # 即使保存参数相同，旧版计划也不能被新代码静默续训。
+    checkpoint["optimization_contract"]["schedule"]["version"] = "action_optimization_v4"
+    torch.save(checkpoint, out / "latest.pt")
+    with pytest.raises(ValueError, match="optimization contract mismatch"):
+        run(variant, out, resume=True, extra=("--num-epochs", "7"), val_steps=100)

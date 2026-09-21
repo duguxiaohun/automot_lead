@@ -4,7 +4,7 @@
 设计口径来自 2026-09-04 对 AccidentTwoWays / HardBreakRoute / EnterActorFlow /
 HighwayExit / InvadingTurn 等 route 的逐帧 meta + RGB 复核：
 
-* 纵向动作只看未来真实速度曲线，不看 scenario 名或事件标签；
+* 纵向动作看真实速度曲线；近零速起步另要求锚点控制明确释放，不看场景名或事件标签；
 * 横向动作绝不用航向角或 steer 判定。弯道会让 steer/yaw 长期非零，但不换车道。
   因此变道必须由 OpenDRIVE 车道身份 (``road_id`` + ``lane_id``) 的真实切换触发，
   需要相邻两帧确认新车道，遇到 road 身份切换则停止跨 road 比较；
@@ -22,6 +22,7 @@ import pathlib
 import pickle
 from dataclasses import dataclass
 from functools import lru_cache
+from numbers import Real
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -29,7 +30,7 @@ from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertai
 
 
 FRAME_DT_SECONDS = 0.25
-ACTION_RULE_VERSION = "current_wait_first_crossing_v8_bounded_window"
+ACTION_RULE_VERSION = "current_wait_first_crossing_v9_confirmed_pullaway"
 
 
 @lru_cache(maxsize=1)
@@ -54,10 +55,23 @@ LATERAL_HORIZON_FRAMES = 12
 STOP_SPEED_MPS = 0.5
 LONGITUDINAL_MIN_DELTA_MPS = 1.2
 LONGITUDINAL_RELATIVE_DELTA = 0.20
+PULLAWAY_MIN_THROTTLE = 0.1
+PULLAWAY_MIN_FINAL_SPEED_MPS = 2.0
 LATERAL_MIN_SHIFT_M = 1.0
 
 DIRECTION_LEFT = "LEFT"
 DIRECTION_RIGHT = "RIGHT"
+
+
+def recorded_controls(meta: Mapping[str, Any]) -> Dict[str, Any]:
+    """严格读取控制；缺失/字符串/非法数值不补成已释放。"""
+    brake, throttle = meta.get("brake"), meta.get("throttle")
+    return {
+        "brake": bool(brake) if isinstance(brake, (bool, np.bool_)) else None,
+        "throttle": float(throttle) if isinstance(throttle, Real)
+            and not isinstance(throttle, (bool, np.bool_)) and math.isfinite(throttle)
+            and 0 <= throttle <= 1 else None,
+    }
 
 # 2026-09-04 的 probe_ego_frame_sign.py 用左/右转 scenario 的 route 折线取证：
 # LEAD ego frame 是 CARLA 左手系，x 正为正前方，y 负为左、y 正为右。
@@ -327,8 +341,7 @@ class RouteTrajectory:
             "lateral_window_issue": self.lateral_window_issue(frame_id),
             "lane_type_str": meta.get("lane_type_str"),
             "lateral_observation_complete": not lateral_review and self.lateral_window_issue(frame_id) is None,
-            "brake": bool(meta.get("brake")),
-            "throttle": _scalar(meta.get("throttle")),
+            **recorded_controls(meta),
             "speed_limit": _scalar(meta.get("speed_limit"), 8.33),
             "lane_id": _int_field(meta.get("lane_id"), 0),
             "road_id": _int_field(meta.get("road_id"), 0),
@@ -344,7 +357,8 @@ class RouteTrajectory:
         }
 
 
-def longitudinal_decision(speeds: Sequence[float], *, sample_count: Optional[int] = None) -> Dict[str, Any]:
+def longitudinal_decision(speeds: Sequence[float], *, sample_count: Optional[int] = None,
+                          brake=None, throttle=None) -> Dict[str, Any]:
     """固定当前至 +2s 的九个采样，返回标签与离线判定轨迹。
 
     窗外速度不能触发动作或撤回窗内标签；缺帧/无效值不写成 NONE。
@@ -385,7 +399,24 @@ def longitudinal_decision(speeds: Sequence[float], *, sample_count: Optional[int
             and (i == 1 or values[i-1]-speed < threshold)
             and (i == required-1 or values[i+1]-speed < threshold) for i in range(1, required)),
         gain_unconfirmed_at_2s_boundary=values[-1]-speed >= threshold and values[-2]-speed < threshold)
-    # 当前已确认等待优先；随后释放不会回写当前动作。
+    # 保守起步例外：控制已经释放，最迟+0.5s开始增速，至两点增速确认严格非递减，
+    # 确认后保留显著净增速（允许起步后调速），窗尾达到明确运动速度。不能把仅油门、
+    # 稍后释放或缓慢蠕行当起步；不使用四舍五入或0.001容差。
+    controls = recorded_controls({"brake": brake, "throttle": throttle})
+    released = controls["brake"] is False and controls["throttle"] is not None \
+        and controls["throttle"] > PULLAWAY_MIN_THROTTLE
+    current_pair = bool(immediate_pairs and immediate_pairs[0] == 0)
+    pullaway = (current_pair and released and values[2] > speed
+                and values[-1] >= PULLAWAY_MIN_FINAL_SPEED_MPS and gain is not None
+                and all(values[k+1] >= values[k] for k in range(gain+1))
+                and all(v-speed >= threshold for v in values[gain+1:]))
+    trace.update(anchor_controls=controls, anchor_control_released=released,
+                 current_near_stop_pair=current_pair, confirmed_pullaway=pullaway,
+                 whole_window_nondecreasing=all(values[k+1] >= values[k] for k in range(required-1)))
+    if pullaway:
+        return dict(trace, eligible=True, action="RESUME", reason="current_confirmed_pullaway",
+                    stop_qualifies=False)
+    # 未满足起步证据的当前等待优先；随后释放不会回写当前动作。
     if immediate_pairs and immediate_pairs[0] == 0:
         return dict(trace, eligible=True, action="STOP", reason="current_confirmed_wait")
     # 保持既有混合窗隔离：先增速、随后明显回落且不再保留显著净增速。
@@ -406,10 +437,16 @@ def longitudinal_decision(speeds: Sequence[float], *, sample_count: Optional[int
     return dict(trace, eligible=True, action="NONE", reason="no_qualifying_speed_change")
 
 
+def longitudinal_from_signals(signals: Mapping[str, Any]) -> Dict[str, Any]:
+    """标定、证据和审计共用完整输入，防止某条路径漏掉控制字段。"""
+    return longitudinal_decision(signals.get("future_speeds", []),
+        sample_count=int(signals.get("future_speed_count", 0)),
+        brake=signals.get("brake"), throttle=signals.get("throttle"))
+
+
 def label_actions(signals: Mapping[str, Any]) -> Optional[Dict[str, bool]]:
     """由同一判定轨迹生成标签；缺证据或混合阶段返回 None，不伪造全 NO。"""
-    decision = longitudinal_decision(signals.get("future_speeds", []),
-        sample_count=int(signals.get("future_speed_count", 0)))
+    decision = longitudinal_from_signals(signals)
     if not decision["eligible"]:
         return None
     direction = signals.get("lane_change_direction")
@@ -434,10 +471,14 @@ def action_evidence(signals: Mapping[str, Any]) -> Dict[str, Any]:
         "lateral_rgb_uncertainty": signals.get("lateral_rgb_uncertainty"),
         "rule_version": ACTION_RULE_VERSION,
         "rule_code_sha256": action_rule_sha256(),
-        "temporal_semantics": "current_wait_precedes_future_release; first_confirmed_lane_crossing",
+        "temporal_semantics": "confirmed_pullaway_before_near_stop_pair; otherwise_current_wait_precedes_future_release; first_confirmed_lane_crossing",
         "resume_confirmation_samples": 2,
-        "longitudinal_decision": longitudinal_decision(signals.get("future_speeds", []),
-            sample_count=int(signals.get("future_speed_count", 0))),
+        "longitudinal_decision": longitudinal_from_signals(signals),
+        "pullaway_contract": {"min_throttle_exclusive": PULLAWAY_MIN_THROTTLE,
+            "min_final_speed_mps": PULLAWAY_MIN_FINAL_SPEED_MPS,
+            "onset_by_frame": 2, "monotonic_start_k": 0, "monotonic_end": "gain_confirmation",
+            "post_confirmation": "retain_gain_above_anchor_threshold", "monotonic_tolerance_mps": 0.0,
+            "requires_existing_gain_confirmation": True},
         "lane_type_str": signals.get("lane_type_str"),
         "lateral_window_issue": signals.get("lateral_window_issue"),
         "future_speed_min_mps": round(float(signals["speed_min"]), 3),
@@ -452,7 +493,7 @@ def action_evidence(signals: Mapping[str, Any]) -> Dict[str, Any]:
         "road_id": int(signals["road_id"]),
         "route_relative_lateral_shift_m": (
             round(float(signals["lateral_shift"]), 3) if signals.get("lateral_shift") is not None else None),
-        "brake": bool(signals["brake"]),
+        **recorded_controls(signals),
         "is_junction": bool(signals["is_junction"]),
         "horizon_frames": {
             "immediate": IMMEDIATE_HORIZON_FRAMES,

@@ -1,8 +1,49 @@
 # Action Expert 消融实验
 
+## 2026-09-21 后续：共享容量检查
+
+两条消融同步使用主线新的候选准备与 token 支持检查：候选容器不依赖 SFT 的 val/test 桶；训练全为 UNCOND 时拒绝，每轮实际采样后再检查并报告七类支持。简短 Qwen / 无 Qwen 条件不变，不强制补齐不存在的动作。真实全量核验与纯数据审计命令见 [容量审计](../sft_new_loop_phase3/CAPACITY_AUDIT_20260921.md)。
+
+## 2026-09-21 Phase3 v21 同步范围
+
+两条消融复用主线的 Phase3 candidate/full map、主要动作投影、动作 token 和开发路线隔离，无单独的旧速度标定副本。启用动作 token 时，确认起步修订来自 v21；开关仍默认关闭。事件均衡仅改变采样，不能据此声称模型已获得动作标签。
+
+`qwen_simple` 保留 LeadMoT 简短导航提示词，`bev_only` 没有 Qwen 提示词；主线自然先验的 UE1/信号故障文案更新不注入这两个消融。这样保留各组原有条件定义。比较时使用同一新 full map、有效 split、seed 和预算；uniform 需显式传相同 full map 才同步开发路线隔离。
+
+新来源合同需要新产物、新 run，已有生产映射/缓存/checkpoint 尚未全量更新。实际 7900 行 v21 候选的共享消费者回放和 14 项消融入口测试通过；完整范围、164 项测试及复用方式见 [主线 v21 同步说明](../action_prior/run.md)。
+
+## 2026-09-21 动作 token / 单当前图 demo
+
+两条消融与主线共用 `--high-level-action-token`（默认关闭）和 `--rgb-frame-count 1|4`（默认4）；也支持 `HIGH_LEVEL_ACTION_TOKEN=1/0`、`RGB_FRAME_COUNT=1/4`，CLI 优先。
+
+动作 ID 经可学习 `Embedding(7,1024)`，在 120 个 BEV token 后追加一个 token；七类为五个变化动作、KEEP、UNCOND，KEEP 不细分。`bev_only` 在本地序列做 self-attention；`qwen_simple` 同时读取冻结 Qwen KV。两者均不因此向 Qwen prompt 添加动作/RS/EVENT 文字。Phase3 标注来源、投影、准备、审计、训练和恢复走共享实现，不复制训练循环。
+
+```bash
+# BEV 基线与动作 token 实验分别新开 run
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced --no-high-level-action-token
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced --high-level-action-token
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced --high-level-action-token
+# Qwen 四图＋动作 token
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --high-level-action-token
+# Qwen 仅当前一图＋动作 token
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --high-level-action-token --rgb-frame-count 1
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --high-level-action-token --rgb-frame-count 1
+# 环境变量等价写法；恢复时未显式设置则沿用原配置
+HIGH_LEVEL_ACTION_TOKEN=1 RGB_FRAME_COUNT=1 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
+# 单图、不带动作 token 的对照
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --no-high-level-action-token --rgb-frame-count 1
+```
+
+`train.sh` 同样支持这些选项；token 模式首次自动准备 Phase3 candidate/full map。当前图始终为 anchor 的完整三视角拼接 RGB；不改变 BEV 单帧 RGB＋LiDAR，所以 `bev_only` 的图数选项不改变模型有效条件。请共用 `DATA_DIR=checkpoints/action_prior_data`、full map、seed、卡数、采样及预算比较，且检查训练计划中的有效 split/七类覆盖。uniform 对照如需要同样隔离开发路线，可给开/关两组都显式传同一个 `--event-balance-index`，该参数不自动启用均衡采样或文字先验。
+
+普通 RE/过滤或未确认帧为 UNCOND；证据完整的保持为 KEEP。缺 eligible 标签、坏哈希、冲突不降级为 UNCOND。逐例审计保留来源原因，验证提供 `group/action_token/*`。动作来自未来轨迹标注，属于离线 oracle 条件增益实验，不能当 Phase3 预测或闭环成绩。开关和图数绑定 checkpoint；eval 自动恢复，不能临时切换；新条件新训、旧 run 用原源码。
+
+主线单图 LoRA 输入变化、来源搬迁和完整合同说明见 [action_prior/run.md](../action_prior/run.md)。
+
+
 优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](../action_prior/OPTIMIZATION.md)。
 
-新训练与主线同步默认 `muon_adamw + cosine_restarts`。所有优化器、周期、warmup 参数直接复用主线，无消融副本；四组合对照、参数与恢复边界见 [共享优化说明](../action_prior/OPTIMIZATION.md)。
+新训练与主线同步默认 `muon_adamw + cosine_restarts`，共7轮；warmup只用首轮更新数的5%，周期依次占1/2/4轮，warmup包含在首周期内。所有优化器、周期、warmup 参数直接复用主线，无消融副本；四组合对照、参数与恢复边界见 [共享优化说明](../action_prior/OPTIMIZATION.md)。
 
 从远端 `AutoMoT/` 目录运行。本目录只做两个不使用 RS/EVENT 标定或 LoRA 先验的 action expert 对照，
 轨迹 decoder、Flow Matching、BEV、数据索引和训练循环直接复用

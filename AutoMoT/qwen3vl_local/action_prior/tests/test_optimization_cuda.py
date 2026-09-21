@@ -48,10 +48,10 @@ def test_cuda_bf16_against_spectral_reference(shape):
 
 @pytest.mark.parametrize('cut', [2, 3, 4])
 def test_cuda_restart_resume_and_monitor(cut):
-    """18步、warmup1、默认短周期2/5/10；在低谷前/低谷/下一峰值恢复。"""
+    """18步、每轮3更新、warmup1、周期余弦段2/6/截断9；在低谷前/低谷/下一峰值恢复。"""
     model = SmallDecoder().cuda()
-    opt, scheduler = make(model, total=18)
-    assert opt.action_contract['schedule']['cycle_steps'] == [2, 5, 10]
+    opt, scheduler = make(model, total=18, steps_per_epoch=3)
+    assert opt.action_contract['schedule']['cycle_steps'] == [2, 6, 9]
     for index in range(cut):
         advance(model, opt, scheduler, index)
     data = BytesIO()
@@ -60,7 +60,7 @@ def test_cuda_restart_resume_and_monitor(cut):
     saved = torch.load(data, map_location='cpu', weights_only=False)
     resumed = SmallDecoder().cuda()
     resumed.load_state_dict(saved['model'])
-    opt2, scheduler2 = make(resumed, total=18)
+    opt2, scheduler2 = make(resumed, total=18, steps_per_epoch=3)
     opt2.load_state_dict(saved['opt']); scheduler2.load_state_dict(saved['scheduler'])
     for index in range(cut, 18):
         advance(model, opt, scheduler, index)
@@ -92,8 +92,8 @@ def _nccl_worker(rank, rendezvous):
         model = DistributedMatrix().cuda(rank)
         reference = deepcopy(model)
         decoder = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
-        opt, scheduler = make(model, total=18)
-        ref, ref_scheduler = make(reference, total=18)
+        opt, scheduler = make(model, total=18, steps_per_epoch=3)
+        ref, ref_scheduler = make(reference, total=18, steps_per_epoch=3)
         # 全局样本固定，两个 rank 各取两条，梯度平均口径与累积窗口一致。
         device = torch.device('cuda', rank)
         x = torch.tensor([[1., 2.], [2., -1.], [-1., 3.], [2., 2.]], device=device)

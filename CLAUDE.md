@@ -1,5 +1,72 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-21 全量容量检查与 v21 划分补齐
+
+全量193696候选发现旧固定哈希+开发隔离令val缺4类、test缺5类；仍有未曝光来源。
+Phase3默认min-holdout-context-frames=32，仅从未曝光train物理组补容量、同组整体移动，
+保护train覆盖及1609开发组train-only；源不足仍失败，split_coverage.json/manifest保存调整。
+本轮移动11组，train/val/test=11580/408/384；全局context/动作签名数量未变。
+choice/binary各7轮及1/4rank、16/32验证预算回放通过；四类holdout仍仅1物理组，非泛化证明。
+Action准备器v2使用独立候选容器，Action自己的split/隔离不变；全量full map=1051417帧。
+三入口共享token零计数/独立帧/物理路线/UNCOND原因检查，全UNCOND训练拒绝，每轮采样再检。
+Action有效split为843913/70058/79518帧，七类token各split均有支持；uniform/event-balanced各7轮、
+world1/4共28个整轮计划通过。均衡95136次/轮，单帧最多8次；帧数不等于独立路线支持。
+591项Phase3及136项Action/消融测试通过。产物在/tmp/p3audit/capacity_v21，未覆盖生产目录，
+未跑真实模型/GPU；新mapping需新产物新run，旧run用原源码。详见Phase3/CAPACITY_AUDIT_20260921.md。
+
+### 2026-09-21 Action 接入 Phase3 v21 与文案补齐
+
+主线自然先验的 UE1 覆盖减速后的响应/等待/恢复，信号异常改为给定系统故障；
+普通/紧凑文案、prefill、摘要、复核和fallback同源，prefill v2/analysis v7绑定合同。
+Phase1/2检测合同未改；qwen_simple保留简短导航，bev_only无Qwen，不注入Phase3问答。
+三条路径共享v21候选/动作投影及可选token，full map共享开发路线隔离，旧产物须按新hash重建。
+150项Action及14项消融入口测试通过；7900候选经文字动作/token投影一致，其中确认起步84帧
+为RESUME64/LEFT18/RIGHT2。回放用构造eligible记录，不代表生产full map/门控全量验收。
+未全量生产重建、未跑真实Qwen/BEV或GPU；新条件新run，旧run原源码。详见action_prior/run.md。
+
+### 2026-09-21 Phase3 v21 已确认起步与审计分层
+
+新训练默认4rgb+choice、data_v21、prompt v21_confirmed_pullaway，入口seed仍20260920。
+v9在近零速等待分支前识别明确brake=False/throttle>0.1且及时持续起步：至增速确认非递减，
+确认后保留显著净增速，允许后续调速。缺控制保留null；控制/未来数据不进模型输入。
+原速度阈值、有限窗口、首跨规则及STOP>首跨>速度优先级保留，v20精确lane-section隔离继续生效。
+提示词明确事件持续阶段、U-E7给定故障前提及记录路线终点；不将灯态查询None/越线代理当物理故障证据。
+manifest与epoch快照各报主要动作投影及INVALID分母，路线支持补Town/scenario；容量回流机制不改。
+242路线31668帧数值回放，带context变更94帧（29个录制初期），真实构建候选84帧，横向位未变；
+沿用此前927张不同RGB复审，不把数值回放当全路线目视。新增155物理组train-only，累计1609。
+587项Phase3及63项Action衔接CPU测试通过；7900候选→384行局部开发索引，1408次prompt重放一致。
+局部train-only索引未通过也不替代生产三split预检；未全量生产重建或GPU训练，无效果提升结论。
+新索引新训，旧run用原源码；共享Action映射必须按新合同重建。详见
+AutoMoT/qwen3vl_local/sft_new_loop_phase3/V21_CALIBRATION_20260921.md。
+
+### 2026-09-21 Action 动作 token 与单当前图
+
+三条 action 入口共用默认关闭的 `--high-level-action-token` / `HIGH_LEVEL_ACTION_TOKEN=1`。
+五变化动作＋一个 KEEP＋UNCOND，`Embedding(7,1024)` 在 BEV projector 后沿序列维追加1 token，
+默认142→143；embedding随FM loss训练并走AdamW。三组共用Phase3 candidate/full map与主要动作优先级，
+不经过主线文字动作门控、不自动改变Qwen prompt或特殊RE场景先验。KEEP不细分，仍要求域内完整证据；
+普通/过滤/未确认/映射外帧为UNCOND并分原因审计，eligible缺候选/坏哈希/冲突报错。
+`--rgb-frame-count 1` / `RGB_FRAME_COUNT=1` 只给当前anchor完整拼接RGB，默认4；主线Phase1/2问答、
+可选摘要、最终prefill均单图并适配提示词，旧LoRA输入分布变化明确记录；dataset-priors不跑LoRA。
+BEV仍单帧RGB+LiDAR，bev_only图数开关不改变有效条件。CLI优先，resume/eval恢复原开关和图数；
+源文件、词表、图数绑定合同，新条件新训，旧run用原源码。oracle token无在线provider，闭环拒绝。
+公平对比需共用full map/split/采样/seed/预算；uniform显式给full map也隔离开发路线但不启用均衡。
+本机回归635通过、7跳过；另22项因缺只读mot_lead_offline_runner.py（17项）或peft（5项）未通过。
+未验证真实Qwen/BEV训练或远端多卡，无效果提升结论。demo见action_prior/run.md、action_expert_ablation/run.md。
+
+
+### 2026-09-21 Action 七轮快速验证与首轮 warmup（覆盖此前总预算比例）
+
+主线 action_prior 与 action_expert_ablation 的 qwen_simple/bev_only 同步默认7轮。
+共享 action_optimization_v5：warmup_ratio=0.05 只按第一轮 optimizer updates 计算，包含梯度累积尾窗口；
+warmup占用首周期，周期依次1/2/4轮，第1/3/7轮末到0，第2/4轮开始回原峰值，总计仍7轮。
+每轮1000更新时为warmup50＋余弦950/2000/4000；单余弦基线也按首轮warmup。
+显式延长轮数则继续8/16…；max_train_steps截断但不压缩余弦曲线，极短预算warmup留一次有效更新。
+不新增开关，Muon/AdamW路由、每轮完整验证和training_audit.zip保持；启动日志/计划明确记录实际步数。
+新旧schedule合同严格隔离：新方案新开run，旧61轮/总步数warmup run用原源码恢复，不能直接续训换计划。
+详见 AutoMoT/qwen3vl_local/action_prior/OPTIMIZATION.md；不宣称真实模型收敛提升。
+
+
 ### 2026-09-21 Phase3 v20 逐帧错例复核与等待/起步语义
 
 新训练默认 `4rgb + choice`、索引 `sft_new_loop_phase3_data_v20`，seed仍20260920，prompt为
@@ -353,6 +420,7 @@ LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANAL
 
 | 文件 | 用途 |
 |---|---|
+| `.vscode/settings.json` | 用户授权：排除大数据/产物目录的文件监视；保留源码监视，不隐藏或删除文件。 |
 | `PROJECT_CONTEXT.md` | 项目说明文档，需要随代码修改持续更新 |
 | `AutoMoT/qwen3vl_local/eval_carla/` | LeadMoT 闭环评测子包（全部白名单内）：实时 agent + 5 路视频 + 投影 overlay + scenario 反向映射 + 聚合 + Flask webapp。`agent.py` 直接复用 `LeadOfflineMoTRunner`；target_point / next_target_point 与训练同走 `max(speed*lookahead_s, 5m)` route 弧长前推，默认 tp=1.0s / ntp=2.0s；final_goal 为 route 真实终点：训练取 LEAD 采集保存的 `meta["next_target_points"][-1]` 转 ego，在线 eval_carla 取 `scenario_picker.py` 对应 route XML 最后一个 waypoint 转 ego，不能再用 `meta["route"][-1]` 或固定局部 horizon；warmup 为 LEAD 风格 left-pad 复制 frame 0 立即推理；按 ckpt `decoder_config.use_bev` 决定是否声明/读取 LiDAR/radar；ckpt `decoder_config.use_subgoal=True` 当前不支持闭环，agent.py 加载时立即 `raise NotImplementedError` 并留 `TODO(subgoal)` 接口；其余细节以 `EVAL_CARLA_PLAN.md` / `EVAL_CARLA_RUN.md` 为准。 |
 | `AutoMoT/lead_video_tools/` | 按用户同意新增到白名单：LEAD 离线 RGB 视频转换工具；只读 `/datashare/IOL4SGH/data/data/<Scenario>/<run_id>/rgb/*.jpg`，按 4Hz 生成 `/data/lead_video/<Scenario>/<run_id>/{input,left,front,right}.mp4`（默认 input，`--views` 可选三视角裁剪），默认在左上角写 frame id，支持异常 route 剔除、断点续跑、ffprobe 完整性检查、运行文档和 `--workers` route 级 CPU 并行（`--workers 0` 自动按 CPU 估计）；`rgb_to_video.py` 普通转换默认剔除异常时长 route；`abnormal_duration_filter.py` 按硬规则输出异常采集名单：4Hz 下 `frames >= 361`（严格大于 1 分 30 秒 / 90s）且不在白名单内的 route 全部视为异常并写入 `abnormal_confirmed_over_90s.txt`；`BlockedIntersection` 与 `ControlLoss` 是唯一时长白名单不写入名单；`Accident`、`park*`、`dynamic*` 不再有 90-100 秒存疑段豁免；`abnormal_possible_90s_to_100s.txt` 只为旧接口兼容保留，正常应为空。**凡是 AutoMoT/keyframe_filter、AutoMoT/qwen3vl_local 或其它入口使用 LEAD 数据集，都必须在构建样本/调研/probe 前先剔除这些异常 route**；筛选时打印 discover + route 级进度条，两个 txt 名单只保留 `Scenario/run_id`，详情保留在 `abnormal_duration_summary.json`；只有显式传 `rgb_to_video.py --abnormal-route-list-dir` 才复用筛选目录只转名单 route。 |
@@ -522,6 +590,10 @@ git -c 'url.ssh://git@github.com/.insteadOf=https://github.com/' push origin mai
 简言之：用户要的是“更新代码”，不是“清空工作区”。除非用户明确说要删除其它本地内容，否则不要动与远程 tracked 代码无关的东西。
 
 ### 默认追踪文件（git add 白名单）
+
+- `.vscode/settings.json`（用户授权：排除大数据/产物目录的文件监视；保留源码监视，不隐藏或删除文件）。
+
+本机健康日志与系统维护工具不入库。
 
 - `PROJECT_CONTEXT.md`
 - `CLAUDE.md`

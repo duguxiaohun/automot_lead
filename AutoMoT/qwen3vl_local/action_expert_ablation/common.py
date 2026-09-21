@@ -168,7 +168,8 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
     from qwen3vl_local.action_prior.optimization_config import (
         optimization_env_args, legacy_optimization_defaults,
     )
-    argv = [*optimization_env_args(), *(sys.argv[1:] if argv is None else argv)]
+    from qwen3vl_local.action_prior.action_token import conditioning_env_args
+    argv = [*optimization_env_args(), *conditioning_env_args(), *(sys.argv[1:] if argv is None else argv)]
     p = parser(variant)
     cli_args = p.parse_args(argv)
     if not cli_args.resume:
@@ -215,11 +216,11 @@ def validate_args(args: argparse.Namespace, variant: str) -> None:
         not args.use_final_goal
         or not args.use_bev
         or args.tp_mode != "route_lookahead"
-        or args.rgb_frame_count != 4
+        or args.rgb_frame_count not in (1, 4)
         or args.rgb_frame_step != 1
     ):
         raise ValueError(
-            "ablations require final_goal, frozen BEV, 4 consecutive RGB rows, and route lookahead"
+            "ablations require final_goal, frozen BEV, current RGB or 4 consecutive RGB, and route lookahead"
         )
     if args.bev_frame_count != 1 or args.bev_frame_step != 1:
         raise ValueError("ablations currently follow action_prior single-frame BEV")
@@ -273,6 +274,10 @@ def training_plan(args: argparse.Namespace, rows: dict[str, list[dict]], world: 
             "Core FM/planning scalars plus shared full-map event buckets when enabled; no prior/review metrics."
         ),
     )
+    if getattr(args, "high_level_action_token", False):
+        from qwen3vl_local.action_prior.action_token import token_coverage, token_contract
+        plan["action_token_coverage"] = token_coverage(rows)
+        plan["action_token_source"] = token_contract(args)
     return plan
 
 
@@ -336,6 +341,8 @@ def contract_source_paths(variant: str) -> list[str]:
         "qwen3vl_local/action_expert_ablation/pipeline_common.sh",
         "qwen3vl_local/action_prior/launch.py",
         "qwen3vl_local/action_prior/flow_matching.py",
+        "qwen3vl_local/action_prior/action_token.py",
+        "qwen3vl_local/action_prior/image_condition.py",
         "qwen3vl_local/action_prior/precision.py",
         "qwen3vl_local/action_prior/config.py",
         "qwen3vl_local/action_prior/event_balance.py",
@@ -407,7 +414,13 @@ def build_contract(args: argparse.Namespace, variant: str) -> dict:
         ).stdout.strip()
     except Exception:
         git_commit = ""
+    from qwen3vl_local.action_prior.action_token import token_contract
+    from qwen3vl_local.action_prior.image_condition import image_contract
     identity_payload = dict(
+        image_condition=image_contract(args),
+        high_level_action_token=token_contract(args),
+        rgb_frame_count=args.rgb_frame_count,
+        rgb_frame_step=args.rgb_frame_step,
         variant=variant,
         condition=VARIANTS[variant],
         execution=_execution_fingerprint(root, sources),
@@ -506,6 +519,12 @@ class QwenSimpleRuntime:
         self.args = args
         self.device = device
         self.runner = self.inner.runner
+        if args.rgb_frame_count == 1:
+            from qwen3vl_local.action_prior.image_condition import current_base_prefill
+            def current_prefill(rgb_pil_list, user_prompt):
+                return current_base_prefill(self.runner, rgb_pil_list, user_prompt,
+                                            old.mot_runner._LEADMOT_QWEN_SYSTEM_PROMPT)
+            self.runner._run_leadmot_qwen_prefill = current_prefill
         _load_lead_bev_weights(self.inner.runner, args)
         self.last_audit = None
 
@@ -533,6 +552,8 @@ class QwenSimpleRuntime:
                 kwargs["flow_time"] = flow_time
             if flow_sample_noise is not None:
                 kwargs["flow_sample_noise"] = flow_sample_noise
+            from qwen3vl_local.action_prior.action_token import token_tensor
+            kwargs["action_token_id"] = token_tensor(sample, decoder_config, self.device)
             kwargs["sample_trajectory"] = sample_trajectory
             return decoder_forward(decoder, kwargs, decoder_dtype, self.device)
 
@@ -672,6 +693,8 @@ class BevOnlyRuntime:
             kwargs["flow_time"] = flow_time
         if flow_sample_noise is not None:
             kwargs["flow_sample_noise"] = flow_sample_noise
+        from qwen3vl_local.action_prior.action_token import token_tensor
+        kwargs["action_token_id"] = token_tensor(sample, decoder_config, self.device)
         outputs = decoder_forward(decoder, kwargs, decoder_dtype, self.device)
         outputs["input_status"] = status.detach()
         self.last_audit = {
@@ -764,6 +787,8 @@ def train_main(variant: str) -> None:
     """Train one action expert ablation."""
 
     args = parse_train_args(variant)
+    from qwen3vl_local.action_prior.action_token import ensure_token_inputs
+    ensure_token_inputs(args)
     validate_args(args, variant)
     for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
         os.environ[name] = "1"

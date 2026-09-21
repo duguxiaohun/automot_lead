@@ -65,6 +65,9 @@ def grouped_counts(audit, sample, metrics):
 def event_sample_groups(sample):
     """只按 full map 分组；消融不生成模型先验、UNKNOWN 或复核指标。"""
     groups = []
+    if "action_token" in sample:
+        groups.append(f"action_token/{sample['action_token']['name']}")
+        groups.append(f"action_token_reason/{sample['action_token']['reason']}")
     # 仅在显式接入全帧 event map 时存在。它是离线审计标签，不是模型预测事件，
     # 也不参与总样本分母。评测必须使用 all_special_buckets：被 Phase3 动作问答
     # 过滤的特殊帧仍是特殊驾驶情境，不能因此掉进“普通”或完全不统计。

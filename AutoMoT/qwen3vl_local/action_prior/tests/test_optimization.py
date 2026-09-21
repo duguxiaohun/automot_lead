@@ -28,9 +28,9 @@ class SmallDecoder(torch.nn.Module):
         self.frozen = torch.nn.Parameter(torch.ones(2, 2), requires_grad=False)
 
 
-def make(model, *cli, total=61):
+def make(model, *cli, total=61, steps_per_epoch=10):
     args = parser().parse_args(list(cli))
-    optimizer, scheduler = build_optimization(args, model, {"actual_step_limit": total})
+    optimizer, scheduler = build_optimization(args, model, {"actual_step_limit": total, "optimizer_steps_per_epoch": steps_per_epoch})
     return optimizer, scheduler
 
 
@@ -122,38 +122,38 @@ def test_serialized_resume_matches_uninterrupted_updates(mode, schedule):
 
 def test_restart_budget_peaks_troughs_and_terminal_zero():
     args = parser().parse_args(["--warmup-ratio", "0.05"])
-    plan = optimization_plan(args, 3000)
-    assert plan["warmup_steps"] == 150
-    assert plan["cycle_steps"] == [190, 380, 760, 1520]
-    assert lr_factor(0, plan) == 1 / 150
-    assert lr_factor(149, plan) == 1
-    start = 150
+    plan = optimization_plan(args, 7000, steps_per_epoch=1000)
+    assert plan["warmup_steps"] == 50
+    assert plan["cycle_steps"] == [950, 2000, 4000]
+    assert lr_factor(0, plan) == 1 / 50
+    assert lr_factor(49, plan) == 1
+    start = 50
     for length in plan["cycle_steps"]:
         values = [lr_factor(i, plan) for i in range(start, start + length)]
         assert values[0] == 1 and values[-1] == 0
         assert values == sorted(values, reverse=True)
         start += length
-    assert start == 3000 and lr_factor(3000, plan) == lr_factor(5000, plan) == 0
+    assert start == 7000 and lr_factor(7000, plan) == lr_factor(9000, plan) == 0
 
 
 @pytest.mark.parametrize("total", [1, 2, 3, 5, 10, 20, 61])
 def test_short_runs_keep_nonempty_cycles_and_at_least_one_update(total):
-    plan = optimization_plan(parser().parse_args([]), total)
+    plan = optimization_plan(parser().parse_args([]), total, steps_per_epoch=10)
     assert plan["warmup_steps"] + sum(plan["cycle_steps"]) == total
     assert all(n > 0 for n in plan["cycle_steps"])
     assert any(lr_factor(i, plan) > 0 for i in range(total))
 
 
-def test_cosine_baseline_matches_original_helper():
+def test_cosine_baseline_uses_same_first_epoch_warmup():
     from qwen3vl_local.action_prior.tests.test_training_loop import lightweight_old_helpers
     model = SmallDecoder()
-    opt, scheduler = make(model, "--optimizer", "adamw", "--lr-scheduler", "cosine", total=100)
+    opt, scheduler = make(model, "--optimizer", "adamw", "--lr-scheduler", "cosine", total=100, steps_per_epoch=40)
     args = parser().parse_args([])
     old = lightweight_old_helpers()
     reference_model = deepcopy(model)
     reference_groups = parameter_groups(reference_model, parser().parse_args(["--optimizer", "adamw"]))
     reference = torch.optim.AdamW(reference_groups, lr=args.learning_rate, betas=(0.9, 0.95))
-    reference_scheduler = old._make_scheduler(reference, 100, args.warmup_ratio)
+    reference_scheduler = old._make_scheduler(reference, 100, 0.02)  # 40 updates × 5% = 2 warmup updates
     for step in range(100):
         assert scheduler.get_last_lr() == reference_scheduler.get_last_lr()
         advance(model, opt, scheduler, step)
@@ -289,13 +289,13 @@ def test_monitor_measures_actual_updates_without_changing_them(mode):
 
 def test_cycle_status_uses_completed_updates():
     from qwen3vl_local.action_prior.optimization_config import cycle_status
-    plan = optimization_plan(parser().parse_args([]), 3000)
-    assert cycle_status(150, plan)['cycle'] == 0
-    assert cycle_status(151, plan) == dict(cycle=1, progress=0, cycle_end=False)
-    assert cycle_status(340, plan) == dict(cycle=1, progress=1, cycle_end=True)
-    assert cycle_status(341, plan) == dict(cycle=2, progress=0, cycle_end=False)
-    assert cycle_status(3000, plan) == dict(cycle=4, progress=1, cycle_end=True)
-    assert cycle_status(3001, plan)['cycle_end'] is False
+    plan = optimization_plan(parser().parse_args([]), 7000, steps_per_epoch=1000)
+    assert cycle_status(50, plan)['cycle'] == 0
+    assert cycle_status(51, plan) == dict(cycle=1, progress=0, cycle_end=False)
+    assert cycle_status(1000, plan) == dict(cycle=1, progress=1, cycle_end=True)
+    assert cycle_status(1001, plan) == dict(cycle=2, progress=0, cycle_end=False)
+    assert cycle_status(7000, plan) == dict(cycle=3, progress=1, cycle_end=True)
+    assert cycle_status(7001, plan)['cycle_end'] is False
 
 
 def test_advanced_switches_removed_and_defaults_recorded():
@@ -307,11 +307,11 @@ def test_advanced_switches_removed_and_defaults_recorded():
         assert '--' + name not in options
     plans = []
     for scheduler in ('cosine', 'cosine_restarts'):
-        plan = optimization_plan(parser().parse_args(['--lr-scheduler', scheduler]), 12)
+        plan = optimization_plan(parser().parse_args(['--lr-scheduler', scheduler]), 12, steps_per_epoch=3)
         assert all(plan[key] == value for key, value in OPTIMIZATION_SETTINGS.items())
         plans.append([step for step in range(1, 13) if full_validation_due(
             step, plan, full_epoch=step % 3 == 0)])
-    assert plans[0] == plans[1] == [3, 4, 6, 9, 12]
+    assert plans[0] == plans[1] == [3, 6, 9, 12]
 
 
 def test_timing_excludes_validation_checkpoint_and_preserves_final_overhead():
@@ -341,3 +341,60 @@ def test_timing_excludes_validation_checkpoint_and_preserves_final_overhead():
     assert summary['samples'] == 6 and summary['training_seconds'] == 5
     assert summary['validation_seconds'] == 13 and summary['checkpoint_seconds'] == 7
     assert summary['overall_samples_per_second'] == 6/25
+
+
+@pytest.mark.parametrize("scheduler", ["cosine", "cosine_restarts"])
+def test_warmup_counts_first_epoch_including_partial_accumulation(scheduler):
+    """真实 plan 使用每轮 ceil(micro/accum)，缩短总轮数不应缩短 warmup。"""
+    from qwen3vl_local.action_prior.config import training_plan
+    rows = {split: [dict(route_group=split)] * (201 if split == "train" else 1)
+            for split in ("train", "val", "test")}
+    for epochs in (7, 15):
+        args = parser().parse_args(["--num-epochs", str(epochs), "--grad-accum-steps", "5",
+                                  "--lr-scheduler", scheduler])
+        plan = training_plan(args, rows, 1)
+        schedule = plan["optimization"]["schedule"]
+        assert plan["optimizer_steps_per_epoch"] == 41
+        assert schedule["warmup_steps"] == 2
+        assert schedule["shared_validation_updates"][:3] == [41, 123, 287]
+        assert plan["actual_step_limit"] == 41 * epochs
+
+
+def test_short_budget_truncates_without_squeezing_epoch_cycles():
+    """max-train-steps只截断，不能把原本后面数轮的峰谷压进smoke。"""
+    args = parser().parse_args([])
+    full = optimization_plan(args, 7000, 1000)
+    short = optimization_plan(args, 1500, 1000)
+    assert short["warmup_steps"] == full["warmup_steps"] == 50
+    assert short["cycle_steps"] == [950, 500]
+    assert short["nominal_cycle_steps"] == [950, 2000]
+    assert [lr_factor(i, short) for i in range(1500)] == [lr_factor(i, full) for i in range(1500)]
+    assert lr_factor(1500, short) == 0
+
+
+def test_zero_warmup_restarts_at_epoch_boundaries():
+    args = parser().parse_args(["--warmup-ratio", "0"])
+    plan = optimization_plan(args, 700, 100)
+    assert plan["warmup_steps"] == 0 and plan["cycle_steps"] == [100, 200, 400]
+    for step in (0, 100, 300):
+        assert lr_factor(step, plan) == 1
+    for step in (99, 299, 699, 700):
+        assert lr_factor(step, plan) == 0
+
+
+@pytest.mark.parametrize("cut", [3, 4, 5, 11, 12, 13])
+def test_serialized_resume_at_trough_and_restart(cut):
+    """跨首/次周期谷底前后恢复，LR及Muon's/AdamW状态产生完全相同更新。"""
+    original = SmallDecoder()
+    opt, scheduler = make(original, total=28, steps_per_epoch=4)
+    for step in range(cut):
+        advance(original, opt, scheduler, step)
+    restored = deepcopy(original)
+    opt2, scheduler2 = make(restored, total=28, steps_per_epoch=4)
+    opt2.load_state_dict(deepcopy(opt.state_dict()))
+    scheduler2.load_state_dict(deepcopy(scheduler.state_dict()))
+    for step in range(cut, 28):
+        assert scheduler.get_last_lr() == scheduler2.get_last_lr()
+        advance(original, opt, scheduler, step)
+        advance(restored, opt2, scheduler2, step)
+        assert all(torch.equal(p, q) for p, q in zip(original.parameters(), restored.parameters()))

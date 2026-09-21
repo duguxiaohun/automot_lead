@@ -7,7 +7,8 @@ import os
 
 # 仅保留对照实验需要的两个选择；算法细节统一固定并写入训练合同。
 OPTIMIZATION_DEFAULTS = dict(optimizer="muon_adamw", lr_scheduler="cosine_restarts")
-OPTIMIZATION_SETTINGS = dict(cosine_restart_cycles=4, cosine_restart_mult=2.0,
+OPTIMIZATION_SETTINGS = dict(cosine_restart_first_epochs=1, cosine_restart_mult=2,
+    warmup_basis="first_epoch_optimizer_steps", cycle_policy="epoch_doubling_warmup_inside_first_v1",
     muon_momentum=0.95, muon_ns_steps=5, muon_lr_scale=1.0,
     decay_policy="shared", optimizer_monitor_steps=100,
     validation_policy="epoch_and_shared_cycle_v1")
@@ -41,29 +42,34 @@ def validate_optimization(args):
         raise ValueError("LR must be positive, weight decay nonnegative, warmup in [0,1)")
 
 
-def optimization_plan(args, total_steps):
-    """剩余预算按几何比例分配；短 smoke 自动减少周期，正常每周期至少两次更新。"""
+def optimization_plan(args, total_steps, steps_per_epoch):
+    """首轮内 warmup，周期占1/2/4/...轮；截断预算不压缩原余弦曲线。"""
     validate_optimization(args)
-    total = int(total_steps)
-    if total < 1:
-        raise ValueError("optimization needs at least one update")
-    warmup = max(1, int(total * args.warmup_ratio))
-    reference_warmup = min(total - 1, warmup) if args.warmup_ratio > 0 else 0
-    remaining = total - reference_warmup
-    cycles, mult = OPTIMIZATION_SETTINGS["cosine_restart_cycles"], OPTIMIZATION_SETTINGS["cosine_restart_mult"]
-    while cycles > 1 and remaining / sum(mult ** i for i in range(cycles)) < 2:
-        cycles -= 1
-    weights = [mult ** i for i in range(cycles)]
-    boundaries = [0] + [int(remaining * sum(weights[:i]) / sum(weights)) for i in range(1, cycles)] + [remaining]
-    lengths = [b - a for a, b in zip(boundaries, boundaries[1:])]
+    total, epoch_steps = int(total_steps), int(steps_per_epoch)
+    if total < 1 or epoch_steps < 1:
+        raise ValueError("optimization needs positive total and per-epoch updates")
+    # 使用梯度累积后每轮实际更新数，包含最后不足一个累积窗口的更新。
+    # 极短 smoke 留一次有效更新；一轮只有一次更新时不再额外占用 warmup。
+    warmup = (min(total - 1, epoch_steps - 1, max(1, int(epoch_steps * args.warmup_ratio)))
+              if args.warmup_ratio > 0 else 0)
+    lengths, nominal_lengths, ends = [], [], []
+    start, span = 0, epoch_steps * OPTIMIZATION_SETTINGS["cosine_restart_first_epochs"]
+    while start < total:
+        end = min(total, start + span)
+        skip = warmup if start == 0 else 0
+        lengths.append(end - start - skip)
+        nominal_lengths.append(span - skip)
+        ends.append(end)
+        start += span
+        span *= OPTIMIZATION_SETTINGS["cosine_restart_mult"]
     restarting = args.lr_scheduler == "cosine_restarts"
-    return dict(version="action_optimization_v4", optimizer=args.optimizer,
-        lr_scheduler=args.lr_scheduler, total_steps=total,
-        warmup_steps=reference_warmup if restarting else warmup,
-        cycle_steps=lengths if restarting else [], learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay, **OPTIMIZATION_SETTINGS,
-        validation_warmup_steps=reference_warmup, validation_cycle_steps=lengths,
-        shared_validation_updates=[reference_warmup + end for end in boundaries[1:]],
+    return dict(version="action_optimization_v5", optimizer=args.optimizer,
+        lr_scheduler=args.lr_scheduler, total_steps=total, optimizer_steps_per_epoch=epoch_steps,
+        warmup_steps=warmup, cycle_steps=lengths if restarting else [],
+        nominal_cycle_steps=nominal_lengths if restarting else [],
+        learning_rate=args.learning_rate, weight_decay=args.weight_decay, **OPTIMIZATION_SETTINGS,
+        validation_warmup_steps=warmup, validation_cycle_steps=lengths,
+        validation_nominal_cycle_steps=nominal_lengths, shared_validation_updates=ends,
         muon_update="nesterov_quintic_ns_match_rms_adamw_v1",
         parameter_policy="hidden_blocks_and_velocity_hidden_v1")
 
@@ -76,13 +82,13 @@ def lr_factor(step, plan):
     if step < warmup:
         return (step + 1) / warmup
     if plan["lr_scheduler"] == "cosine":
-        # 与原 LeadMoT LambdaLR 完全相同，保留基线实验口径。
+        # 单余弦基线同样使用首轮 warmup；其后一次衰减覆盖剩余预算。
         progress = (step - warmup) / max(1, total - warmup)
         return 0.5 * (1 + math.cos(math.pi * progress))
     offset = step - warmup
-    for length in plan["cycle_steps"]:
+    for length, nominal in zip(plan["cycle_steps"], plan["nominal_cycle_steps"]):
         if offset < length:
-            return 1.0 if length == 1 else 0.5 * (1 + math.cos(math.pi * offset / (length - 1)))
+            return 1.0 if nominal == 1 else 0.5 * (1 + math.cos(math.pi * offset / (nominal - 1)))
         offset -= length
     return 0.0
 
@@ -90,9 +96,9 @@ def lr_factor(step, plan):
 def cycle_status(completed_steps, plan):
     """描述刚完成的更新；周期编号从1开始，warmup/单余弦为0。"""
     offset = completed_steps - 1 - plan["warmup_steps"]
-    for index, length in enumerate(plan["cycle_steps"], 1):
+    for index, (length, nominal) in enumerate(zip(plan["cycle_steps"], plan["nominal_cycle_steps"]), 1):
         if 0 <= offset < length:
-            return dict(cycle=index, progress=offset / max(1, length - 1),
+            return dict(cycle=index, progress=offset / max(1, nominal - 1),
                         cycle_end=offset == length - 1)
         offset -= length
     return dict(cycle=0, progress=0.0, cycle_end=False)
@@ -101,7 +107,8 @@ def cycle_status(completed_steps, plan):
 def validation_cycle_status(step, plan):
     """两种 LR 都用相同参考周期验证，候选点不依赖实际 scheduler。"""
     return cycle_status(step, dict(warmup_steps=plan["validation_warmup_steps"],
-                                   cycle_steps=plan["validation_cycle_steps"]))
+                                   cycle_steps=plan["validation_cycle_steps"],
+                                   nominal_cycle_steps=plan["validation_nominal_cycle_steps"]))
 
 
 def full_validation_due(step, plan, *, full_epoch, cycle_end=False):

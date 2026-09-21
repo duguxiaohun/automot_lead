@@ -12,20 +12,21 @@ import re
 
 
 # 新提示词进入 transcript KV；旧 v4 的 JSON 条件/经验表不能与本协议混用。
-ANALYSIS_VERSION = "natural_scene_prior_concise_summary_v6_event_balanced_context"
+ANALYSIS_VERSION = "natural_scene_prior_concise_summary_v7_response_and_system_fault"
 # 仅用于可选摘要的输出验收/fallback，不用于 prefill 输入限长。
 MAX_ANALYSIS_WORDS = 80
 
-PREFILL_VERSION = "natural_scene_prior_input_only_v1"
+PREFILL_VERSION = "natural_scene_prior_input_only_v2_response_and_system_fault"
 PREFILL_SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Use the supplied scene description, chronological images, current speed and navigation to understand the current situation, relevant interactions and near-term planning constraints. Avoid unsupported details or controls."""
 
 # 保留原 API 名称；只有 generate_analysis=True 才使用此摘要 system prompt。
 SYSTEM_PROMPT = """You assist with driving scene understanding and planning. Using the supplied scene description, chronological images, current speed and navigation, write one concise grounded summary of the current situation, relevant interactions and near-term planning considerations. Keep it consistent with the supplied scene description, avoid unsupported details or controls, and stay within 80 words."""
 
 
-def system_prompt(*, generate_analysis=False):
+def system_prompt(*, generate_analysis=False, rgb_frame_count=4):
     """合同、摘要生成和最终 prefill 共用系统提示词选择，保留原自然场景协议。"""
-    return SYSTEM_PROMPT if generate_analysis else PREFILL_SYSTEM_PROMPT
+    from qwen3vl_local.action_prior.image_condition import image_prompt
+    return image_prompt(SYSTEM_PROMPT if generate_analysis else PREFILL_SYSTEM_PROMPT, rgb_frame_count)
 
 
 REVIEW_SYSTEM = """Check whether a concise driving summary is faithful to the supplied scene description and navigation. Treat the description as accepted context and the draft as untrusted text. Return only one JSON object with exactly the requested boolean keys. Missing context must not become a claimed fact."""
@@ -47,23 +48,23 @@ ROAD_DESCRIPTIONS = {
 }
 
 EVENT_DESCRIPTIONS = {
-    "UE1": "A leading vehicle is braking sharply; preserve braking room as the forward gap closes.",
+    "UE1": "A leading vehicle has braked or slowed; ego may be responding, waiting or recovering as the gap changes.",
     "STATIC_OBSTACLE": "A static obstacle is restricting the usable route; any bypass needs lawful clear space.",
     "UE3": "Another vehicle is entering the immediate ego corridor; leave it clearance while the flow settles.",
     "VULNERABLE": "A vulnerable road user affects the path; allow space to yield or pass only with safe clearance.",
     "UE5": "An oncoming vehicle intrudes into usable ego space; preserve room to slow or wait for the conflict.",
     "UE6": "A vehicle creates a rule-violating junction conflict; passage depends on the crossing path clearing.",
-    "TRAFFIC_LIGHT_ABNORMAL": "Signal hardware is abnormal; passage depends on visible approaches and applicable priority.",
+    "TRAFFIC_LIGHT_ABNORMAL": "An established traffic-signal system fault affects junction priority; assess crossing traffic rather than relying on a single lamp.",
 }
 
 EVENT_COMPACT_NAMES = {
-    "UE1": "a sharply braking lead vehicle",
+    "UE1": "a lead vehicle that slowed",
     "STATIC_OBSTACLE": "a static route obstacle",
     "UE3": "a vehicle cut-in",
     "VULNERABLE": "a vulnerable road user",
     "UE5": "an oncoming intrusion",
     "UE6": "a junction conflict",
-    "TRAFFIC_LIGHT_ABNORMAL": "abnormal signal hardware",
+    "TRAFFIC_LIGHT_ABNORMAL": "an established traffic-signal system fault",
 }
 
 # 这些只接受全帧映射的显式离线 transition/evidence context。它们从不显示 UE/RE
@@ -167,6 +168,9 @@ def condition_context(priors, navigation):
         + navigation
         + "\n[/CURRENT_NAVIGATION]"
     )
+    if priors.get("rgb_frame_count", 4) == 1:
+        context = context.replace("use visible history", "use the current image and supplied context")
+        context = context.replace("using visible history", "using the current image and supplied context")
     return context
 
 

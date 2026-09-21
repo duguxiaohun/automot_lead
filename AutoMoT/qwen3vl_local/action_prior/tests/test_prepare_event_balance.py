@@ -37,6 +37,8 @@ def prepared_sources(tmp_path, monkeypatch):
         out.mkdir(parents=True)
         state['calls'].append(Path(script).name)
         if Path(script).name == 'build_dataset.py':
+            # Action 独立 split；准备全候选不能被 Phase3 问答 val/test 空桶阻塞。
+            assert args['--val-ratio'] == '0' and args['--test-ratio'] == '0'
             (out / 'frame_index.jsonl').write_text('{}\n')
             row = dict(scenario='S', route_id='R', frame_id=1, context_id='LEAD_BRAKE',
                        mapping_contract_hash=state['mapping'])

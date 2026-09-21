@@ -257,6 +257,8 @@ class LeadMoTPlanningDecoderConfig:
     #   （只是 decoder 不接它的输出）。state_dict 在两档之间**不兼容**（bev_projector 一档存在
     #   一档不存在），切换时必须从头训或单独 warm start。
     use_bev: bool = True
+    # 全局动作条件：五个变化动作、KEEP、UNCOND；不属于 BEV 空间网格。
+    use_high_level_action_token: bool = False
 
     # final_goal token：第 4 个 status token，喂 LeadMoT decoder（默认启用）。
     # 与 tp/ntp 共享 WaypointInputAdaptor MLP，让坐标语义在同一空间。
@@ -305,7 +307,7 @@ class LeadMoTPlanningDecoderConfig:
         """
         bev_tokens = self.bev_grid[0] * self.bev_grid[1] if self.use_bev else 0
         status_tokens = 4 if self.use_final_goal else 3
-        return bev_tokens + status_tokens + self.num_route_queries + self.num_waypoint_queries
+        return bev_tokens + int(self.use_high_level_action_token) + status_tokens + self.num_route_queries + self.num_waypoint_queries
 
     def slice_layout(self):
         """返回 packed generated sequence 的 [start, end) 切片。
@@ -319,6 +321,8 @@ class LeadMoTPlanningDecoderConfig:
         if self.use_bev:
             bev_tokens = self.bev_grid[0] * self.bev_grid[1]
             layout["bev"] = (idx, idx + bev_tokens); idx += bev_tokens
+        if self.use_high_level_action_token:
+            layout["action"] = (idx, idx + 1); idx += 1
         layout["speed"] = (idx, idx + 1); idx += 1
         layout["tp"] = (idx, idx + 1); idx += 1
         layout["ntp"] = (idx, idx + 1); idx += 1

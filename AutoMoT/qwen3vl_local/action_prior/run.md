@@ -1,5 +1,63 @@
 # Action prior 使用说明
 
+## 2026-09-21 后续：防止候选容量与 token 支持不足
+
+自动准备的 Phase3 候选容器现在独立于 SFT 问答 split，避免其 val/test 空桶阻塞 Action；Action 继续使用自己的三 split、full map 和开发隔离。准备缓存身份升级，需要按当前源码生成派生产物，旧 run 用原代码。
+
+三条 Action 路径共享训练前 token 支持检查：七类零计数、独立帧/物理路线、UNCOND 原因、缺失动作和 eval 有而 train 无的动作都会记录。开启 token 且训练集全为 UNCOND 时拒绝；每轮采样后再次检查，覆盖 DDP 尾部截断，写 `sampling/epoch_*.json`。稀缺动作只报告，不补 KEEP 或伪造覆盖。事件均衡不可行时给出请求量、重复上限、桶容量，自动预算0仍由联合分配器求解。
+
+新增无模型的数据检查器 `audit_data_capacity.py`，可用真实配置回放七轮、1/4卡的配额和支持；不启动GPU或NCCL。全量结果和命令见 [容量审计](../sft_new_loop_phase3/CAPACITY_AUDIT_20260921.md)。新产物目前在独立审计目录，未覆盖现有生产目录。
+
+## 2026-09-21 Phase3 v21 标定与文案同步
+
+当前共享来源为 Phase3 v21 / `current_wait_first_crossing_v9_confirmed_pullaway`。确认释放制动且及时持续起步的近零速帧不再一律标 STOP；缺控制仍保留等待判定。Action 读取完整 candidate，文字动作和 token 复用同一主要动作投影，原有 STOP＞首次跨线＞速度优先级不变。具体判据及审计边界见 [Phase3 v21](../sft_new_loop_phase3/V21_CALIBRATION_20260921.md)。
+
+主线自然先验同步修订：UE1 可处于前车减速后的响应、等待或恢复；信号异常描述为已经给定的信号系统故障，不要求可见灯具损坏，不把查询灯态 None 或越线作为物理故障证明。普通及多事件紧凑文案共用新语义，直接 prefill、摘要、复核与 fallback 同步。`PREFILL_VERSION=natural_scene_prior_input_only_v2_response_and_system_fault`，`ANALYSIS_VERSION=natural_scene_prior_concise_summary_v7_response_and_system_fault`，参与缓存/恢复合同。Phase1/2 视觉检测问题的判定合同未在本次改写；给定场景的动作规划与从 RGB 检测事件须分别评估。
+
+| 使用路径 | v21 的影响 |
+| --- | --- |
+| 主线自然先验 | 上述事件文案更新；开启文字动作先验后使用共享 v21 动作及条件性因果句 |
+| 主线 / qwen_simple / bev_only 的动作 token | 开关仍默认关闭；开启时使用当前 candidate/full map 的主要动作，KEEP 与 UNCOND 分开 |
+| qwen_simple | 保留原简短导航 prompt；不注入 Phase3 问答或 RS/EVENT 先验 |
+| bev_only | 无 Qwen prompt；标定只在启用相应采样/动作条件时发挥作用 |
+
+Action 导航继续来自其 LeadMoT 输入合同，不能把 Phase3 原始 ego 坐标轴或字段模板直接复制过来。三条路径使用 full map 时共享更新后的开发路线隔离；uniform 对照需显式提供同一 full map 才获得相同隔离，不改基础 split 文件。
+
+**代码同步不等于已有数据更新。** 新训练自动准备路径包含当前 mapping/source 身份，会准备新候选和 full map；显式指定旧产物仍须通过哈希校验。已有生产索引、full map、动作索引、文字 KV 缓存和 checkpoint 本轮未全量重建或回写。请更新整套源码后为新条件启动新 run；不能用 `SKIP_BUILD`、手改 manifest 或旧缓存跳过合同。旧 run 用原源码恢复。
+
+本轮验证：150 项 Action 提示词/准备/token 测试通过；另 14 项消融入口测试通过（未执行依赖本机缺失离线 runner 的 fingerprint 测试）。实际 v21 开发候选 7900 行通过 Action 读取、文字动作及 token 投影；其中 84 个确认起步帧投影为 RESUME 64、LEFT 18、RIGHT 2。文字动作的 KEEP 仍保持 `no_action` 协议。此检查用候选 context 构造 eligible 记录验证消费者，不替代实际生产 full map 构建和门控验收。记录位于 `/tmp/p3audit/action_v21_sync/consumer_replay.json`；未运行全量生产构建、真实 Qwen/BEV 或 GPU 训练。
+
+## 2026-09-21 动作 token 与单当前图
+
+三条入口共用两个独立选项（只用于新 run）：
+
+- `--high-level-action-token` / `HIGH_LEVEL_ACTION_TOKEN=1`：默认关闭。五种变化动作＋一个 KEEP＋UNCOND，共七类；`Embedding(7,1024)` 在 BEV projector 后沿 token 维拼接一个向量，默认序列 142→143。UNCOND 同样可学习、参与注意力，不是 padding。开关不改变 FM loss、采样权重或 Qwen 文本，不自动开启旧 `--high-level-action-prior`。
+- `--rgb-frame-count 1` / `RGB_FRAME_COUNT=1`：只向 Qwen 提供当前 anchor 的一张完整 1152×384 三视角拼接图，不裁前视、不复制成四图。默认 `4`；`--rgb-frame-count 4` 恢复四张连续图。BEV 继续单帧 RGB＋LiDAR。`bev_only` 接受同一参数，但本来就不使用 Qwen 图像历史，单/四图不改变它的 BEV 条件。
+
+动作来自当前 Phase3 原始候选和完整帧映射，不从均衡抽样题库补标签、不运行 Phase3 模型。新训缺映射时自动复用/生成；三条路径共用主要动作投影（STOP＞首次跨线＞速度＞KEEP），不走仅主线才有的 Phase1/2 预测门控。KEEP 仍要求题域内证据完整，但不细分类；普通 RE、被过滤、未确认及映射覆盖外帧为 UNCOND，原因分别审计。eligible 帧缺候选、证据不完整、冲突或哈希不符均报错。
+
+这属于 `phase3_oracle` 离线条件实验。token 经共用 Prefix-KV attention 与 BEV/status/query 交互；`qwen_simple` / 主线同时读取冻结 Qwen KV，`bev_only` 用空 prefix。embedding 由轨迹损失训练，路由到 AdamW，冻结模型保持冻结。`training_plan.json` 记录七类覆盖与源合同，验证按 `group/action_token/*` 报告 ADE/FDE 等指标，逐例保存 UNCOND 原因。
+
+单图模式覆盖主线 Phase1/2 LoRA 问答、可选摘要和最终 base prefill。相关提示词明确只有当前图，移除请求比较历史图像的指令；adapter 原训练元数据/输出格式不回写。这会改变原多帧 LoRA 的推理输入分布，应与四图分别新训 decoder 并报告该条件变化。使用 `--dataset-priors` 时没有上游 LoRA 问答。
+
+以下命令默认当前目录为 `AutoMoT/`，自动选择空闲 GPU。共享 `DATA_DIR`、采样方式、full map、seed、卡数和预算；特别是接入 Phase3 映射会隔离已参与开发的物理路线，不能拿未做同一隔离的旧基线比较。下面均启用同一事件均衡课程以保持有效 split 一致。
+
+```bash
+# 主线：四图＋动作 token；关闭旧文字动作先验以单独测 token
+DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-token --no-high-level-action-prior
+# 同样实验只看当前一张图
+DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-token --no-high-level-action-prior --rgb-frame-count 1
+# 显式固定四张 GPU（可选）
+GPU_IDS=0,1,2,3 DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-token --rgb-frame-count 1
+# 基线：四图，关闭两种动作条件，另开 run
+DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --no-high-level-action-token --no-high-level-action-prior --rgb-frame-count 4
+```
+
+CLI 优先于环境值；两开关可独立组合，也可同时打开文字动作先验做单独实验。数据索引仍保留四图构建记录，单图在运行时选当前帧，不需只为图数重建 action split。
+
+resume / eval / probe 从 checkpoint 恢复开关、图数、词表、映射和候选内容身份。续训不重建标注，不能在旧 run 中途切图数或动作条件；旧 run 必须用其原源码。搬迁用现有 `--event-balance-index` 指定相同内容的 full map，并确保其 manifest 中引用的 Phase3 candidate 及同目录 manifest/frame_index/candidate_counts 可访问。动作 token 尚无在线 provider，CARLA/Bench2Drive 明确拒绝 oracle checkpoint。CPU 小模型验证不代表真实 Qwen/BEV、多卡吞吐或模型效果已验证。
+
+
 ## 2026-09-20：Phase3 manifest 衔接修复
 
 报错 `candidate manifest is stale, incomplete, or not the current Phase3 frame-index artifact` 的已确认原因：
@@ -23,7 +81,7 @@ full map和动作索引均调用正式实现。产物位于Phase3 `probe_output/
 
 优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](OPTIMIZATION.md)。
 
-新训练默认 `muon_adamw + cosine_restarts`：隐藏矩阵 Muon、其余参数 AdamW，5% warmup 后四段周期按1:2:4:8分配。主线与两个消融共用实现。参数、四组合对照和续训边界见 [共享优化说明](OPTIMIZATION.md)。
+新训练默认 `muon_adamw + cosine_restarts`：隐藏矩阵 Muon、其余参数 AdamW，默认7轮，首轮更新步数的5%用于warmup（包含在首周期内），三个周期占1/2/4轮，在第1/3/7轮末降到0。主线与两个消融共用实现。参数、四组合对照和续训边界见 [共享优化说明](OPTIMIZATION.md)。
 
 以下命令在训练机的 `AutoMoT/` 目录执行。准备好 `lead_data`、已有人工标注和本地 Qwen/BEV 权重；脚本自动构建所需索引，不下载模型。
 

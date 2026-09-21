@@ -139,6 +139,7 @@ def test_optimization_defaults_env_cli_and_saved_resume(tmp_path, monkeypatch, v
         monkeypatch.delenv(key, raising=False)
     args = common.parse_train_args(variant, [])
     assert (args.optimizer, args.lr_scheduler) == ("muon_adamw", "cosine_restarts")
+    assert args.num_epochs == 7 and args.warmup_ratio == 0.05
     assert not hasattr(args, 'full_validation_policy')
     saved = vars(args).copy()
     saved.update(optimizer="adamw", lr_scheduler="cosine")

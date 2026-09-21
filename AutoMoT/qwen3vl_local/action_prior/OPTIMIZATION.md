@@ -56,15 +56,27 @@ ZIP 先写同目录临时文件，再原子替换。SIGKILL/掉电无法执行�
 - 两种优化器共用 embedding/query/norm/bias 不衰减的规则。
 - Muon momentum=0.95、Newton–Schulz=5次，采用 `0.2*sqrt(max(rows,cols))` RMS尺度；
   基础 LR 默认2e-4，辅助 AdamW betas=(0.9,0.95)。参数、优化器状态和EMA为FP32，CUDA NS为BF16。
-- 5% warmup 后，剩余更新预算按1:2:4:8划分 cosine 周期；每段降到0再回原峰值。
-  短预算自动减少周期；EMA保持0.999，不随重启清空优化器状态。
+- 默认7个epoch，周期依次占1、2、4轮（首周期包含warmup）；第1、3、7轮末降到0，
+  第2、4轮开始回到原峰值，第7轮后结束。EMA保持0.999，不随重启清空优化器状态。
+- warmup为**第一个epoch的optimizer更新数×5%**，不是总训练步数的5%；梯度累积后的
+  每轮更新数包含尾部不足一个累积窗口的更新。单余弦基线采用相同首轮warmup。
+  例如每轮1000次更新：warmup50步，之后三段余弦950/2000/4000步，总计7000步。
+  步数向下取整，正比例至少1步，但极短预算至少留1次非warmup更新；单轮只有1次更新时不warmup。
+- 显式覆盖num-epochs仍从1、2、4、8…轮依次扩展；max-train-steps只截断预算，
+  不把余弦周期压缩到smoke长度，截断当步可能尚未到谷底，预算结束后LR归0。
+  极短预算不足warmup时会压缩warmup以保留一次非warmup更新。
 - 每个 epoch 和共同参考周期末，用 EMA 对完整 val 验证并参与 best；重合只验证一次。
   即便显式选择单余弦基线，也按同样参考周期验证，保证同预算下四组合的选优机会相同。
   小验证只作诊断，最终不足一轮也完整验证；最后成绩单独写 `validation/final.json`。
 - 首步、每100步和 LR 周期首尾，监控各非空优化组代表参数的真实更新 RMS/相对范数及算法耗时。
   不代表全部层的最大更新；CUDA计时会在监控步同步。
 
-上述细节不再提供 CLI/环境开关；实际值记录在 `action_optimization_v4` 合同，恢复必须一致。
+启动时 `train/lr_schedule` 打印每轮更新数、warmup步数和周期结束步数，
+`training_plan.json` 与每轮 `training_audit.zip` 保存同一计划。
+TensorBoard 的 `train/lr` / `train/lr_next/*` 是下一步LR，周期末可能已显示重启峰值；
+`train/lr_used/*` 才是刚执行更新的LR，可用它检查谷底。
+
+上述细节不再提供 CLI/环境开关；实际值记录在 `action_optimization_v5` 合同，恢复必须一致。
 移除了之前新增的 decay 策略、周期验证、固定验证间隔、监控频率、周期数量/倍率和 Muon 内部调参开关。
 旧命令若带这些选项，应删除后新开 run；旧 run 必须用原源码恢复，不隐式转换旧优化器状态。
 
@@ -90,6 +102,10 @@ GPU_IDS=0,1 python qwen3vl_local/action_prior/check_optimization_cuda.py --gpus 
 
 真实条件模型训练、双卡NCCL和真实收敛/吞吐仍需远端验收；本机小矩阵和模拟训练回归不能替代。
 
-本轮验证：两包完整CPU检查615项通过、7项CUDA跳过；22项失败仍为缺失只读runner（17项）
+2026-09-20旧v4验证：两包完整CPU检查615项通过、7项CUDA跳过；22项失败仍为缺失只读runner（17项）
 或peft（5项）。中途ZIP、验证中断、三入口计数恢复、打包失败保留旧包、历史过滤和开关精简
 均有回归覆盖。RTX 4070 Ti SUPER上的6项单卡CUDA检查通过；双卡检查未执行。
+
+2026-09-21 v5验证：两包CPU回归606项通过、7项CUDA跳过；22项既有环境失败仍为
+缺只读runner或PEFT。覆盖三入口七轮/每轮ZIP、首轮warmup、累积尾窗口、周期谷底/重启恢复、
+短预算不压缩曲线及旧计划拒绝；未运行真实模型训练或本轮GPU验证。

@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.action_prior.config import DEFAULTS
+from qwen3vl_local.action_prior.action_token import conditioning_env_args
 from qwen3vl_local.action_prior.optimization_config import (
     legacy_optimization_defaults, optimization_env_args,
 )
@@ -71,6 +72,7 @@ def main():
             "train",
             *args,
             *optimization_env_args(),
+            *conditioning_env_args(),
             *extra,
         ],
         check=True,

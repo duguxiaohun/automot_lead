@@ -15,7 +15,7 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID, DO
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
     FRAME_DT_SECONDS, LONGITUDINAL_HORIZON_FRAMES, LATERAL_HORIZON_FRAMES,
-    longitudinal_decision, load_route_trajectory, label_actions,
+    longitudinal_decision, longitudinal_from_signals, load_route_trajectory, label_actions,
 )
 
 AUDIT_VERSION = "phase3_boundary_diagnostics_v3_recorded_response"
@@ -23,9 +23,9 @@ AUDIT_VERSION = "phase3_boundary_diagnostics_v3_recorded_response"
 REVIEW_MARGIN_MPS = 0.10
 
 
-def speed_boundaries(speeds):
+def speed_boundaries(speeds, *, brake=None, throttle=None):
     """保留精确幅度余量；窗外变化只记审计，绝不触发窗内动作。"""
-    decision = longitudinal_decision(speeds)
+    decision = longitudinal_decision(speeds, brake=brake, throttle=throttle)
     if not decision["eligible"]:
         return {"eligible": False, "flags": [], "reason": decision["reason"]}
     values = list(map(float, speeds[:LONGITUDINAL_HORIZON_FRAMES + 1]))
@@ -71,7 +71,8 @@ def diagnose(trajectory, frame, context_id):
     maneuver = context.question_domain == DOMAIN_MANEUVER
     if maneuver and not signals["lateral_observation_complete"]:
         raise ValueError("maneuver index has incomplete lateral evidence")
-    report = speed_boundaries(trajectory._future_speeds(frame, 12))
+    report = speed_boundaries(trajectory._future_speeds(frame, 12),
+                              brake=signals.get("brake"), throttle=signals.get("throttle"))
     report["primary_action"] = primary_choice(labels, context.action_keys)
     report["lateral_observation_complete"] = signals["lateral_observation_complete"]
     report["lateral_window_issue"] = signals["lateral_window_issue"]
@@ -84,7 +85,7 @@ def diagnose(trajectory, frame, context_id):
         crossing = next(i for i in range(1, LATERAL_HORIZON_FRAMES+1)
                         if trajectory.lane_change(frame, horizon=i))
         report["crossing_start_s"] = crossing * FRAME_DT_SECONDS
-        d = longitudinal_decision(signals["future_speeds"])
+        d = longitudinal_from_signals(signals)
         start = {"DECELERATE": d["first_drop_s"], "RESUME": d["gain_start_s"],
                  "STOP": d["stop_start_s"], "NONE": None}[d["action"]]
         report["speed_action_start_s"] = start

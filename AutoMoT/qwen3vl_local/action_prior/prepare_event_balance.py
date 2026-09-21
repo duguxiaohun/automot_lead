@@ -78,7 +78,8 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
     action_hashes = {split: file_hash(action_data_dir / f'{split}.jsonl') for split in ('train', 'val', 'test')}
     mapping_hash = mapping_contract_hash()
     candidate_identity = dict(
-        preparation_schema='action_prior_auto_prepare_v1', data_root=str(data_root),
+        preparation_schema='action_prior_auto_prepare_v2_independent_splits', data_root=str(data_root),
+        candidate_split_policy='all_train_pool_action_uses_own_physical_splits',
         mapping_contract_hash=mapping_hash,
         collection={p.name: file_hash(p) for p in source_files},
     )
@@ -104,6 +105,7 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
                 staging = Path(temporary) / 'index'
                 run_builder(HERE.parent / 'sft_new_loop_phase3/build_dataset.py', [
                     '--data-root', data_root, '--collection-dir', collection_dir, '--output-dir', staging,
+                    '--val-ratio', '0', '--test-ratio', '0',
                 ])
                 # manifest 中的可见路径指向最终发布目录，避免保存即将清理的临时路径。
                 manifest_path = staging / 'manifest.json'

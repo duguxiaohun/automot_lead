@@ -1,0 +1,11 @@
+{
+    "git.ignoreLimitWarning": true,
+    "files.watcherExclude": {
+        "**/lead/cache_ln/**": true,
+        "**/AutoMoT/lead_data/**": true,
+        "**/AutoMoT/lead_video/**": true,
+        "**/AutoMoT/checkpoints/**": true,
+        "**/AutoMoT/keyframe_filter/collection_output/**": true,
+        "**/AutoMoT/qwen3vl_local/probe_output/**": true
+    }
+}

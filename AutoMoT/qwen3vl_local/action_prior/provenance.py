@@ -17,6 +17,8 @@ EXECUTION_SEEDS = (
             "__init__",
             "runtime",
             "action_input",
+            "action_token",
+            "image_condition",
             "prompts",
             "priors",
             "precision",

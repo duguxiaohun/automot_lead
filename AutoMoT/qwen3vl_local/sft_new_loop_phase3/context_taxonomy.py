@@ -150,7 +150,7 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
         allowed_rs=("R1", "R2", "R3", "R4", "R5"),
         road_structure_text=ROAD_STRUCTURE_TEXT,
         situation_text=(
-            'the lead vehicle has suddenly braked or slowed'
+            'ego is responding to a lead vehicle that braked or slowed, including subsequent waiting or recovery'
         ),
         scope_text=(
             ''
@@ -231,7 +231,7 @@ ACTION_CONTEXTS: Tuple[ActionContext, ...] = (
             'installed traffic signals have an established malfunction'
         ),
         scope_text=(
-            'A red or unreadable lamp alone is insufficient; one green lamp does not disprove a system fault.'
+            'Use the stated system fault as context for predicting ego motion. A red or unreadable lamp alone is insufficient; one green lamp does not disprove a system fault. Visible colors need an approach assignment to establish conflicting green signals.'
         ),
     ),
     ActionContext(

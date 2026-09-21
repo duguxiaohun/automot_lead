@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 默认7轮：首轮5% optimizer更新warmup（占用首周期），1/2/4轮cosine，累计第1/3/7轮末到谷底。
 # 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
 # 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
 # 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
@@ -25,6 +26,16 @@
 #   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --no-high-level-action-prior
 # resume 自动恢复开关；文件格式与后续 Phase3 接口见 run.md，当前尚无在线动作 provider。
 # 干净的 dataset-priors + high-level-action-prior 自动提供已确认特殊 RE；无需额外场景开关。
+# 单当前图 demo（默认仍为四图；更换图数需新开 run）：
+#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1
+# 单当前图＋high-level 动作 token（KEEP 不细分）：
+#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
+# 环境变量等价写法；显式 CLI 优先：
+#   RGB_FRAME_COUNT=1 HIGH_LEVEL_ACTION_TOKEN=1 bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced
+# 四图对照：将 --rgb-frame-count 1 换成 --rgb-frame-count 4；关闭 token 用 --no-high-level-action-token。
+# 单图取当前 anchor 的完整三视角拼接 RGB，Qwen 提示词同步切为单图。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -87,7 +98,7 @@ args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/
  --checkpoint-root "${CHECKPOINT_ROOT:-checkpoints}" --selection-policy "${SELECTION_POLICY:-available}"
  --model-dir "${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
  --lead-bev-ckpt "${LEAD_BEV_CKPT:-checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth}"
- --num-epochs "${NUM_EPOCHS:-61}" --learning-rate "${LR:-0.0002}"
+ --num-epochs "${NUM_EPOCHS:-7}" --learning-rate "${LR:-0.0002}"
  --grad-accum-steps "${GRAD_ACCUM:-16}" --val-steps "${VAL_STEPS:-250}"
  --save-steps "${SAVE_STEPS:-1000}" --num-workers "${NUM_WORKERS:-8}")
 args+=(--logging-steps "${LOGGING_STEPS:-10}")
@@ -113,8 +124,11 @@ fi
 # 均衡采样只改抽样；特殊 RE 场景由共用策略自动决定。
 # 动作模式允许 Python 在预检前自动准备完整映射。
 action_priors_requested="${HIGH_LEVEL_ACTION_PRIOR:-0}"
+action_token_requested="${HIGH_LEVEL_ACTION_TOKEN:-0}"
 for option in "$@"; do
  case "$option" in
+  --high-level-action-token) action_token_requested=1 ;;
+  --no-high-level-action-token) action_token_requested=0 ;;
   --high-level-action-prior) action_priors_requested=1 ;;
   --no-high-level-action-prior) action_priors_requested=0 ;;
  esac
@@ -123,7 +137,7 @@ if has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" 
  if ! has_flag --event-balance-index "$@"; then
   if [[ -n "${EVENT_BALANCE_INDEX:-}" ]]; then
    args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
-  elif [[ "$action_priors_requested" != 1 && "$scene_priors_requested" != 1 ]]; then
+  elif [[ "$action_priors_requested" != 1 && "$scene_priors_requested" != 1 && "$action_token_requested" != 1 ]]; then
    echo "set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl" >&2; exit 2
   fi
   # 具体动作开关允许 train.py 在预检前自动准备 full map 和 Phase3 标注。

@@ -60,6 +60,7 @@ def value_of(tokens, flag):
 
 def test_lora_default_disables_generation_but_keeps_optional_review_setting(stub):
     tokens = flags(run("train.sh", [], stub))
+    assert value_of(tokens, "--num-epochs") == "7"
     assert "--no-generate-analysis" in tokens
     assert "--analysis-review" in tokens
     assert "--dataset-priors" not in tokens and "--prior-labels" not in tokens

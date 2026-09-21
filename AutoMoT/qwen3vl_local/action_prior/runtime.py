@@ -32,6 +32,7 @@ class PriorEngine:
         analysis_review=True,
         generate_analysis=False,
         high_level_action_prior=False,
+        rgb_frame_count=4,
     ):
         self.engine, self.contract = engine, contract
         self.analysis_tokens = analysis_tokens
@@ -40,6 +41,9 @@ class PriorEngine:
         self.labels = labels
         self.generate_analysis = bool(generate_analysis)
         self.high_level_action_prior = bool(high_level_action_prior)
+        if rgb_frame_count not in (1, 4):
+            raise ValueError("rgb_frame_count must be 1 or 4")
+        self.rgb_frame_count = rgb_frame_count
         self.analysis_review = bool(analysis_review) and self.generate_analysis
         self.adapters = None
         self.last_audit = None
@@ -136,10 +140,8 @@ class PriorEngine:
         high_level_action=None, high_level_action_contexts=(),
     ):
         """默认直接编码四图与先验提示词；显式开启时追加生成分析，最终 KV 均来自 base。"""
-        if len(images) != 4:
-            raise ValueError(
-                "action prior requires four chronological stitched RGB images"
-            )
+        if len(images) != self.rgb_frame_count:
+            raise ValueError(f"action prior requires {self.rgb_frame_count} stitched RGB images")
         if self.labels is not None and identity is None:
             raise ValueError("dataset priors need the (scenario, run_id, frame) identity")
 
@@ -158,13 +160,19 @@ class PriorEngine:
             meta = self.contract[f"phase{phase}"]["metadata"]
             module = prompt_module(phase, meta)
             mode = meta["history_rgb_mode"]
-            selected = [images[i] for i in history_rgb_indices(mode)]
-            prompt = (module.build_phase1_prompt if phase == 1 else module.build_event_prompt)(
-                spec=spec, history_rgb_mode=mode
-            )
+            if self.rgb_frame_count == 1:
+                from qwen3vl_local.action_prior.image_condition import current_prior_prompt
+                selected = images
+                system, prompt = current_prior_prompt(module, phase, spec)
+            else:
+                selected = [images[i] for i in history_rgb_indices(mode)]
+                system = module.SYSTEM_PROMPT
+                prompt = (module.build_phase1_prompt if phase == 1 else module.build_event_prompt)(
+                    spec=spec, history_rgb_mode=mode
+                )
             with self.mode(f"phase{phase}"):
                 text, _ = self.generate_messages(
-                    module.SYSTEM_PROMPT, prompt, selected, history
+                    system, prompt, selected, history
                 )
             return text, prompt
 
@@ -177,7 +185,7 @@ class PriorEngine:
             self.text_cache.key(
                 self.contract["identity"], images, navigation,
                 f"{sample_key}:event_contexts={event_balanced_scene_contexts}"
-                f":generate_analysis={self.generate_analysis}"
+                f":generate_analysis={self.generate_analysis}:rgb_frame_count={self.rgb_frame_count}"
                 f":high_level_action_prior={self.high_level_action_prior}:action={digest(action)}"
                 f":action_contexts={action_contexts}:action_policy={ACTION_CONDITIONING_VERSION}"
             )
@@ -195,7 +203,7 @@ class PriorEngine:
                                         event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
             # 这是显式 opt-in 的离线 transition/evidence 条件；默认采样课程不改变
             # Qwen 输入。文本只会在 prompts.py 变成自然、无类别名的短句。
-            priors = dict(priors, high_level_action_prior=self.high_level_action_prior)
+            priors = dict(priors, high_level_action_prior=self.high_level_action_prior, rgb_frame_count=self.rgb_frame_count)
             if self.high_level_action_prior:
                 # 先获得实际消费的 Phase1/2 条件（含噪声/复核），再门控动作。
                 effective, action_gate = gate_action(action, priors["conditions"], action_contexts,
@@ -220,7 +228,7 @@ class PriorEngine:
             report("condition/base_analysis")
             with self.mode("base"):
                 text, trace = self.generate_messages(
-                    prompts.system_prompt(generate_analysis=True),
+                    prompts.system_prompt(generate_analysis=True, rgb_frame_count=self.rgb_frame_count),
                     prompts.analysis_prompt(priors, navigation),
                     images,
                     max_tokens=self.analysis_tokens,
@@ -323,7 +331,8 @@ class PriorEngine:
                               and priors.get("high_level_action") == expected
                               and priors.get("high_level_action_gate") == expected_gate
                               and tuple(priors.get("high_level_action_contexts", ())) == action_contexts)
-        if (not accepted or priors.get("high_level_planning", False)
+        if (not accepted or priors.get("rgb_frame_count", 4) != self.rgb_frame_count
+                or priors.get("high_level_planning", False)
                 or priors.get("high_level_action_prior", False) != self.high_level_action_prior
                 or not action_matches):
             raise ValueError(
@@ -335,7 +344,7 @@ class PriorEngine:
             # 开启后才使用旧摘要 prompt 和 assistant transcript。
             self.engine._last_decode_state = None
             messages = self.engine.build_messages(
-                prompts.system_prompt(generate_analysis=self.generate_analysis),
+                prompts.system_prompt(generate_analysis=self.generate_analysis, rgb_frame_count=self.rgb_frame_count),
                 (prompts.analysis_prompt if self.generate_analysis else prompts.prefill_prompt)(
                     priors, navigation
                 ),
@@ -361,6 +370,8 @@ class PriorEngine:
             base_cache_tokens=length,
             rope_position_offset=offset,
             final_cache_content="inputs_and_analysis" if self.generate_analysis else "inputs_only",
+            rgb_frame_count=self.rgb_frame_count,
+            prior_image_policy="current_only_adapted" if self.rgb_frame_count == 1 else "saved_adapter_history",
         )
         report("condition/base_kv_ready")
         return cache, offset
@@ -446,6 +457,7 @@ def make_runtime(args, device, contract):
                 args.analysis_review,
                 generate_analysis=args.generate_analysis,
                 high_level_action_prior=getattr(args, "high_level_action_prior", False),
+                rgb_frame_count=args.rgb_frame_count,
             )
             self.action_index = (
                 HighLevelActionIndex(args.high_level_action_index)
@@ -466,7 +478,13 @@ def make_runtime(args, device, contract):
             if args.condition_mode == "base":
                 # 同初始化/优化器/划分的原 base 条件消融，不能用同一个 decoder 临时切条件。
                 with self.prior.mode("base"):
-                    result = self.base_prefill(rgb_pil_list, user_prompt)
+                    if args.rgb_frame_count == 1:
+                        from qwen3vl_local.action_prior.image_condition import current_base_prefill
+                        from qwen3vl_local.leadmot import train as old
+                        result = current_base_prefill(self.runner, rgb_pil_list, user_prompt,
+                                                      old.mot_runner._LEADMOT_QWEN_SYSTEM_PROMPT)
+                    else:
+                        result = self.base_prefill(rgb_pil_list, user_prompt)
                 self.prior.last_audit = dict(
                     conditions={},
                     invalid={},
@@ -523,6 +541,8 @@ def make_runtime(args, device, contract):
                     kwargs["flow_time"] = flow_time
                 if flow_sample_noise is not None:
                     kwargs["flow_sample_noise"] = flow_sample_noise
+                from qwen3vl_local.action_prior.action_token import token_tensor
+                kwargs["action_token_id"] = token_tensor(sample, decoder_config, self.device)
                 kwargs["sample_trajectory"] = sample_trajectory
                 return decoder_forward(decoder, kwargs, decoder_dtype, self.device)
 

@@ -25,6 +25,7 @@ class TinyConfig:
     rope_type: str = "mrope"
     dropout: float = 0.1
     use_bev: bool = True
+    use_high_level_action_token: bool = False
     use_final_goal: bool = True
     use_subgoal: bool = False
 

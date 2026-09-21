@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# v20 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
+# v21 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # 新 Phase3 一键评测：base production -> LoRA production -> 可选 audit prompt -> 错例审计包。
 #
 # 从 AutoMoT/ 目录运行：
@@ -23,7 +23,7 @@ VISUAL_AUDIT_PY="qwen3vl_local/sft_new_loop_phase3/visual_audit.py"
 ADAPTER_CONFIG_NAME="sft_new_loop_phase3_adapter_config.json"
 
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
-INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v20/frame_index.jsonl}"
+INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v21/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 SPLIT="${SPLIT:-test}"
 CASES_PER_BIN="${CASES_PER_BIN:-0}"

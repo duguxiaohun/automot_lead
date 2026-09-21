@@ -188,7 +188,7 @@ def optimizer_step_with_metrics(optimizer, *, monitor=False):
 
 def build_optimization(args, model, plan):
     """共用构造器，将实际周期与逐参数路由写入训练计划和 checkpoint 合同。"""
-    schedule = optimization_plan(args, plan["actual_step_limit"])
+    schedule = optimization_plan(args, plan["actual_step_limit"], plan["optimizer_steps_per_epoch"])
     groups = parameter_groups(model, args)
     if args.optimizer == "muon_adamw":
         optimizer = MuonAdamW(groups, momentum=schedule["muon_momentum"], ns_steps=schedule["muon_ns_steps"])

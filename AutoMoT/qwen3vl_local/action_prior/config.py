@@ -39,9 +39,10 @@ DEFAULTS = dict(
     phase1_adapter="",
     phase2_adapter="",
     lead_bev_ckpt="checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth",
-    num_epochs=61,
+    num_epochs=7,
     learning_rate=2e-4,
     weight_decay=0.01,
+    # 第一个 epoch 的 optimizer updates 比例；warmup 占用首周期，不额外加轮数。
     warmup_ratio=0.05,
     grad_accum_steps=16,
     max_grad_norm=1.0,
@@ -59,6 +60,7 @@ DEFAULTS = dict(
     generate_analysis=False,
     # 保留自然 RS/EVENT，显式开启时仅追加所选动作的 Phase3 场景因果句。
     high_level_action_prior=False,
+    high_level_action_token=False,
     high_level_action_index="",
     recheck_mode="history",
     condition_mode="prior",
@@ -148,6 +150,8 @@ def parser():
         p.add_argument(
             "--" + k.replace("_", "-"),
             default=v,
+            help=("Warmup fraction of the first epoch optimizer updates (default: 0.05)."
+                  if k == "warmup_ratio" else None),
             **(
                 {"action": argparse.BooleanOptionalAction}
                 if isinstance(v, bool)
@@ -172,6 +176,8 @@ def read_rows(args, split):
         getattr(args, "sampling_mode", "uniform") == "event_balanced"
         or getattr(args, "event_balanced_scene_priors", False)
         or getattr(args, "high_level_action_prior", False)
+        or getattr(args, "high_level_action_token", False)
+        or bool(getattr(args, "event_balance_index", ""))
     )
     # Phase3 RGB/规则开发路线只能 train；为保持 physical route 隔离，原 val/test 文件中
     # 的同组帧在训练读取时移入 train，holdout 读取时排除。
@@ -222,6 +228,8 @@ def read_rows(args, split):
     from qwen3vl_local.action_prior.event_balance import annotate_rows
 
     annotate_rows(args, rows)
+    from qwen3vl_local.action_prior.action_token import annotate_tokens
+    annotate_tokens(args, rows)
     return rows
 
 
@@ -249,11 +257,11 @@ def validate_args(args):
         or not args.use_final_goal
         or not args.use_bev
         or args.tp_mode != "route_lookahead"
-        or args.rgb_frame_count != 4
+        or args.rgb_frame_count not in (1, 4)
         or args.rgb_frame_step != 1
     ):
         raise ValueError(
-            "requires base-only final KV, no subgoal, final_goal, 4 consecutive RGB, route lookahead"
+            "requires base-only final KV, no subgoal, final_goal, current RGB or 4 consecutive RGB, route lookahead"
         )
     if args.bev_frame_count != 1 or args.bev_frame_step != 1:
         raise ValueError(
@@ -347,6 +355,9 @@ def build_contract(args):
     resolve_scene_priors(args)
     from qwen3vl_local.action_prior.action_input import action_input_contract
     action_input = action_input_contract(args)
+    from qwen3vl_local.action_prior.action_token import token_contract
+    action_token = token_contract(args)
+    from qwen3vl_local.action_prior.image_condition import image_contract
     policy = getattr(args, "selection_policy", "strict")
     manifest_path = getattr(args, "selection_manifest", "")
     pinned = read_json(manifest_path) if manifest_path else None
@@ -461,11 +472,15 @@ def build_contract(args):
         bev=bev_hash,
         protocol=PROTOCOL_VERSION,
         analysis=ANALYSIS_VERSION if args.generate_analysis else PREFILL_VERSION,
-        system=system_prompt(generate_analysis=args.generate_analysis),
+        system=system_prompt(generate_analysis=args.generate_analysis, rgb_frame_count=args.rgb_frame_count),
         generate_analysis=args.generate_analysis,
         scene_prior_policy=args.scene_prior_policy,
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
         high_level_action_input=action_input,
+        high_level_action_token=action_token,
+        image_condition=image_contract(args),
+        rgb_frame_count=args.rgb_frame_count,
+        rgb_frame_step=args.rgb_frame_step,
         final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
         analysis_tokens=args.analysis_tokens,
         analysis_review=args.analysis_review,
@@ -529,6 +544,11 @@ def build_contract(args):
 
 def training_plan(args, rows, world):
     """全量样本尾部按 rank 不重复分片；报告步数，避免把 micro-step 当 optimizer step。"""
+    action_support = None
+    if getattr(args, "high_level_action_token", False):
+        from qwen3vl_local.action_prior.action_token import token_support, require_conditioned_training
+        action_support = token_support(rows)
+        require_conditioned_training(action_support, stage="training plan")
     usable = len(rows["train"]) // world * world
     if usable < world:
         raise ValueError("too few train rows for world size")
@@ -613,6 +633,11 @@ def training_plan(args, rows, world):
         ),
         generate_analysis=args.generate_analysis,
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
+        high_level_action_token=getattr(args, "high_level_action_token", False),
+        action_token_support=action_support,
+        rgb_frame_count=args.rgb_frame_count,
+        prior_image_distribution_shift=(args.rgb_frame_count == 1 and not getattr(args, "dataset_priors", False)
+                                        and args.condition_mode == "prior"),
         final_cache_content="inputs_and_analysis" if args.generate_analysis else "inputs_only",
         independent_analysis_review=args.generate_analysis and args.analysis_review,
         cold_generations_per_unique_frame=(
@@ -629,7 +654,7 @@ def training_plan(args, rows, world):
         budget_note="Epoch/LR are initial settings; measure cold and cached throughput with smoke before full training.",
         epochs=args.num_epochs,
         samples_per_epoch=usable,
-        ddp_tail_per_epoch=len(rows["train"]) - usable,
+        ddp_tail_per_epoch=(len(rows["train"]) - usable if args.sampling_mode == "uniform" else 0),
         optimizer_steps_per_epoch=updates,
         planned_optimizer_steps=updates * args.num_epochs,
         actual_step_limit=(
@@ -642,7 +667,7 @@ def training_plan(args, rows, world):
         learning_rate=args.learning_rate,
         optimization=dict(schedule=optimization_plan(
             args, min(args.max_train_steps, updates * args.num_epochs)
-            if args.max_train_steps else updates * args.num_epochs,
+            if args.max_train_steps else updates * args.num_epochs, steps_per_epoch=updates,
         ), parameter_groups=None),
         validation_every_optimizer_steps=args.val_steps,
         periodic_validation_samples=args.val_max_samples,

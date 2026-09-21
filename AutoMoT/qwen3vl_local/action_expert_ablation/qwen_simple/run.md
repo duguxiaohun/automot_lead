@@ -1,8 +1,25 @@
 # Qwen Simple Action Expert
 
+v21 标定通过共享 candidate/full map 和可选动作 token 接入；保持本消融原有输入定义。代码同步不代表旧生产索引已重建，详见 [v21 同步范围](../run.md)。
+
+## 动作 token 与单图（2026-09-21）
+
+默认仍为四图、动作 token 关闭。KEEP 统一一类，普通 RE/不可用动作输入独立 UNCOND；七类 embedding 与 BEV 等宽，在 BEV token 后追加一个 token。
+
+```bash
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --high-level-action-token
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --high-level-action-token --rgb-frame-count 1
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --high-level-action-token --rgb-frame-count 1
+# 关闭 token、恢复四图，另开基线 run
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --no-high-level-action-token --rgb-frame-count 4
+```
+
+也支持 `HIGH_LEVEL_ACTION_TOKEN=1/0`、`RGB_FRAME_COUNT=1/4`，CLI 优先。单图只取当前 anchor 的完整三视角拼接图，Qwen 提示词明确只有当前图。来源为 Phase3 离线标注，图数/动作条件绑定恢复合同，需分别新训；详细公平对照、来源/审计边界见 [共用运行说明](../run.md)。
+
+
 优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](../../action_prior/OPTIMIZATION.md)。
 
-新训练默认 Muon＋辅助 AdamW、5% warmup＋四段倍增 cosine，与主线及 bev_only 共用代码。开启/基线对照与恢复说明见 [共享优化说明](../../action_prior/OPTIMIZATION.md)。
+新训练默认 Muon＋辅助 AdamW、默认7轮，首轮5%更新warmup＋1/2/4轮cosine（warmup占用首周期），与主线及 bev_only 共用代码。开启/基线对照与恢复说明见 [共享优化说明](../../action_prior/OPTIMIZATION.md)。
 
 这个消融使用 4 张 LEAD stitched RGB 和 LeadMoT 原本的简短导航 prompt 跑 base
 Qwen prefill，然后把 Qwen KV、frozen BEV、speed/target/final goal 送入与

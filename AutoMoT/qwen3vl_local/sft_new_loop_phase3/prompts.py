@@ -61,8 +61,8 @@ from qwen3vl_local.sft_new_loop_phase3.choice_semantics import (
     primary_choice, binary_answers, action_description, CONTEXT_ACTION_DESCRIPTIONS,
 )
 
-# v20：RGB 复核后明确等待/立即起步和当前速度基准，未来数值判据仅留在标定器。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v20_grounded_motion"
+# v21：同步已确认起步、事件持续阶段和记录终点；控制与未来数值只留在标定器。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v21_confirmed_pullaway"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, KEEP_ACTION, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -82,15 +82,15 @@ CHOICE_OUTPUT_KEY = "ACTION_CHOICE"
 
 # 图像时间只用于交代已经看到的历史，不给模型未来数值倒计时。
 OBSERVATION_RULES = (
-    "Use the image sequence, current speed and scene to judge ego's upcoming driving behavior. "
-    "Judge visible traffic motion, gaps and lane boundaries; do not invent hidden actors "
-    "or repeat an action already completed in the images."
+    "Use images, speed and scene to judge ego's upcoming driving behavior. "
+    "Do not invent hidden actors or repeat an action already completed in the images. "
+    "Events can span approach, response and recovery."
 )
 # 模型只读动作阶段语义；秒数、0.5m/s、两连续采样、max(1.2m/s,20%)留在标定器。
 SPEED_ACTION_RULES = (
-    "STOP means an immediate sustained near-stop or continued waiting, including waiting before a later release. "
-    "Low speed alone does not establish continued waiting; immediate pull-away can be RESUME. "
-    "Otherwise, judge the first meaningful speed change relative to current speed: "
+    "STOP means an immediate sustained near-stop or continued waiting before a later release. "
+    "Low speed alone does not establish continued waiting; immediate pull-away can be RESUME when sustained acceleration begins. "
+    "Judge the first meaningful speed change relative to current speed: "
     "a clear reduction is DECELERATE even if speed recovers; a sustained speed increase is RESUME without requiring a previous stop. "
     "Small adjustments mean continued driving."
 )

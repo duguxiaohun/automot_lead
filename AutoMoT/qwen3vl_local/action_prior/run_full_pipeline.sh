@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 默认7轮：首轮5% optimizer更新warmup（占用首周期），1/2/4轮cosine，累计第1/3/7轮末到谷底。
 # 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
 # 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
 # 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
@@ -21,6 +22,16 @@
 # 可选追加：--generate-analysis 生成摘要；--prior-noise 0.1 注入先验噪声。
 # 更多开关/环境变量见 run.md，审计见 AUDIT.md；动作真值模式暂不支持闭环。
 # 干净的 dataset-priors + high-level-action-prior 自动提供已确认特殊 RE；无需额外场景开关。
+# 单当前图 demo（默认仍为四图；更换图数需新开 run）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1
+# 单当前图＋high-level 动作 token（KEEP 不细分）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
+# 环境变量等价写法；显式 CLI 优先：
+#   RGB_FRAME_COUNT=1 HIGH_LEVEL_ACTION_TOKEN=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
+# 四图对照：将 --rgb-frame-count 1 换成 --rgb-frame-count 4；关闭 token 用 --no-high-level-action-token。
+# 单图取当前 anchor 的完整三视角拼接 RGB，Qwen 提示词同步切为单图。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
-from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_trajectory, label_actions
+from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_trajectory, label_actions, recorded_controls, longitudinal_from_signals
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import mismatched_road_contexts
@@ -32,6 +32,11 @@ def audit(index, data_root, action_output_mode="binary"):
             if signals is None:
                 raise ValueError(f"missing signals: {run}/{row['frame_id']}")
             speeds = signals["future_speeds"]
+            evidence = row["action_evidence"]
+            if recorded_controls(signals) != recorded_controls(evidence):
+                raise ValueError(f"raw anchor controls mismatch: {run}/{row['frame_id']}")
+            if longitudinal_from_signals(signals) != evidence["longitudinal_decision"]:
+                raise ValueError(f"raw decision mismatch: {run}/{row['frame_id']}")
             if speeds != row["action_evidence"]["future_speeds_exact_mps"]:
                 raise ValueError(f"raw speed mismatch: {run}/{row['frame_id']}")
             if row.get("invalid_reason") == "wrong_road_structure":

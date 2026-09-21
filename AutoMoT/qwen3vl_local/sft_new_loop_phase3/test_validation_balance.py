@@ -125,7 +125,7 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
                                      "--action-output-mode", mode, "--history-rgb-mode", rgb,
                                      "--output-dir", str(tmp_path / "not_created")])
     args = train.parse_args()
-    assert "data_v19" in args.index
+    assert "data_v21" in args.index
     for key, value in {"WORLD_SIZE": "4", "RANK": "0", "LOCAL_RANK": "0"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
@@ -174,4 +174,4 @@ def test_generation_budget_can_increase_independently(monkeypatch):
     assert args.validation_sampling["loss"]["requested"] == args.eval_balance_count == 32
     assert not args.validation_sampling["loss"]["adjusted"]
     assert args.validation_sampling["generation"]["requested"] == 16
-    assert args.validation_sampling["generation"]["effective"] == args.generation_eval_balance_count == 21
+    assert args.validation_sampling["generation"]["effective"] == args.generation_eval_balance_count == 26

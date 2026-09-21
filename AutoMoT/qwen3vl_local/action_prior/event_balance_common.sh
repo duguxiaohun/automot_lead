@@ -7,6 +7,19 @@ action_event_balance_options() {
   ACTION_EVENT_SAMPLING_MODE=uniform
   ACTION_EVENT_BALANCE_INDEX="${EVENT_BALANCE_INDEX:-}"
   ACTION_EVENT_BALANCE_ARGS=()
+  if [[ -v HIGH_LEVEL_ACTION_TOKEN ]]; then
+    case "$HIGH_LEVEL_ACTION_TOKEN" in
+      1) ACTION_EVENT_BALANCE_ARGS+=(--high-level-action-token) ;;
+      0) ACTION_EVENT_BALANCE_ARGS+=(--no-high-level-action-token) ;;
+      *) echo "HIGH_LEVEL_ACTION_TOKEN must be 0 or 1" >&2; return 2 ;;
+    esac
+  fi
+  if [[ -v RGB_FRAME_COUNT ]]; then
+    [[ "$RGB_FRAME_COUNT" == 1 || "$RGB_FRAME_COUNT" == 4 ]] || {
+      echo "RGB_FRAME_COUNT must be 1 or 4" >&2; return 2;
+    }
+    ACTION_EVENT_BALANCE_ARGS+=(--rgb-frame-count "$RGB_FRAME_COUNT")
+  fi
   local explicit_mode=0 explicit_index=0
   if [[ -v EVENT_BALANCED ]]; then
     explicit_mode=1

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 默认7轮：首轮5% optimizer更新warmup（占用首周期），1/2/4轮cosine，累计第1/3/7轮末到谷底。
 # 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
 # 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
 # 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
@@ -12,6 +13,16 @@
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
 # 兼容 EVENT_BALANCED=1；--no-event-balanced 关闭。课程/比例直接引用 action_prior，详见 ../run.md。
+# 单当前图 demo（默认仍为四图；更换图数需新开 run）：
+#   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced --rgb-frame-count 1
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced --rgb-frame-count 1
+# 单当前图＋high-level 动作 token（KEEP 不细分）：
+#   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced --rgb-frame-count 1 --high-level-action-token
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced --rgb-frame-count 1 --high-level-action-token
+# 环境变量等价写法；显式 CLI 优先：
+#   RGB_FRAME_COUNT=1 HIGH_LEVEL_ACTION_TOKEN=1 bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --event-balanced
+# 四图对照：将 --rgb-frame-count 1 换成 --rgb-frame-count 4；关闭 token 用 --no-high-level-action-token。
+# 单图取当前 anchor 的完整三视角拼接 RGB，Qwen 提示词同步切为单图。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -49,7 +60,7 @@ add_default_arg DATA_ROOT --data-root lead_data
 add_default_arg DATA_DIR --data-dir checkpoints/action_prior_data
 add_default_arg MODEL_DIR --model-dir checkpoints/Qwen3-VL-4B-Instruct
 add_default_arg LEAD_BEV_CKPT --lead-bev-ckpt checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth
-add_default_arg NUM_EPOCHS --num-epochs 61
+add_default_arg NUM_EPOCHS --num-epochs 7
 add_default_arg LR --learning-rate 0.0002
 add_default_arg GRAD_ACCUM --grad-accum-steps 16
 add_default_arg VAL_STEPS --val-steps 250

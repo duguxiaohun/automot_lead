@@ -44,7 +44,7 @@ def render_navigation_goal(goal: Optional[Tuple[float, float]]) -> str:
     xy = "UNKNOWN" if goal is None else f"(x={goal[0]:+.1f} m, y={goal[1]:+.1f} m)"
     return (
         "[NAVIGATION_GOAL]\n"
-        f"ROUTE_TARGET_XY: {xy}. Final destination, not the next lane. "
+        f"ROUTE_TARGET_XY: {xy}. Recorded route endpoint. "
         "Ego coordinates: x forward; y negative LEFT, positive RIGHT. "
-        "Its sign cannot choose a lane-change side.\n[/NAVIGATION_GOAL]"
+        "Coordinates change as ego moves or turns. Its sign cannot choose a lane-change side.\n[/NAVIGATION_GOAL]"
     )

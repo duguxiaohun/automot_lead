@@ -101,7 +101,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     even_quota_with_capacity,
     route_diverse_sample,
-    route_diversity_report,
+    route_diversity_report, primary_action_distribution,
 )
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
     _assert_inside_assistant_turn,
@@ -1442,6 +1442,10 @@ def train(args: argparse.Namespace) -> None:
                 "action_output_mode": args.action_output_mode,
                 "train_sampled_cases": len(full_work),
                 "train_unique_cases": len(unique_cases(full_work)),
+                "train_distribution_layer": "epoch_1_work_items_snapshot_not_cumulative",
+                "train_primary_action_distribution": primary_action_distribution(
+                    dict(Counter(item.row.action_signature for item in full_work))),
+                "train_route_diversity": route_diversity_report(full_work),
                 "train_invalid_subgroups": invalid_subgroup_report(full_work),
                 "validation_sampling": args.validation_sampling,
                 "loss_invalid_subgroups": invalid_subgroup_report(full_eval_work),
@@ -1480,6 +1484,7 @@ def train(args: argparse.Namespace) -> None:
                         "route_diverse": bool(args.train_route_diverse),
                         "effective_focus_target_per_class": int(effective_target),
                         "resample_each_epoch": True,
+                        "snapshot_epoch": 1,
                         "epoch_seed_formula": "seed + epoch * 1000003",
                         "steps_per_epoch_global": int(math.ceil(len(full_work) / max(1, int(world_size)))),
                         "raw_available": raw_focus_counts,
@@ -1487,6 +1492,9 @@ def train(args: argparse.Namespace) -> None:
                         "action_signature_counts": dict(
                             Counter(item.row.action_signature for item in full_work)
                         ),
+                        "distribution_layer": "epoch_work_items_snapshot_not_cumulative",
+                        "primary_action_distribution": primary_action_distribution(
+                            dict(Counter(item.row.action_signature for item in full_work))),
                         "route_diversity": route_diversity_report([item.row.__dict__ for item in full_work]),
                         "rank0_shard": dict(Counter(item.balance_key for item in work)),
                         "global_invalid_subgroups": invalid_subgroup_report(full_work),
@@ -1615,6 +1623,9 @@ def train(args: argparse.Namespace) -> None:
                         "action_signature_counts": dict(
                             Counter(item.row.action_signature for item in full_work)
                         ),
+                        "distribution_layer": "epoch_work_items_snapshot_not_cumulative",
+                        "primary_action_distribution": primary_action_distribution(
+                            dict(Counter(item.row.action_signature for item in full_work))),
                         "route_diverse": bool(args.train_route_diverse),
                         "invalid_subgroups": epoch_invalid_report,
                     },
@@ -1976,7 +1987,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v20/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v21/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))

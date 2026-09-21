@@ -218,10 +218,10 @@ def test_stop_wins_over_decelerate_when_ego_comes_to_rest() -> None:
 
 
 def test_current_confirmed_wait_precedes_later_resume() -> None:
-    """当前两采样仍近停时，未来释放不能覆盖当前 STOP。"""
+    """当前仍制动等待时，未来释放不能覆盖当前 STOP。"""
 
     labels = label_actions(
-        _signals(future_speeds=[0, .5, 1, 2, 3, 4, 5, 6, 6], speed=0.0, speed_min=0.0, speed_max=6.0, immediate_speed_min=0.0, immediate_speed_max=5.0)
+        _signals(brake=True, throttle=0.0, future_speeds=[0, .5, 1, 2, 3, 4, 5, 6, 6], speed=0.0, speed_min=0.0, speed_max=6.0, immediate_speed_min=0.0, immediate_speed_max=5.0)
     )
     assert labels["STOP"] is True
     assert labels["RESUME"] is False

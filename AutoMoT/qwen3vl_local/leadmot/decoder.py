@@ -72,6 +72,13 @@ class LeadMoTPlanningDecoder(nn.Module):
 
         self.route_head = RouteHead(hidden_size=cfg.hidden_size, point_dim=cfg.point_dim)
         self.waypoint_head = WaypointHead(hidden_size=cfg.hidden_size, point_dim=cfg.point_dim)
+        self.action_embedding = None
+        if cfg.use_high_level_action_token:
+            # 保存 RNG，使 FM head 初始化不因新增 embedding 改变。
+            from qwen3vl_local.action_prior.action_token import ACTION_TOKEN_NAMES
+            with torch.random.fork_rng(devices=[]):
+                self.action_embedding = nn.Embedding(len(ACTION_TOKEN_NAMES), cfg.hidden_size)
+                nn.init.normal_(self.action_embedding.weight, std=0.02)
 
     def _build_gen_sequence(
         self,
@@ -80,6 +87,7 @@ class LeadMoTPlanningDecoder(nn.Module):
         target_point: torch.Tensor,
         target_point_next: torch.Tensor,
         final_goal: Optional[torch.Tensor] = None,
+        action_token_id: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """按 ``slice_layout`` 约定顺序打包 BEV/status/query token。
 
@@ -121,6 +129,14 @@ class LeadMoTPlanningDecoder(nn.Module):
         parts = []
         if bev_tokens is not None:
             parts.append(bev_tokens)
+        if self.action_embedding is not None:
+            if (action_token_id is None or action_token_id.shape != (batch_size,)
+                    or action_token_id.dtype != torch.long):
+                raise ValueError("action_token_id must be an explicit [B] int64 tensor")
+            action_tok = self.action_embedding(action_token_id.to(device=device)).unsqueeze(1)
+            parts.append(action_tok.to(dtype=dtype))
+        elif action_token_id is not None:
+            raise ValueError("action token supplied while decoder switch is disabled")
         parts.extend([speed_tok, tp_tok, ntp_tok])
         if fg_tok is not None:
             parts.append(fg_tok)
@@ -160,6 +176,7 @@ class LeadMoTPlanningDecoder(nn.Module):
         target_point_next: torch.Tensor,
         final_goal: Optional[torch.Tensor] = None,
         rope_position_offset: int | torch.Tensor | None = None,
+        action_token_id: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """编码一次条件上下文并返回 route / waypoint query hidden。
 
@@ -174,6 +191,7 @@ class LeadMoTPlanningDecoder(nn.Module):
             target_point=target_point,
             target_point_next=target_point_next,
             final_goal=final_goal,
+            action_token_id=action_token_id,
         )
 
         # 第 i 个 block 使用 pooled_kv[i] 作为 language prefix K/V。
@@ -207,6 +225,7 @@ class LeadMoTPlanningDecoder(nn.Module):
         target_point_next: torch.Tensor,
         final_goal: Optional[torch.Tensor] = None,
         rope_position_offset: int | torch.Tensor | None = None,
+        action_token_id: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """返回原有 Linear+cumsum route / future-waypoint 预测，保持 v1 接口。"""
         encoded = self.encode_conditioning(
@@ -216,6 +235,7 @@ class LeadMoTPlanningDecoder(nn.Module):
             target_point=target_point,
             target_point_next=target_point_next,
             final_goal=final_goal,
+            action_token_id=action_token_id,
             rope_position_offset=rope_position_offset,
         )
         return {

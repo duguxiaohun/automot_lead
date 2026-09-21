@@ -1,8 +1,23 @@
 # Action prior 实现与合同
 
+## 2026-09-21 v21 共享标定与独立提示词合同
+
+候选来源、动作 token 与文字动作主要投影直接复用 Phase3 v21；不维护另一套速度规则。主线自然先验将 UE1 改为可持续的响应/等待/恢复，将信号异常改为给定系统故障；普通、紧凑、摘要与直接 prefill 路径共用并升级 prompt 版本。Phase1/2 检测合同及消融简短/无 Qwen 条件保持独立。数据产物与实际验证范围见 [run.md](run.md) 的 v21 同步说明。
+
+## 2026-09-21 Decoder 动作 token 与图数条件
+
+`--high-level-action-token` 独立于文字动作先验，默认关闭。`action_token.py` 以当前 Phase3 candidate/full map 为唯一标注源，沿用完整证据检查和主要动作优先级；KEEP 不细分，普通/隔离/未确认/覆盖外帧显式 UNCOND。词表七类，`nn.Embedding(7, hidden_size)` 默认 7×1024，经 FM 轨迹损失学习、路由 AdamW。BEV projector 输出后沿序列维追加一个 token，BEV/action/status/query 一同经过已有 Prefix-KV attention；143 个 token 的 route/wp 切片由配置统一维护。条件编码一次，FM 各步共享；不增加文字描述或 Phase1/2 gate。三条路径共享同一标注、模型和训练实现。
+
+`--rgb-frame-count 1` 选择当前 anchor 的完整拼接图，默认4；索引仍为四帧构建记录，运行时覆盖输入采样数。`image_condition.py` 将 simple/base/先验/可选摘要的视觉说明切为单图，主线 LoRA 问题和输出 schema 保留，道路几何定义复用，依赖时序证据的指令适配当前图，记录旧 LoRA 的输入分布变化。BEV 不变，bev_only 没有 Qwen 历史输入。
+
+token 内容身份、词表、源码及 RGB 图数绑定 checkpoint/缓存；开关关闭保持既有模型参数初始化，新增 embedding 的初始化保存/恢复随机流。eval/resume 不临时换条件，oracle token 在闭环加载时拒绝。详见 [run.md](run.md) 的开启/关闭和单图 demo。
+
+本机回归：635通过、7跳过；另外22项失败源于本机缺失只读 `leaderboard/team_code/mot_lead_offline_runner.py`（17项）或 `peft`（5项）。保留源码身份校验，没有用缺省哈希绕过。新增测试覆盖真实小模型 FP32/BF16 反传、UNCOND/KEEP、三入口合同错配、单图两阶段问答、缓存和 CLI/恢复；未运行真实 Qwen/BEV 或远端多卡。
+
+
 优化细节已统一为默认值，无需追加新开关。每个 epoch 训练结束及完整验证后，自动更新当前 run 的 **`training_audit.zip`**；训练被中途终止时可直接带走此文件审计。包内有进度、各轮训练/验证指标、loss/LR/更新幅度和实际配置，详见 [默认训练与中途审计](OPTIMIZATION.md)。
 
-2026-09-20 优化更新：主线与两个消融共用 `optimization_config.py` / `optimization.py`，新训练默认 Muon＋辅助 AdamW、warmup＋预算内倍增 cosine restart。仅更新指定隐藏矩阵，其余参数保留 AdamW；完整路由和恢复合同见 [OPTIMIZATION.md](OPTIMIZATION.md)。
+2026-09-21 优化更新：主线与两个消融共用 `optimization_config.py` / `optimization.py`，新训练默认 Muon＋辅助 AdamW、首轮5%更新warmup＋1/2/4轮cosine restart（共7轮，warmup占用首周期）。仅更新指定隐藏矩阵，其余参数保留 AdamW；完整路由和恢复合同见 [OPTIMIZATION.md](OPTIMIZATION.md)。
 
 操作入口见 [run.md](run.md)，可选复核和评测解释见 [AUDIT.md](AUDIT.md)。
 

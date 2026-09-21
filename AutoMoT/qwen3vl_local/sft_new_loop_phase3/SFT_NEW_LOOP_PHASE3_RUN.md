@@ -1,9 +1,16 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-21，v20）
+# SFT New Loop Phase3 当前运行入口（2026-09-21，v21）
 
-默认 **4rgb + choice**，索引 **sft_new_loop_phase3_data_v20**，split seed **20260920**。
-v20 依据逐帧 RGB、原 meta 和本地 OpenDRIVE 复核，修正低速等待/立即起步、当前速度基准与减速后恢复的提示语；
-精确隔离两处 lane section 重编号造成的假右变道窗口。v8 数值阈值和主要动作优先级不变。
-详情、案例清单与验证证据见 [RGB_CODE_AUDIT_20260921.md](RGB_CODE_AUDIT_20260921.md)。
+## 2026-09-21 后续：全量容量检查与划分补齐
+
+全量检查发现旧哈希划分在开发路线隔离后缺少多个 val/test context。当前 v21 构建器只从未曝光 train 物理组补容量，默认 `--min-holdout-context-frames 32`，同组所有 Rep/context 一起移动，开发路线仍 train-only；实际比例及移动清单见 `split_coverage.json` / manifest。源容量不足仍失败，不靠重复冒充新样本。新源码哈希须重建索引、另开 run。
+
+最终全量构建为 train/val/test=11580/408/384；十个正例 context 各965/34/32行，INVALID=1930/68/64。choice/binary 七轮及默认16/32验证预算已回放通过。训练呈现仍可按既有规则重采样；帧数不等于物理路线支持，四类 holdout 仍只有一个物理组。完整结果、运行边界见 [容量审计](CAPACITY_AUDIT_20260921.md)。
+
+默认 **4rgb + choice**，索引 **sft_new_loop_phase3_data_v21**，split seed **20260920**。
+v21 使用 v9 已确认起步规则：近零速时以明确释放的控制和持续起步轨迹区分 RESUME 与等待；
+允许起步确认后的调速，保留原速度阈值、有限窗口和主要动作优先级。模型不接收控制或未来数值。
+两种题型同步事件持续阶段、故障前提与记录终点措辞；分开报告索引和每轮采样的主要动作分布。
+完整规则、影响范围和复现说明见 [V21_CALIBRATION_20260921.md](V21_CALIBRATION_20260921.md)。
 
 模型每次输出一个主要动作，包括明确的 **KEEP**；纵向域三个变化动作加 KEEP，机动域五个变化动作加 KEEP。
 `scene_context` 仅描述道路、事件和已提供的历史；动作选项按十种上下文分别给出一至两句因果说明。
@@ -14,7 +21,7 @@ v18 复看十类26片段/506帧面板（补64帧早期历史），精确隔离�
 动作说明统一条件、动作和作用，选择题明确主要机动，判断题说明纵横动作可先后发生。
 新边界审计只分桶报告，不修改速度阈值或自动过滤 KEEP；当前说明见 [V18_RGB_CAUSAL_REFINEMENT_20260920.md](V18_RGB_CAUSAL_REFINEMENT_20260920.md)。
 v18 同日复审修复：RE5 RESUME 同时覆盖等待后起步与行进中持续增速；边界审计支持训练验证的嵌套道路字段，
-报告匹配/漏配数量并对全漏配告警。该次修复当时沿用 v18；随后升级为下述 v19；当前新训练使用 v20。
+报告匹配/漏配数量并对全漏配告警。该次修复当时沿用 v18；随后升级为下述 v19；当前新训练使用 v21。
 v19 进一步复看 5 片段/91 帧面板，覆盖 12 条 KEEP 伴随车辆风险与零目标速度请求的题。
 十类 KEEP 明确允许阶段内短暂制动、不能解读成风险已消失；所有新候选和索引补充独立 `action_review`，
 记录控制响应、约束对象和原动作判据触发时刻，仅供审查，不进入模型输入或改变答案。
@@ -24,16 +31,16 @@ v19 进一步复看 5 片段/91 帧面板，覆盖 12 条 KEEP 伴随车辆风�
 
 离线标注中，KEEP 允许小幅调速：机动域还要求未来3秒无新跨线；纵向域只表示速度阶段保持，不断言车道保持。
 已完成变道后事件可以继续成立；缺证据、歧义窗、错误前提不能变成 KEEP，当前持续等待仍为 STOP。
-保留 v8 轨迹窗口/阈值、STOP > 首跨 > 速度的优先级、异常 route 过滤和物理路线隔离；
+v9 保留原轨迹窗口/速度阈值、STOP > 首跨 > 速度的优先级、异常 route 过滤和物理路线隔离；
 主要跨线前可以先减速，当前标签不等于逐阶段预测最先执行的反应。
 原始动作布尔证据留作审计；binary 增加独立 KEEP 行，合法保持不再用全 NO 隐含表达。
 KEEP 与所有变化动作互斥；invalid 时包括 KEEP 在内的所有动作均 NO。默认 choice 只输出一个动作名称。
 KEEP 的 support/precision/recall 参与 best 守卫；因果说明属于公开场景知识，不是逐帧驾驶员意图真值。
 
-必须重建 v20 索引并新训，旧 run 用原源码恢复；不要用 `SKIP_BUILD=1` 复用旧索引。
+必须重建 v21 索引并新训，旧 run 用原源码恢复；不要用 `SKIP_BUILD=1` 复用旧索引。
 当前 Phase3 沿用 v18 精确隔离规则并完善提示词与审查证据；action_prior 保持旧 NONE/门控协议，其 oracle 继续读取原始布尔动作证据。
 不能把 v17 KEEP 文本直接塞进旧 action_prior 外部预测接口；该接口会按不支持的输入拒绝。
-历史曝光隔离继续生效；v20 新增本轮四包已导出 test/val 的223个物理组，合计1454组 train-only，禁止复审后仍当盲测。
+历史曝光隔离继续生效；v20 累计1454组，v21 本次242条开发路线再新增155个物理组，总计1609组 train-only，禁止复审后仍当盲测。
 v20 完成57片段、964帧面板（874张不重复RGB）的视觉复核；局部原始数据重建/CPU验证与限制见本轮报告，尚未重建全量生产索引或训练模型。
 
 直接重新训练并自动评测（默认自动选四张空闲 GPU）：
@@ -66,9 +73,9 @@ GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash q
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 python qwen3vl_local/sft_new_loop_phase3/preflight.py \
-  --index checkpoints/sft_new_loop_phase3_data_v20/frame_index.jsonl
+  --index checkpoints/sft_new_loop_phase3_data_v21/frame_index.jsonl
 python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
-  --index checkpoints/sft_new_loop_phase3_data_v20/frame_index.jsonl \
+  --index checkpoints/sft_new_loop_phase3_data_v21/frame_index.jsonl \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
@@ -88,7 +95,7 @@ GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pip
 不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 保留有效单动作、组合投影与 KEEP；仅排除 invalid。
 `INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
 历史09/16负例曾增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；新划分支持需重验，不能沿用旧计数。
-历史及本轮曝光路线均为 train-only。下面按日期保留历史说明，旧索引题数不代表 v20。
+历史及本轮曝光路线均为 train-only。下面按日期保留历史说明，旧索引题数不代表 v21。
 两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
 
 ## 2026-09-20：自动 INVALID 组合均衡及人工事件负例覆盖

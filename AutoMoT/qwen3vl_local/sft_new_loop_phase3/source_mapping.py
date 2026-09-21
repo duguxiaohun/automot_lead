@@ -21,6 +21,7 @@ EVENT_ADDITIONS = Path(__file__).with_name("event_rgb_additions_v1.jsonl")
 def mapping_contract_hash():
     """训练索引绑定实际语义决定；旧索引不能绕过新隔离/同 RS 负例规则。"""
     paths = (Path(__file__).with_name("mapping_rgb_decisions_v18_20260920.jsonl"),
+             Path(__file__).with_name("development_route_groups_noise_20260921.json"),
              Path(__file__).with_name("development_route_groups_20260921.json"),
              Path(__file__).with_name("mapping_rgb_decisions_20260920.jsonl"),
              Path(__file__).with_name("development_route_groups_20260920.json"),
@@ -40,7 +41,7 @@ def mapping_contract_hash():
              Path(__file__).with_name('development_route_groups_20260907.json'),
              *(Path(__file__).with_name(name) for name in
                ('source_mapping.py', 'context_taxonomy.py', 'trajectory_action.py', 'lateral_rgb_audit.py',
-                'primary_action.py', 'action_review.py', 'same_rs_invalid.py', 'build_dataset.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
+                'primary_action.py', 'choice_semantics.py', 'navigation_goal.py', 'action_review.py', 'same_rs_invalid.py', 'build_dataset.py', 'split_coverage.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode())
@@ -103,6 +104,9 @@ def mapped_contexts(scenario: str, route_id: str, frame_id: int, rs: str,
     codes = list(events)
     evidence = {"source_event_codes": list(events), "signal_failure_answer": confirmed,
                 "mapping_version": 2, "rgb_action_review": "candidate_not_frame_verified"}
+    if "U-E7" in codes:
+        evidence["signal_failure_evidence_scope"] = "scenario_rs_review_not_per_frame_physical_activation"
+        evidence["light_query_none_semantics"] = "no_light_returned_for_ego_waypoint_not_lamps_off"
     for decision in review_decisions():
         if (scenario == decision["scenario"] and route_id == decision["route_id"]
                 and decision["start_frame"] <= frame_id <= decision["end_frame"]):

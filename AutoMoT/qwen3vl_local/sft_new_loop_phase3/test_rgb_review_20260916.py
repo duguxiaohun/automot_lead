@@ -132,7 +132,7 @@ def test_default_eval_is_full_coverage(monkeypatch):
     monkeypatch.setattr(sys,'argv',['eval.py'])
     args=evaluation.parse_args()
     assert args.cases_per_bin==0
-    assert 'data_v19' in args.index
+    assert 'data_v21' in args.index
     rows=candidate_rows()
     selected=evaluation._balanced_cases(rows,cases_per_bin=args.cases_per_bin,seed=3)
     assert len(selected)==len(rows)

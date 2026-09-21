@@ -60,13 +60,13 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     even_quota_with_capacity,
     route_diverse_sample,
-    route_diversity_report,
+    route_diversity_report, primary_action_distribution,
 )
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (  # noqa: E402
     ACTION_RULE_VERSION,
     action_evidence,
     label_actions,
-    longitudinal_decision,
+    longitudinal_from_signals,
     load_route_trajectory,
     validate_action_rule,
 )
@@ -119,6 +119,7 @@ def development_route_groups() -> frozenset:
     groups.update(json.loads(path.with_name("development_route_groups_20260916.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260920.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260921.json").read_text())["groups"])
+    groups.update(json.loads(path.with_name("development_route_groups_noise_20260921.json").read_text())["groups"])
     return frozenset(groups)
 
 
@@ -402,8 +403,7 @@ def iter_base_frames(
                 labels = label_actions(signals)
                 if labels is None:
                     if risk_stats is not None:
-                        reason = longitudinal_decision(signals["future_speeds"],
-                            sample_count=signals["future_speed_count"])["reason"]
+                        reason = longitudinal_from_signals(signals)["reason"]
                         risk_stats[f"action_excluded/{reason}"] += 1
                     continue
                 if (CONTEXT_BY_ID[context_id].question_domain == "FULL_MANEUVER"
@@ -586,16 +586,41 @@ def _balanced_rows_by_split(
         raw_counts[f"{split}/{context_id}/{action_signature(base['action_labels'], context_id=context_id)}"] += 1
         invalid_sources[split].append(base)
 
+    from qwen3vl_local.sft_new_loop_phase3.split_coverage import complete_context_splits
+    required_splits = ["train"] + (["val"] if args.val_ratio > 0 else []) + (["test"] if args.test_ratio > 0 else [])
+    all_bases = [base for values in invalid_sources.values() for base in values]
+    split_coverage = complete_context_splits(
+        all_bases, contexts=CONTEXT_IDS, splits=required_splits,
+        development=development_route_groups(),
+        group_of=lambda row: physical_route_group(row["scenario"], row["route_id"]), seed=args.split_seed,
+        min_holdout_frames=int(getattr(args, "min_holdout_context_frames", 32)),
+    )
+    # 同组全部 context/重复采集同时移动；重新统计，不能只补一帧而留下物理泄漏。
+    buckets.clear(); invalid_sources.clear(); raw_counts.clear()
+    for base in all_bases:
+        split, context_id = base["split"], base["context_id"]
+        buckets[split][context_id].append(base)
+        invalid_sources[split].append(base)
+        raw_counts[f"{split}/{context_id}"] += 1
+        raw_counts[f"{split}/{context_id}/{action_signature(base['action_labels'], context_id=context_id)}"] += 1
+    if split_coverage["moves"]:
+        print(f"[new-phase3-build] moved {len(split_coverage['moves'])} unexposed physical groups "
+              "from train to meet holdout context capacity; see split_coverage.json", flush=True)
+
     from qwen3vl_local.sft_new_loop_phase3.same_rs_invalid import reviewed_invalid_rows
     same_rs_pool = reviewed_invalid_rows(args, {
         (b['scenario'], b['route_id']) for bs in invalid_sources.values() for b in bs})
     same_rs_by_split = defaultdict(list)
     for row in same_rs_pool:
+        move = split_coverage["moves"].get(physical_route_group(row["scenario"], row["route_id"]))
+        if move:
+            row["split"] = move["to_split"]
         same_rs_by_split[row['split']].append(row)
 
     # 即使均衡容量检查失败也保留候选和缺口，方便继续逐帧审计而非重复解压 meta。
     out_dir = pathlib.Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "split_coverage.json").write_text(json.dumps(split_coverage, indent=2) + "\n")
     with (out_dir / "candidate_frames.jsonl").open("w") as handle:
         for bases in invalid_sources.values():
             for base in bases:
@@ -605,6 +630,10 @@ def _balanced_rows_by_split(
 
     (out_dir / "same_rs_invalid_candidates.jsonl").write_text(
         ''.join(json.dumps(row, ensure_ascii=False) + "\n" for row in same_rs_pool))
+    if split_coverage["unresolved"]:
+        raise ValueError("insufficient context capacity after unexposed-route planning: "
+                         f"{split_coverage['unresolved']}; see {out_dir / 'split_coverage.json'}. "
+                         "Reviewed routes remain train-only; repeating rows cannot fill source capacity.")
     rows: List[Dict[str, Any]] = []
     balance_report: Dict[str, Any] = {}
     required_splits = ["train"]
@@ -673,6 +702,9 @@ def _balanced_rows_by_split(
             "sampled_counts": dict(Counter(row["balance_key"] for row in sampled)),
             "sampled_true_rs_counts": dict(Counter(row["true_rs"] for row in sampled)),
             "sampled_action_signature_counts": dict(Counter(row["action_signature"] for row in sampled)),
+            "distribution_layer": "index_rows_before_epoch_resampling",
+            "sampled_primary_action_distribution": primary_action_distribution(
+                dict(Counter(row["action_signature"] for row in sampled))),
             "sampled_yes_counts": {
                 key: sum(1 for row in sampled if bool(row["answers"][key])) for key in ANSWER_KEYS
             },
@@ -685,6 +717,7 @@ def _balanced_rows_by_split(
             "invalid_balance": invalid_balance,
         }
     return rows, {
+        "split_coverage": split_coverage,
         "raw_counts": dict(raw_counts),
         "balance": balance_report,
         "actual_scenario_town_pairs": [
@@ -769,6 +802,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     manifest = {
         "format": FRAME_INDEX_FORMAT,
         "split_contract": "physical_route_without_rep_or_collection_timestamp",
+        "split_coverage": balance["split_coverage"],
         "development_route_groups": len(development_route_groups()),
         "development_route_policy": "old audit pool is train-only; new val/test exclude these physical routes",
         "source_scope": ("candidate_cache" if getattr(args, "candidate_cache", "") else
@@ -806,7 +840,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "action_label_contract": (
             "Longitudinal labels come from the run's own future speed curve: STOP uses a 1.5 s immediate "
             "window, DECELERATE and RESUME use a 2 s window, and the three are mutually exclusive. "
-            "Current confirmed waiting is STOP even before a later release. RESUME requires two consecutive speed samples above the gain threshold; acceleration-then-braking mixed windows are excluded. "
+            "Current waiting remains STOP before a later release. An anchor with explicit brake=False and throttle>0.1 can instead be RESUME when speed begins rising by +0.5 s, speed is nondecreasing from k=0 through the existing two-sample gain confirmation, all later samples retain that gain above the anchor baseline, and the final speed is >=2 m/s. Missing controls never establish this exception. Acceleration-then-braking mixed windows are excluded. "
             "Lateral candidates predict the FIRST confirmed Driving-waypoint identity change within 3 s on the same road, with "
             "the direction resolved from the lane ordering and the lane ego entered the current continuous road visit in, "
             "so borrowing the opposing lane is LEFT and returning is RIGHT. Non-Driving or unknown waypoint "
@@ -870,7 +904,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v20"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v21"))
     p.add_argument(
         "--review-root",
         default=str(
@@ -887,6 +921,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--split-seed", type=int, default=20260920)
     p.add_argument("--test-ratio", type=float, default=0.10)
     p.add_argument("--val-ratio", type=float, default=0.05)
+    p.add_argument("--min-holdout-context-frames", type=int, default=32,
+                   help="minimum distinct source frames per val/test context before sampling; "
+                        "32 matches the default generation budget; 1 is for small smoke builds only")
     p.add_argument(
         "--target-per-context",
         type=int,

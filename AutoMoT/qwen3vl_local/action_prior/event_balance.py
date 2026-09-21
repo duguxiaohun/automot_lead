@@ -202,7 +202,7 @@ def source_for_args(args) -> EventBalanceIndex:
 
 
 def source_contract(args) -> Dict[str, Any] | None:
-    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False)
+    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False) or getattr(args, "high_level_action_token", False) or bool(getattr(args, "event_balance_index", ""))
     if not active:
         return None
     if getattr(args, "event_balance_index", ""):
@@ -217,7 +217,7 @@ def source_audit(args) -> Dict[str, Any] | None:
 
 
 def annotate_rows(args, rows: Iterable[Mapping[str, Any]]) -> None:
-    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False)
+    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False) or getattr(args, "high_level_action_token", False) or bool(getattr(args, "event_balance_index", ""))
     if active and getattr(args, "event_balance_index", ""):
         source = source_for_args(args)
         source.validate_action_dataset(args.data_dir)
@@ -417,11 +417,15 @@ def event_balanced_total(rows: Sequence[Mapping[str, Any]], *, requested: int, r
         total = int(requested)
         if total % multiple:
             raise ValueError(
-                f"event-balanced epoch budget must be divisible by lcm({unit}, world_size)={multiple}"
+                f"event-balanced epoch budget {total} must be divisible by lcm({unit}, world_size)={multiple}"
             )
         quotas = weighted_quotas(total)
         if _joint_allocation(rows, quotas, repeat_cap=repeat_cap) is None:
-            raise ValueError("event-balanced epoch budget is infeasible under shared-frame repeat caps")
+            raise ValueError("event-balanced epoch budget is infeasible under shared-frame repeat caps; "
+                             f"requested={total}, repeat_cap={repeat_cap}, available={counts}, "
+                             f"independent_upper_bound={independent_max * unit}. "
+                             "Use event_balanced_epoch_samples=0 for the jointly feasible automatic budget; "
+                             "independent bucket counts can overcount shared frames.")
         return total
     # base quota x must make unit*x divisible by world. Search only such values and use
     # max-flow, rather than independently counting each bucket and discovering conflict mid-epoch.
@@ -437,7 +441,9 @@ def event_balanced_total(rows: Sequence[Mapping[str, Any]], *, requested: int, r
         else:
             high = middle - 1
     if not feasible:
-        raise ValueError("event-balanced epoch has no jointly feasible full DDP presentation")
+        raise ValueError("event-balanced epoch has no jointly feasible full DDP presentation; "
+                         f"world={world}, repeat_cap={repeat_cap}, required_multiple={multiple}, "
+                         f"available={counts}")
     return feasible * scale * unit
 
 

@@ -15,6 +15,32 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple, TypeVar
 T = TypeVar("T")
 
 
+def primary_action_distribution(signature_counts: Mapping[str, int]) -> Dict[str, Any]:
+    """按主要动作投影报告计数；STOP+跨线仍是STOP，INVALID单列分母。"""
+    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
+    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
+    counts = Counter()
+    for signature, count in signature_counts.items():
+        if type(count) is not int or count < 0:
+            raise ValueError("signature count must be a nonnegative integer")
+        if signature == "INVALID":
+            counts["INVALID"] += count
+            continue
+        parts = set(signature.split("+"))
+        if parts in ({"NONE"}, {"KEEP"}):
+            parts = set()
+        if not parts <= set(ACTION_KEYS):
+            raise ValueError(f"unknown action signature: {signature}")
+        counts[primary_choice({key: key in parts for key in ACTION_KEYS})] += count
+    total = sum(counts.values())
+    invalid = counts.get("INVALID", 0)
+    valid = total - invalid
+    return {"projection": "STOP_then_first_crossing_then_speed_else_KEEP",
+            "counts": dict(counts), "total": total, "valid": valid, "invalid": invalid,
+            "stop_fraction_all": counts.get("STOP", 0) / total if total else None,
+            "stop_fraction_valid": counts.get("STOP", 0) / valid if valid else None}
+
+
 def _route_key(item: Any) -> Tuple[str, str]:
     """从 dict、WorkItem 或 FrameRow 读取稳定 route 身份。"""
 
@@ -103,6 +129,9 @@ def _route_counts_report(items: Sequence[Any]) -> Dict[str, Any]:
     return {
         "cases": len(items),
         "unique_routes": len(counts),
+        "unique_scenarios": len({scenario for scenario, _ in counts}),
+        "unique_towns": len({route.split("_")[0] for _, route in counts}),
+        "towns": sorted({route.split("_")[0] for _, route in counts}),
         "max_cases_per_route": max(counts.values(), default=0),
         "route_case_counts": {
             f"{scenario}/{route_id}": int(count) for (scenario, route_id), count in ordered[:200]

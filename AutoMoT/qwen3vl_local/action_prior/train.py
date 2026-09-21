@@ -107,6 +107,10 @@ def add_dataset_coverage(plan, args, rows):
         index = HighLevelActionIndex(args.high_level_action_index)
         plan["high_level_action_coverage"] = index.coverage(rows)
         plan["high_level_action_source"] = index.identity
+    if getattr(args, "high_level_action_token", False):
+        from qwen3vl_local.action_prior.action_token import token_coverage, token_contract
+        plan["action_token_coverage"] = token_coverage(rows)
+        plan["action_token_source"] = token_contract(args)
     if not getattr(args, "dataset_priors", False):
         return plan
     from qwen3vl_local.action_prior.dataset_labels import PriorLabelIndex
@@ -178,7 +182,9 @@ def training_device(local_rank):
 def main():
     """先验证配置和数据，再加载模型；只优化轨迹 decoder。"""
     from qwen3vl_local.action_prior.optimization_config import optimization_env_args
-    args = parser().parse_args([*optimization_env_args(), *sys.argv[1:]])
+    from qwen3vl_local.action_prior.action_token import conditioning_env_args, ensure_token_inputs
+    args = parser().parse_args([*optimization_env_args(), *conditioning_env_args(), *sys.argv[1:]])
+    ensure_token_inputs(args)
     from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
     from qwen3vl_local.action_prior.prepare_action_priors import ensure_scene_inputs
     resolve_scene_priors(args)

@@ -11,13 +11,13 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
     LONGITUDINAL_HORIZON_FRAMES, longitudinal_decision)
 
 
-def timing_diagnostics(speeds):
+def timing_diagnostics(speeds, *, brake=None, throttle=None):
     """记录首次触发和确认时刻，区分短脉冲与窗口边界；不改真值。
 
     #329/#590 的首次近停在1.5s，第二点在1.75s；不能写成窗内持续停车。
     #88 的真实小减速未达到20%阈值，不能把“有下降”当DECELERATE。
     """
-    trace = longitudinal_decision(speeds)
+    trace = longitudinal_decision(speeds, brake=brake, throttle=throttle)
     if trace['reason'] in ('incomplete_speed_window', 'invalid_speed_sample'):
         raise ValueError("timing diagnostics require nine exact nonnegative speed samples")
     return trace
@@ -33,7 +33,10 @@ def slices(row):
     speeds = row["action_evidence"]["future_speeds_exact_mps"][:LONGITUDINAL_HORIZON_FRAMES+1]
     if len(speeds) < 9:
         raise ValueError("valid sample missing exact future speed window")
-    timing = timing_diagnostics(speeds)
+    timing = timing_diagnostics(speeds, brake=row["action_evidence"].get("brake"),
+                                throttle=row["action_evidence"].get("throttle"))
+    if timing["confirmed_pullaway"]:
+        flags.append("confirmed_pullaway_at_near_stop")
     for key in ("stop_pair_crosses_1_5s_boundary", "isolated_near_stop_in_1_5s",
                 "subthreshold_drop_present", "first_drop_single_sample",
                 "isolated_gain_present", "gain_unconfirmed_at_2s_boundary"):

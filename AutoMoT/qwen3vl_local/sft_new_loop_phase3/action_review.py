@@ -5,10 +5,10 @@ from numbers import Integral, Real
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID, DOMAIN_MANEUVER
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
-    FRAME_DT_SECONDS, LATERAL_HORIZON_FRAMES, longitudinal_decision,
+    FRAME_DT_SECONDS, LATERAL_HORIZON_FRAMES, longitudinal_from_signals,
 )
 
-ACTION_REVIEW_VERSION = "recorded_response_and_motion_v1"
+ACTION_REVIEW_VERSION = "recorded_response_and_motion_v2_pullaway"
 BOOL_FIELDS = ("brake", "vehicle_hazard", "walker_hazard", "light_hazard",
                "stop_sign_hazard", "brake_cutin", "slower_bad_visibility", "slower_clutterness")
 
@@ -56,13 +56,19 @@ def build_action_review(trajectory, frame_id, context_id, labels, signals=None):
     """共用构建和审计；时间节点是原判据触发点，不是新增阶段序列真值。"""
     context = CONTEXT_BY_ID[context_id]
     signals = trajectory.signals(frame_id) if signals is None else signals
-    decision = longitudinal_decision(signals["future_speeds"])
+    decision = longitudinal_from_signals(signals)
     if not decision["eligible"]:
         raise ValueError("action review requires eligible motion evidence")
     selected = primary_choice(labels, context.action_keys)
     anchor = trajectory.metas[frame_id]
     controller = controller_snapshot(anchor)
     flags = []
+    if decision["confirmed_pullaway"]:
+        flags.append("confirmed_pullaway_at_near_stop")
+    if decision["confirmed_pullaway"] and frame_id < 3:
+        flags.append("pullaway_with_padded_startup_history")
+    if decision["current_near_stop_pair"] and decision["anchor_control_released"] and not decision["confirmed_pullaway"]:
+        flags.append("released_near_stop_without_confirmed_pullaway")
     if selected == "KEEP":
         if controller["brake"] is True:
             flags.append("keep_with_brake_command")
@@ -120,7 +126,8 @@ def build_action_review(trajectory, frame_id, context_id, labels, signals=None):
                 target_release = dict(start_s=offset*FRAME_DT_SECONDS, confirmed_s=(offset+1)*FRAME_DT_SECONDS)
     return dict(version=ACTION_REVIEW_VERSION, source="recorded_meta", source_context_id=context_id,
                 review_only=True, purpose_status="conditional_not_verified_intent",
-                controller=controller, flags=flags, primary_action=selected,
+                controller=controller, anchor_controls=decision["anchor_controls"],
+                longitudinal_reason=decision["reason"], flags=flags, primary_action=selected,
                 motion_milestones=sorted(milestones, key=lambda m:(m["start_s"],m["action"])),
                 milestone_semantics="bounded_rule_triggers_not_complete_stage_sequence",
                 speed_action_start_s=speed_start, crossing_start_s=crossing_start,

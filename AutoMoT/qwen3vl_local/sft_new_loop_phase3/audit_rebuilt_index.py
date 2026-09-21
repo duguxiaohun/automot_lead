@@ -41,14 +41,16 @@ def audit(index, data_root, action_output_mode="binary"):
             evidence = row['action_evidence']
             exact_speeds = evidence['future_speeds_exact_mps']
             exact_labels = label_actions(dict(future_speeds=exact_speeds,
-                future_speed_count=len(exact_speeds), lane_change_direction=evidence['lane_change_direction']))
+                future_speed_count=len(exact_speeds), lane_change_direction=evidence['lane_change_direction'],
+                brake=evidence.get('brake'), throttle=evidence.get('throttle')))
             asked = CONTEXT_BY_ID[row['context_id']].action_keys
             if exact_labels is None or any(exact_labels[k] != row['answers'][k] for k in asked):
                 raise ValueError(f'exact action evidence mismatch: {key}')
             # 展示用3位小数可能改变边界判断；真值以完整精度速度为准。
             labels = label_actions(dict(future_speeds=evidence['future_speeds_mps'],
                 future_speed_count=len(evidence['future_speeds_mps']),
-                lane_change_direction=evidence['lane_change_direction']))
+                lane_change_direction=evidence['lane_change_direction'],
+                brake=evidence.get('brake'), throttle=evidence.get('throttle')))
             if labels is None or any(labels[k] != row['answers'][k] for k in asked):
                 near_boundary[split] += 1
                 boundary_cases.append(dict(scenario=row['scenario'], route_id=row['route_id'],
