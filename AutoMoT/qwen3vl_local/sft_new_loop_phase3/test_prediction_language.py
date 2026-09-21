@@ -22,7 +22,7 @@ def test_prediction_instruction_across_all_contexts(context_id, rgb, output):
     prompt = build_action_prompt(spec=spec, history_rgb_mode=rgb)
     assert "judge ego's upcoming driving behavior" in prompt
     assert "repeat an action already completed" in prompt
-    assert "current waiting still counts even if ego moves off later" in prompt
+    assert "immediate pull-away can be RESUME" in prompt
     assert "first meaningful speed change" in prompt and "sustained speed increase" in prompt
     for forbidden in ("seconds", "second window", "prediction window", "4-Hz", "0.5 m/s", "1.2 m/s", "20%", "two consecutive", "qualifying", "threshold", "max("):
         assert forbidden not in prompt

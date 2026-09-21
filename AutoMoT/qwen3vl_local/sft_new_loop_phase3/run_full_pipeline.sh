@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# v19 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
+# v20 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # 新 Phase3 全流程：RGB 审计覆盖检查 -> 构建动作索引 -> 训练 -> 独立评测 + 错例审计包。
 #
-# 从 AutoMoT/ 目录运行，默认 v19 四图 + choice（选择题）：
+# 从 AutoMoT/ 目录运行，默认 v20 四图 + choice（选择题）：
 #   bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 #
@@ -32,7 +32,7 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v19}"
+DATA_DIR="${DATA_DIR:-checkpoints/sft_new_loop_phase3_data_v20}"
 INDEX="${INDEX:-${DATA_DIR}/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"

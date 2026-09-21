@@ -77,15 +77,15 @@ def test_v12_compact_prompt_is_answer_independent_while_v10_calibration_stays_bo
     changed = replace(spec, invalid_context=True,
         questions=tuple(replace(q, answer=not q.answer) for q in spec.questions))
     assert prompt == build_action_prompt(spec=changed, history_rgb_mode=rgb)
-    assert PROMPT_NAME.endswith("v19_response_aware_keep")
+    assert PROMPT_NAME.endswith("v20_grounded_motion")
     assert ACTION_RULE_VERSION == "current_wait_first_crossing_v8_bounded_window"
     if mode == "binary":
         assert SPEED_ACTION_RULES in prompt
         assert LANE_ACTION_RULES in prompt
-        assert 'sustained speed increase' in prompt and 'current waiting still counts' in prompt
+        assert 'sustained speed increase' in prompt and 'Low speed alone does not establish continued waiting' in prompt
     else:
         assert "Choose one main upcoming action including KEEP" in prompt
-        assert 'sustained speed increase' in prompt and 'current waiting still counts' in prompt
+        assert 'sustained speed increase' in prompt and 'Low speed alone does not establish continued waiting' in prompt
     assert 'crossings already in the input' in prompt
     assert 'earlier-started maneuver' not in prompt
     assert 'longitudinal_decision' not in prompt and 'future_speeds' not in prompt

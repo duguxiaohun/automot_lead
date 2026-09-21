@@ -1,6 +1,10 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-20，v19）
+# SFT New Loop Phase3 当前运行入口（2026-09-21，v20）
 
-默认 **4rgb + choice**，索引 **sft_new_loop_phase3_data_v19**，split seed **20260920**。
+默认 **4rgb + choice**，索引 **sft_new_loop_phase3_data_v20**，split seed **20260920**。
+v20 依据逐帧 RGB、原 meta 和本地 OpenDRIVE 复核，修正低速等待/立即起步、当前速度基准与减速后恢复的提示语；
+精确隔离两处 lane section 重编号造成的假右变道窗口。v8 数值阈值和主要动作优先级不变。
+详情、案例清单与验证证据见 [RGB_CODE_AUDIT_20260921.md](RGB_CODE_AUDIT_20260921.md)。
+
 模型每次输出一个主要动作，包括明确的 **KEEP**；纵向域三个变化动作加 KEEP，机动域五个变化动作加 KEEP。
 `scene_context` 仅描述道路、事件和已提供的历史；动作选项按十种上下文分别给出一至两句因果说明。
 UE2 减速/停车同时保留防碰撞、观察邻车与间隙、为可能绕行创造时机的联系；不是已经有安全空隙或必定变道。
@@ -10,7 +14,7 @@ v18 复看十类26片段/506帧面板（补64帧早期历史），精确隔离�
 动作说明统一条件、动作和作用，选择题明确主要机动，判断题说明纵横动作可先后发生。
 新边界审计只分桶报告，不修改速度阈值或自动过滤 KEEP；当前说明见 [V18_RGB_CAUSAL_REFINEMENT_20260920.md](V18_RGB_CAUSAL_REFINEMENT_20260920.md)。
 v18 同日复审修复：RE5 RESUME 同时覆盖等待后起步与行进中持续增速；边界审计支持训练验证的嵌套道路字段，
-报告匹配/漏配数量并对全漏配告警。该次修复当时沿用 v18；当前新训练使用下述 v19。
+报告匹配/漏配数量并对全漏配告警。该次修复当时沿用 v18；随后升级为下述 v19；当前新训练使用 v20。
 v19 进一步复看 5 片段/91 帧面板，覆盖 12 条 KEEP 伴随车辆风险与零目标速度请求的题。
 十类 KEEP 明确允许阶段内短暂制动、不能解读成风险已消失；所有新候选和索引补充独立 `action_review`，
 记录控制响应、约束对象和原动作判据触发时刻，仅供审查，不进入模型输入或改变答案。
@@ -26,11 +30,11 @@ v19 进一步复看 5 片段/91 帧面板，覆盖 12 条 KEEP 伴随车辆风�
 KEEP 与所有变化动作互斥；invalid 时包括 KEEP 在内的所有动作均 NO。默认 choice 只输出一个动作名称。
 KEEP 的 support/precision/recall 参与 best 守卫；因果说明属于公开场景知识，不是逐帧驾驶员意图真值。
 
-必须重建 v19 索引并新训，旧 run 用原源码恢复；不要用 `SKIP_BUILD=1` 复用旧索引。
+必须重建 v20 索引并新训，旧 run 用原源码恢复；不要用 `SKIP_BUILD=1` 复用旧索引。
 当前 Phase3 沿用 v18 精确隔离规则并完善提示词与审查证据；action_prior 保持旧 NONE/门控协议，其 oracle 继续读取原始布尔动作证据。
 不能把 v17 KEEP 文本直接塞进旧 action_prior 外部预测接口；该接口会按不支持的输入拒绝。
-历史 v14 复核和346个已曝光物理组的 train-only 隔离继续生效；本轮复用已曝光素材，不引入新 holdout。
-本轮完成覆盖十类的局部索引冒烟和 CPU 验证，尚未重建全量生产索引或训练模型。
+历史曝光隔离继续生效；v20 新增本轮四包已导出 test/val 的223个物理组，合计1454组 train-only，禁止复审后仍当盲测。
+v20 完成57片段、964帧面板（874张不重复RGB）的视觉复核；局部原始数据重建/CPU验证与限制见本轮报告，尚未重建全量生产索引或训练模型。
 
 直接重新训练并自动评测（默认自动选四张空闲 GPU）：
 
@@ -62,9 +66,9 @@ GPU_IDS=0,1,2,3 HISTORY_RGB_MODE=2rgb_endpoints ACTION_OUTPUT_MODE=binary bash q
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/build_dataset.py
 python qwen3vl_local/sft_new_loop_phase3/preflight.py \
-  --index checkpoints/sft_new_loop_phase3_data_v19/frame_index.jsonl
+  --index checkpoints/sft_new_loop_phase3_data_v20/frame_index.jsonl
 python qwen3vl_local/sft_new_loop_phase3/train.py --sampling-only \
-  --index checkpoints/sft_new_loop_phase3_data_v19/frame_index.jsonl \
+  --index checkpoints/sft_new_loop_phase3_data_v20/frame_index.jsonl \
   --focus-balance-count 1024 --eval-balance-count 16 --generation-eval-balance-count 32
 ```
 
@@ -84,7 +88,7 @@ GPU_IDS=0,1,2,3 SKIP_BUILD=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pip
 不设置 `SKIP_BUILD=1` 时 pipeline 默认重新构建。独立 eval 默认 `CASES_PER_BIN=0` 全量；choice 保留有效单动作、组合投影与 KEEP；仅排除 invalid。
 `INDEX`、`DATA_DIR`、`SPLIT_SEED`、`CASES_PER_BIN` 等已有环境变量会覆盖默认值，启动前检查。
 历史09/16负例曾增加 val 2/test 4 个物理路线，仅覆盖 R3 的两个错事件；新划分支持需重验，不能沿用旧计数。
-历史及v14曝光路线继续为 train-only，本轮没有新增 holdout 曝光。下面按日期保留历史说明，旧索引题数不代表 v19。
+历史及本轮曝光路线均为 train-only。下面按日期保留历史说明，旧索引题数不代表 v20。
 两图/binary 对照按上方示例显式设置并分别新训；无需常规跑四组矩阵。
 
 ## 2026-09-20：自动 INVALID 组合均衡及人工事件负例覆盖

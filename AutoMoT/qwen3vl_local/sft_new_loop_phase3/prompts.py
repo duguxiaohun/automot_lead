@@ -61,8 +61,8 @@ from qwen3vl_local.sft_new_loop_phase3.choice_semantics import (
     primary_choice, binary_answers, action_description, CONTEXT_ACTION_DESCRIPTIONS,
 )
 
-# v19：条件性因果与主要机动语义；两种题型都有 KEEP，未来数值判据仅留在标定器。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v19_response_aware_keep"
+# v20：RGB 复核后明确等待/立即起步和当前速度基准，未来数值判据仅留在标定器。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v20_grounded_motion"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, KEEP_ACTION, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -88,12 +88,13 @@ OBSERVATION_RULES = (
 )
 # 模型只读动作阶段语义；秒数、0.5m/s、两连续采样、max(1.2m/s,20%)留在标定器。
 SPEED_ACTION_RULES = (
-    "STOP means stopping or continuing to wait at a near-stop; current waiting still counts even if ego moves off later. "
-    "Otherwise, use the first meaningful speed change: slowing is DECELERATE; a sustained speed increase is RESUME, "
-    "without requiring a previous stop. Small speed adjustments are continued driving, not a new speed stage."
+    "STOP means an immediate sustained near-stop or continued waiting, including waiting before a later release. "
+    "Low speed alone does not establish continued waiting; immediate pull-away can be RESUME. "
+    "Otherwise, judge the first meaningful speed change relative to current speed: "
+    "a clear reduction is DECELERATE even if speed recovers; a sustained speed increase is RESUME without requiring a previous stop. "
+    "Small adjustments mean continued driving."
 )
-SPEED_RULES = (SPEED_ACTION_RULES + " At most one speed answer is YES; STOP takes priority. "
-               "Small adjustments alone leave DECELERATE, STOP and RESUME as NO.")
+SPEED_RULES = SPEED_ACTION_RULES + " At most one speed answer is YES; STOP takes priority."
 
 LANE_ACTION_RULES = """Predict the FIRST crossing of an ego lane boundary after the newest frame: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore later return crossings and crossings already in the input.
 Steering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count."""

@@ -118,6 +118,7 @@ def development_route_groups() -> frozenset:
     groups.update(json.loads(path.with_name("development_route_groups_20260914.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260916.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260920.json").read_text())["groups"])
+    groups.update(json.loads(path.with_name("development_route_groups_20260921.json").read_text())["groups"])
     return frozenset(groups)
 
 
@@ -869,7 +870,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v19"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v20"))
     p.add_argument(
         "--review-root",
         default=str(

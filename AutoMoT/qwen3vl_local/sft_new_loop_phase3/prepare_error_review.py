@@ -24,6 +24,12 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def optional_bool(meta, key):
+    """未记录的控制/风险字段保持未知，不能把缺证据显示成未制动/无风险。"""
+    value = meta.get(key)
+    return None if value is None else bool(value)
+
+
 def display_action(row, answers):
     """v15 的空动作位显示 KEEP；解析失败不得在 RGB 审计图上冒充保持。"""
     if not answers or any(value not in ("YES", "NO") for value in answers.values()):
@@ -132,14 +138,15 @@ def prepare(bundle, data_root, output, extra_ids=(), only_ids=None):
             with Image.open(rgb) as im:
                 canvas.paste(im.convert('RGB').resize((576,192)),(x,y))
             speed = float(meta['speed'])
-            caption = f"f{f} t={(f-anchor)*.25:+.2f}s v={speed:.3f} road/lane={meta.get('road_id')}/{meta.get('lane_id')} brake={int(bool(meta.get('brake')))}"
+            brake = optional_bool(meta, 'brake')
+            caption = f"f{f} t={(f-anchor)*.25:+.2f}s v={speed:.3f} road/lane={meta.get('road_id')}/{meta.get('lane_id')} brake={'?' if brake is None else int(brake)}"
             draw.text((x+3,y+195),caption,fill='yellow' if j<len(inputs) else 'white')
             frame_rows.append(dict(frame=f, input=j<len(inputs), rgb=str(rgb), rgb_sha256=digest(rgb),
                 meta_sha256=digest(run/'metas'/f'{f:04d}.pkl'), speed=speed,
                 road_id=meta.get('road_id'), lane_id=meta.get('lane_id'), section_id=meta.get('section_id'),
                 confirmation_only=f == anchor+13,
-                brake=bool(meta.get('brake')), throttle=float(meta.get('throttle',0)),
-                vehicle_hazard=bool(meta.get('vehicle_hazard')), light_hazard=bool(meta.get('light_hazard'))))
+                brake=brake, throttle=None if meta.get('throttle') is None else float(meta['throttle']),
+                vehicle_hazard=optional_bool(meta, 'vehicle_hazard'), light_hazard=optional_bool(meta, 'light_hazard')))
         sheet=output/f'case_{i:03d}.jpg'
         canvas.save(sheet,quality=92)
         evidence.append(dict(case_index=i, scenario=r['scenario'], route_id=r['route_id'],

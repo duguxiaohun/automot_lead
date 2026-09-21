@@ -44,7 +44,7 @@ def test_compact_prompt_preserves_schema_and_causal_inputs(context_id):
     prompt = build_action_prompt(spec=spec)
     assert len(SYSTEM_PROMPT.split()) <= 20
     assert len((SYSTEM_PROMPT + ' ' + prompt).split()) <= 610  # v17 binary增加显式KEEP选项及目的，仍设总预算。
-    assert 'seconds' not in prompt and 'continuing to wait at a near-stop' in prompt
+    assert 'seconds' not in prompt and 'immediate sustained near-stop or continued waiting' in prompt
     assert 'first meaningful speed change' in prompt
     assert '8.125 m/s' in prompt and 'y=-3.0 m' in prompt
     assert 'negative LEFT, positive RIGHT' in prompt
