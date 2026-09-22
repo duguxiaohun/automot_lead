@@ -1,5 +1,15 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-22 Action token 弱分离正则
+
+三条入口开启 high-level-action-token 的新训练默认加完整七类（含UNCOND）21对 cosine hinge，
+margin=0.5、weight=0.01；action-token-separation-weight=0 可作对照，CLI/同名大写环境变量可覆盖。
+仅正则分支归一化，FP32计算，FM与实际concat不变；累积/DDP不额外放大，验证/选优仍用原指标。
+配置/版本绑定三入口合同与计划；旧配置缺字段按关闭解释，旧run仍须原源码。
+日志记录FM/正则分项、21对cosine及七类范数，审计ZIP收录近期窗口；软约束不保证模型使用token。
+226项相关CPU回归通过，含双进程Gloo梯度等价、BF16、三入口真实循环及恢复配置；未跑真实GPU效果实验。
+实现见 action_prior/action_token.py、training_core.py，demo见 action_prior/run.md 与 action_expert_ablation/run.md。
+
 ### 2026-09-22 Action 多模型配对可视化与训练审计
 
 新增 `action_prior/compare_checkpoints.sh`，两个消融目录同名脚本共用此入口；

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 开启动作 token 默认加弱分离（weight=0.01, cosine margin=0.5）；新 run 对照加 --action-token-separation-weight 0。
 # 默认7轮：首轮5% optimizer更新warmup（占用首周期），1/2/4轮cosine，累计第1/3/7轮末到谷底。
 # 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
 # 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。

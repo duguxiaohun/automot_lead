@@ -38,7 +38,7 @@ if sys.argv[1] == "train":
     (run / "latest.pt").write_bytes(b"fixture")
     (run / "best.pt").write_bytes(b"fixture")
     config = vars(parser().parse_args([]))
-    config.update(dataset_priors=True, prior_labels="old labels.jsonl",
+    config.update(action_token_separation_weight=0.025, action_token_separation_margin=0.65, dataset_priors=True, prior_labels="old labels.jsonl",
                   sampling_mode="event_balanced", event_balance_index="old map.jsonl",
                   event_balanced_epoch_samples=48, event_balance_max_frame_repeats=4,
                   data_dir="old index", data_root="old data", learning_rate=0.0001,
@@ -112,6 +112,8 @@ def test_resume_restores_config_and_pins_real_run(pipeline, style):
     assert [c["argv"][0] for c in (train, evaluate, probe)] == ["train", "eval", "probe"]
     restored = parser().parse_args(train["argv"][1:])
     assert (restored.optimizer, restored.lr_scheduler) == ("muon_adamw", "cosine_restarts")
+    assert restored.action_token_separation_weight == 0.025
+    assert restored.action_token_separation_margin == 0.65
     assert restored.dataset_priors is True
     assert restored.generate_analysis is False
     assert restored.data_dir == "old index"
@@ -244,3 +246,18 @@ def test_bad_resume_fails_before_creating_run(pipeline, args, entrypoint):
     assert result.returncode != 0
     assert not Path(env["TRACE_FILE"]).exists()
     assert not Path(env["OUTPUT_DIR"]).exists()
+
+
+def test_legacy_resume_does_not_inherit_new_separation_default(pipeline):
+    scripts, run, link, env = pipeline
+    path = run / "config.json"
+    cfg = json.loads(path.read_text())
+    cfg.pop("action_token_separation_weight")
+    cfg.pop("action_token_separation_margin")
+    path.write_text(json.dumps(cfg))
+    result = subprocess.run(["bash", str(scripts / "train.sh"), "--resume", str(link / "latest.pt")],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    invocation = json.loads(Path(env["TRACE_FILE"]).read_text().splitlines()[0])
+    restored = parser().parse_args(invocation["argv"][1:])
+    assert restored.action_token_separation_weight == 0

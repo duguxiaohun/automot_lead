@@ -184,6 +184,8 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
     with config_path.open("r", encoding="utf-8") as f:
         saved = json.load(f)
     legacy_optimization_defaults(saved)
+    saved.setdefault("action_token_separation_weight", 0.0)
+    saved.setdefault("action_token_separation_margin", 0.5)
     merged = vars(p.parse_args([]))
     merged.update(saved)
     explicit = _explicit_cli_dests(p, argv)
@@ -203,6 +205,9 @@ def read_rows(args: argparse.Namespace, split: str) -> list[dict]:
 
 def validate_args(args: argparse.Namespace, variant: str) -> None:
     """Keep only the knobs that preserve a fair FM ablation contract."""
+
+    from qwen3vl_local.action_prior.action_token import separation_contract
+    separation_contract(args)
 
     if variant not in VARIANTS:
         raise ValueError(f"unknown ablation variant: {variant}")
@@ -414,11 +419,12 @@ def build_contract(args: argparse.Namespace, variant: str) -> dict:
         ).stdout.strip()
     except Exception:
         git_commit = ""
-    from qwen3vl_local.action_prior.action_token import token_contract
+    from qwen3vl_local.action_prior.action_token import token_contract, separation_contract
     from qwen3vl_local.action_prior.image_condition import image_contract
     identity_payload = dict(
         image_condition=image_contract(args),
         high_level_action_token=token_contract(args),
+        action_token_separation=separation_contract(args),
         rgb_frame_count=args.rgb_frame_count,
         rgb_frame_step=args.rgb_frame_step,
         variant=variant,

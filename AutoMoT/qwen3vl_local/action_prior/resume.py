@@ -23,6 +23,8 @@ def main():
     checkpoint = Path(cli.checkpoint).resolve()
     cfg = json.loads((checkpoint.parent / "config.json").read_text())
     legacy_optimization_defaults(cfg)
+    cfg.setdefault("action_token_separation_weight", 0.0)
+    cfg.setdefault("action_token_separation_margin", 0.5)
     # 新 run 恢复保存的开关；旧 run 缺字段时保留原摘要语义，执行指纹仍严格检查。
     cfg.setdefault("generate_analysis", True)
     if cfg.get("high_level_planning", False):

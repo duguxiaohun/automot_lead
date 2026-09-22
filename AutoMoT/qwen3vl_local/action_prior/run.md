@@ -1,5 +1,38 @@
 # Action prior 使用说明
 
+## 2026-09-22 动作 token 弱分离正则
+
+开启 `--high-level-action-token` 的新训练默认增加弱分离：`--action-token-separation-weight 0.01`、
+`--action-token-separation-margin 0.5`。仍为七个可学习的 1024 维向量，KEEP 不细分，UNCOND 也参与。
+对完整 embedding 表的 21 对不同类别计算 `mean(relu(cos(e_i,e_j)-margin)^2)`，
+总训练 loss 为 `FM loss + weight * separation loss`。只惩罚过高相似度，不要求动作全部正交；
+归一化只用于正则分支，BEV concat 与注意力输入不变。该设计参考防坍塌思想，**不是 LeJEPA/SIGReg 的复现**。
+
+正则使用 FP32（包括 BF16 autocast 内），所有类别等权，每个 micro-step 与 FM loss 一起除以实际累积窗口长度，
+DDP 不额外乘 world size。标签/Phase3 规则、采样和 Qwen prompt 不变。
+验证仍计算原始 FM MSE 和轨迹指标，best 仍按原 ADE 策略选取，不把正则加入验证分数。
+权重设 `0` 可做无正则对照；token 关闭时正则不执行。CLI 优先于环境变量
+`ACTION_TOKEN_SEPARATION_WEIGHT` / `ACTION_TOKEN_SEPARATION_MARGIN`。
+
+TensorBoard 和 `training_audit/windows` 记录 `fm_loss`、`action_token_separation_loss`（未加权）、
+`action_token_separation_weighted`（加权），`loss` 是总训练目标。
+`action_token/cosine/<类别>__<类别>` 共 21 对、`cosine_max/mean` 和每类 `norm` 在首步、日志窗口、轮末与最终步记录；
+`action_token_initial.json` 保存本次进程起点（恢复时为恢复步）的范数/相似度。
+审计 ZIP 包含近期窗口。权重为 0 时两个 separation loss 日志为 0，相似度仍监控。
+
+这是软约束，不保证 decoder 一定利用 token，也不保证轨迹指标提升；相似度不能代替正确/替换 token 的固定噪声轨迹对照。
+默认系数是实验起点，尚未做真实模型/GPU效果验证。算法版本、权重和 margin 写入条件合同与训练计划，
+更改需新 run；旧 run 使用原源码，不能跨源码直接续训。缺这些字段的历史配置按权重 0 解释，仍保留严格源码检查。
+
+```bash
+# 在 AutoMoT/ 下执行；默认四图，开启 token 即启用弱分离
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --high-level-action-token
+# 单当前图 + token + 弱分离；固定四卡可前置 GPU_IDS=0,1,2,3
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --high-level-action-token --rgb-frame-count 1
+# 独立新 run 的无正则对照
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --high-level-action-token --action-token-separation-weight 0
+```
+
 ## 2026-09-21 后续：防止候选容量与 token 支持不足
 
 自动准备的 Phase3 候选容器现在独立于 SFT 问答 split，避免其 val/test 空桶阻塞 Action；Action 继续使用自己的三 split、full map 和开发隔离。准备缓存身份升级，需要按当前源码生成派生产物，旧 run 用原代码。
@@ -31,7 +64,7 @@ Action 导航继续来自其 LeadMoT 输入合同，不能把 Phase3 原始 ego 
 
 三条入口共用两个独立选项（只用于新 run）：
 
-- `--high-level-action-token` / `HIGH_LEVEL_ACTION_TOKEN=1`：默认关闭。五种变化动作＋一个 KEEP＋UNCOND，共七类；`Embedding(7,1024)` 在 BEV projector 后沿 token 维拼接一个向量，默认序列 142→143。UNCOND 同样可学习、参与注意力，不是 padding。开关不改变 FM loss、采样权重或 Qwen 文本，不自动开启旧 `--high-level-action-prior`。
+- `--high-level-action-token` / `HIGH_LEVEL_ACTION_TOKEN=1`：默认关闭。五种变化动作＋一个 KEEP＋UNCOND，共七类；`Embedding(7,1024)` 在 BEV projector 后沿 token 维拼接一个向量，默认序列 142→143。UNCOND 同样可学习、参与注意力，不是 padding。FM 主损失不变，新训练另加上述可关闭的弱分离正则；不改变采样权重或 Qwen 文本，不自动开启旧 `--high-level-action-prior`。
 - `--rgb-frame-count 1` / `RGB_FRAME_COUNT=1`：只向 Qwen 提供当前 anchor 的一张完整 1152×384 三视角拼接图，不裁前视、不复制成四图。默认 `4`；`--rgb-frame-count 4` 恢复四张连续图。BEV 继续单帧 RGB＋LiDAR。`bev_only` 接受同一参数，但本来就不使用 Qwen 图像历史，单/四图不改变它的 BEV 条件。
 
 动作来自当前 Phase3 原始候选和完整帧映射，不从均衡抽样题库补标签、不运行 Phase3 模型。新训缺映射时自动复用/生成；三条路径共用主要动作投影（STOP＞首次跨线＞速度＞KEEP），不走仅主线才有的 Phase1/2 预测门控。KEEP 仍要求题域内证据完整，但不细分类；普通 RE、被过滤、未确认及映射覆盖外帧为 UNCOND，原因分别审计。eligible 帧缺候选、证据不完整、冲突或哈希不符均报错。

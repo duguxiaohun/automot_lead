@@ -1,5 +1,18 @@
 # BEV-Only Action Expert
 
+## 动作 token 防相似坍塌（2026-09-22）
+
+新训练开启 `--high-level-action-token` 即默认启用弱分离正则（weight=0.01，cosine margin=0.5），
+七个 token（含 UNCOND）仍可学习，维度与 concat 不变。用 `--action-token-separation-weight 0` 做独立新 run 对照。
+完整公式、日志和恢复约束见 [共用说明](../run.md#2026-09-22-动作-token-弱分离正则)。
+
+```bash
+# AutoMoT/ 下：单当前图 + token + 默认弱分离；bev_only 本身仍是单帧 BEV
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --high-level-action-token --rgb-frame-count 1
+# 无正则对照（新 run）
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --high-level-action-token --action-token-separation-weight 0
+```
+
 v21 标定通过共享 candidate/full map 和可选动作 token 接入；保持本消融原有输入定义。代码同步不代表旧生产索引已重建，详见 [v21 同步范围](../run.md)。
 
 ## 动作 token 与单图（2026-09-21）

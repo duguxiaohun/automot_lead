@@ -484,3 +484,56 @@ def test_seven_epochs_cycle_boundaries_and_audit(harness, tmp_path, variant):
     torch.save(checkpoint, out / "latest.pt")
     with pytest.raises(ValueError, match="optimization contract mismatch"):
         run(variant, out, resume=True, extra=("--num-epochs", "7"), val_steps=100)
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+def test_token_separation_reaches_shared_loop_and_logs(harness, tmp_path, monkeypatch, variant):
+    """Real loss/accumulation/optimizer/EMA/checkpoint; only costly model/data IO is stubbed."""
+    from qwen3vl_local.action_prior import action_token
+    run, state = harness
+    monkeypatch.setattr(action_token, "ensure_token_inputs", lambda args: None)
+    monkeypatch.setattr(action_token, "token_contract", lambda args: {"fixture": True})
+    for rows in state.rows.values():
+        for row in rows:
+            row.update(action_token_id=2, action_token=dict(
+                name="STOP", reason="fixture", version=action_token.TOKEN_VERSION))
+
+    class TokenDecoder(TinyFlowDecoder):
+        def __init__(self, config, flow_config):
+            super().__init__(config, flow_config)
+            self.conditioner = torch.nn.Module()
+            self.conditioner.action_embedding = torch.nn.Embedding(7, 16)
+            with torch.no_grad():
+                self.conditioner.action_embedding.weight.copy_(
+                    torch.ones(7, 16) * 0.02 + torch.randn(7, 16) * 0.002)
+        def forward(self, **kwargs):
+            result = super().forward(**kwargs)
+            # Zero FM contribution isolates regularizer gradients and its weighting.
+            result["flow_velocity"] = result["flow_velocity"] + self.conditioner.action_embedding.weight.sum() * 0
+            return result
+
+    monkeypatch.setattr(flow_matching, "ConditionalFlowMatchingDecoder", TokenDecoder)
+    out = tmp_path / (variant + "_separation")
+    cli = ("--high-level-action-token", "--action-token-separation-weight", "0.01")
+    checkpoint = run(variant, out, limit=1, extra=cli)
+    logs = {tag: value for tag, value, _ in state.logs[str(out)]}
+    assert logs["train/action_token_separation_loss"] > 0
+    assert logs["train/action_token_separation_weighted"] == pytest.approx(
+        logs["train/action_token_separation_loss"] * 0.01)
+    assert logs["train/loss"] == pytest.approx(logs["train/fm_loss"] + logs["train/action_token_separation_weighted"])
+    initial = json.loads((out / "action_token_initial.json").read_text())["metrics"]
+    assert logs["train/action_token/cosine_mean"] < initial["action_token/cosine_mean"]
+    window = json.loads((out / "training_audit/windows/step_00000001.json").read_text())
+    assert window["metrics"]["action_token/cosine_max"] == logs["train/action_token/cosine_max"]
+    assert "conditioner.action_embedding.weight" in checkpoint["decoder"]
+    plan = json.loads((out / "training_plan.json").read_text())
+    assert plan["action_token_separation"]["enabled"]
+
+    state.train_cases.clear(); state.eval_cases.clear()
+    disabled = tmp_path / (variant + "_disabled_separation")
+    run(variant, disabled, limit=1, extra=(*cli, "--action-token-separation-weight", "0"))
+    logs = {tag: value for tag, value, _ in state.logs[str(disabled)]}
+    assert logs["train/action_token_separation_weighted"] == 0
+    assert logs["train/loss"] == logs["train/fm_loss"]
+    initial = json.loads((disabled / "action_token_initial.json").read_text())["metrics"]
+    assert logs["train/action_token/cosine_mean"] == initial["action_token/cosine_mean"]

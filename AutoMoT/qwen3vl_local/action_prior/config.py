@@ -15,6 +15,7 @@ from qwen3vl_local.action_prior.contracts import (
     read_json,
     select_adapter,
 )
+from qwen3vl_local.action_prior.action_token import separation_contract
 from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION
 from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
 from qwen3vl_local.action_prior.optimization_config import (
@@ -61,6 +62,8 @@ DEFAULTS = dict(
     # 保留自然 RS/EVENT，显式开启时仅追加所选动作的 Phase3 场景因果句。
     high_level_action_prior=False,
     high_level_action_token=False,
+    action_token_separation_weight=0.01,
+    action_token_separation_margin=0.5,
     high_level_action_index="",
     recheck_mode="history",
     condition_mode="prior",
@@ -236,6 +239,7 @@ def read_rows(args, split):
 def validate_args(args):
     """防止兼容参数改变该路线的核心条件。"""
     resolve_scene_priors(args)
+    separation_contract(args)
     # 缺字段只可能来自旧保存配置：其历史行为是生成摘要，不能套用新训练默认值。
     # 后续仍严格核验执行指纹，补字段不表示旧 checkpoint 可以跨源码恢复。
     if not hasattr(args, "generate_analysis"):
@@ -478,6 +482,7 @@ def build_contract(args):
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
         high_level_action_input=action_input,
         high_level_action_token=action_token,
+        action_token_separation=separation_contract(args),
         image_condition=image_contract(args),
         rgb_frame_count=args.rgb_frame_count,
         rgb_frame_step=args.rgb_frame_step,
@@ -635,6 +640,7 @@ def training_plan(args, rows, world):
         high_level_action_prior=getattr(args, "high_level_action_prior", False),
         high_level_action_token=getattr(args, "high_level_action_token", False),
         action_token_support=action_support,
+        action_token_separation=separation_contract(args),
         rgb_frame_count=args.rgb_frame_count,
         prior_image_distribution_shift=(args.rgb_frame_count == 1 and not getattr(args, "dataset_priors", False)
                                         and args.condition_mode == "prior"),

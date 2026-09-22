@@ -1,5 +1,14 @@
 # Action prior 实现与合同
 
+## 2026-09-22 七类动作 token 弱分离
+
+共享 `action_token.separation_loss` 对七类 embedding（含 UNCOND）的 21 对余弦相似度施加 squared hinge，
+默认 margin=0.5、weight=0.01，仅开启 token 的新训练生效；weight=0 为对照。
+共享训练循环在 FM loss 后、累积除数前加入正则，FP32 计算；不改实际 token 的范数或 concat。
+`separation_contract` 将版本/系数绑定三入口条件合同与训练计划；旧配置缺字段按关闭解释，但仍须原源码恢复。
+首步/定期/轮末/最终步记录所有类对 cosine 和范数，审计窗口保留 FM 与正则分项；验证/选优仍按原指标。
+此软约束并非 SIGReg 复现，也不证明 decoder 使用 token 或轨迹性能提高。运行示例见 [run.md](run.md)。
+
 ## 2026-09-21 v21 共享标定与独立提示词合同
 
 候选来源、动作 token 与文字动作主要投影直接复用 Phase3 v21；不维护另一套速度规则。主线自然先验将 UE1 改为可持续的响应/等待/恢复，将信号异常改为给定系统故障；普通、紧凑、摘要与直接 prefill 路径共用并升级 prompt 版本。Phase1/2 检测合同及消融简短/无 Qwen 条件保持独立。数据产物与实际验证范围见 [run.md](run.md) 的 v21 同步说明。

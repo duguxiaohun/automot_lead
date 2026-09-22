@@ -516,6 +516,22 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
     from qwen3vl_local.action_prior.optimization import optimizer_step_with_metrics
     from qwen3vl_local.action_prior.training_audit import publish as publish_audit, record_window
 
+    from qwen3vl_local.action_prior.action_token import (
+        separation_contract, separation_loss, embedding_diagnostics,
+    )
+    separation = separation_contract(args)
+    action_embedding = None
+    if getattr(args, "high_level_action_token", False):
+        action_embedding = model.conditioner.action_embedding
+        if action_embedding is None:
+            raise ValueError("action token enabled but embedding missing")
+    report("train/action_token_separation", announce=True, **separation)
+    if rank == 0 and action_embedding is not None:
+        initial_metrics = embedding_diagnostics(action_embedding.weight)
+        write_json(out / "action_token_initial.json", dict(optimizer_step=step, metrics=initial_metrics))
+        for key, value in initial_metrics.items():
+            writer.add_scalar(f"train/{key}", value, step)
+
     epoch_counts = Counter()
     schedule = optimizer.action_contract["schedule"]
     report("train/lr_schedule", announce=True, optimizer_steps_per_epoch=schedule["optimizer_steps_per_epoch"],
@@ -778,11 +794,20 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                     args.route_loss_weight,
                     args.waypoint_loss_weight,
                 )
+                fm_loss = loss
+                token_sep = None
+                if separation["enabled"]:
+                    token_sep = separation_loss(action_embedding.weight, separation["margin"])
+                    loss = fm_loss + separation["weight"] * token_sep
                 if not torch.isfinite(loss):
                     raise FloatingPointError("nonfinite training loss")
                 report("train/backward_sync" if update else "train/backward_accumulate")
                 (loss / divisor).backward()
             planning = dict(loss=loss.item(), route_fm_mse=rl.item(), waypoint_fm_mse=wl.item())
+            if action_embedding is not None:
+                planning["fm_loss"] = fm_loss.item()
+                planning["action_token_separation_loss"] = token_sep.item() if token_sep is not None else 0.0
+                planning["action_token_separation_weighted"] = separation["weight"] * planning["action_token_separation_loss"]
             if args.train_sampled_metrics:
                 planning.update(old._compute_planning_metrics(outputs, gt_r, gt_w))
             batch_counts = hooks.sample_counts(runtime, prepared["sample"], planning)
@@ -835,7 +860,8 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
             requested_signal = termination.sync_signal(world, device)
             if requested_signal:
                 return save_termination(next_cursor, requested_signal)
-            if step == first_update_step or step % args.logging_steps == 0 or cycle_boundary:
+            if (step == first_update_step or step % args.logging_steps == 0 or cycle_boundary
+                    or (action_embedding is not None and (full_epoch or step >= plan["actual_step_limit"]))):
                 report("train/metrics_rank_merge")
                 values = hooks.summarize(merge_counts(window, world))
                 if rank == 0:
@@ -856,6 +882,8 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                     values.update({f"lr_used/{name}": lr for name, lr in used_lrs.items()})
                     values.update({f"lr_next/{g.get('group_name', str(i))}": g["lr"]
                                    for i, g in enumerate(optimizer.param_groups)})
+                    if action_embedding is not None:
+                        values.update(embedding_diagnostics(action_embedding.weight))
                     record_window(out, step, dict(values, last_update=last_update_metrics))
                     print(
                         f'epoch={epoch+1}/{args.num_epochs} step={step}/{plan["actual_step_limit"]} '

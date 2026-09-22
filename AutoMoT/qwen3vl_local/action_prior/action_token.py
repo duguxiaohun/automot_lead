@@ -15,6 +15,9 @@ ACTION_TOKEN_NAMES = (
 def conditioning_env_args():
     """只转发显式环境值，后续 CLI 覆盖；恢复不注入新默认值。"""
     result = []
+    for key in ("action_token_separation_weight", "action_token_separation_margin"):
+        if key.upper() in os.environ:
+            result.extend(["--" + key.replace("_", "-"), os.environ[key.upper()]])
     if "HIGH_LEVEL_ACTION_TOKEN" in os.environ:
         value = os.environ["HIGH_LEVEL_ACTION_TOKEN"]
         if value not in ("0", "1"):
@@ -141,6 +144,63 @@ def token_source(args):
 
 def token_contract(args):
     return token_source(args).identity if getattr(args, "high_level_action_token", False) else None
+
+
+def separation_contract(args):
+    """Training objective only; leaves Phase3 labels and token lookup unchanged."""
+    import math
+    # Missing fields belong to historical saved configs, never inherit new defaults.
+    weight = float(getattr(args, "action_token_separation_weight", 0.0))
+    margin = float(getattr(args, "action_token_separation_margin", 0.5))
+    if not math.isfinite(weight) or weight < 0:
+        raise ValueError("action-token-separation-weight must be finite and >= 0")
+    if not math.isfinite(margin) or not 0 <= margin < 1:
+        raise ValueError("action-token-separation-margin must be finite and in [0, 1)")
+    return dict(version="action_token_cosine_hinge_v1",
+                enabled=bool(getattr(args, "high_level_action_token", False) and weight > 0),
+                weight=weight, margin=margin, vocabulary=list(ACTION_TOKEN_NAMES),
+                reduction="mean_21_unordered_pairs", precision="float32",
+                scope="all_seven_embedding_rows_including_uncond")
+
+
+def separation_loss(weight, margin):
+    """Weak angular separation of all prototypes; norm growth cannot evade the loss.
+
+    A soft penalty is not a hard guarantee against collapse or decoder ignoring tokens.
+    FP32 calculation also under BF16 autocast; normalize only this loss branch.
+    """
+    import torch
+    import torch.nn.functional as F
+    if weight.ndim != 2 or weight.shape[0] != len(ACTION_TOKEN_NAMES):
+        raise ValueError("action embedding must contain all seven vocabulary rows")
+    with torch.autocast(device_type=weight.device.type, enabled=False):
+        unit = F.normalize(weight.float(), dim=-1, eps=1e-8)
+        gram = unit @ unit.T
+        pairs = torch.triu_indices(len(ACTION_TOKEN_NAMES), len(ACTION_TOKEN_NAMES),
+                                   offset=1, device=weight.device)
+        return (gram[pairs[0], pairs[1]] - margin).clamp_min(0).square().mean()
+
+
+def embedding_diagnostics(weight):
+    """Named cosine pairs and norms; small enough for TensorBoard and audit windows."""
+    import torch
+    import torch.nn.functional as F
+    with torch.no_grad(), torch.autocast(device_type=weight.device.type, enabled=False):
+        value = weight.detach().float()
+        unit = F.normalize(value, dim=-1, eps=1e-8)
+        gram = (unit @ unit.T).cpu().tolist()
+        norms = value.norm(dim=-1).cpu().tolist()
+    metrics = {f"action_token/norm/{name}": norms[i]
+               for i, name in enumerate(ACTION_TOKEN_NAMES)}
+    pairs = []
+    for i, name in enumerate(ACTION_TOKEN_NAMES):
+        for j in range(i + 1, len(ACTION_TOKEN_NAMES)):
+            pairs.append(gram[i][j])
+            metrics[f"action_token/cosine/{name}__{ACTION_TOKEN_NAMES[j]}"] = gram[i][j]
+    metrics.update({"action_token/cosine_max": max(pairs),
+                    "action_token/cosine_mean": sum(pairs) / len(pairs),
+                    "action_token/norm_min": min(norms)})
+    return metrics
 
 
 def annotate_tokens(args, rows):

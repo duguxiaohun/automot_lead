@@ -129,14 +129,21 @@ def test_action_token_affects_flow_and_receives_gradients(prefix_length, dtype):
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
 def test_resume_restores_switches_and_cli_wins(tmp_path, monkeypatch, variant):
     saved = vars(common.parser(variant).parse_args(["--high-level-action-token", "--rgb-frame-count", "1"]))
+    saved.update(action_token_separation_weight=0.03, action_token_separation_margin=0.6)
     (tmp_path / "config.json").write_text(json.dumps(saved))
     checkpoint = tmp_path / "latest.pt"
     args = common.parse_train_args(variant, ["--resume", str(checkpoint)])
     assert args.high_level_action_token and args.rgb_frame_count == 1
+    assert args.action_token_separation_weight == 0.03 and args.action_token_separation_margin == 0.6
     monkeypatch.setenv("HIGH_LEVEL_ACTION_TOKEN", "1")
     monkeypatch.setenv("RGB_FRAME_COUNT", "1")
     args = common.parse_train_args(variant, ["--resume", str(checkpoint), "--no-high-level-action-token", "--rgb-frame-count", "4"])
     assert not args.high_level_action_token and args.rgb_frame_count == 4
+    saved.pop("action_token_separation_weight")
+    saved.pop("action_token_separation_margin")
+    (tmp_path / "config.json").write_text(json.dumps(saved))
+    legacy = common.parse_train_args(variant, ["--resume", str(checkpoint)])
+    assert legacy.action_token_separation_weight == 0
 
 
 def test_resume_never_rebuilds_missing_token_source():
@@ -167,6 +174,12 @@ def test_contract_rejects_changed_token_or_image_condition(sources, tmp_path, mo
     require = contracts.require_contract if variant == "prior" else common.require_contract
     original = build()
     assert original["identity_payload"]["high_level_action_token"]["vocabulary"] == list(token.ACTION_TOKEN_NAMES)
+    for field in ("action_token_separation_weight", "action_token_separation_margin"):
+        previous = getattr(args, field)
+        setattr(args, field, previous + 0.1)
+        with pytest.raises(ValueError, match="contract mismatch"):
+            require(original, build())
+        setattr(args, field, previous)
     args.rgb_frame_count = 1
     with pytest.raises(ValueError, match="contract mismatch"):
         require(original, build())
@@ -195,3 +208,99 @@ def test_main_shell_switches(stub):
     offset = argv.index("train") + 1
     args = parser().parse_args(argv[offset:])
     assert args.high_level_action_token is False and args.rgb_frame_count == 4
+
+
+@pytest.mark.parametrize("bf16", [False, True])
+def test_separation_penalty_reduces_near_collapsed_cosines(bf16):
+    torch.manual_seed(91)
+    weight = torch.nn.Parameter(torch.ones(7, 32) * 0.02 + torch.randn(7, 32) * 0.002)
+    initial = token.embedding_diagnostics(weight)["action_token/cosine_mean"]
+    optimizer = torch.optim.AdamW([weight], lr=0.003, weight_decay=0)
+    for _ in range(80):
+        optimizer.zero_grad()
+        with torch.autocast("cpu", enabled=bf16, dtype=torch.bfloat16):
+            loss = token.separation_loss(weight, 0.5)
+        assert loss.dtype == torch.float32
+        loss.backward()
+        assert torch.isfinite(weight.grad).all()
+        if _ == 0:
+            # Every row gets separation gradients even if a batch has only one label.
+            assert (weight.grad.norm(dim=1) > 0).all()
+        optimizer.step()
+    assert initial > 0.9
+    assert token.embedding_diagnostics(weight)["action_token/cosine_max"] < 0.6
+
+
+def test_separation_is_scale_invariant_and_inactive_for_distinct_rows():
+    weight = torch.eye(7, 16, requires_grad=True)
+    loss = token.separation_loss(weight, 0.5)
+    loss.backward()
+    assert loss.item() == 0 and weight.grad.count_nonzero() == 0
+    torch.manual_seed(21)
+    value = torch.ones(7, 16) + torch.randn(7, 16) * 0.1
+    assert torch.allclose(token.separation_loss(value, 0.5),
+                          token.separation_loss(value * torch.arange(1, 8)[:, None], 0.5))
+    values = token.embedding_diagnostics(value)
+    assert len([k for k in values if k.startswith("action_token/cosine/")]) == 21
+    assert len([k for k in values if k.startswith("action_token/norm/")]) == 7
+    assert torch.isfinite(token.separation_loss(torch.zeros(7, 16), 0.5))
+
+
+@pytest.mark.parametrize("field,value", [("weight", -1), ("weight", float("nan")),
+    ("weight", float("inf")), ("margin", -0.1), ("margin", 1.0), ("margin", float("nan"))])
+def test_bad_separation_configuration_rejected(field, value):
+    args = parser().parse_args([])
+    setattr(args, "action_token_separation_" + field, value)
+    with pytest.raises(ValueError, match="action-token-separation"):
+        token.separation_contract(args)
+
+
+def test_separation_default_switch_and_environment(monkeypatch):
+    args = parser().parse_args([])
+    assert not token.separation_contract(args)["enabled"]
+    args.high_level_action_token = True
+    assert token.separation_contract(args)["enabled"]
+    args.action_token_separation_weight = 0
+    assert not token.separation_contract(args)["enabled"]
+    monkeypatch.setenv("ACTION_TOKEN_SEPARATION_WEIGHT", "0.02")
+    monkeypatch.setenv("ACTION_TOKEN_SEPARATION_MARGIN", "0.6")
+    args = parser().parse_args([*token.conditioning_env_args(), "--action-token-separation-weight", "0"])
+    assert args.action_token_separation_weight == 0
+    assert args.action_token_separation_margin == 0.6
+    assert token.separation_contract(SimpleNamespace(high_level_action_token=True))["weight"] == 0
+
+
+def _separation_ddp_worker(rank, rendezvous, result):
+    from contextlib import nullcontext
+    from datetime import timedelta
+    import torch.distributed as dist
+    dist.init_process_group("gloo", init_method=rendezvous, rank=rank, world_size=2,
+                            timeout=timedelta(seconds=30))
+    try:
+        torch.manual_seed(7)
+        model = torch.nn.Embedding(7, 16)
+        with torch.no_grad():
+            model.weight.copy_(torch.ones(7, 16) * 0.02 + torch.randn(7, 16) * 0.002)
+        ddp = torch.nn.parallel.DistributedDataParallel(model)
+        for micro in range(3):
+            with ddp.no_sync() if micro < 2 else nullcontext():
+                fm = ddp(torch.tensor([rank * 3 + micro])).square().mean()
+                ((fm + 0.01 * token.separation_loss(model.weight, 0.5)) / 3).backward()
+        if rank == 0:
+            torch.save(dict(weight=model.weight.detach(), grad=model.weight.grad), result)
+    finally:
+        dist.destroy_process_group()
+
+
+def test_separation_ddp_and_accumulation_match_global_objective(tmp_path):
+    import torch.distributed as dist
+    if not dist.is_available() or not dist.is_gloo_available():
+        pytest.skip("requires CPU Gloo")
+    result = tmp_path / "gradient.pt"
+    torch.multiprocessing.spawn(_separation_ddp_worker,
+        args=((tmp_path / "rendezvous").as_uri(), str(result)), nprocs=2, join=True)
+    saved = torch.load(result, weights_only=True)
+    weight = saved["weight"].requires_grad_()
+    # Six distinct samples, one copy of the full-table penalty, no extra world factor.
+    (weight[:6].square().mean() + 0.01 * token.separation_loss(weight, 0.5)).backward()
+    assert torch.allclose(saved["grad"], weight.grad, atol=1e-7, rtol=1e-5)

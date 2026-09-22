@@ -1,5 +1,39 @@
 # Action Expert 消融实验
 
+## 2026-09-22 动作 token 弱分离正则
+
+开启 `--high-level-action-token` 的新训练默认增加弱分离：`--action-token-separation-weight 0.01`、
+`--action-token-separation-margin 0.5`。仍为七个可学习的 1024 维向量，KEEP 不细分，UNCOND 也参与。
+对完整 embedding 表的 21 对不同类别计算 `mean(relu(cos(e_i,e_j)-margin)^2)`，
+总训练 loss 为 `FM loss + weight * separation loss`。只惩罚过高相似度，不要求动作全部正交；
+归一化只用于正则分支，BEV concat 与注意力输入不变。该设计参考防坍塌思想，**不是 LeJEPA/SIGReg 的复现**。
+
+正则使用 FP32（包括 BF16 autocast 内），所有类别等权，每个 micro-step 与 FM loss 一起除以实际累积窗口长度，
+DDP 不额外乘 world size。标签/Phase3 规则、采样和 Qwen prompt 不变。
+验证仍计算原始 FM MSE 和轨迹指标，best 仍按原 ADE 策略选取，不把正则加入验证分数。
+权重设 `0` 可做无正则对照；token 关闭时正则不执行。CLI 优先于环境变量
+`ACTION_TOKEN_SEPARATION_WEIGHT` / `ACTION_TOKEN_SEPARATION_MARGIN`。
+
+TensorBoard 和 `training_audit/windows` 记录 `fm_loss`、`action_token_separation_loss`（未加权）、
+`action_token_separation_weighted`（加权），`loss` 是总训练目标。
+`action_token/cosine/<类别>__<类别>` 共 21 对、`cosine_max/mean` 和每类 `norm` 在首步、日志窗口、轮末与最终步记录；
+`action_token_initial.json` 保存本次进程起点（恢复时为恢复步）的范数/相似度。
+审计 ZIP 包含近期窗口。权重为 0 时两个 separation loss 日志为 0，相似度仍监控。
+
+这是软约束，不保证 decoder 一定利用 token，也不保证轨迹指标提升；相似度不能代替正确/替换 token 的固定噪声轨迹对照。
+默认系数是实验起点，尚未做真实模型/GPU效果验证。算法版本、权重和 margin 写入条件合同与训练计划，
+更改需新 run；旧 run 使用原源码，不能跨源码直接续训。缺这些字段的历史配置按权重 0 解释，仍保留严格源码检查。
+
+```bash
+# 在 AutoMoT/ 下执行；两个消融入口与主线共用正则
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --high-level-action-token
+bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --high-level-action-token --rgb-frame-count 1
+# 独立新 run 的无正则对照
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --high-level-action-token --action-token-separation-weight 0
+# 调整系数；也可通过同名 CLI 覆盖。固定四卡可前置 GPU_IDS=0,1,2,3
+ACTION_TOKEN_SEPARATION_WEIGHT=0.02 ACTION_TOKEN_SEPARATION_MARGIN=0.5 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --high-level-action-token
+```
+
 ## 2026-09-21 后续：共享容量检查
 
 两条消融同步使用主线新的候选准备与 token 支持检查：候选容器不依赖 SFT 的 val/test 桶；训练全为 UNCOND 时拒绝，每轮实际采样后再检查并报告七类支持。简短 Qwen / 无 Qwen 条件不变，不强制补齐不存在的动作。真实全量核验与纯数据审计命令见 [容量审计](../sft_new_loop_phase3/CAPACITY_AUDIT_20260921.md)。
