@@ -449,7 +449,7 @@ def test_shell_forwards_config_and_paths_with_spaces(tmp_path, enabled, flag):
     import subprocess
     script = Path(__file__).resolve().parents[1] / "compare_checkpoints.sh"
     # 模拟用户直接编辑sh配置；外部环境不覆盖脚本中的两项设置。
-    content = script.read_text().replace('ERROR_ONLY=true', f'ERROR_ONLY={enabled}').replace(
+    content = script.read_text().replace('ENABLE_EVENT=true', f'ENABLE_EVENT={enabled}').replace('ERROR_ONLY=true', f'ERROR_ONLY={enabled}').replace(
         'ERROR_ADE_THRESHOLD_M=1.0', 'ERROR_ADE_THRESHOLD_M=1.25')
     script = tmp_path / 'compare_checkpoints.sh'
     script.write_text(content)
@@ -460,11 +460,45 @@ def test_shell_forwards_config_and_paths_with_spaces(tmp_path, enabled, flag):
     run = subprocess.run(["bash", str(script), *args], check=True, capture_output=True, text=True,
                          env={**os.environ, "PYTHON": str(fake), "ERROR_ONLY": "invalid_external", "ERROR_THRESHOLD_M": "999"})
     argv = json.loads(run.stdout)
-    assert argv[1:3] == ["--cases-per-category", "50"] and argv[18:] == args
+    assert argv[1:3] == ["--cases-per-category", "50"] and argv[20:] == args
+    assert argv[18:20] == ['--event' if enabled == 'true' else '--no-event', '--action']
     assert argv[7:14] == ['--error-ade-threshold-m', '1.25', '--error-fde-threshold-m', '3.0', '--error-cases-per-category', '5', flag]
     assert argv[14:18] == ['--sampling-seed', 'auto', '--seed', '2026']
     assert argv[3] == "--output-root" and Path(argv[4]).resolve() == script.parents[2] / "test"
     assert argv[5:7] == ["--gpus", "4"]
+
+
+@pytest.mark.parametrize('style', ['event', 'action'])
+def test_single_style_sampling_ignores_disabled_overrides(style):
+    rows = [row(i, route) for route in ('a','b','c') for i in range(30)]
+    all_picked, all_groups, _ = cc.select_cases(rows, per_category=2, seed=23)
+    picked, groups, coverage = cc.select_cases(rows, per_category=2, seed=23, styles=[style],
+        category_counts={'action' if style == 'event' else 'event': {'STOP':100, 'UE1':100}})
+    assert set(groups) == set(coverage) == {style}
+    assert groups[style] == all_groups[style]
+    assert {cc.case_id(r) for r in picked} == {cid for ids in groups[style].values() for cid in ids}
+
+
+@pytest.mark.parametrize('style', ['event', 'action'])
+def test_single_style_publish_has_no_disabled_folders(tmp_path, style):
+    manifest, cid = make_outputs(tmp_path)
+    plan = manifest['splits']['test']
+    disabled = 'action' if style == 'event' else 'event'
+    del plan['groups'][disabled]
+    del plan['coverage'][disabled]
+    publish(tmp_path, manifest)
+    assert not (tmp_path/disabled).exists()
+    assert (tmp_path/style).is_dir()
+    assert all(key.startswith(style+'/') for key in cc.read_json(tmp_path/'summary.json'))
+
+
+def test_both_styles_disabled_fail_before_gpu_or_preflight(monkeypatch):
+    from qwen3vl_local.action_prior import compare_checkpoints as main
+    monkeypatch.setattr(main, 'prepare', lambda *args: pytest.fail('preflight should not run'))
+    monkeypatch.setattr(sys, 'argv', ['compare_checkpoints.py','--no-event','--no-action'])
+    with pytest.raises(SystemExit) as exc:
+        main.main()
+    assert exc.value.code == 2
 
 
 def test_publish_with_calibrated_third_person(tmp_path):

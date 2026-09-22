@@ -140,18 +140,24 @@ def parse_category_counts(specifications, names):
     return counts
 
 
-def select_cases(rows, *, per_category=8, seed=2026, min_frame_gap=8, category_counts=None, split=None):
+def select_cases(rows, *, per_category=8, seed=2026, min_frame_gap=8, category_counts=None, split=None,
+                 styles=("event", "action")):
     """按物理路线轮转抽帧；只看标签、不看预测，稀缺类别不复制凑数。"""
     pools = {"event": {name: [] for name in EVENT_NAMES}, "action": {name: [] for name in ACTION_NAMES}}
+    if not styles or not set(styles) <= set(pools):
+        raise ValueError("至少启用event/action之一，且不能包含未知分类风格")
+    pools = {style: pool for style, pool in pools.items() if style in styles}
     seen = set()
     for row in rows:
         key = identity(row)
         if key in seen:
             raise ValueError(f"重复帧: {key}")
         seen.add(key)
-        for name in event_groups(row):
-            pools["event"].setdefault(name, []).append(row)
-        pools["action"][row["action_token"]["name"]].append(row)
+        if "event" in pools:
+            for name in event_groups(row):
+                pools["event"].setdefault(name, []).append(row)
+        if "action" in pools:
+            pools["action"][row["action_token"]["name"]].append(row)
     # 身份只用于前面的重复检查，释放全量set再进行分桶选帧。
     del seen
     selected, coverage, wanted_keys = {}, {}, set()

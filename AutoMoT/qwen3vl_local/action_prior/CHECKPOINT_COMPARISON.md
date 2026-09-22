@@ -59,6 +59,19 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh --plan-only
 
 plan-only仍需要原训练环境的Python依赖、真实checkpoint、BEV/Qwen文件和原数据索引以核对内容身份，但不查询GPU、不构造模型、不运行GPU推理。结果始终写新的时间目录，不覆盖旧测试。
 
+## 分别开关event与action
+
+在统一sh中直接编辑，两项默认true，三个入口共用：
+
+```bash
+ENABLE_EVENT=false
+ENABLE_ACTION=true
+```
+
+上述配置只从action子类选择候选、搜索错误并生成action的train/test目录；不会为event额外选案例或生成event目录。反过来设置true/false则只测event，true/true同时启用。两项都false会在GPU查询、预检及建输出目录之前报错。CLI可用 `--no-event` / `--no-action` 关闭，或 `--event` / `--action` 覆盖sh设置。
+
+关闭风格下的EVENT_CASES/ACTION_CASES配额不参与采样；启用风格仍遵守每子类候选上限、误差阈值与命中目标，train/test各自独立。manifest的enabled_styles记录实际选择。开关只控制分类方式，不删除case的event/action审计标签，也不改变checkpoint保存的action token或文字先验输入条件。普通比较及误差搜索两种模式都适用。
+
 ## 每次重新选案例并打乱执行顺序
 
 脚本中直接配置，无需在命令前传环境变量：

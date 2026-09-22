@@ -51,6 +51,7 @@ def prepare(cli, out):
     from qwen3vl_local.action_prior.comparison_progress import PreflightProgress
     progress = PreflightProgress(out)
     sampling_seed = cli.sampling_seed
+    styles = [style for style in ("event", "action") if getattr(cli, style, True)]
     overrides = {key: getattr(cli, key) for key in (
         "data_root", "data_dir", "model_dir", "lead_bev_ckpt", "event_balance_index",
         "high_level_action_index", "prior_labels", "phase1_training_index", "phase2_training_index") if getattr(cli, key)}
@@ -103,6 +104,7 @@ def prepare(cli, out):
         error_filter=dict(enabled=getattr(cli, "error_only", False), ade_threshold_m=getattr(cli, "error_ade_threshold_m", 1.0),
                           fde_threshold_m=getattr(cli, "error_fde_threshold_m", 3.0)),
         error_case_target=getattr(cli, "error_cases_per_category", 5),
+        enabled_styles=styles,
         category_counts=cli.category_counts, camera_config=cli.camera_configuration,
         min_frame_gap=cli.min_frame_gap, label_source=source.identity, models=entries, splits={},
         interpretation="分层抽样的离线同帧 EMA 对比；不是全量 test、闭环或泛化结论。event 可重叠。")
@@ -117,7 +119,7 @@ def prepare(cli, out):
             source.annotate(labels)
         with progress.stage(f"{split}: stratified case selection ({len(reference)} frames)"):
             picked, groups, coverage = select_cases(labels, per_category=cli.cases_per_category, seed=sampling_seed,
-                min_frame_gap=cli.min_frame_gap, category_counts=cli.category_counts, split=split)
+                min_frame_gap=cli.min_frame_gap, category_counts=cli.category_counts, split=split, styles=styles)
             picked = ordered_cases(picked, sampling_seed, split)
             order = {identity(row): index for index, row in enumerate(picked)}
             id_order = {case_id(row): index for index, row in enumerate(picked)}
@@ -168,6 +170,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", nargs="*")
     parser.add_argument("--names", nargs="+")
+    parser.add_argument("--event", action=argparse.BooleanOptionalAction, default=True, help="启用event分类采样/搜索/输出，默认开启")
+    parser.add_argument("--action", action=argparse.BooleanOptionalAction, default=True, help="启用action分类采样/搜索/输出，默认开启")
     parser.add_argument("--cases-per-category", type=int, default=50)
     parser.add_argument("--error-only", action=argparse.BooleanOptionalAction, default=False,
                         help="分批搜索waypoint大误差，每类达到命中目标即停止派发")
@@ -199,6 +203,8 @@ def main():
         from qwen3vl_local.action_prior.comparison_runtime import evaluate_worker
         evaluate_worker(read_json(cli.worker_job))
         return
+    if not cli.event and not cli.action:
+        parser.error("event和action不能同时关闭：至少启用一种分类")
     try:
         cli.sampling_seed_mode = "auto" if cli.sampling_seed.lower() == "auto" else "fixed"
         cli.sampling_seed = resolve_sampling_seed(cli.sampling_seed)

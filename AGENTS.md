@@ -6,6 +6,7 @@
 编辑 CKPT_DIRS 即可传任意多个带时间的训练目录，按原完整val选best并使用EMA。
 按同源event/action标签对有效train/test池各类默认准备最多50个候选，优先物理路线多样性；
 所有模型同帧同评估噪声；event/action可逐类及逐split设配额，0跳过，优先物理路线多样性。
+ENABLE_EVENT/ENABLE_ACTION默认均true；关闭风格不采样/搜索/输出目录，启用风格仍独立覆盖train/test；两者皆关启动即拒绝。
 保存实际RGB投影、道路/车辆框俯视与GT/多模型拼图PNG/PDF、历史输入和简洁JSON；
 RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆盖。三图为横向拼接，各相机独立投影。
 已对照LEAD采集顺序及Bench2Drive逆外参，避免直接沿用旧录像器[3,2,1]/欧拉/FOV约定。
