@@ -18,6 +18,7 @@ EXECUTION_SEEDS = (
             "runtime",
             "action_input",
             "action_token",
+            "action_balance",
             "image_condition",
             "prompts",
             "priors",

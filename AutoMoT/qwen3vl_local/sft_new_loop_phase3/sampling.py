@@ -14,6 +14,39 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple, TypeVar
 
 T = TypeVar("T")
 
+SUPPORT_BALANCE_VERSION = "capacity_return_natural_cycles_v1"
+
+
+def support_diagnostic(frames: int, routes: int, presentations=None) -> Dict[str, Any]:
+    """只报告复查线索；100帧/10物理路线阈值不参与配额、过滤或标签。
+
+    缺失动作不合成为 KEEP；低频也不自动撤去条件为 UNCOND。
+    """
+    return dict(frames=frames, physical_routes=routes,
+                review_flags=(["fewer_than_100_frames"] if frames < 100 else [])
+                             + (["fewer_than_10_physical_routes"] if routes < 10 else []),
+                diagnostic_only=True, presentations=presentations,
+                presentations_per_available_frame=(presentations / frames
+                    if presentations is not None and frames else None))
+
+
+def support_aware_quota(capacities: Mapping[str, int], target: int) -> Dict[str, int]:
+    """先完整覆盖自然池，再对余量做容量内均衡；稀少格子不被单独循环放大。
+
+    整个事件不足预算时才重复完整池，单格最多 ceil(target / pool_size) 轮。
+    不用 val/test 支持率决定训练取舍，也不把稀少动作重标为 KEEP/UNCOND。
+    """
+    if target < 0 or any(type(n) is not int or n < 0 for n in capacities.values()):
+        raise ValueError("support-aware quotas require nonnegative integer capacities/target")
+    size = sum(capacities.values())
+    if not size:
+        if target:
+            raise ValueError("support-aware quota has no supported samples")
+        return dict.fromkeys(capacities, 0)
+    cycles, remainder = divmod(target, size)
+    partial = even_quota_with_capacity(capacities, remainder)
+    return {key: cycles * n + partial[key] for key, n in capacities.items()}
+
 
 def primary_action_distribution(signature_counts: Mapping[str, int]) -> Dict[str, Any]:
     """按主要动作投影报告计数；STOP+跨线仍是STOP，INVALID单列分母。"""

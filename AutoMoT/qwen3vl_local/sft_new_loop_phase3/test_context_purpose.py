@@ -69,7 +69,7 @@ def test_train_defaults_and_explicit_binary_override(monkeypatch):
     monkeypatch.setattr("sys.argv", ["train.py"])
     args = parse()
     assert (args.history_rgb_mode, args.action_output_mode) == ("4rgb", "choice")
-    assert "data_v21" in args.index
+    assert "data_v22" in args.index
     monkeypatch.setattr("sys.argv", ["train.py", "--history-rgb-mode", "2rgb_endpoints", "--action-output-mode", "binary"])
     args = parse()
     assert (args.history_rgb_mode, args.action_output_mode) == ("2rgb_endpoints", "binary")

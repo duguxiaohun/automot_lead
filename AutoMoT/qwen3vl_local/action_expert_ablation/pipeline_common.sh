@@ -196,7 +196,7 @@ action_ablation_run_full_pipeline() {
   action_ablation_build_index_if_needed "$data_root" "$data_dir"
 
   # 续训的采样参数/来源由 config.json 恢复，不自动重选或重建 full map。
-  if [[ -z "$train_resume" && "$sampling_mode" == event_balanced ]]; then
+  if [[ -z "$train_resume" && ( "$sampling_mode" == event_balanced || "$sampling_mode" == action_balanced ) ]]; then
     if [[ -z "$event_balance_index" ]]; then
       event_balance_index="$(action_prepare_event_balance_index "$data_root" "$data_dir")"
       passthrough+=(--event-balance-index "$event_balance_index")

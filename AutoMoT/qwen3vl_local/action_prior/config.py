@@ -77,6 +77,7 @@ DEFAULTS = dict(
     event_balance_index="",
     event_balance_route_diverse=True,
     event_balanced_epoch_samples=0,
+    # 8 同时保留旧配置缺字段时的恢复兜底；新 CLI 按最终采样模式解析默认值。
     event_balance_max_frame_repeats=8,
     best_selection_metric="natural_ade",
     # 内部保存字段，不再暴露 CLI；新训练按 dataset/action/noise 自动推导。
@@ -141,9 +142,22 @@ INPUT_FIELDS = (
 )
 
 
+class SamplingArgumentParser(argparse.ArgumentParser):
+    """模式相关默认值在所有别名解析完后确定，不覆盖显式参数或保存值。"""
+
+    def parse_known_args(self, args=None, namespace=None):
+        parsed, rest = super().parse_known_args(args, namespace)
+        if getattr(parsed, "event_balance_max_frame_repeats", None) is None:
+            from qwen3vl_local.action_prior.event_balance import DEFAULT_ACTION_REPEAT_CAP
+            parsed.event_balance_max_frame_repeats = (
+                DEFAULT_ACTION_REPEAT_CAP if parsed.sampling_mode == "action_balanced" else 8
+            )
+        return parsed, rest
+
+
 def parser():
     """所有正式超参数均可 CLI 覆盖。"""
-    p = argparse.ArgumentParser()
+    p = SamplingArgumentParser()
     for k, v in DEFAULTS.items():
         if k == "event_balanced_scene_priors":
             continue
@@ -163,7 +177,7 @@ def parser():
         )
     p.add_argument("--preflight", action="store_true")
     p.add_argument("--models-only", action="store_true")
-    p.set_defaults(event_balanced_scene_priors=None)
+    p.set_defaults(event_balanced_scene_priors=None, event_balance_max_frame_repeats=None)
     from qwen3vl_local.action_prior.event_balance import add_sampling_aliases
     add_sampling_aliases(p)
     return p
@@ -176,7 +190,7 @@ def read_rows(args, split):
     rows, seen, blocked = [], set(), {}
     root = Path(args.data_root).resolve()
     event_active = (
-        getattr(args, "sampling_mode", "uniform") == "event_balanced"
+        getattr(args, "sampling_mode", "uniform") in ("event_balanced", "action_balanced")
         or getattr(args, "event_balanced_scene_priors", False)
         or getattr(args, "high_level_action_prior", False)
         or getattr(args, "high_level_action_token", False)
@@ -562,7 +576,7 @@ def training_plan(args, rows, world):
         if groups[a] & groups[b]:
             raise ValueError(f"physical route leakage: {a}/{b}")
     event_available = None
-    if args.sampling_mode == "event_balanced":
+    if args.sampling_mode in ("event_balanced", "action_balanced"):
         from qwen3vl_local.action_prior.event_balance import (
             REGULAR_BACKGROUND,
             SPECIAL_BUCKETS,
@@ -580,13 +594,17 @@ def training_plan(args, rows, world):
                 "event-balanced sampling needs every UE1-7/RE2/RE3/RE5 bucket and "
                 f"a regular background pool; missing={missing} available={event_available}"
             )
-        usable = event_balanced_total(
+        total_function = event_balanced_total
+        if args.sampling_mode == "action_balanced":
+            from qwen3vl_local.action_prior.action_balance import action_balanced_total
+            total_function = action_balanced_total
+        usable = total_function(
             rows["train"], requested=args.event_balanced_epoch_samples,
             repeat_cap=args.event_balance_max_frame_repeats, world=world,
         )
     updates = math.ceil((usable // world) / args.grad_accum_steps)
     sampling = dict(mode=args.sampling_mode)
-    if args.sampling_mode == "event_balanced":
+    if args.sampling_mode in ("event_balanced", "action_balanced"):
         from qwen3vl_local.action_prior.event_balance import (
             REGULAR_BACKGROUND,
             SPECIAL_BUCKETS,
@@ -610,6 +628,9 @@ def training_plan(args, rows, world):
             effective_epoch_samples=usable,
             best_selection_metric=args.best_selection_metric,
         )
+        if args.sampling_mode == "action_balanced":
+            from qwen3vl_local.action_prior.action_balance import action_balance_plan
+            sampling["action_balance"] = action_balance_plan(rows["train"], usable, repeat_cap=args.event_balance_max_frame_repeats)
         val_available = available_counts(rows["val"], for_evaluation=True)
         val_missing = [
             key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)

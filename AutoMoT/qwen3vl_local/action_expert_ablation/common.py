@@ -120,7 +120,7 @@ def parser(variant: str) -> argparse.ArgumentParser:
     }
     if variant == "bev_only":
         ignored.update({"model_dir", "qwen_dtype", "qwen_load_stagger_s"})
-    p = argparse.ArgumentParser(description=f"Train/eval {variant} action expert ablation")
+    p = prior_config.SamplingArgumentParser(description=f"Train/eval {variant} action expert ablation")
     for key, value in defaults.items():
         if key in ignored:
             continue
@@ -131,6 +131,7 @@ def parser(variant: str) -> argparse.ArgumentParser:
         )
         p.add_argument("--" + key.replace("_", "-"), default=value, **kwargs)
     p.set_defaults(**{key: defaults[key] for key in ignored if key in defaults})
+    p.set_defaults(event_balance_max_frame_repeats=None)
     add_sampling_aliases(p)
     p.add_argument("--preflight", action="store_true")
     return p
@@ -347,6 +348,8 @@ def contract_source_paths(variant: str) -> list[str]:
         "qwen3vl_local/action_prior/launch.py",
         "qwen3vl_local/action_prior/flow_matching.py",
         "qwen3vl_local/action_prior/action_token.py",
+        "qwen3vl_local/action_prior/action_balance.py",
+        "qwen3vl_local/sft_new_loop_phase3/sampling.py",
         "qwen3vl_local/action_prior/image_condition.py",
         "qwen3vl_local/action_prior/precision.py",
         "qwen3vl_local/action_prior/config.py",

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.action_prior.config import parser, read_rows, training_plan
 from qwen3vl_local.action_prior.contracts import file_hash
 from qwen3vl_local.action_prior.event_balance import (
-    available_counts, build_event_balanced_epoch, SPECIAL_BUCKETS, REGULAR_BACKGROUND,
+    available_counts, build_balanced_epoch, SPECIAL_BUCKETS, REGULAR_BACKGROUND,
 )
 from qwen3vl_local.action_prior.action_token import token_support, require_conditioned_training
 
@@ -21,7 +21,7 @@ from qwen3vl_local.action_prior.action_token import token_support, require_condi
 def audit(args):
     if args.num_epochs < 1 or not args.world_sizes or min(args.world_sizes) < 1:
         raise ValueError("positive num_epochs and world-sizes required")
-    if args.high_level_action_token and not args.event_balance_index:
+    if (args.high_level_action_token or args.sampling_mode == "action_balanced") and not args.event_balance_index:
         raise ValueError("capacity audit requires an existing --event-balance-index for action tokens")
     rows = {split: read_rows(args, split) for split in ("train", "val", "test")}
     result = dict(
@@ -44,9 +44,9 @@ def audit(args):
         plan = training_plan(args, rows, world)
         epochs = []
         for epoch in range(args.num_epochs):
-            if args.sampling_mode == "event_balanced":
-                selected, report = build_event_balanced_epoch(
-                    rows["train"], total=plan["samples_per_epoch"], seed=args.seed + epoch,
+            if args.sampling_mode in ("event_balanced", "action_balanced"):
+                selected, report = build_balanced_epoch(
+                    rows["train"], mode=args.sampling_mode, total=plan["samples_per_epoch"], seed=args.seed + epoch,
                     route_diverse=args.event_balance_route_diverse,
                     repeat_cap=args.event_balance_max_frame_repeats,
                 )

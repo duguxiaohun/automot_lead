@@ -33,7 +33,7 @@ def conditioning_env_args():
 
 def ensure_token_inputs(args):
     """新训自动准备 full map；恢复只能使用保存的文件。"""
-    if not getattr(args, "high_level_action_token", False):
+    if not (getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced"):
         return
     if not getattr(args, "event_balance_index", ""):
         if getattr(args, "resume", ""):
@@ -204,7 +204,7 @@ def embedding_diagnostics(weight):
 
 
 def annotate_tokens(args, rows):
-    if getattr(args, "high_level_action_token", False):
+    if getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced":
         token_source(args).annotate(rows)
 
 

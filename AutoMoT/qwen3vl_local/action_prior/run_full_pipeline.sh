@@ -1,38 +1,17 @@
 #!/usr/bin/env bash
-# 开启动作 token 默认加弱分离（weight=0.01, cosine margin=0.5）；新 run 对照加 --action-token-separation-weight 0。
-# 默认7轮：首轮5% optimizer更新warmup（占用首周期），1/2/4轮cosine，累计第1/3/7轮末到谷底。
-# 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
-# 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
-# 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
-# 续训恢复原配置并严格校验；完整参数和三组对照见 action_prior/OPTIMIZATION.md。
-# v13 Phase3 对齐：主要动作或 NONE；自动 v4 动作索引，NONE 保留场景事实 但不追加具体动作。
-# 在 AutoMoT/ 下运行；自动准备索引、自动选卡，默认直接图文 KV，不生成摘要。
-# 1. 数据集先验 + 均衡采样（去掉 --event-balanced 即自然采样）：
+# 在 AutoMoT/ 下执行；自动准备数据、选卡。默认自然采样、7轮。
+# 默认训练：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
+# event 均衡：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-#
-# 2. 再加 一句 Phase3 所选动作及场景原因（离线动作真值）（自动标注，无需动作索引）：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-prior
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-prior
-#   去掉 --high-level-action-prior 保留原自然 RS/EVENT；动作开关默认关闭。
-#
-# 3. 续训（自动恢复原配置和开关）：
+# action 均衡 + token + 单当前图（默认四图）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
+# 续训（恢复原配置，使用匹配源码）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --resume checkpoints/action_prior/latest/latest.pt
-#
-# 可选追加：--generate-analysis 生成摘要；--prior-noise 0.1 注入先验噪声。
-# 更多开关/环境变量见 run.md，审计见 AUDIT.md；动作真值模式暂不支持闭环。
-# 干净的 dataset-priors + high-level-action-prior 自动提供已确认特殊 RE；无需额外场景开关。
-# 单当前图 demo（默认仍为四图；更换图数需新开 run）：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1
-# 单当前图＋high-level 动作 token（KEEP 不细分）：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
-# 环境变量等价写法；显式 CLI 优先：
-#   RGB_FRAME_COUNT=1 HIGH_LEVEL_ACTION_TOKEN=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-# 四图对照：将 --rgb-frame-count 1 换成 --rgb-frame-count 4；关闭 token 用 --no-high-level-action-token。
-# 单图取当前 anchor 的完整三视角拼接 RGB，Qwen 提示词同步切为单图。
+# 两种均衡二选一；action默认最多重复2次，event仍为8；同预算对照见run.md。
+# 文字动作先验另加 --high-level-action-prior；摘要另加 --generate-analysis。
+# 其它参数及实验说明见同目录 run.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,6 +38,10 @@ done
 ARGS=()
 sampling_mode=uniform
 if [[ "${EVENT_BALANCED:-0}" == 1 ]]; then sampling_mode=event_balanced; fi
+if [[ -v ACTION_BALANCED ]]; then
+ [[ "$ACTION_BALANCED" == 0 || "$ACTION_BALANCED" == 1 ]] || { echo "ACTION_BALANCED must be 0 or 1" >&2; exit 2; }
+ if [[ "$ACTION_BALANCED" == 1 ]]; then sampling_mode=action_balanced; else sampling_mode=uniform; fi
+fi
 action_priors="${HIGH_LEVEL_ACTION_PRIOR:-0}"
 sampling_explicit=0
 explicit_prior_source="$DATASET_PRIORS_ENV_SET"
@@ -68,7 +51,8 @@ while (( $# )); do
   --dataset-priors) DATASET_PRIORS=1; explicit_prior_source=1 ;;
   --no-dataset-priors) DATASET_PRIORS=0; explicit_prior_source=1 ;;
   --event-balanced) sampling_mode=event_balanced; sampling_explicit=1 ;;
-  --no-event-balanced) sampling_mode=uniform; sampling_explicit=1 ;;
+  --action-balanced) sampling_mode=action_balanced; sampling_explicit=1 ;;
+  --no-event-balanced|--no-action-balanced) sampling_mode=uniform; sampling_explicit=1 ;;
   --resume|--sampling-mode|--data-dir|--data-root|--model-dir|--lead-bev-ckpt|--prior-labels|--event-balance-index|--high-level-action-index)
    flag="$1"
    [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$flag needs a value" >&2; exit 2; }
@@ -115,7 +99,7 @@ if [[ -n "${RESUME:-}" ]]; then
  [[ -f "$RESUME" ]] || { echo "resume checkpoint is not a file: $RESUME" >&2; exit 2; }
  export RESUME
 fi
-[[ "$sampling_mode" == uniform || "$sampling_mode" == event_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
+[[ "$sampling_mode" == uniform || "$sampling_mode" == event_balanced || "$sampling_mode" == action_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
 [[ "$sampling_explicit" == 0 ]] || ARGS+=(--sampling-mode "$sampling_mode")
 if [[ -n "${RESUME:-}" && "$explicit_prior_source" == 0 ]]; then
  RESUME_CONFIG="$(dirname -- "$RESUME")/config.json"
@@ -148,7 +132,7 @@ else
 fi
 prepare_event_inputs() {
  # 所有自动生成均在模型预检前完成；显式索引保留原内容并由训练预检校验。
- if [[ "$sampling_mode" == event_balanced || "$scene_priors" == 1 || "$action_priors" == 1 ]]; then
+ if [[ "$sampling_mode" == event_balanced || "$sampling_mode" == action_balanced || "$scene_priors" == 1 || "$action_priors" == 1 ]]; then
   action_build_shared_index_if_needed "$DATA_ROOT" "$DATA_DIR"
   if [[ -z "$EVENT_BALANCE_INDEX" ]]; then
    EVENT_BALANCE_INDEX="$(action_prepare_event_balance_index "$DATA_ROOT" "$DATA_DIR")"

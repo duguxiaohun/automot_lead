@@ -1,42 +1,13 @@
 #!/usr/bin/env bash
-# 开启动作 token 默认加弱分离（weight=0.01, cosine margin=0.5）；新 run 对照加 --action-token-separation-weight 0。
-# 默认7轮：首轮5% optimizer更新warmup（占用首周期），1/2/4轮cosine，累计第1/3/7轮末到谷底。
-# 优化细节统一默认；每个epoch训练/验证后自动更新run目录的 training_audit.zip，无需审计开关。
-# 优化器/LR 共用 action_prior Python 配置：默认 muon_adamw + cosine_restarts。
-# 可追加 --optimizer adamw --lr-scheduler cosine 作基线；环境变量 OPTIMIZER/LR_SCHEDULER 同样生效，CLI 优先。
-# 续训恢复原配置并严格校验；完整参数和三组对照见 action_prior/OPTIMIZATION.md。
-# v13 Phase3 对齐：主要动作或 NONE；自动 v4 动作索引，NONE 保留场景事实 但不追加具体动作。
-# 推荐自动准备数据并训练：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
-# 本脚本默认需要准备好的索引；high-level-action-prior 可自动准备动作及其依赖。日常操作见 run.md。
-#   bash qwen3vl_local/tb_serve.sh checkpoints/action_prior/latest/tb
-# 默认不生成 talk/摘要；下面为已备好索引的开启/关闭 demo（参数也可传给 full pipeline）：
-#   bash qwen3vl_local/action_prior/train.sh --generate-analysis
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --generate-analysis
-#   GENERATE_ANALYSIS=0 bash qwen3vl_local/action_prior/train.sh
-#   GPU_IDS=0,1,2,3 GENERATE_ANALYSIS=0 bash qwen3vl_local/action_prior/train.sh
-# 直接续训会恢复原配置（包含摘要开关），不注入新训练默认值：
+# 在 AutoMoT/ 下执行；需已有训练索引，自动准备请用 run_full_pipeline.sh。
+# 默认训练：
+#   bash qwen3vl_local/action_prior/train.sh --dataset-priors
+# action 均衡 + token + 单当前图：
+#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
+# 续训：
 #   bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
-# 自动准备 Phase3 离线动作标注并输入具体 high-level 动作（默认关闭）：
-#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-action-prior
-#   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --high-level-action-prior
-#   GPU_IDS=0,1,2,3 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/train.sh --dataset-priors
-#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --no-high-level-action-prior
-#   GPU_IDS=0 bash qwen3vl_local/action_prior/train.sh --dataset-priors --no-high-level-action-prior
-# resume 自动恢复开关；文件格式与后续 Phase3 接口见 run.md，当前尚无在线动作 provider。
-# 干净的 dataset-priors + high-level-action-prior 自动提供已确认特殊 RE；无需额外场景开关。
-# 单当前图 demo（默认仍为四图；更换图数需新开 run）：
-#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1
-# 单当前图＋high-level 动作 token（KEEP 不细分）：
-#   bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced --rgb-frame-count 1 --high-level-action-token
-# 环境变量等价写法；显式 CLI 优先：
-#   RGB_FRAME_COUNT=1 HIGH_LEVEL_ACTION_TOKEN=1 bash qwen3vl_local/action_prior/train.sh --dataset-priors --event-balanced
-# 四图对照：将 --rgb-frame-count 1 换成 --rgb-frame-count 4；关闭 token 用 --no-high-level-action-token。
-# 单图取当前 anchor 的完整三视角拼接 RGB，Qwen 提示词同步切为单图。
+# event 均衡等完整 demo 见 run_full_pipeline.sh；参数说明见 run.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -134,11 +105,11 @@ for option in "$@"; do
   --no-high-level-action-prior) action_priors_requested=0 ;;
  esac
 done
-if has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; } || [[ "$scene_priors_requested" == 1 || "$action_priors_requested" == 1 ]]; then
+if has_value --sampling-mode action_balanced "$@" || has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; } || [[ "$scene_priors_requested" == 1 || "$action_priors_requested" == 1 ]]; then
  if ! has_flag --event-balance-index "$@"; then
   if [[ -n "${EVENT_BALANCE_INDEX:-}" ]]; then
    args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
-  elif [[ "$action_priors_requested" != 1 && "$scene_priors_requested" != 1 && "$action_token_requested" != 1 ]]; then
+  elif [[ "$action_priors_requested" != 1 && "$scene_priors_requested" != 1 && "$action_token_requested" != 1 ]] && ! has_value --sampling-mode action_balanced "$@"; then
    echo "set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl" >&2; exit 2
   fi
   # 具体动作开关允许 train.py 在预检前自动准备 full map 和 Phase3 标注。

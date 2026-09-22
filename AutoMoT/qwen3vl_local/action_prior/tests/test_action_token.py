@@ -189,6 +189,11 @@ def test_contract_rejects_changed_token_or_image_condition(sources, tmp_path, mo
         require(original, build())
     args.high_level_action_token = True
     require(original, build())
+    args.sampling_mode = "action_balanced"
+    with pytest.raises(ValueError, match="contract mismatch"):
+        require(original, build())
+    action_contract = build()
+    assert action_contract["identity_payload"]["event_balanced_sampling"]["action_labels"] == token.token_source(args).identity
 
 
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
@@ -304,3 +309,24 @@ def test_separation_ddp_and_accumulation_match_global_objective(tmp_path):
     # Six distinct samples, one copy of the full-table penalty, no extra world factor.
     (weight[:6].square().mean() + 0.01 * token.separation_loss(weight, 0.5)).backward()
     assert torch.allclose(saved["grad"], weight.grad, atol=1e-7, rtol=1e-5)
+
+
+def test_action_sampling_loads_same_labels_without_enabling_token(sources):
+    args, _ = complete_source(sources)
+    args.high_level_action_token = False
+    args.sampling_mode = "action_balanced"
+    rows = [dict(scenario="S", run_id="R", anchor=i) for i in range(1, 6)]
+    token.annotate_tokens(args, rows)
+    assert rows[0]["action_token"]["name"] == "STOP"
+    assert token.token_contract(args) is None
+    cfg = SimpleNamespace(use_high_level_action_token=False)
+    assert token.token_tensor(rows[0], cfg, "cpu") is None
+    from qwen3vl_local.action_prior.event_balance import sampling_contract
+    args.event_balance_route_diverse = True
+    args.event_balanced_scene_priors = False
+    args.event_balanced_epoch_samples = 0
+    args.event_balance_max_frame_repeats = 8
+    args.best_selection_metric = "natural_ade"
+    contract = sampling_contract(args)
+    assert contract["action_labels"] == token.token_source(args).identity
+    assert contract["mode"] == "action_balanced"

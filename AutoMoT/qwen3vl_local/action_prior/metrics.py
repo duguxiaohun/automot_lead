@@ -65,6 +65,8 @@ def grouped_counts(audit, sample, metrics):
 def event_sample_groups(sample):
     """只按 full map 分组；消融不生成模型先验、UNKNOWN 或复核指标。"""
     groups = []
+    if "action_balance_cell" in sample:
+        groups.append(f"action_balance/{sample['action_balance_cell']}")
     if "action_token" in sample:
         groups.append(f"action_token/{sample['action_token']['name']}")
         groups.append(f"action_token_reason/{sample['action_token']['reason']}")

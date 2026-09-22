@@ -22,6 +22,8 @@ def main():
     cli, extra = p.parse_known_args()
     checkpoint = Path(cli.checkpoint).resolve()
     cfg = json.loads((checkpoint.parent / "config.json").read_text())
+    # 老配置缺字段时仍按历史上限8恢复，不能套用新 action-balanced 的上限2。
+    cfg.setdefault("event_balance_max_frame_repeats", DEFAULTS["event_balance_max_frame_repeats"])
     legacy_optimization_defaults(cfg)
     cfg.setdefault("action_token_separation_weight", 0.0)
     cfg.setdefault("action_token_separation_margin", 0.5)

@@ -1,5 +1,18 @@
 # BEV-Only Action Expert
 
+当前 action-balanced 新训练默认单帧最多重复2次，共用 Phase3 合法动作域和容量回流；稀少动作保留标签、不再强行等量，详见 [共享说明](../run.md)。
+
+## action-balanced 两层均衡（2026-09-22）
+
+`--action-balanced` 在每个特殊事件内均衡实际存在的主要动作（含 KEEP），十事件各一份、普通背景 UNCOND 两份。
+与 `--event-balanced` 二选一，不自动开启 token；完整预算/重复上限/恢复说明见 [共用说明](../run.md)。
+
+```bash
+# AutoMoT/ 下；单图 + token + 两层均衡，bev_only 的 BEV 仍为单帧
+bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1
+```
+
 ## 动作 token 防相似坍塌（2026-09-22）
 
 新训练开启 `--high-level-action-token` 即默认启用弱分离正则（weight=0.01，cosine margin=0.5），

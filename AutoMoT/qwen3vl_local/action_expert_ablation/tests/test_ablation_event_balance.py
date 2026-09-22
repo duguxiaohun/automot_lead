@@ -93,7 +93,8 @@ def test_train_environment_and_cli_precedence(tmp_path, variant):
 
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
 @pytest.mark.parametrize("mode", ["auto", "explicit", "disabled", "resume"])
-def test_pipeline_shares_preparation_and_forwards_eval_source(tmp_path, variant, mode):
+@pytest.mark.parametrize("sampling", ["event_balanced", "action_balanced"])
+def test_pipeline_shares_preparation_and_forwards_eval_source(tmp_path, variant, mode, sampling):
     """执行真实 shell，仅替换 Python 的重型入口，检查自动准备与 train/eval 实参。"""
     index = tmp_path / "action index"
     index.mkdir()
@@ -105,14 +106,14 @@ def test_pipeline_shares_preparation_and_forwards_eval_source(tmp_path, variant,
     (run / "best.pt").write_bytes(b"fake")
     (run / "latest.pt").write_bytes(b"fake")
     source = str(tmp_path / "full map.jsonl")
-    args = ["--event-balanced"]
+    args = ["--" + sampling.replace("_", "-")]
     if mode == "explicit":
         args += ["--event-balance-index", source]
     elif mode == "disabled":
         args = ["--no-event-balanced"]
     elif mode == "resume":
         saved = vars(common.parser(variant).parse_args([]))
-        saved.update(data_dir=str(index), sampling_mode="event_balanced", event_balance_index="old/map.jsonl")
+        saved.update(data_dir=str(index), sampling_mode=sampling, event_balance_index="old/map.jsonl")
         (run / "config.json").write_text(json.dumps(saved))
         args = ["--resume", str(run / "latest.pt"), "--event-balance-index", source]
     binary = tmp_path / "bin"
@@ -142,6 +143,8 @@ if sys.argv[1].endswith("prepare_event_balance.py"):
     prep = [call for call in calls if call[0].endswith("prepare_event_balance.py")]
     assert len(prep) == int(mode == "auto")
     training, evaluation = [call for call in calls if call[0].endswith("launch.py")]
+    if mode not in ("disabled", "resume"):
+        assert training[training.index("--sampling-mode") + 1] == sampling
     if mode != "disabled":
         assert training[training.index("--event-balance-index") + 1] == source
         assert evaluation[evaluation.index("--event-balance-index") + 1] == source
@@ -185,3 +188,14 @@ action_shared_index_ready "$1"
                             cwd=common.AUTOMOT_ROOT, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
     assert (index / "build_calls").read_text().splitlines() == ["build"]
+
+
+@pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
+@pytest.mark.parametrize("cli,expected", [([], "action_balanced"), (["--event-balanced"], "event_balanced"),
+                                         (["--no-action-balanced"], "uniform")])
+def test_action_balanced_environment_and_cli(tmp_path, variant, cli, expected):
+    argv = _capture_train_sh_args(tmp_path, variant, cli,
+                                {"ACTION_BALANCED": "1", "EVENT_BALANCE_INDEX": "full map.jsonl"})
+    args = common.parser(variant).parse_args(argv[4:])
+    assert args.sampling_mode == expected
+    assert not args.high_level_action_token

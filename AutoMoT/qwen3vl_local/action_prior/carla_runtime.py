@@ -40,7 +40,7 @@ class ActionPriorRunner:
         args.lora_bundle = ""
         # 均衡课程只影响离线 presentation；闭环不读取或校验旧 full-map 路径。
         # checkpoint 中已保存的内容 identity 仍由 build_contract 用于合同复现。
-        if getattr(args, "sampling_mode", "uniform") == "event_balanced":
+        if getattr(args, "sampling_mode", "uniform") in ("event_balanced", "action_balanced"):
             args.event_balance_index = ""
         trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
         switch = os.environ.get("ACTION_DATASET_PRIORS")

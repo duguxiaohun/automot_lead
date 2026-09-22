@@ -709,14 +709,14 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(cursor["epoch"], args.num_epochs):
         sampling_audit = None
-        if getattr(args, "sampling_mode", "uniform") == "event_balanced":
+        if getattr(args, "sampling_mode", "uniform") in ("event_balanced", "action_balanced"):
             # 每个 epoch 从相同的十个显式事件桶和两份背景池重建课程。先构造全局
             # presentation，再按 rank 分片，避免每张卡各自均衡而破坏全局 1:…:1:2。
-            from qwen3vl_local.action_prior.event_balance import build_event_balanced_epoch
+            from qwen3vl_local.action_prior.event_balance import build_balanced_epoch
 
             usable = int(plan["samples_per_epoch"])
-            ordered, sampling_audit = build_event_balanced_epoch(
-                rows["train"], total=usable, seed=args.seed + epoch,
+            ordered, sampling_audit = build_balanced_epoch(
+                rows["train"], mode=args.sampling_mode, total=usable, seed=args.seed + epoch,
                 route_diverse=bool(getattr(args, "event_balance_route_diverse", True)),
                 repeat_cap=int(getattr(args, "event_balance_max_frame_repeats", 8)),
             )

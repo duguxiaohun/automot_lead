@@ -41,7 +41,7 @@ def mapping_contract_hash():
              Path(__file__).with_name('development_route_groups_20260907.json'),
              *(Path(__file__).with_name(name) for name in
                ('source_mapping.py', 'context_taxonomy.py', 'trajectory_action.py', 'lateral_rgb_audit.py',
-                'primary_action.py', 'choice_semantics.py', 'navigation_goal.py', 'action_review.py', 'same_rs_invalid.py', 'build_dataset.py', 'split_coverage.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
+                'sampling.py', 'primary_action.py', 'choice_semantics.py', 'navigation_goal.py', 'action_review.py', 'same_rs_invalid.py', 'build_dataset.py', 'split_coverage.py', 'invalid_balance.py', 'history_rgb.py', 'prompts.py')))
     digest = hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode())

@@ -25,6 +25,11 @@ action_event_balance_options() {
     explicit_mode=1
     [[ "$EVENT_BALANCED" != 1 ]] || ACTION_EVENT_SAMPLING_MODE=event_balanced
   fi
+  if [[ -v ACTION_BALANCED ]]; then
+    [[ "$ACTION_BALANCED" == 0 || "$ACTION_BALANCED" == 1 ]] || { echo "ACTION_BALANCED must be 0 or 1" >&2; return 2; }
+    explicit_mode=1
+    if [[ "$ACTION_BALANCED" == 1 ]]; then ACTION_EVENT_SAMPLING_MODE=action_balanced; else ACTION_EVENT_SAMPLING_MODE=uniform; fi
+  fi
   [[ ! -v EVENT_BALANCE_INDEX ]] || explicit_index=1
   # 环境变量只在显式设置时转发，续训不注入新默认值；后面的 CLI 优先。
   local name option
@@ -46,7 +51,8 @@ action_event_balance_options() {
   while (( $# )); do
     case "$1" in
       --event-balanced) ACTION_EVENT_SAMPLING_MODE=event_balanced; explicit_mode=1 ;;
-      --no-event-balanced) ACTION_EVENT_SAMPLING_MODE=uniform; explicit_mode=1 ;;
+      --action-balanced) ACTION_EVENT_SAMPLING_MODE=action_balanced; explicit_mode=1 ;;
+      --no-event-balanced|--no-action-balanced) ACTION_EVENT_SAMPLING_MODE=uniform; explicit_mode=1 ;;
       --sampling-mode|--event-balance-index)
         option="$1"
         [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$option needs a value" >&2; return 2; }
@@ -62,7 +68,7 @@ action_event_balance_options() {
     esac
     shift
   done
-  [[ "$ACTION_EVENT_SAMPLING_MODE" == uniform || "$ACTION_EVENT_SAMPLING_MODE" == event_balanced ]] || {
+  [[ "$ACTION_EVENT_SAMPLING_MODE" == uniform || "$ACTION_EVENT_SAMPLING_MODE" == event_balanced || "$ACTION_EVENT_SAMPLING_MODE" == action_balanced ]] || {
     echo "invalid sampling mode: $ACTION_EVENT_SAMPLING_MODE" >&2; return 2;
   }
   [[ "$explicit_mode" == 0 ]] || ACTION_EVENT_BALANCE_ARGS+=(--sampling-mode "$ACTION_EVENT_SAMPLING_MODE")

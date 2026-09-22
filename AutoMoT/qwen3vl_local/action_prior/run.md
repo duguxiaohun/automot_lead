@@ -1,5 +1,71 @@
 # Action prior 使用说明
 
+## 2026-09-22 action-balanced：事件内动作均衡
+
+新增 `--action-balanced` / `--sampling-mode action_balanced` / `ACTION_BALANCED=1`，主线和两个消融共用。
+默认仍是 `uniform`，原 `--event-balanced` 行为保留。三种采样互斥，CLI 按最后出现的模式选择；
+`--no-action-balanced` 恢复 uniform。环境变量先解析、CLI 后覆盖；同时设置两个环境开关时 ACTION_BALANCED 优先。
+
+新模式分两层：
+
+- UE1–UE7、RE2/RE3/RE5 各抽同样次数；按用户选择，确认普通背景继续占两份，比例 `1:…:1:2`。
+- 每个特殊事件内，动作尽量均衡，但稀少格子达到实际容量后将缺额回流给同事件其它动作。
+  五变化动作和 KEEP 保持原标签；例如 KEEP 只有4帧、STOP有1000帧，预算100时抽4/96，而非重复成50/50。
+- 动作使用共享 Phase3 candidate/full map 投影的**逐帧主要 token 标签**。并发事件帧仍使用同一个主要动作，
+  只进入支持该动作的事件域：RE2+RE5 的右变道帧只计入 RE2×右变道，保留两事件事实及全局 token。
+  普通背景仅 confirmed_regular；filtered/unconfirmed/缺映射帧不参与均衡池。
+- 无样本支持的动作格子报告为缺失，不制造 KEEP、不补 UNCOND、不为不可能动作凑数；缺整个事件/背景池则开训前失败。
+
+特殊事件之间仍严格等量，事件内改为容量约束下的近似动作均衡，**不保证各动作次数相等**。
+整个事件池不足预算时才循环完整池，再对余量做容量内均衡；不按任意帧数阈值删除或重标稀少动作。
+也不保证每个 micro-batch、单个 rank 或 max_train_steps 截断前缀均衡；DDP 从共同完整计划分片，不截断整轮配额。
+
+`--action-balanced` 只改变采样，不会自动开启 token、文字动作先验或 Qwen 场景提示。
+即使 token 关闭，也会读取动作标签用于采样与审计，但不会送入 decoder；可做相同采样下有/无 token 对照。
+开启 `--high-level-action-token` 时继续默认使用已加入的弱分离正则。
+
+复用 `--event-balanced-epoch-samples`（默认0自动）、`--event-balance-max-frame-repeats`（action-balanced新训练默认2，event-balanced仍为8）、
+`--event-balance-route-diverse`。预算0根据事件池及跨事件共享帧的联合容量求最大可行预算，小动作格子不再限制整轮；
+显式预算须是 `lcm(12, world_size)` 的倍数，并满足全局重复上限。
+最大重复次数按同一帧在**整个 epoch 所有事件/动作桶的总出现次数**限制；先最少偏离容量内动作目标，再最大化不同帧覆盖及路线轮转。
+共享帧冲突允许同事件回流，目标/实际配额和超目标次数均记录。公平比较应使用共同可行的明确呈现预算/更新数、seed、split 和 full map，
+不能只对齐轮数。验证/测试不重采样，默认仍按自然分布 ADE 选 best；显式 event_balanced_ade 仍是原事件加权指标。
+
+**完整训练池回放：** 已核验的 v21 标签池在新采样器下，1/4 rank 各7轮通过；新默认上限2时
+每轮 **23784** 次（各特殊事件1982、背景3964），21251个不同帧，最大重复2次。
+显式上限8的旧对照仍为95136次/轮；不同自动预算不可只按相同轮数比较。
+移除4条 `RE5×右变道` 的采样归属，没有删除这4帧或改成 KEEP/UNCOND；原1440结论已被本修订替代。
+这是历史候选/训练池的数值回放，未全量重建 v22 生产产物或训练模型。
+新源码须重建 Phase3 candidate/full map 并新开 run；Action 自动准备按新 hash 建新缓存，显式旧映射会拒绝。
+详见 [全量容量回放](ACTION_BALANCED_20260922.md)。
+
+默认2是较保守的实验起点，不是已验证的最佳超参数。显式 `--event-balance-max-frame-repeats 1` 可禁用整轮重复，
+显式8可复现原容量方案；环境变量 `EVENT_BALANCE_MAX_FRAME_REPEATS` 同样可用，CLI优先。
+恢复训练使用保存值，旧配置缺字段按历史8解释；严格源码合同仍要求旧run使用原源码。
+上限降低也减少每轮优化器更新数，warmup/验证时刻随计划变化；不会自动延长轮数补回旧预算。
+
+稀少组合不自动改为KEEP或UNCOND：KEEP代表真实保持阶段，UNCOND代表不提供动作条件；数量少不证明标错。
+七个动作向量跨事件共享，UE3×RESUME的41帧并非RESUME全部训练支持（全训练池15231帧）。
+低于100帧或10条物理路线只标记复查线索，**不参与过滤、重标或配额计算**，也不依据val/test调整训练标签。
+如后续对不可靠标注做UNCOND消融，应另存原动作及mask理由，不改变事件/轨迹或归入普通背景；当前没有启用此屏蔽。
+
+`training_plan.json` 的 `sampling.action_balance` 保存支持/缺失动作、可行配额倍数、动作格子的独立帧和物理路线支持；
+`sampling/epoch_*.json` 保存实际事件/动作次数、全局重复、不同帧与路线覆盖。
+计划及逐轮报告的 `support.cells/events` 还记录可用帧、物理路线、呈现次数/可用帧比值和复查标记；该比值不是单帧实际最大重复数。
+训练日志新增 `group/action_balance/<事件>/<动作>/...`，token 关闭也可审计该课程。
+两层规则、标签内容身份和采样预算绑定恢复合同；只改采样方式也应新开 run，旧 run 仍用原源码。
+闭环只将采样作为训练溯源；开启 oracle token 的模型仍因缺在线动作 provider 而拒绝闭环。
+
+```bash
+# AutoMoT/ 下：两层动作均衡 + high-level token（默认四图）
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token
+# 单当前图；自动选卡，可用 GPU_IDS 显式指定
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
+# 相同采样但关闭 token：标签仅用于选样
+bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --no-high-level-action-token
+```
+
 ## 2026-09-22 动作 token 弱分离正则
 
 开启 `--high-level-action-token` 的新训练默认增加弱分离：`--action-token-separation-weight 0.01`、

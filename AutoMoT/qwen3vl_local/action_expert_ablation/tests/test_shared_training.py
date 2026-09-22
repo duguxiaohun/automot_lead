@@ -22,6 +22,8 @@ import qwen3vl_local.leadmot as leadmot
 @pytest.fixture
 def harness(tmp_path, monkeypatch):
     """只替换冻结模型和日志 IO，执行真实 FM loss、优化器、EMA 与保存/恢复。"""
+    # 测试使用 CPU 小模型；不能由其它入口选卡后的宿主 CUDA 状态触发 GPU 内存统计。
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     old = lightweight_old_helpers()
     monkeypatch.setitem(sys.modules, "qwen3vl_local.leadmot.train", old)
     monkeypatch.setattr(leadmot, "train", old, raising=False)
@@ -312,7 +314,8 @@ def test_sigterm_during_validation_preserves_pre_validation_cursor(harness, tmp_
     assert torch.equal(restored["decoder"]["weight"], reference["decoder"]["weight"])
 
 
-def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_path):
+@pytest.mark.parametrize("sampling", ["event_balanced", "action_balanced"])
+def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_path, monkeypatch, sampling):
     """真实共享循环：同源均衡课程、best 指标、样本顺序和参数更新三组一致。"""
     from qwen3vl_local.action_prior.tests.test_event_balance import _write_source, _action_row
     from qwen3vl_local.action_prior.event_balance import EventBalanceIndex
@@ -332,7 +335,15 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
         state.rows[split] = [dict(_action_row(i), scenario=split, split=split,
                                  route_group=f"{split}/route_{i % 3}") for i in range(40)]
         index.annotate(state.rows[split])
-    extra = ["--event-balanced", "--event-balance-index", str(source),
+    if sampling == "action_balanced":
+        from qwen3vl_local.action_prior import action_token
+        # Source IO is covered separately; this fixture exercises the actual shared loop.
+        for rr in state.rows.values():
+            for row in rr:
+                name = "STOP" if row["event_balance_status"] == "special_eligible" else "UNCOND"
+                row.update(action_token_id=action_token.ACTION_TOKEN_NAMES.index(name),
+                           action_token=dict(name=name, reason="fixture", version=action_token.TOKEN_VERSION))
+    extra = ["--sampling-mode", sampling, "--event-balance-index", str(source),
              "--event-balanced-epoch-samples", "24", "--event-balance-max-frame-repeats", "2",
              "--best-selection-metric", "event_balanced_ade"]
     results = []
@@ -342,18 +353,33 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
         ckpt = run(variant, out, extra=extra, val_steps=100)
         audit = json.loads((out / "sampling/epoch_001.json").read_text())
         assert audit["total"] == 24
+        if sampling == "action_balanced":
+            assert audit["sampled_cells"] == audit["cell_quotas"]
+            assert "conditioner.action_embedding.weight" not in ckpt["decoder"]
         assert audit["max_frame_repeats"] <= 2
         metrics = json.loads(next((out / "validation").glob("*.json")).read_text())
         assert metrics["event_balance_bucket_coverage_complete"] == 1
         assert "event_balanced_route_ade_m" in metrics
         event_metrics = {k: v for k, v in metrics.items() if "event_balance" in k}
         results.append((ckpt, list(state.train_cases), list(state.eval_cases), audit, event_metrics))
+        if sampling == "action_balanced":
+            expected_order = list(state.train_cases)
+            state.train_cases.clear(); state.eval_cases.clear()
+            state.failure = "mid_epoch"
+            interrupted = tmp_path / (variant + "_action_interrupted")
+            with pytest.raises(RuntimeError, match="injected interruption"):
+                run(variant, interrupted, extra=extra, val_steps=100)
+            state.failure = None
+            restored_action = run(variant, interrupted, resume=True, extra=extra, val_steps=100)
+            assert state.train_cases == expected_order
+            assert torch.equal(restored_action["decoder"]["weight"], ckpt["decoder"]["weight"])
+            assert restored_action["cursor"] == ckpt["cursor"]
         if variant != "prior":
             assert not any("prior/" in tag or "group/condition/" in tag
                            for tag, *_ in state.logs[str(out)])
             calls = len(state.train_cases)
             restored = run(variant, out, resume=True, val_steps=100)
-            assert restored["args"]["sampling_mode"] == "event_balanced"
+            assert restored["args"]["sampling_mode"] == sampling
             assert restored["args"]["event_balanced_epoch_samples"] == 24
             assert len(state.train_cases) == calls
     for result in results[1:]:

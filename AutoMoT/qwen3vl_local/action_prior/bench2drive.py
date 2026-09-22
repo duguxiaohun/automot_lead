@@ -142,7 +142,7 @@ def validate_checkpoint(cli, pinned=None):
     args.lora_bundle = ""
     # 纯采样的 full map 是训练溯源，不是在线输入；保留 checkpoint identity，清掉
     # 已搬迁/不可用的离线路径，避免 validate_args 错把它当闭环依赖。
-    if getattr(args, "sampling_mode", "uniform") == "event_balanced":
+    if getattr(args, "sampling_mode", "uniform") in ("event_balanced", "action_balanced"):
         args.event_balance_index = ""
     trained_with_dataset_priors = bool(state["args"].get("dataset_priors", False))
     switch = os.environ.get("ACTION_DATASET_PRIORS")

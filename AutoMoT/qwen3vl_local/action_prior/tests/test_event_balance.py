@@ -61,7 +61,7 @@ def _write_source(tmp_path, *, mapping_hash=None):
     return index
 
 
-@pytest.mark.parametrize("sampling_options", [["--event-balanced"], ["--event-balance-index", "explicit-full-map"]])
+@pytest.mark.parametrize("sampling_options", [["--event-balanced"], ["--action-balanced"], ["--event-balance-index", "explicit-full-map"]])
 def test_current_phase3_development_routes_are_train_only_in_all_entries(tmp_path, monkeypatch, sampling_options):
     """真实读取三 split，覆盖最新审计名单；未开发路线仍留在各自 holdout。"""
     from qwen3vl_local.action_prior import config
@@ -90,6 +90,8 @@ def test_current_phase3_development_routes_are_train_only_in_all_entries(tmp_pat
     monkeypatch.setattr(abnormal, "is_abnormal_lead_route", lambda *a: (False, {}))
     # 此测试只隔离 full-map IO；名单、物理路线迁移与三个入口的读取均为真实实现。
     monkeypatch.setattr(balance, "annotate_rows", lambda *a: None)
+    from qwen3vl_local.action_prior import action_token
+    monkeypatch.setattr(action_token, "annotate_tokens", lambda *a: None)
     for variant in ("prior", "qwen_simple", "bev_only"):
         parser = config.parser() if variant == "prior" else common.parser(variant)
         args = parser.parse_args([*sampling_options, "--rgb-frame-count", "1", "--data-dir", str(tmp_path),

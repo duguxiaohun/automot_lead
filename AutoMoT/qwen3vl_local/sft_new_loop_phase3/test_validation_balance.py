@@ -125,7 +125,7 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
                                      "--action-output-mode", mode, "--history-rgb-mode", rgb,
                                      "--output-dir", str(tmp_path / "not_created")])
     args = train.parse_args()
-    assert "data_v21" in args.index
+    assert "data_v22" in args.index
     for key, value in {"WORLD_SIZE": "4", "RANK": "0", "LOCAL_RANK": "0"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})

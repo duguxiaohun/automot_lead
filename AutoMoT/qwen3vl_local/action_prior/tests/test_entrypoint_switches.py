@@ -30,7 +30,7 @@ def stub(tmp_path):
     (binary / "python").chmod(0o755)
     env = dict(os.environ, PATH=f"{binary}{os.pathsep}{os.environ['PATH']}")
     for name in ("DATASET_PRIORS", "PRIOR_LABELS", "PRIOR_NOISE", "ANALYSIS_REVIEW", "GENERATE_ANALYSIS", "HIGH_LEVEL_PLANNING", "HIGH_LEVEL_ACTION_PRIOR", "HIGH_LEVEL_ACTION_INDEX",
-                 "EVENT_BALANCED", "EVENT_BALANCE_INDEX", "EVENT_BALANCED_SCENE_PRIORS",
+                 "EVENT_BALANCED", "ACTION_BALANCED", "EVENT_BALANCE_INDEX", "EVENT_BALANCED_SCENE_PRIORS",
                  "RESUME", "RUN_TAG", "OUTPUT_DIR", "DATA_DIR"):
         env.pop(name, None)
     return env
@@ -370,6 +370,9 @@ def test_event_preflight_demo_forwards_mode_dataset_and_index(stub):
     (["--sampling-mode=event_balanced"], {}),
     ([], {"EVENT_BALANCED": "1"}),
     (["--high-level-action-prior"], {}),
+    (["--action-balanced"], {}),
+    (["--sampling-mode=action_balanced"], {}),
+    ([], {"ACTION_BALANCED": "1"}),
 ])
 def test_pipeline_auto_prepares_before_preflight_and_passes_map_to_eval(stub, tmp_path, args, env_overrides):
     """验证真正 shell 顺序，所有昂贵入口使用桩；无需传 DATA_DIR 或索引路径。"""
@@ -513,3 +516,16 @@ def test_removed_planning_fails_before_preparation(script, options, extra, stub)
     assert result.returncode != 0
     assert "high-level-planning was removed" in result.stderr
     assert "PREPARE" not in result.stdout + result.stderr and "STUB" not in result.stdout
+
+
+@pytest.mark.parametrize("cli,env,expected", [
+    (["--action-balanced"], {}, "action_balanced"),
+    ([], {"ACTION_BALANCED": "1"}, "action_balanced"),
+    (["--no-action-balanced"], {"ACTION_BALANCED": "1"}, "uniform"),
+    (["--event-balanced", "--action-balanced"], {}, "action_balanced"),
+    (["--event-balanced"], {"ACTION_BALANCED": "1", "EVENT_BALANCE_INDEX": "fixture"}, "event_balanced"),
+])
+def test_main_action_balanced_shell(stub, cli, env, expected):
+    tokens = flags(run("train.sh", cli, stub, **env))
+    assert value_of(tokens, "--sampling-mode") == expected
+    assert "--high-level-action-token" not in tokens

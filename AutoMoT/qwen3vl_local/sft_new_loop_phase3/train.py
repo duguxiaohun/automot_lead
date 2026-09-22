@@ -99,7 +99,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     validate_action_output_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
-    even_quota_with_capacity,
+    support_aware_quota, SUPPORT_BALANCE_VERSION,
     route_diverse_sample,
     route_diversity_report, primary_action_distribution,
 )
@@ -437,7 +437,7 @@ def _balanced_work(
                 action = choice_action_for_answers(item.spec)
                 assert action is not None
                 by_action[action].append(item)
-            quotas = even_quota_with_capacity({name: len(items) for name, items in by_action.items()}, effective_target)
+            quotas = support_aware_quota({name: len(items) for name, items in by_action.items()}, effective_target)
             selected: List[WorkItem] = []
             for action, count in sorted(quotas.items()):
                 bucket = list(by_action[action])
@@ -446,10 +446,6 @@ def _balanced_work(
                     route_diverse_sample(bucket, target=int(count), rng=rng)
                     if route_diverse else [bucket[i % len(bucket)] for i in range(int(count))]
                 )
-            if len(selected) < effective_target:
-                fallback = list(groups[key])
-                rng.shuffle(fallback)
-                selected.extend(fallback[i % len(fallback)] for i in range(effective_target - len(selected)))
             work.extend(selected)
         rng.shuffle(work)
         return work
@@ -487,7 +483,7 @@ def _balanced_work(
         by_signature: Dict[str, List[WorkItem]] = defaultdict(list)
         for item in items:
             by_signature[item.row.action_signature].append(item)
-        quotas = even_quota_with_capacity({k: len(v) for k, v in by_signature.items()}, target)
+        quotas = support_aware_quota({k: len(v) for k, v in by_signature.items()}, target)
         selected: List[WorkItem] = []
         for signature in sorted(quotas):
             count = int(quotas[signature])
@@ -499,9 +495,6 @@ def _balanced_work(
                 if route_diverse
                 else (bucket[:count] if len(bucket) >= count else [bucket[i % len(bucket)] for i in range(count)])
             )
-        shortfall = target - len(selected)
-        if shortfall > 0:
-            selected.extend(items[i % len(items)] for i in range(shortfall))
         work.extend(selected)
     rng.shuffle(work)
     return work
@@ -1176,6 +1169,7 @@ def _save_adapter(
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
+        "sampling_policy": SUPPORT_BALANCE_VERSION,
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
         "git": _git_metadata(),
@@ -1302,6 +1296,7 @@ def _write_run_metadata(
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
+        "sampling_policy": SUPPORT_BALANCE_VERSION,
     }
     (output_dir / "train_run_manifest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
@@ -1987,7 +1982,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v21/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v22/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))

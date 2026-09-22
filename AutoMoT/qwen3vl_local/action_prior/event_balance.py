@@ -18,7 +18,10 @@ from qwen3vl_local.action_prior.contracts import file_hash
 
 SAMPLING_MODE_UNIFORM = "uniform"
 SAMPLING_MODE_EVENT_BALANCED = "event_balanced"
-SAMPLING_MODES = (SAMPLING_MODE_UNIFORM, SAMPLING_MODE_EVENT_BALANCED)
+SAMPLING_MODE_ACTION_BALANCED = "action_balanced"
+DEFAULT_ACTION_REPEAT_CAP = 2
+BALANCED_MODES = (SAMPLING_MODE_EVENT_BALANCED, SAMPLING_MODE_ACTION_BALANCED)
+SAMPLING_MODES = (SAMPLING_MODE_UNIFORM, *BALANCED_MODES)
 # v2 binds the post-quarantine normal-background rule and diversity-first allocation contract.
 # v1 must be rebuilt: it could classify an empty quarantined R-E2/3/5 context as normal.
 FULL_INDEX_SCHEMA = "action_prior_event_balance_full_v2"
@@ -202,7 +205,7 @@ def source_for_args(args) -> EventBalanceIndex:
 
 
 def source_contract(args) -> Dict[str, Any] | None:
-    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False) or getattr(args, "high_level_action_token", False) or bool(getattr(args, "event_balance_index", ""))
+    active = getattr(args, "sampling_mode", "uniform") in BALANCED_MODES or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False) or getattr(args, "high_level_action_token", False) or bool(getattr(args, "event_balance_index", ""))
     if not active:
         return None
     if getattr(args, "event_balance_index", ""):
@@ -217,7 +220,7 @@ def source_audit(args) -> Dict[str, Any] | None:
 
 
 def annotate_rows(args, rows: Iterable[Mapping[str, Any]]) -> None:
-    active = getattr(args, "sampling_mode", "uniform") == SAMPLING_MODE_EVENT_BALANCED or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False) or getattr(args, "high_level_action_token", False) or bool(getattr(args, "event_balance_index", ""))
+    active = getattr(args, "sampling_mode", "uniform") in BALANCED_MODES or getattr(args, "event_balanced_scene_priors", False) or getattr(args, "high_level_action_prior", False) or getattr(args, "high_level_action_token", False) or bool(getattr(args, "event_balance_index", ""))
     if active and getattr(args, "event_balance_index", ""):
         source = source_for_args(args)
         source.validate_action_dataset(args.data_dir)
@@ -335,12 +338,15 @@ def _groups(rows):
     return groups
 
 
-def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True):
+def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True, groups=None,
+                      event_quotas=None):
     """固定配额和全局重复上限下，精确最大化整个 epoch 的唯一帧数。"""
     if repeat_cap < 1:
         raise ValueError("event_balance_max_frame_repeats must be positive")
-    groups = _groups(rows)
-    keys = (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+    groups = _groups(rows) if groups is None else groups
+    keys = tuple(quotas)
+    if set(groups) != set(keys):
+        raise ValueError("allocation groups differ from quota keys")
     frame_rows, memberships = {}, defaultdict(set)
     for bucket in keys:
         for row in groups[bucket]:
@@ -356,29 +362,41 @@ def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True):
     rng = random.Random(f"event-balance-min-cost-v1:{seed}:{sum(quotas.values())}")
     signatures = sorted(by_membership)
     rng.shuffle(signatures)
-    bucket_nodes = {key: index + 1 for index, key in enumerate(keys)}
-    sink = 1 + len(keys) + len(signatures)
+    event_nodes = {key: index + 1 for index, key in enumerate(event_quotas or {})}
+    offset = len(event_nodes)
+    bucket_nodes = {key: index + 1 + offset for index, key in enumerate(keys)}
+    sink = 1 + offset + len(keys) + len(signatures)
     flow = _MinCostFlow(sink + 1)
     edges = []
+    total = sum(quotas.values())
+    for event, amount in (event_quotas or {}).items():
+        flow.add(0, event_nodes[event], amount)
     for bucket in keys:
-        flow.add(0, bucket_nodes[bucket], quotas[bucket])
+        if event_quotas is None:
+            flow.add(0, bucket_nodes[bucket], quotas[bucket])
+        else:
+            event = bucket.split("/")[0]
+            flow.add(event_nodes[event], bucket_nodes[bucket], quotas[bucket])
+            # 优先满足容量内动作均衡；共享帧冲突时允许在同事件回流，不能缩整轮。
+            # 超目标费用高于全轮重复费用，先最少偏离动作配额，再最大化唯一帧。
+            flow.add(event_nodes[event], bucket_nodes[bucket], event_quotas[event], cost=total + 1)
     for index, signature in enumerate(signatures):
-        node = 1 + len(keys) + index
+        node = 1 + offset + len(keys) + index
         count = len(by_membership[signature])
         for bucket in signature:
-            edge = flow.add(bucket_nodes[bucket], node, quotas[bucket])
-            edges.append((bucket, signature, bucket_nodes[bucket], edge))
+            capacity = quotas[bucket] if event_quotas is None else event_quotas[bucket.split("/")[0]]
+            edge = flow.add(bucket_nodes[bucket], node, capacity)
+            edges.append((bucket, signature, bucket_nodes[bucket], edge, capacity))
         # 每帧首次使用免费，额外使用每次费用 1。固定总流量时，最小费用恰好
         # 等价于最大化唯一帧覆盖；反向边允许跨桶撤销和重新分配共享帧。
         flow.add(node, sink, count)
         flow.add(node, sink, count * (repeat_cap - 1), cost=1)
-    total = sum(quotas.values())
-    sent, repeated = flow.flow(0, sink, total)
+    sent, cost = flow.flow(0, sink, total)
     if sent != total:
         return None
     group_assignments = defaultdict(dict)
-    for bucket, signature, node, edge in edges:
-        group_assignments[signature][bucket] = quotas[bucket] - flow.graph[node][edge][2]
+    for bucket, signature, node, edge, capacity in edges:
+        group_assignments[signature][bucket] = capacity - flow.graph[node][edge][2]
     assigned = {key: Counter() for key in keys}
     for signature in signatures:
         ordered = _ordered_route_cycle(by_membership[signature], rng, route_diverse)
@@ -394,11 +412,15 @@ def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True):
             for offset in range(remainder):
                 assigned[bucket][_identity(ordered[(cursor + offset) % len(ordered)])] += 1
             cursor = (cursor + remainder) % len(ordered)
+    repeated = sum(max(0, sum(values.values()) - len(by_membership[signature]))
+                   for signature, values in group_assignments.items())
     return groups, frame_rows, assigned, dict(
-        objective="maximize_global_unique_frames",
+        objective=("minimize_action_quota_overflow_then_maximize_unique_frames" if event_quotas is not None
+                   else "maximize_global_unique_frames"),
         optimal_unique_frames=total - repeated,
         repeat_presentations=repeated,
         membership_groups=len(signatures),
+        **({"action_quota_overflow": (cost - repeated) // (total + 1)} if event_quotas is not None else {}),
     )
 
 
@@ -490,7 +512,7 @@ def validate_sampling_args(args):
     if args.sampling_mode not in SAMPLING_MODES:
         raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
     if (
-        args.sampling_mode == SAMPLING_MODE_EVENT_BALANCED
+        args.sampling_mode in BALANCED_MODES
         or args.event_balanced_scene_priors
     ):
         if not args.event_balance_index and not (
@@ -507,8 +529,8 @@ def validate_sampling_args(args):
         raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
     if args.best_selection_metric not in ("natural_ade", "event_balanced_ade"):
         raise ValueError("best_selection_metric must be natural_ade/event_balanced_ade")
-    if args.best_selection_metric == "event_balanced_ade" and args.sampling_mode != "event_balanced":
-        raise ValueError("event_balanced_ade best selection requires --sampling-mode event_balanced")
+    if args.best_selection_metric == "event_balanced_ade" and args.sampling_mode not in BALANCED_MODES:
+        raise ValueError("event_balanced_ade best selection requires event_balanced/action_balanced sampling")
 
 
 def sampling_contract(args):
@@ -516,7 +538,7 @@ def sampling_contract(args):
     source = source_contract(args)
     if source is None:
         return None
-    return dict(
+    result = dict(
         mode=args.sampling_mode,
         source=source,
         route_diverse=bool(args.event_balance_route_diverse),
@@ -525,6 +547,26 @@ def sampling_contract(args):
         max_frame_repeats=int(args.event_balance_max_frame_repeats),
         best_selection_metric=args.best_selection_metric,
     )
+    if args.sampling_mode == SAMPLING_MODE_ACTION_BALANCED:
+        from qwen3vl_local.action_prior.action_balance import policy_contract
+        from qwen3vl_local.action_prior.action_token import token_source
+        result["action_balance"] = policy_contract()
+        if getattr(args, "event_balance_index", ""):
+            args.action_balance_label_identity = token_source(args).identity
+        labels = getattr(args, "action_balance_label_identity", None)
+        if labels is None:
+            raise ValueError("action-balanced is missing its saved action label identity")
+        result["action_labels"] = labels
+    return result
+
+
+def build_balanced_epoch(rows, *, mode, **kwargs):
+    if mode == SAMPLING_MODE_ACTION_BALANCED:
+        from qwen3vl_local.action_prior.action_balance import build_action_balanced_epoch
+        return build_action_balanced_epoch(rows, **kwargs)
+    if mode == SAMPLING_MODE_EVENT_BALANCED:
+        return build_event_balanced_epoch(rows, **kwargs)
+    raise ValueError(f"not a balanced sampling mode: {mode}")
 
 
 def add_sampling_aliases(parser):
@@ -537,3 +579,9 @@ def add_sampling_aliases(parser):
     parser.add_argument("--no-event-balanced", dest="sampling_mode", action="store_const",
                         const="uniform", default=argparse.SUPPRESS,
                         help="与 --sampling-mode uniform 相同，使用自然采样")
+
+    parser.add_argument("--action-balanced", dest="sampling_mode", action="store_const",
+                        const=SAMPLING_MODE_ACTION_BALANCED, default=argparse.SUPPRESS,
+                        help="事件内按主要动作容量回流，事件等配额；不自动开启 token")
+    parser.add_argument("--no-action-balanced", dest="sampling_mode", action="store_const",
+                        const="uniform", default=argparse.SUPPRESS)

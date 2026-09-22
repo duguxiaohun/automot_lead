@@ -58,7 +58,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS, INVALID_KEY, PROMPT_NAME, action_prompt_sha256,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
-    even_quota_with_capacity,
+    support_aware_quota, SUPPORT_BALANCE_VERSION, support_diagnostic,
     route_diverse_sample,
     route_diversity_report, primary_action_distribution,
 )
@@ -473,7 +473,7 @@ def _sample_context_bucket(
     for base in bucket:
         by_signature[action_signature(base["action_labels"], context_id=context_id)].append(base)
     capacities = {key: len(value) for key, value in by_signature.items()}
-    quotas = even_quota_with_capacity(capacities, int(target))
+    quotas = support_aware_quota(capacities, int(target))
     selected: List[Mapping[str, Any]] = []
     for key in sorted(quotas):
         count = int(quotas[key])
@@ -484,13 +484,12 @@ def _sample_context_bucket(
             if route_diverse
             else _plain_sample(by_signature[key], count, rng)
         )
-    shortfall = int(target) - len(selected)
-    if shortfall > 0:
-        pool = list(bucket)
-        rng.shuffle(pool)
-        selected.extend(pool[idx % len(pool)] for idx in range(shortfall))
     rng.shuffle(selected)
-    return selected, {"signature_capacity": capacities, "signature_quota": dict(quotas)}
+    return selected, {"signature_capacity": capacities, "signature_quota": dict(quotas),
+                      "signature_support": {
+                          key: support_diagnostic(len(values), len({physical_route_group(
+                              row["scenario"], row["route_id"]) for row in values}), quotas[key])
+                          for key, values in by_signature.items()}}
 
 
 def _plain_sample(bucket: Sequence[Mapping[str, Any]], target: int, rng: random.Random) -> List[Mapping[str, Any]]:
@@ -801,6 +800,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
 
     manifest = {
         "format": FRAME_INDEX_FORMAT,
+        "sampling_policy": SUPPORT_BALANCE_VERSION,
         "split_contract": "physical_route_without_rep_or_collection_timestamp",
         "split_coverage": balance["split_coverage"],
         "development_route_groups": len(development_route_groups()),
@@ -904,7 +904,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v21"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v22"))
     p.add_argument(
         "--review-root",
         default=str(

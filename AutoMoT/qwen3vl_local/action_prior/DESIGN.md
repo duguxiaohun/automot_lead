@@ -1,5 +1,28 @@
 # Action prior 实现与合同
 
+## 2026-09-22 降低默认重复强度与支持量诊断
+
+主线和两消融使用同一个 `SamplingArgumentParser`：在全部别名解析后，未显式指定重复上限的
+新 action-balanced 默认为2，event-balanced仍为8。CLI/环境变量的显式值及保存配置优先；旧配置缺字段按8恢复。
+实际上限继续绑定采样合同和训练计划，不为提高容量自动放宽，不自动延长轮数。
+
+Phase3构建器在每个签名保存 `signature_support`，Action计划/逐轮报告保存 `support.cells/events`；
+共享 `sampling.support_diagnostic` 的100帧/10物理路线标记只供复查，绝不驱动标签或采样。
+保持KEEP的真实语义、不以UNCOND掩盖低频，避免UE6的小类被抹掉后只剩STOP的事件捷径。
+UNCOND条件屏蔽是另一个需要保留原真值和屏蔽理由的实验，本轮不启用。
+
+
+## 2026-09-22 两层动作均衡采样
+
+`action_balance.py` 以与模型 token 相同的逐帧主要动作构造 event×action 桶，按 Phase3 taxonomy 排除域外归属，事件内容量回流、事件间1:…:1:2。
+共用 `event_balance._joint_allocation`，按全局共享帧容量限制重复，先最少偏离动作目标，再优先不同帧/路线覆盖；原 event-balanced 配额和随机序列保留。
+预算预检使用事件权重总和12与world size的LCM，三入口从同一全局计划按rank切片；无支持动作报告，不伪造。
+`action-balanced` 即使关闭 token 也加载标签选样，runtime 仍按 token 开关决定输入；不注入文字先验。
+采样规则与标签身份绑定合同；闭环纯采样可用保存身份复现合同而不加载离线文件，oracle token 仍拒绝闭环。
+Phase3 构建、binary/choice训练共用 `sampling.support_aware_quota`：完整自然池循环＋余量容量内均分。
+稀少动作保留真值，不另设删标签阈值；Action 并发冲突可在事件内回流，日志记录域外排除及目标/实际差额。
+运行与公平预算示例见 [run.md](run.md)。
+
 ## 2026-09-22 七类动作 token 弱分离
 
 共享 `action_token.separation_loss` 对七类 embedding（含 UNCOND）的 21 对余弦相似度施加 squared hinge，

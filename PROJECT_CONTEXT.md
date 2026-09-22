@@ -1,5 +1,47 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-22 Action低重复默认与Phase3支持量诊断（覆盖上限8的新训默认）
+
+三条Action入口共用SamplingArgumentParser，新action-balanced默认全局单帧上限2，event-balanced仍8。
+显式CLI/环境值及保存配置优先；旧配置缺字段按历史8恢复，旧run仍须原源码。不自动延长轮数补预算。
+保留事件1:…:1:2和真实动作；七token跨事件共享，不因低频变KEEP/UNCOND、不新增条件屏蔽。
+Action计划/epoch保存support.cells/events；Phase3构建保存signature_support，共用support_diagnostic。
+100帧/10物理路线阈值只标复查线索，不参与过滤/配额/标签；未来UNCOND实验应保留原真值和mask理由。
+历史843913帧在新默认下1/4rank各7轮回放：23784次/轮，21251不同帧，最多2次，10次动作配额回流。
+UE3 RESUME呈现328→82（仍41独立帧）；65563/95136为显式上限8旧对照，不冒称新默认。
+595项Phase3+313项Action/消融CPU检查通过；2项缺只读runner未执行，未绕过校验，未真实GPU训练。
+Phase3仍v22目录，采样/构建hash更新须新产物；默认预算不因诊断变化。说明及demo见
+Action/ACTION_BALANCED_20260922.md、两包run.md与Phase3/SFT_NEW_LOOP_PHASE3_RUN.md。
+
+
+### 2026-09-22 Phase3 / Action 稀少动作容量回流（覆盖同日严格等量方案）
+
+Phase3 新默认 data_v22，提示词/轨迹规则仍沿用v21；构建、binary/choice及均衡验证共用
+sampling.support_aware_quota：完整自然池循环＋余量容量内均分，去掉整桶随机补额。
+Action主线及两消融 --action-balanced 共用函数，并按Phase3 taxonomy过滤域外event×全局动作归属；
+RE5右变道4帧仍保留RE2归属/原token/事件事实，不重标KEEP/UNCOND，不按任意低频阈值删合法标签。
+事件仍1:…:1:2；动作容量不足回流，联合共享帧冲突可回流，先最少偏离目标再最大化不同帧覆盖。
+预算倍数改为lcm(12,world)，不受最小动作格子约束；目标/实际配额、域外排除与overflow写入审计。
+旧843913训练帧经新采样器1/4rank各7轮回放：95136次/轮，65563不同帧，最多8次，域外归属排除4。
+Phase3完整历史候选十context、7轮容量内/超容量回放通过。合法小事件仍随整体循环，并非取消所有重复。
+594项Phase3及305项Action/消融相关CPU检查通过；两项缺只读runner的旧合同测试未执行，未绕过校验。
+采样源码加入mapping hash，manifest/config写sampling_policy；新索引/full map新run，自动准备按hash重建。
+未全量生产重建或真实GPU训练；详见Phase3/SFT_NEW_LOOP_PHASE3_RUN.md与action_prior/ACTION_BALANCED_20260922.md。
+
+
+### 2026-09-22 Action 事件内动作两层均衡
+
+三条入口新增 --action-balanced / ACTION_BALANCED=1，与 uniform/event-balanced 互斥。
+每事件内对实际支持的逐帧主要动作（含KEEP）等量，十特殊事件各一份、确认普通背景UNCOND两份（用户确认）。
+沿用Phase3统一token投影，共享帧全epoch重复上限及唯一帧/路线优先；缺动作报告不合成，缺事件拒绝。
+采样与token输入独立；关闭token仍读标签选样，模型不接动作。复用event-balanced-epoch-samples等预算开关。
+动作域LCM和world联合预检，训练计划/逐轮审计绑定规则及标签身份；验证不重采样，旧run须原源码。
+263项CPU检查通过；两项依赖缺失只读runner源码的旧合同测试未执行，生产校验未绕过。
+已有全量有效843913/70058/79518帧，1/4rank各7轮回放通过；RE5右变道仅4帧限制自动预算1440，
+每事件120/背景240、不同帧1420、最多重复6次；旧event-balanced为95136，公平比较需同预算。
+未跑真实GPU训练；容量表与命令见 action_prior/ACTION_BALANCED_20260922.md，demo见两包run.md。
+新增 action_prior/action_balance.py 与 tests/test_action_balance.py 属于已授权代码/测试目录，临时审计JSON不入库。
+
 ### 2026-09-22 Action token 弱分离正则
 
 三条入口开启 high-level-action-token 的新训练默认加完整七类（含UNCOND）21对 cosine hinge，
