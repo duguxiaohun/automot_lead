@@ -126,6 +126,7 @@ def render_panel(folder, row, predictions, models, inputs, cloud, filename):
 def publish(out, manifest):
     """发布每例和每桶结果；详细原始审计保留 _models，日常只读 case.json。"""
     from qwen3vl_local.action_prior.comparison_progress import PreflightProgress
+    from qwen3vl_local.action_prior.comparison_errors import error_selection
     out = Path(out)
     progress = PreflightProgress(out, phase="render")
     with progress.stage("initialize CPU plotting libraries"):
@@ -134,6 +135,9 @@ def publish(out, manifest):
         from qwen3vl_local.action_prior.comparison_scene import load_scene, render_paper
     total = sum(len(plan["cases"]) for plan in manifest["splits"].values())
     completed = 0
+    examined = 0
+    error_config = manifest.get("error_filter", dict(enabled=False, threshold_m=1.0))
+    filter_report = dict(**error_config, splits={})
     print(f"[render] GPU inference finished; CPU rendering {total} unique cases, "
           f"GT + {len(manifest['models'])} models per comparison; progress: {out / 'render.json'}", flush=True)
     models = manifest["models"]
@@ -145,8 +149,25 @@ def publish(out, manifest):
     for split, plan in manifest["splits"].items():
         with progress.stage(f"{split}: validate paired predictions / GT"):
             cases = paired_cases(out, manifest, split)
+        decisions = {}
+        with progress.stage(f"{split}: endpoint error selection"):
+            for cid in plan["cases"]:
+                decisions[cid] = error_selection({m["id"]: cases[m["id"]][cid] for m in models},
+                    enabled=error_config["enabled"], threshold_m=error_config["threshold_m"])
+            kept = {cid for cid, decision in decisions.items() if decision["kept"]}
+            filter_report["splits"][split] = dict(sampled=len(decisions), retained=len(kept),
+                skipped=len(decisions)-len(kept),
+                retained_at_threshold_m={str(t): sum(max(d["max_distances_m"].values()) > t for d in decisions.values())
+                                         for t in (.5, 1., 1.5, 2.)}, cases=decisions)
+            write_json(out / "error_filter.json", filter_report)
+        print(f"[render] {split}: error_only={error_config['enabled']} threshold>{error_config['threshold_m']}m; "
+              f"retained={len(kept)}/{len(decisions)}", flush=True)
         for cid, label in plan["cases"].items():
-            with progress.stage(f"case {completed+1}/{total} {split}/{cid}: comparison / history / individual models"):
+            examined += 1
+            if cid not in kept:
+                continue
+            with progress.stage(f"case {examined}/{total} {split}/{cid}: comparison / history / individual models"):
+                label = dict(label, visualization_error=decisions[cid])
                 folder = out / "_cases" / split / cid
                 folder.mkdir(parents=True, exist_ok=False)
                 predictions = {m["id"]: cases[m["id"]][cid] for m in models}
@@ -158,7 +179,7 @@ def publish(out, manifest):
                     physical_route=label["route_group"], events=event_groups(label), event_status=label["event_balance_status"],
                     high_level_action=label["action_token"]["name"], action_reason=label["action_token"]["reason"],
                     label_source="Phase3 offline oracle; not a model prediction", lidar_background=cloud_source,
-                    visualization=scene["audit"], models=[])
+                    visualization=scene["audit"], error_filter=decisions[cid], models=[])
                 inputs = {}
                 anchor_sha256 = None
                 for model in models:
@@ -190,7 +211,7 @@ def publish(out, manifest):
                 write_json(folder / "trajectories.json", dict(gt_route=first["gt_route"][0], gt_waypoints=first["gt_waypoints"][0],
                     predictions={mid: dict(route=data["pred_route"][0], waypoints=data["pred_waypoints"][0]) for mid, data in predictions.items()}))
                 render_paper(folder, label, predictions, models, inputs, scene, cloud)
-                print(f"[render] comparison ready ({completed+1}/{total}): {folder / 'comparison.png'}", flush=True)
+                print(f"[render] comparison ready ({examined}/{total}): {folder / 'comparison.png'}", flush=True)
                 render_panel(folder, label, predictions, models, inputs, cloud, "input_history.png")
                 for model in models:
                     render_paper(folder, label, {model["id"]: predictions[model["id"]]}, [model], inputs, scene, cloud, stem=model["id"])
@@ -198,15 +219,21 @@ def publish(out, manifest):
         with progress.stage(f"{split}: publish event/action folders and summaries"):
             for style, categories in plan["groups"].items():
                 for category, ids in categories.items():
+                    visible_ids = [cid for cid in ids if cid in kept]
                     folder = out / style / split / category
                     folder.mkdir(parents=True, exist_ok=True)
-                    for cid in ids:
+                    for cid in visible_ids:
                         src = out / "_cases" / split / cid
                         shutil.copytree(src, folder / cid, copy_function=lambda a, b: linked_copy(Path(a), Path(b)))
                         link = str((folder / cid / "comparison.png").relative_to(out))
                         links.append(f'<li><a href="{html.escape(link)}">{html.escape(style + "/" + split + "/" + category + "/" + cid)}</a></li>')
                     metrics = {m["id"]: {key: sum(cases[m["id"]][cid]["metrics"][key] for cid in ids) / len(ids) for key in METRICS} for m in models} if ids else {}
-                    group = dict(coverage=plan["coverage"][style][category], means=metrics)
+                    visible_metrics = {m["id"]: {key: sum(cases[m["id"]][cid]["metrics"][key] for cid in visible_ids) / len(visible_ids)
+                                       for key in METRICS} for m in models} if visible_ids else {}
+                    group = dict(coverage=plan["coverage"][style][category], means=metrics,
+                        displayed_means=visible_metrics, visualization=dict(sampled=len(ids), retained=len(visible_ids),
+                            skipped=len(ids)-len(visible_ids), error_only=error_config["enabled"],
+                            threshold_m=error_config["threshold_m"]))
                     if ids:
                         base = models[0]["id"]
                         group["paired_vs_first"] = {m["id"]: dict(
@@ -223,16 +250,22 @@ def publish(out, manifest):
                  "| 模型 | 条件 | best step | 完整 val 选优分数 |", "|---|---|---:|---:|"]
         for model in models:
             lines.append(f"| M{model['number']} {model['label']} | token={model['high_level_action_token']} | {model['selection']['step']} | {model['selection']['score']:.6f} |")
+        lines += ["", f"误差筛选 enabled={error_config['enabled']}，阈值严格 > {error_config['threshold_m']} m；"
+                  f"保留 {completed}/{total} 个去重采样case。route/waypoint任一模型-GT或任意模型对的终点欧氏距离触发即保留。",
+                  "下表指标仅针对保留案例，是可视化诊断，不代表整体性能。summary.json 的means/paired_vs_first仍为全部原采样案例，"
+                  "displayed_means为保留案例；error_filter.json记录触发者和不同阈值的保留数。未命中时不补例，原始预测仍在_models中。"]
         lines += ["", "RGB标定来源（去重case计数）：" + "; ".join(f"{key}={value}" for key, value in sorted(calibration_counts.items())) + "。",
                   "nominal_fallback表示缺录制标定而使用默认值；每例图注及case.json记录来源。RGB采用地面平面近似，不做遮挡判断。"]
         lines += ["", "逐例看 `event/` 或 `action/`，`comparison.png/.pdf` 为RGB投影＋场景俯视同屏比较，`model_*.png/.pdf` 单模型对 GT；`input_history.png` 保留实际历史输入，`case.json` 为简表，坐标数组在 `trajectories.json`。", "",
-                  "| 分组 | case / 请求 | 物理路线 | 模型 | FM loss | route ADE | waypoint ADE | waypoint FDE |", "|---|---:|---:|---|---:|---:|---:|---:|"]
+                  "| 分组 | 保留 / 采样 / 请求 | 采样物理路线 | 模型 | FM loss | route ADE | waypoint ADE | waypoint FDE |", "|---|---:|---:|---|---:|---:|---:|---:|"]
         for name, group in summary.items():
             coverage = group["coverage"]
             for model in models:
-                metrics = group["means"].get(model["id"])
+                metrics = group["displayed_means"].get(model["id"])
                 values = " | ".join(f"{metrics[k]:.5f}" for k in ("loss", "route_ade_m", "waypoint_ade_m", "waypoint_fde_m")) if metrics else "N/A | N/A | N/A | N/A"
-                lines.append(f"| {name} | {coverage['selected']}/{coverage['requested']} | {coverage['selected_physical_routes']} | M{model['number']} | {values} |")
+                lines.append(f"| {name} | {group['visualization']['retained']}/{coverage['selected']}/{coverage['requested']} | {coverage['selected_physical_routes']} | M{model['number']} | {values} |")
         (out / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        (out / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Trajectory comparison</title><h1>Case gallery</h1><p>See REPORT.md and case.json for metrics and input labels.</p><ul>' + "\n".join(links) + '</ul>', encoding="utf-8")
-    print(f"[render] complete {completed}/{total} cases; gallery: {out / 'index.html'}", flush=True)
+        (out / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Trajectory comparison</title><h1>Case gallery</h1>'
+            + f'<p>Retained {completed}/{total} sampled cases. Error filter: {error_config["enabled"]}, threshold &gt; {error_config["threshold_m"]} m.</p>'
+            + '<p>See REPORT.md and case.json for metrics and input labels.</p><ul>' + "\n".join(links) + '</ul>', encoding="utf-8")
+    print(f"[render] complete {completed}/{total} cases (retained/sampled); gallery: {out / 'index.html'}", flush=True)

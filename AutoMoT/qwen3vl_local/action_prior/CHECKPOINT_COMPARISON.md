@@ -59,6 +59,40 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh --plan-only
 
 plan-only仍需要原训练环境的Python依赖、真实checkpoint、BEV/Qwen文件和原数据索引以核对内容身份，但不查询GPU、不构造模型、不运行GPU推理。结果始终写新的时间目录，不覆盖旧测试。
 
+## 只看终点误差明显的案例
+
+统一shell顶部直接配置 `ERROR_ONLY`（默认false）和 `ERROR_THRESHOLD_M`（默认1.0米）；三个入口均生效，不读取这两项同名环境变量。要开启，编辑sh中的两行：
+
+```bash
+ERROR_ONLY=true
+ERROR_THRESHOLD_M=1.0
+```
+
+保存后直接运行：
+
+```bash
+bash qwen3vl_local/action_prior/compare_checkpoints.sh
+# 显式pin示例：
+GPU_IDS=0 bash qwen3vl_local/action_prior/compare_checkpoints.sh
+GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/compare_checkpoints.sh
+# CLI最后生效，可覆盖shell；筛选后不足时，可扩大推理候选数：
+bash qwen3vl_local/action_prior/compare_checkpoints.sh --error-only --error-threshold-m 1.0 --cases-per-category 24
+# 关闭恢复全部采样案例展示：
+bash qwen3vl_local/action_prior/compare_checkpoints.sh --no-error-only
+```
+
+判据是route与waypoint分别检查：任意一个模型的预测终点到GT终点的二维欧氏距离，或者任意两个模型预测终点间的二维欧氏距离，**任一项严格大于阈值**就保留整个配对case及所有方法的图。三模型及以上遍历所有模型对；不是两个模型各自FDE的数值差，也不是ADE或曲线中段最大距离。等于阈值不触发，阈值必须是有限正数。
+
+1.0米是诊断起点：现有两份第7轮完整val的自然waypoint FDE均值约0.939/0.924米，事件均衡均值约1.180/0.936米；route FDE均值约0.126/0.129米。相同1米阈值通常更偏向waypoint的大误差，但route或任意模型对也能独立触发。这里只掌握验证均值，没有远端逐例test分布，不能预测保留率或声称阈值最优。`error_filter.json` 按split给出0.5/1.0/1.5/2.0米分别会保留多少个当前采样case，便于按实际数量调整。
+
+先按原event/action和train/test配额选择候选、运行所有checkpoint，再筛选展示；每类数量是**筛选前候选数**，不会自动补足筛后数量，也不会扫描全测试集寻找错例。无命中时仍生成报告与空图库。筛选可减少绘图量，不减少本次候选的GPU推理量。
+
+`event/`、`action/`、`_cases/`及图库只发布保留案例。`_models/`仍保存完整候选的原始推理审计和输入，以便复查，不能将其当筛后的图库。`manifest.json`保留原采样计划及筛选配置；`error_filter.json`记录每个候选是否保留、四种关系的最大终点距离及最多四条最强触发者。保留案例的 `case.json.error_filter` 与图下注释解释入选原因。
+
+`summary.json`每个桶的 `means` / `paired_vs_first`保持原采样分母，`displayed_means`只计算保留案例；`visualization`给出sampled/retained/skipped计数。REPORT表格使用保留案例指标并明确显示“保留/采样/请求”。这些是按误差挑选的诊断结果，不能用来比较整体模型表现或重新选checkpoint。
+
+本轮74项CPU测试通过，覆盖route/waypoint、模型-GT、第三模型及模型对、严格阈值、关闭开关、非法端点、零命中、真实合成图片发布及shell参数传递；未运行远端真实模型。
+
 ## GPU启动前长时间停在preflight
 
 终端的 `model 2/2` 是“开始检查第二个模型”，不是两个模型已经检查完成。GPU选择只决定后续分配；原权重完整val选优、CPU读取checkpoint、冻结权重/源码/索引哈希、百万帧full map与动作候选验证、有效split扫描和分层选例都发生在真正启动GPU worker之前。少量可视化case仍需从完整类别池选择，降低每类数量不会消除这些固定开销。

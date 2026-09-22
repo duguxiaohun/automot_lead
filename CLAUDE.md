@@ -18,6 +18,8 @@ RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆
 预检按阶段每15秒输出耗时/RSS/调用位置到preflight.json/log；选帧仅哈希选中case并提前释放标签池。
 GPU worker完成后仍有CPU绘图；render.json/log每15秒报case进度，优先生成GT+所有模型主图。
 本轮58项CPU回归通过；分类目录在每个split绘制后发布，总完成以status.json为准。
+可选ERROR_ONLY默认false、ERROR_THRESHOLD_M默认1米；route/waypoint任意模型-GT或模型对终点距离严格超阈值即保留。
+先采样推理再筛展示，不补例；保留原采样统计及原始审计，另报筛后指标/原因/阈值保留数。74项相关CPU测试通过。
 两份bev_only审计：自然加权ADE改善0.82%、均衡waypoint ADE改善17.31%，普通背景/UE4退化；
 详见 action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md 与 action_prior/CHECKPOINT_COMPARISON.md。
 

@@ -327,6 +327,12 @@ def render_paper(folder, row, predictions, models, inputs, scene, cloud=None, st
         ax.set_title(kind + (" · route" if column == 0 else " · future waypoints (~2 s)"), fontsize=11)
         ax.grid(alpha=.12)
     title = f"{row['split']}  |  {row['scenario']}  |  frame {row['anchor']}  |  Event: {', '.join(event_groups(row))}  |  Action: {row['action_token']['name']}"
+    error = row.get("visualization_error", {})
+    if error.get("enabled"):
+        strongest = max(error["triggers"], key=lambda item: item["distance_m"])
+        fig.text(.5, .048, f"Selected: {strongest['trajectory']} {' vs '.join(strongest['pair'])} "
+                 f"endpoint={strongest['distance_m']:.2f} m > {error['threshold_m']:g} m (all-model selection)",
+                 ha="center", fontsize=9)
     fig.suptitle(title, fontsize=12, y=.993)
     labels = ["GT (recorded expert)"]
     handles = [Line2D([0], [0], color="#161b22", linewidth=2.4, linestyle="--")]

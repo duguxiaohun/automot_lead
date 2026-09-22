@@ -232,6 +232,43 @@ def test_pairing_rejects_bad_results(tmp_path, problem):
         paired_cases(tmp_path, manifest, "test")
 
 
+@pytest.mark.parametrize('keep', [False, True])
+def test_error_filter_publish_empty_or_pairwise_case(tmp_path, monkeypatch, keep):
+    from qwen3vl_local.action_prior import comparison_render as renderer
+    manifest, cid = make_outputs(tmp_path)
+    manifest['error_filter'] = dict(enabled=True, threshold_m=1.)
+    if keep:
+        # Both models are <1m from GT, but their endpoints are 1.5m apart.
+        for index, dx in ((1, .75), (2, -.75)):
+            path = tmp_path / f'_models/model_{index:02d}/test/cases/rank0_case000000.json'
+            data = cc.read_json(path)
+            data['pred_waypoints'] = copy.deepcopy(data['gt_waypoints'])
+            data['pred_waypoints'][0][-1][0] += dx
+            cc.write_json(path, data)
+    else:
+        def no_scene_reads(*args):
+            raise AssertionError('excluded cases must not load scenes or render')
+        monkeypatch.setattr(renderer, 'lidar_background', no_scene_reads)
+    publish(tmp_path, manifest)
+    audit = cc.read_json(tmp_path/'error_filter.json')['splits']['test']
+    assert audit['sampled'] == 1 and audit['retained'] == int(keep)
+    assert audit['retained_at_threshold_m']['1.0'] == int(keep)
+    assert audit['retained_at_threshold_m']['2.0'] == 0
+    for style, category in (('event', 'UE1'), ('action', 'STOP')):
+        folder = tmp_path / style / 'test' / category
+        assert (folder / cid / 'comparison.png').exists() == keep
+        group = cc.read_json(folder/'summary.json')
+        assert group['means']['model_01']['loss'] == .1  # unfiltered denominator preserved
+        assert bool(group['displayed_means']) == keep
+        assert group['visualization']['retained'] == int(keep)
+    if keep:
+        detail = cc.read_json(tmp_path/'_cases/test'/cid/'case.json')['error_filter']
+        assert detail['triggers'][0]['pair'] == ['model_01', 'model_02']
+        assert detail['triggers'][0]['distance_m'] == 1.5
+    assert (tmp_path/'REPORT.md').is_file()
+    assert ('comparison.png' in (tmp_path/'index.html').read_text()) == keep
+
+
 @pytest.mark.parametrize("variant", ["bev_only", "qwen_simple", "action_prior"])
 @pytest.mark.parametrize("empty_train", [False, True])
 def test_worker_routes_models_preserves_seed_and_cleans_capture(tmp_path, monkeypatch, variant, empty_train):
@@ -404,18 +441,25 @@ def test_projection_requires_correct_input_dimensions(tmp_path):
         publish(tmp_path, manifest)
 
 
-def test_shell_forwards_config_and_paths_with_spaces(tmp_path):
+@pytest.mark.parametrize('enabled,flag', [('false', '--no-error-only'), ('true', '--error-only')])
+def test_shell_forwards_config_and_paths_with_spaces(tmp_path, enabled, flag):
     import os
     import subprocess
     script = Path(__file__).resolve().parents[1] / "compare_checkpoints.sh"
+    # 模拟用户直接编辑sh配置；外部环境不覆盖脚本中的两项设置。
+    content = script.read_text().replace('ERROR_ONLY=false', f'ERROR_ONLY={enabled}').replace(
+        'ERROR_THRESHOLD_M=1.0', 'ERROR_THRESHOLD_M=1.25')
+    script = tmp_path / 'compare_checkpoints.sh'
+    script.write_text(content)
     fake = tmp_path / "fake_python"
     fake.write_text('#!/usr/bin/env python3\nimport sys,json\nprint(json.dumps(sys.argv[1:]))\n')
     fake.chmod(0o755)
     args = ["run with spaces A", "run B", "--cases-per-category", "0", "--event-cases", "UE1=3", "--names", "Method A", "Method B"]
     run = subprocess.run(["bash", str(script), *args], check=True, capture_output=True, text=True,
-                         env={**os.environ, "PYTHON": str(fake)})
+                         env={**os.environ, "PYTHON": str(fake), "ERROR_ONLY": "invalid_external", "ERROR_THRESHOLD_M": "999"})
     argv = json.loads(run.stdout)
-    assert argv[1:3] == ["--cases-per-category", "8"] and argv[7:] == args
+    assert argv[1:3] == ["--cases-per-category", "8"] and argv[10:] == args
+    assert argv[7:10] == ['--error-threshold-m', '1.25', flag]
     assert argv[3] == "--output-root" and Path(argv[4]).resolve() == script.parents[2] / "test"
     assert argv[5:7] == ["--gpus", "4"]
 

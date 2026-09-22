@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -73,6 +74,7 @@ def prepare(cli, out):
                 if file_hash(args.event_balance_index) != source.full.source.sha256:
                     raise ValueError("多个模型或分类用 full map 内容不同")
     manifest = dict(schema="action_checkpoint_comparison_v1", seed=cli.seed, per_category=cli.cases_per_category,
+        error_filter=dict(enabled=getattr(cli, "error_only", False), threshold_m=getattr(cli, "error_threshold_m", 1.0)),
         category_counts=cli.category_counts, camera_config=cli.camera_configuration,
         min_frame_gap=cli.min_frame_gap, label_source=source.identity, models=entries, splits={},
         interpretation="分层抽样的离线同帧 EMA 对比；不是全量 test、闭环或泛化结论。event 可重叠。")
@@ -133,6 +135,9 @@ def main():
     parser.add_argument("runs", nargs="*")
     parser.add_argument("--names", nargs="+")
     parser.add_argument("--cases-per-category", type=int, default=8)
+    parser.add_argument("--error-only", action=argparse.BooleanOptionalAction, default=False,
+                        help="仅绘制任一route/waypoint模型-GT或模型间终点距离超过阈值的采样case")
+    parser.add_argument("--error-threshold-m", type=float, default=1.0, help="终点距离阈值，单位米，严格大于；默认1.0")
     parser.add_argument("--event-cases", action="append", default=[], help="逐类数量，例如 UE1=12,UE4=20,test/UE7=6；可重复，0跳过")
     parser.add_argument("--action-cases", action="append", default=[], help="例如 STOP=12,LANE_CHANGE_LEFT=20；可重复，0跳过")
     parser.add_argument("--camera-config", default="", help="显式覆盖显示标定JSON；默认优先同帧meta，缺失回退LEAD名义标定")
@@ -152,6 +157,8 @@ def main():
         from qwen3vl_local.action_prior.comparison_runtime import evaluate_worker
         evaluate_worker(read_json(cli.worker_job))
         return
+    if not math.isfinite(cli.error_threshold_m) or cli.error_threshold_m <= 0:
+        parser.error("error-threshold-m 必须为有限正数（米）")
     if len(cli.runs) < 2 or (cli.names and len(cli.names) != len(cli.runs)):
         parser.error("至少两个训练目录；--names 若指定必须与目录数量相同")
     if cli.cases_per_category < 0 or cli.min_frame_gap < 1 or cli.workers < 0 or cli.gpus < 1:

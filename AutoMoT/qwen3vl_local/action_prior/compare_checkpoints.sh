@@ -18,6 +18,11 @@ GPU_COUNT="${GPU_COUNT:-4}"
 
 # 可视化采样：默认每个类别在 train/test 各取多少例。
 CASES_PER_CATEGORY=8
+# true：仅展示route/waypoint任一模型与GT、或任意两模型终点距离>阈值的案例。
+# 先按上方数量采样再筛选，最终可能不足；需更多候选可增加CASES_PER_CATEGORY。
+# 直接修改这两行，然后运行本脚本，无需在命令前传环境变量。
+ERROR_ONLY=false        # true开启误差筛选；false显示全部采样案例
+ERROR_THRESHOLD_M=1.0   # 终点距离阈值，单位米
 # 按需取消注释并修改；没写的类别使用上面的默认值。0表示不输出该类别。
 # train/ 或 test/ 前缀可只覆盖某个集合，例如 "test/UE7=6"。
 EVENT_CASES=(
@@ -34,6 +39,12 @@ METHOD_NAMES=()
 # 需显式覆盖或添加已保存第三人称图标定时填JSON，正常LEAD三视角留空。
 CAMERA_CONFIG=""
 OPTIONS=(--cases-per-category "$CASES_PER_CATEGORY" --output-root "$OUTPUT_ROOT" --gpus "$GPU_COUNT")
+OPTIONS+=(--error-threshold-m "$ERROR_THRESHOLD_M")
+case "${ERROR_ONLY,,}" in
+  true|1|yes) OPTIONS+=(--error-only) ;;
+  false|0|no) OPTIONS+=(--no-error-only) ;;
+  *) echo "ERROR_ONLY must be true/false (or 1/0)" >&2; exit 2 ;;
+esac
 for ITEM in "${EVENT_CASES[@]}"; do OPTIONS+=(--event-cases "$ITEM"); done
 for ITEM in "${ACTION_CASES[@]}"; do OPTIONS+=(--action-cases "$ITEM"); done
 if [[ -n "$CAMERA_CONFIG" ]]; then OPTIONS+=(--camera-config "$CAMERA_CONFIG"); fi
