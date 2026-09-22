@@ -7,7 +7,10 @@ import json
 import math
 import os
 from pathlib import Path
+import random
+import secrets
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.action_prior.comparison_cases import (
@@ -15,6 +18,26 @@ from qwen3vl_local.action_prior.comparison_cases import (
     select_checkpoint, select_cases, require_same_frames,
     parse_category_counts, EVENT_NAMES, ACTION_NAMES,
 )
+
+
+def resolve_sampling_seed(value):
+    """auto按本次时间和系统随机源生成；整数可复现案例选择及顺序。"""
+    if str(value).lower() == "auto":
+        return (time.time_ns() ^ secrets.randbits(63)) & ((1 << 63) - 1)
+    try:
+        seed = int(value)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("sampling-seed 必须为 auto 或非负整数") from exc
+    if seed < 0 or str(seed) != str(value).strip():
+        raise ValueError("sampling-seed 必须为 auto 或非负整数")
+    return seed
+
+
+def ordered_cases(rows, seed, split):
+    """稳定输入归一后打乱；每个split独立，同次各模型顺序一致。"""
+    result = sorted(rows, key=identity)
+    random.Random(f"{seed}:{split}:comparison-order").shuffle(result)
+    return result
 
 
 def prepare(cli, out):
@@ -27,6 +50,7 @@ def prepare(cli, out):
     from qwen3vl_local.action_prior.contracts import file_hash
     from qwen3vl_local.action_prior.comparison_progress import PreflightProgress
     progress = PreflightProgress(out)
+    sampling_seed = cli.sampling_seed
     overrides = {key: getattr(cli, key) for key in (
         "data_root", "data_dir", "model_dir", "lead_bev_ckpt", "event_balance_index",
         "high_level_action_index", "prior_labels", "phase1_training_index", "phase2_training_index") if getattr(cli, key)}
@@ -74,6 +98,8 @@ def prepare(cli, out):
                 if file_hash(args.event_balance_index) != source.full.source.sha256:
                     raise ValueError("多个模型或分类用 full map 内容不同")
     manifest = dict(schema="action_checkpoint_comparison_v1", seed=cli.seed, per_category=cli.cases_per_category,
+        sampling_seed=sampling_seed, sampling_seed_mode=cli.sampling_seed_mode,
+        evaluation_seed=cli.seed, case_order="shuffled_per_split_shared_across_models",
         error_filter=dict(enabled=getattr(cli, "error_only", False), threshold_m=getattr(cli, "error_threshold_m", 1.0)),
         category_counts=cli.category_counts, camera_config=cli.camera_configuration,
         min_frame_gap=cli.min_frame_gap, label_source=source.identity, models=entries, splits={},
@@ -88,8 +114,14 @@ def prepare(cli, out):
             source.full.annotate(labels)
             source.annotate(labels)
         with progress.stage(f"{split}: stratified case selection ({len(reference)} frames)"):
-            picked, groups, coverage = select_cases(labels, per_category=cli.cases_per_category, seed=cli.seed,
+            picked, groups, coverage = select_cases(labels, per_category=cli.cases_per_category, seed=sampling_seed,
                 min_frame_gap=cli.min_frame_gap, category_counts=cli.category_counts, split=split)
+            picked = ordered_cases(picked, sampling_seed, split)
+            order = {identity(row): index for index, row in enumerate(picked)}
+            id_order = {case_id(row): index for index, row in enumerate(picked)}
+            for categories in groups.values():
+                for ids in categories.values():
+                    ids.sort(key=id_order.__getitem__)
         # 只保留被选中的标签，避免读第二模型全量池时还占用一整份标签字典。
         del labels
         print(f"[preflight] {split}: selected {len(picked)} unique cases / {len(reference)} effective frames", flush=True)
@@ -101,7 +133,7 @@ def prepare(cli, out):
                 actual = reference if index == 0 else read_rows(args, split)
                 require_same_frames(reference, actual, split)
                 rows = [r for r in actual if identity(r) in wanted]
-                rows.sort(key=identity)
+                rows.sort(key=lambda row: order[identity(row)])
             # 注入开启模型的 token 必须和独立分类标签逐帧完全一致。
             expected = {identity(r): r["action_token"] for r in picked}
             for row in rows:
@@ -142,7 +174,8 @@ def main():
     parser.add_argument("--action-cases", action="append", default=[], help="例如 STOP=12,LANE_CHANGE_LEFT=20；可重复，0跳过")
     parser.add_argument("--camera-config", default="", help="显式覆盖显示标定JSON；默认优先同帧meta，缺失回退LEAD名义标定")
     parser.add_argument("--min-frame-gap", type=int, default=8)
-    parser.add_argument("--seed", type=int, default=2026)
+    parser.add_argument("--seed", type=int, default=2026, help="配对模型推理噪声seed，独立于案例采样，默认2026")
+    parser.add_argument("--sampling-seed", default="auto", help="auto每次按时间+系统随机源重新采样/排序；填整数可复现")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--gpus", type=int, default=4, help="自动选卡上限，默认4；不足时自动减少，GPU_IDS显式卡数优先")
     parser.add_argument("--output-root", default=str(AUTOMOT_ROOT / "test"))
@@ -157,6 +190,11 @@ def main():
         from qwen3vl_local.action_prior.comparison_runtime import evaluate_worker
         evaluate_worker(read_json(cli.worker_job))
         return
+    try:
+        cli.sampling_seed_mode = "auto" if cli.sampling_seed.lower() == "auto" else "fixed"
+        cli.sampling_seed = resolve_sampling_seed(cli.sampling_seed)
+    except ValueError as exc:
+        parser.error(str(exc))
     if not math.isfinite(cli.error_threshold_m) or cli.error_threshold_m <= 0:
         parser.error("error-threshold-m 必须为有限正数（米）")
     if len(cli.runs) < 2 or (cli.names and len(cli.names) != len(cli.runs)):
@@ -179,20 +217,26 @@ def main():
     out = Path(cli.output_root).expanduser().resolve() / datetime.now().strftime("run_%Y%m%d_%H%M%S_%f")
     out.mkdir(parents=True, exist_ok=False)
     os.chdir(AUTOMOT_ROOT)
+    write_json(out / "sampling.json", dict(sampling_seed=cli.sampling_seed, mode=cli.sampling_seed_mode,
+                                           evaluation_seed=cli.seed))
+    print(f"[comparison] sampling_seed={cli.sampling_seed} ({cli.sampling_seed_mode}); "
+          f"evaluation_seed={cli.seed}; same cases/order for all models", flush=True)
     write_json(out / "status.json", dict(status="planning"))
     try:
         if not cli.plan_only:
             from qwen3vl_local.action_prior.comparison_scheduler import select_gpus, run_queue
             gpu_plan = select_gpus(cli.gpus, len(cli.runs))
-            print(f"[comparison] GPU={gpu_plan['selected_ids']}; parallel={gpu_plan['parallel_models']}; output={out}", flush=True)
+            print(f"[comparison] GPU={gpu_plan['selected_ids']}; worker capacity={len(gpu_plan['selected_ids'])}; output={out}", flush=True)
         manifest, jobs = prepare(cli, out)
         if cli.plan_only:
             write_json(out / "status.json", dict(status="planned_only", models_executed=False))
         else:
+            from qwen3vl_local.action_prior.comparison_shards import plan_shards
+            tasks = plan_shards(jobs, manifest, gpu_plan, out)
             manifest["execution"] = gpu_plan
             write_json(out / "manifest.json", manifest)
             commands = [[sys.executable, str(Path(__file__).resolve()), "--worker-job",
-                         str(out / "_plan" / f"job_{index:02d}.json")] for index in range(len(jobs))]
+                         task['job']] for task in tasks]
             run_queue(commands, gpu_plan, out)
             write_json(out / "status.json", dict(status="rendering", models_executed=True))
             print(f"[comparison] all GPU workers complete; starting CPU rendering; status: {out / 'status.json'}", flush=True)

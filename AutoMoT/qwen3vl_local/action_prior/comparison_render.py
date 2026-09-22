@@ -27,13 +27,23 @@ def paired_cases(out, manifest, split):
     result = {}
     for model in manifest["models"]:
         cases = {}
-        root = Path(out) / "_models" / model["id"] / split
-        for path in sorted((root / "cases").glob("rank*_case*.json")):
-            row = read_json(path)
-            cid = case_id(row["sample"])
-            if cid in cases or cid not in expected or identity(row["sample"]) != identity(expected[cid]):
-                raise ValueError(f"重复/意外帧: {path}")
-            cases[cid] = row
+        shards = model.get("evaluation_shards", [dict(output=f"_models/{model['id']}", case_ids={split: list(expected)})])
+        for shard in shards:
+            root = Path(out) / shard['output'] / split
+            assigned = set(shard['case_ids'][split])
+            if len(assigned) != len(shard['case_ids'][split]) or not assigned <= set(expected):
+                raise ValueError("分片case清单重复或包含意外帧")
+            observed = set()
+            for path in sorted((root / "cases").glob("rank*_case*.json")):
+                row = read_json(path)
+                cid = case_id(row["sample"])
+                if cid in cases or cid not in assigned or identity(row["sample"]) != identity(expected[cid]):
+                    raise ValueError(f"重复/意外帧: {path}")
+                row['_comparison_input_dir'] = str(root / 'inputs' / cid)
+                cases[cid] = row
+                observed.add(cid)
+            if observed != assigned:
+                raise ValueError(f"模型 {model['id']} 的 {split} 分片预测未覆盖计划case: {root}")
         if set(cases) != set(expected):
             raise ValueError(f"模型 {model['id']} 的 {split} 预测未覆盖全部计划 case")
         result[model["id"]] = cases
@@ -185,7 +195,7 @@ def publish(out, manifest):
                 for model in models:
                     mid = model["id"]
                     data = predictions[mid]
-                    source = out / "_models" / mid / split / "inputs" / cid
+                    source = Path(data['_comparison_input_dir'])
                     target = folder / "inputs" / mid
                     paths = sorted(source.glob("input_rgb_*.png"))
                     if not paths:
@@ -250,6 +260,9 @@ def publish(out, manifest):
                  "| 模型 | 条件 | best step | 完整 val 选优分数 |", "|---|---|---:|---:|"]
         for model in models:
             lines.append(f"| M{model['number']} {model['label']} | token={model['high_level_action_token']} | {model['selection']['step']} | {model['selection']['score']:.6f} |")
+        if "sampling_seed" in manifest:
+            lines += ["", f"案例采样/顺序 seed={manifest['sampling_seed']} ({manifest['sampling_seed_mode']})；"
+                      f"模型评估噪声 seed={manifest['evaluation_seed']}。同次所有模型共享案例及顺序；train/test划分保持原合同。"]
         lines += ["", f"误差筛选 enabled={error_config['enabled']}，阈值严格 > {error_config['threshold_m']} m；"
                   f"保留 {completed}/{total} 个去重采样case。route/waypoint任一模型-GT或任意模型对的终点欧氏距离触发即保留。",
                   "下表指标仅针对保留案例，是可视化诊断，不代表整体性能。summary.json 的means/paired_vs_first仍为全部原采样案例，"

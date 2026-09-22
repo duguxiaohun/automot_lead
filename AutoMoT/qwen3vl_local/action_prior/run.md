@@ -393,7 +393,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipe
 完整用法、搬迁与验证边界见 [CHECKPOINT_COMPARISON.md](CHECKPOINT_COMPARISON.md)。
 
 2026-09-22 对比入口补齐：结果默认写到 `AutoMoT/test/run_<时间>/`，与checkpoints同级。
-默认最多自动选4张最空闲GPU，卡不足或模型更少时减少并发，一卡一模型，其余排队动态补位；
+默认最多自动选4张最空闲GPU，卡不足时减少并发；模型少于卡时按case拆片（4卡2模型各2份），模型多于卡则排队动态补位；
 `--gpus`/`GPU_COUNT`设置自动上限，`GPU_IDS`显式pin优先。独立日志与scheduler记录，失败/中断回收本次子进程。
 并发相关检查使用真实CPU子进程，未验证实际多GPU模型推理。
 

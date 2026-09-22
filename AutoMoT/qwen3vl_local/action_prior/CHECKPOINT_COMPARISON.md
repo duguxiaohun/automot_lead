@@ -48,7 +48,7 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh \
 
 ```bash
 bash qwen3vl_local/action_prior/compare_checkpoints.sh \
-  --cases-per-category 12 --min-frame-gap 8 --seed 2026 --workers 4
+  --cases-per-category 12 --min-frame-gap 8 --sampling-seed auto --seed 2026 --workers 4
 ```
 
 先检查选择清单、条件与标签而不运行模型：
@@ -58,6 +58,36 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh --plan-only
 ```
 
 plan-only仍需要原训练环境的Python依赖、真实checkpoint、BEV/Qwen文件和原数据索引以核对内容身份，但不查询GPU、不构造模型、不运行GPU推理。结果始终写新的时间目录，不覆盖旧测试。
+
+## 每次重新选案例并打乱执行顺序
+
+脚本中直接配置，无需在命令前传环境变量：
+
+```bash
+CASES_PER_CATEGORY=8
+SAMPLING_SEED=auto  # 每次运行按纳秒时间+系统随机源生成新的采样种子
+EVAL_SEED=2026      # 独立的模型配对评估噪声种子
+```
+
+`auto` 在父进程启动时只生成一次；各模型共享同一采样计划。采样仍保持原类别配额、路线多样性、最小帧间隔和train/test物理隔离，各split选中的案例另按本次种子打乱，所有模型共享相同的逻辑清单顺序。模型训练seed、原train/test划分和先验噪声条件不变；不重新训练。每个worker先处理自己的train再处理test；多卡分片只取公共顺序中的子序列，实际开始/完成时序由运行耗时决定。
+
+实际seed立即打印并写入本次 `sampling.json`，随后写入 `manifest.json` 和 `REPORT.md`。需要重放时，把sh中的 `SAMPLING_SEED=auto` 改为该次保存的整数，其余数据、采样数量、最小帧间隔及代码相同即可复现；CLI也支持 `--sampling-seed 12345`。`--seed` 现在只对应EVAL_SEED，不再同时控制案例选择。旧版本默认2026选例的集合可用 `--sampling-seed 2026` 重选，但新版的执行顺序会打乱。
+
+新种子不等于保证每次案例都不重合：数据少或配额覆盖全部候选时，集合可能相同；不维护跨运行已查看列表。即使某个case重复出现，其评估噪声仍由case身份和EVAL_SEED确定，便于对照。查看test案例属于诊断曝光，不代表新的独立盲测。
+
+本轮76项相关CPU测试通过，覆盖同一时刻auto种子仍变化、固定种子重放、不同seed改变选例和顺序、各模型计划同序及推理seed独立；未运行真实GPU模型。
+
+后续实现其它对比脚本时，可沿用以下种子职责划分：
+
+| 随机来源 | 本工具策略 | 用途及约束 |
+|---|---|---|
+| 原训练/数据划分seed | 从checkpoint合同恢复 | 不因浏览新案例而改变split归属或训练条件 |
+| SAMPLING_SEED | 默认auto；主进程生成一次并保存 | 控制选例和逻辑顺序，所有checkpoint共用 |
+| EVAL_SEED | 默认固定2026 | 与case身份共同决定FM的eps/t/ODE噪声，不混入GPU号、worker号或完成次序 |
+
+实现要点：`(time.time_ns() ^ secrets.randbits(63)) & ((1 << 63)-1)`只在主入口执行一次；先稳定归一候选顺序，再用局部Random做分层抽样/打乱，不能让每个GPU各自按时间抽样。先把完整计划落盘，再按计划切片。更改卡数时仍使用相同采样seed和EVAL_SEED，能够保持案例集合及每case的评估噪声；多卡浮点运算和不同硬件不承诺逐位一致。图像筛选、误差门槛及分组汇总均在全模型配对完成后执行，不参与种子选择。
+
+跨运行需要“尽量看新案例”时可用auto；需要同一组可复现对比时固定采样seed；需要研究噪声敏感性时固定采样seed并显式改变EVAL_SEED。种子只是记录条件，不能把反复筛看test当作未曝光的盲测。
 
 ## 只看终点误差明显的案例
 
@@ -134,17 +164,20 @@ tail -n 10 "$RUN_DIR/render.log"
 
 ## GPU自适应并发
 
-脚本顶部 `GPU_COUNT=4` 表示默认最多自动选4张卡。按 `nvidia-smi` 显存占用、利用率从低到高选卡，检测到少于4张会自动减少；并发上限为所选卡数与checkpoint数的较小值。每个checkpoint独占一张卡，依次评估它的train/test案例，完成后释放显存并让该卡领取下一个checkpoint。不同模型的日志、缓存、原始结果目录相互独立；配对的case及评估噪声不随完成顺序变化。
+脚本顶部 `GPU_COUNT=4` 表示默认最多自动选4张卡。按 `nvidia-smi` 显存占用、利用率从低到高选卡，检测到少于4张会自动减少。旧版把GPU数截断到checkpoint数，导致两模型只用两卡；当前先为每个模型分配一份任务，再将空余卡均匀分配为额外案例分片。一张GPU同时只运行一个worker，checkpoint过多时排队，卡空出后立即领取下一个任务。
 
-| 检测/指定的卡数 | checkpoint数 | 调度 |
+| 检测/指定的卡数 | checkpoint数 | 调度（候选案例足够时） |
 |---:|---:|---|
-| 4 | 2 | 两个模型各占一张卡并行，其余两张不分配 |
-| 4 | 4 | 四个模型并行 |
-| 4 | 6 | 先跑四个，空出的卡立即领取剩余模型 |
-| 2 | 6 | 自动改为两个并行，其余排队 |
-| 1 | 任意 | 顺序运行 |
+| 4 | 2 | 每模型2个分片，各自加载模型，共4个worker并发 |
+| 4 | 3 | 模型分片数2/1/1，共4个worker并发 |
+| 4 | 4 | 每模型1个worker，共4个并发 |
+| 4 | 6 | 每模型1份，先跑4个，剩余2个排队 |
+| 2 | 6 | 同时运行2个，其余排队 |
+| 1 | 任意 | 各模型顺序运行 |
 
-这是一卡一模型的任务并发，不会把同一个checkpoint拆到多张GPU；每个模型及其冻结Qwen/BEV需要能装入单卡。CPU数据加载 `--workers` 是**每个模型**的数量，默认4；四个模型同时运行时最多16个加载worker及四份模型CPU内存，需要按机器资源调整。
+分片数不超过该模型的去重case总数，不用空任务或重复case占卡。例如两模型各只有1个case，即使指定4卡也只会启动2个worker。分片按原随机顺序轮转切分train/test整体清单，允许某片某split为空；每个模型的全部案例恰好执行一次，原计划/hash、条件合同及checkpoint内容校验继续生效。GPU数不参与采样种子或噪声种子。
+
+这属于多个模型副本分担独立case，每个worker仍需要在单卡装入其完整模型及冻结Qwen/BEV。不是把一个巨大模型拆开装到多卡，也不修改训练DDP或重训模型。CPU数据加载 `--workers` 是**每个worker**的数量，默认4；四个worker最多有16个加载子进程及四份模型CPU内存。多副本会重复加载与合同校验；小case量可能被启动/I/O开销主导。分片按数量分配，不预测每帧或模型的耗时，也不在尾部搬迁运行中模型，因此不保证全程满卡或线性加速。CPU预检及绘图阶段仍不会占满GPU。
 
 ```bash
 # 自动最多选两张卡
@@ -155,7 +188,11 @@ GPU_COUNT=4 bash qwen3vl_local/action_prior/compare_checkpoints.sh
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/compare_checkpoints.sh
 ```
 
-自动选卡是启动时的空闲程度排序，不是跨任务的GPU资源锁；按项目入口规则覆盖已有可见卡mask，指定卡号使用 `GPU_IDS`。日志在 `logs/model_XX.log`，终端报告启动/完成和队列心跳；`scheduler.json`记录每个模型的GPU、PID、开始/结束、退出码。任一worker失败后停止派发，保留已有结果并回收其余worker及其加载子进程；Ctrl-C/SIGTERM同样清理，不生成不完整的对比汇总。模型全部成功后统一渲染图片。
+自动选卡是启动时的空闲程度排序，不是跨任务的GPU资源锁；按项目入口规则覆盖已有可见卡mask，指定卡号使用 `GPU_IDS`。终端打印实际workers、parallel、shards/model及unused GPUs。单分片日志保持 `logs/model_XX.log`，多分片日志为 `logs/model_XX_shard_YY.log`；`scheduler.json`记录任务ID、模型ID、GPU、PID、开始/结束与退出码，完成数量指worker任务数。任一worker失败后停止派发并回收本次其它进程组；Ctrl-C/SIGTERM同样清理，保留已有结果，不生成不完整汇总。
+
+各worker拥有独立输出/缓存：多分片原始结果位于 `_models/model_XX/shards/shard_YY/<split>/`，单分片仍用 `_models/model_XX/<split>/`。`manifest.json` 的 `evaluation_shards` 记录输出位置和分片case身份；`execution`记录卡数与分配。所有worker成功后，父进程逐片检查漏帧、重复、错误身份，再核对各模型GT并按case ID配对；**汇总从逐case指标计算，绝不直接平均大小不同分片的metrics均值**。最终event/action图库及每case的全部方法比较形式不变。
+
+本轮99项已有相关CPU检查及18项分片CPU检查通过（共117项），包括两模型/四GPU槽位的真实CPU子进程、2/1/1分配、卡少于模型、极少/空split、hash校验、缺帧拒绝、不同大小分片汇总与单任务一致及实际输入图像读取。没有在远端跑真实GPU模型，不宣称实际吞吐收益。
 
 
 ## 输出
@@ -179,8 +216,9 @@ summary.json                  类别均值、相对第一个模型的配对差�
 preflight.json / preflight.log CPU预检阶段、耗时、RSS与调用位置
 render.json / render.log       CPU绘图case序号、耗时、RSS与调用位置
 status.json                   planned_only / evaluating / evaluated / rendering / complete / failed
-scheduler.json                每个模型的GPU、PID、日志、排队/运行/完成/失败状态
-logs/                         各模型运行日志
+scheduler.json                每个worker任务/模型的GPU、PID、日志和状态
+sampling.json                 本次采样seed、auto/fixed模式及评估噪声seed
+logs/                         各模型/分片运行日志
  event/                       事件风格
    train/UE1/<case_id>/
    test/UE1/<case_id>/

@@ -112,14 +112,48 @@ def test_prepare_reports_stages_and_keeps_disabled_token_off(tmp_path, monkeypat
     fields = ('data_root', 'data_dir', 'model_dir', 'lead_bev_ckpt', 'event_balance_index', 'high_level_action_index',
               'prior_labels', 'phase1_training_index', 'phase2_training_index')
     cli = SimpleNamespace(**dict.fromkeys(fields, ''), runs=list(states), names=None, label_index='', seed=2026,
-                          workers=0, cases_per_category=1, category_counts={}, camera_configuration={}, min_frame_gap=1)
+                          sampling_seed=98765, sampling_seed_mode='fixed',
+                          workers=0, cases_per_category=3, category_counts={}, camera_configuration={}, min_frame_gap=1)
     out = tmp_path/'result'
     manifest, jobs = main.prepare(cli, out)
     for split in ('train', 'test'):
         a, b = [cc.read_json(job['rows'][split]) for job in jobs]
-        assert {cc.identity(r) for r in a} == {cc.identity(r) for r in b}
+        assert [cc.identity(r) for r in a] == [cc.identity(r) for r in b]
+        assert [cc.case_id(r) for r in a] == list(manifest['splits'][split]['cases'])
         assert all('action_token' not in r for r in a)
         assert all(r['action_token']['name']=='STOP' for r in b)
     stages = cc.read_json(out/'preflight.json')['completed_stages']
     assert len(stages)==17 and all(s['status']=='done' for s in stages)
     assert (out/'_plan/job_01.json').is_file()
+    assert manifest['sampling_seed'] == 98765
+    assert manifest['evaluation_seed'] == 2026
+    assert all(job['seed'] == 2026 for job in jobs)
+
+
+def test_auto_seed_changes_even_at_same_time_and_fixed_seed_replays(monkeypatch):
+    from qwen3vl_local.action_prior import compare_checkpoints as main
+    monkeypatch.setattr(main.time, 'time_ns', lambda: 123456789)
+    entropy = iter([100, 200])
+    monkeypatch.setattr(main.secrets, 'randbits', lambda bits: next(entropy))
+    a, b = main.resolve_sampling_seed('auto'), main.resolve_sampling_seed('auto')
+    assert a != b
+    assert main.resolve_sampling_seed(str(a)) == a
+    assert main.resolve_sampling_seed('0') == 0
+    for value in ('-1', '1.5', 'invalid', 'nan'):
+        with pytest.raises(ValueError, match='sampling-seed'):
+            main.resolve_sampling_seed(value)
+
+
+def test_seed_changes_selection_and_order_with_replay():
+    from qwen3vl_local.action_prior import compare_checkpoints as main
+    rows = [dict(scenario='scene', run_id=f'run{r}', route_group=f'group{r}', anchor=i,
+                 action_token=dict(name='STOP', reason='complete_phase3_evidence'), event_balance_status='special_eligible',
+                 event_balance_all_special_buckets=['UE1']) for r in range(20) for i in range(40)]
+    a, groups_a, _ = cc.select_cases(rows, per_category=8, seed=123)
+    b, groups_b, _ = cc.select_cases(rows, per_category=8, seed=456)
+    replay, groups_replay, _ = cc.select_cases(list(reversed(rows)), per_category=8, seed=123)
+    assert {cc.identity(r) for r in a} != {cc.identity(r) for r in b}
+    assert groups_a == groups_replay
+    assert main.ordered_cases(a, 123, 'train') == main.ordered_cases(replay, 123, 'train')
+    assert main.ordered_cases(a, 123, 'train') != main.ordered_cases(a, 456, 'train')
+    assert main.ordered_cases(a, 123, 'train') != main.ordered_cases(a, 123, 'test')

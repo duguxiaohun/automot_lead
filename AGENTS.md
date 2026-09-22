@@ -13,13 +13,17 @@ RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆
 已知非三相机/坏meta拒绝回退，RGB折线精确裁剪视野及近平面，图注/报告显示实际标定来源。
 分类动作不注入关闭token的模型；仍严格检查原源码/权重/索引/条件合同，新增工具不改变旧指纹。
 输出到AutoMoT/test/run_<时间>/（与checkpoints同级）；默认最多4张最空闲GPU，卡不足自动减少。
-一卡一checkpoint并发，超额排队动态补位；GPU_IDS显式pin优先，模型少于卡时剩余卡不分配。
+一卡一worker，模型少于卡时按case分片（4卡2模型为2/2），模型多则排队；GPU_IDS显式pin优先。
 独立日志及scheduler记录分配；失败/中断回收本次进程组。86项相关CPU回归通过，尚无真实GPU验收。
 预检按阶段每15秒输出耗时/RSS/调用位置到preflight.json/log；选帧仅哈希选中case并提前释放标签池。
 GPU worker完成后仍有CPU绘图；render.json/log每15秒报case进度，优先生成GT+所有模型主图。
 本轮58项CPU回归通过；分类目录在每个split绘制后发布，总完成以status.json为准。
 可选ERROR_ONLY默认false、ERROR_THRESHOLD_M默认1米；route/waypoint任意模型-GT或模型对终点距离严格超阈值即保留。
 先采样推理再筛展示，不补例；保留原采样统计及原始审计，另报筛后指标/原因/阈值保留数。74项相关CPU测试通过。
+SAMPLING_SEED默认auto（时间+系统随机源），每次重新选例并打乱split内执行顺序；所有模型共用同序计划。
+EVAL_SEED独立默认2026，原数据划分/训练条件不变；sampling.json/manifest/报告保存种子供复现，76项CPU回归通过。
+GPU分片保留公共逻辑顺序的子序列，逐模型case恰好一次；独立日志/缓存/输出，按case身份合并，拒绝缺帧/重复。
+汇总逐case计算，不平均分片均值；种子职责/复现/多卡方案见CHECKPOINT_COMPARISON.md。117项CPU检查通过，未验收真实多GPU。
 两份bev_only审计：自然加权ADE改善0.82%、均衡waypoint ADE改善17.31%，普通背景/UE4退化；
 详见 action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md 与 action_prior/CHECKPOINT_COMPARISON.md。
 

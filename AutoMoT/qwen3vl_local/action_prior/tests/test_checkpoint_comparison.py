@@ -458,8 +458,9 @@ def test_shell_forwards_config_and_paths_with_spaces(tmp_path, enabled, flag):
     run = subprocess.run(["bash", str(script), *args], check=True, capture_output=True, text=True,
                          env={**os.environ, "PYTHON": str(fake), "ERROR_ONLY": "invalid_external", "ERROR_THRESHOLD_M": "999"})
     argv = json.loads(run.stdout)
-    assert argv[1:3] == ["--cases-per-category", "8"] and argv[10:] == args
+    assert argv[1:3] == ["--cases-per-category", "8"] and argv[14:] == args
     assert argv[7:10] == ['--error-threshold-m', '1.25', flag]
+    assert argv[10:14] == ['--sampling-seed', 'auto', '--seed', '2026']
     assert argv[3] == "--output-root" and Path(argv[4]).resolve() == script.parents[2] / "test"
     assert argv[5:7] == ["--gpus", "4"]
 

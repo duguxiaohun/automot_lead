@@ -41,10 +41,10 @@ def select_gpus(requested=4, model_count=1):
         entries.sort(key=lambda item: (item[1], item[2], item[0]))
         ids = [str(item[0]) for item in entries[:requested]]
         source, detected = "nvidia-smi", len(entries)
-    selected = ids[:model_count]
-    return dict(policy="one_checkpoint_per_gpu", source=source, requested_gpus=requested,
+    selected = ids
+    return dict(policy="checkpoint_case_shards_per_gpu", source=source, requested_gpus=requested,
                 detected_gpus=detected, candidate_ids=ids, selected_ids=selected,
-                parallel_models=len(selected), checkpoint_count=model_count)
+                parallel_models=min(len(selected), model_count), parallel_workers=len(selected), checkpoint_count=model_count)
 
 
 def worker_environment(gpu):
@@ -83,19 +83,22 @@ def _stop_groups(active, timeout):
 
 
 def run_queue(commands, gpu_plan, out, *, poll_interval=.2, stop_timeout=10.):
-    """空出的GPU立即领取下一个checkpoint；任一失败即停止派发并回收其余worker。"""
+    """空卡领取下一个模型/案例分片；任一失败即停止派发并回收其余worker。"""
     out = Path(out)
     gpu_ids = gpu_plan["selected_ids"]
     if not gpu_ids or len(set(gpu_ids)) != len(gpu_ids):
         raise ValueError("任务队列需要不重复且非空的GPU列表")
     pending, free, active = deque(range(len(commands))), deque(gpu_ids), {}
-    records = [dict(model=f"model_{i+1:02d}", status="pending", gpu=None,
-                    log=str(out / "logs" / f"model_{i+1:02d}.log")) for i in range(len(commands))]
+    tasks = gpu_plan.get("tasks", [dict(id=f"model_{i+1:02d}", model=f"model_{i+1:02d}") for i in range(len(commands))])
+    if len(tasks) != len(commands) or len({t['id'] for t in tasks}) != len(tasks):
+        raise ValueError("任务元数据数量不符或任务ID重复")
+    records = [dict(task=t['id'], model=t['model'], status="pending", gpu=None,
+                    log=str(out / "logs" / f"{t['id']}.log")) for t in tasks]
     def save(status):
         write_json(out / "scheduler.json", dict(status=status, **gpu_plan, jobs=records))
         write_json(out / "status.json", dict(status=status,
             completed=sum(r["status"] == "complete" for r in records), total=len(records),
-            running=[dict(model=r["model"], gpu=r["gpu"]) for r in records if r["status"] == "running"]))
+            running=[dict(task=r["task"], model=r["model"], gpu=r["gpu"]) for r in records if r["status"] == "running"]))
     def interrupted(signum, _frame):
         raise SystemExit(128 + signum)
     previous = {}
@@ -114,7 +117,7 @@ def run_queue(commands, gpu_plan, out, *, poll_interval=.2, stop_timeout=10.):
                 path = Path(record["log"])
                 path.parent.mkdir(parents=True, exist_ok=True)
                 log = path.open("w", encoding="utf-8")
-                log.write(f"[scheduler] {record['model']} GPU={gpu}\n")
+                log.write(f"[scheduler] {record['task']} model={record['model']} GPU={gpu}\n")
                 log.flush()
                 try:
                     process = subprocess.Popen(commands[index], stdout=log, stderr=subprocess.STDOUT,
@@ -125,7 +128,7 @@ def run_queue(commands, gpu_plan, out, *, poll_interval=.2, stop_timeout=10.):
                     raise
                 active[index] = dict(process=process, gpu=gpu, log=log)
                 record.update(status="running", pid=process.pid)
-                print(f"[comparison] start {record['model']} GPU={gpu}; log={path}", flush=True)
+                print(f"[comparison] start {record['task']} GPU={gpu}; log={path}", flush=True)
                 save("evaluating")
             finished = [(index, task["process"].poll()) for index, task in active.items()]
             # 先处理失败，不能在另一个已失败的worker之后继续派新任务。
@@ -133,7 +136,7 @@ def run_queue(commands, gpu_plan, out, *, poll_interval=.2, stop_timeout=10.):
             if failure:
                 index, code = failure
                 records[index].update(status="failed", returncode=code, finished_at=datetime.now().isoformat())
-                raise RuntimeError(f"{records[index]['model']} GPU={records[index]['gpu']} 退出码{code}；查看 {records[index]['log']}")
+                raise RuntimeError(f"{records[index]['task']} GPU={records[index]['gpu']} 退出码{code}；查看 {records[index]['log']}")
             for index, code in finished:
                 if code is None:
                     continue
@@ -141,7 +144,7 @@ def run_queue(commands, gpu_plan, out, *, poll_interval=.2, stop_timeout=10.):
                 task["log"].close()
                 records[index].update(status="complete", returncode=0, finished_at=datetime.now().isoformat())
                 free.append(task["gpu"])
-                print(f"[comparison] complete {records[index]['model']} GPU={task['gpu']}", flush=True)
+                print(f"[comparison] complete {records[index]['task']} GPU={task['gpu']}", flush=True)
                 save("evaluating")
             if time.monotonic() - last_heartbeat >= 30:
                 print(f"[comparison] running={len(active)} pending={len(pending)}; progress: {out / 'scheduler.json'}", flush=True)

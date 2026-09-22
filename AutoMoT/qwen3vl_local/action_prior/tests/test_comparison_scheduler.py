@@ -14,13 +14,14 @@ from qwen3vl_local.action_prior import comparison_scheduler as cs
 from qwen3vl_local.action_prior.comparison_cases import read_json
 
 
-@pytest.mark.parametrize("requested,models,expected", [(4, 6, ["2", "0", "3", "1"]), (4, 2, ["2", "0"]), (8, 6, ["2", "0", "3", "1"]), (1, 3, ["2"])])
+@pytest.mark.parametrize("requested,models,expected", [(4, 6, ["2", "0", "3", "1"]), (4, 2, ["2", "0", "3", "1"]), (8, 6, ["2", "0", "3", "1"]), (1, 3, ["2"])])
 def test_auto_selection_idle_order_and_count(monkeypatch, requested, models, expected):
     monkeypatch.delenv("GPU_IDS", raising=False)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "77")
     monkeypatch.setattr(cs.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="0, 100, 0\n1, 900, 0\n2, 0, 0\n3, 100, 50\n"))
     plan = cs.select_gpus(requested, models)
-    assert plan["selected_ids"] == expected and plan["parallel_models"] == len(expected)
+    assert plan["selected_ids"] == expected and plan["parallel_models"] == min(models, len(expected))
+    assert plan['parallel_workers'] == len(expected)
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "77"  # parent untouched
 
 
@@ -134,6 +135,7 @@ def test_sigterm_parent_reaps_running_workers(tmp_path):
 def test_main_output_sibling_and_queue_integration(tmp_path, monkeypatch, plan_only):
     from qwen3vl_local.action_prior import compare_checkpoints as main
     from qwen3vl_local.action_prior import comparison_render as render
+    from qwen3vl_local.action_prior import comparison_shards as shards
     automot = tmp_path / "AutoMoT"
     automot.mkdir()
     (automot / "checkpoints").mkdir()
@@ -142,13 +144,17 @@ def test_main_output_sibling_and_queue_integration(tmp_path, monkeypatch, plan_o
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(main, "AUTOMOT_ROOT", automot)
     monkeypatch.setattr(main, "prepare", lambda cli, out: ({"models": []}, [{}, {}]))
+    def plan_jobs(jobs, manifest, plan, out):
+        assert len(jobs) == 2
+        return [dict(job=str(out / '_plan' / f'worker_{i}.json')) for i in range(4)]
+    monkeypatch.setattr(shards, 'plan_shards', plan_jobs)
     calls = []
     def select(requested, count):
         assert not plan_only and requested == 4 and count == 2
-        return dict(selected_ids=["2", "3"], parallel_models=2)
+        return dict(selected_ids=["2", "3", "0", "1"], parallel_models=2)
     def queue(commands, plan, out):
-        assert len(commands) == 2 and all("--worker-job" in c for c in commands)
-        assert plan["selected_ids"] == ["2", "3"]
+        assert len(commands) == 4 and all("--worker-job" in c for c in commands)
+        assert plan["selected_ids"] == ["2", "3", "0", "1"]
         calls.append(out)
     monkeypatch.setattr(cs, "select_gpus", select)
     monkeypatch.setattr(cs, "run_queue", queue)

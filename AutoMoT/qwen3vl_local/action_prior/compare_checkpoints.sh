@@ -12,12 +12,17 @@ CKPT_DIRS=(
 
 # 结果默认在AutoMoT/test/run_<时间>/，与checkpoints同级；不依赖启动目录。
 OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRIPT_DIR/../../test}"
-# 自动最多选4张最空闲GPU；不足4张或ckpt更少时自动减少并发。
-# 一卡一个ckpt，超出卡数的ckpt排队；GPU_IDS=0,1,2,3可显式指定卡号。
+# 自动最多选4张最空闲GPU；ckpt少于卡数时拆分case并行，例如2个ckpt各用2张卡。
+# ckpt多于卡数时排队，空卡自动领取任务；GPU_IDS=0,1,2,3可显式指定卡号。
 GPU_COUNT="${GPU_COUNT:-4}"
 
 # 可视化采样：默认每个类别在 train/test 各取多少例。
 CASES_PER_CATEGORY=8
+# auto：每次按当前时间+系统随机源生成新种子，重新选案例并打乱各split内顺序。
+# 要复现某次案例，把auto改为该次sampling.json中的sampling_seed整数。
+SAMPLING_SEED=auto
+# 模型推理噪声独立固定，所有ckpt共用，避免换案例时同时改变噪声。
+EVAL_SEED=2026
 # true：仅展示route/waypoint任一模型与GT、或任意两模型终点距离>阈值的案例。
 # 先按上方数量采样再筛选，最终可能不足；需更多候选可增加CASES_PER_CATEGORY。
 # 直接修改这两行，然后运行本脚本，无需在命令前传环境变量。
@@ -45,6 +50,7 @@ case "${ERROR_ONLY,,}" in
   false|0|no) OPTIONS+=(--no-error-only) ;;
   *) echo "ERROR_ONLY must be true/false (or 1/0)" >&2; exit 2 ;;
 esac
+OPTIONS+=(--sampling-seed "$SAMPLING_SEED" --seed "$EVAL_SEED")
 for ITEM in "${EVENT_CASES[@]}"; do OPTIONS+=(--event-cases "$ITEM"); done
 for ITEM in "${ACTION_CASES[@]}"; do OPTIONS+=(--action-cases "$ITEM"); done
 if [[ -n "$CAMERA_CONFIG" ]]; then OPTIONS+=(--camera-config "$CAMERA_CONFIG"); fi
