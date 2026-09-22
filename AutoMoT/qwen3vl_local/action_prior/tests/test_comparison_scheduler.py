@@ -132,10 +132,12 @@ def test_sigterm_parent_reaps_running_workers(tmp_path):
 
 
 @pytest.mark.parametrize("plan_only", [False, True])
-def test_main_output_sibling_and_queue_integration(tmp_path, monkeypatch, plan_only):
+@pytest.mark.parametrize("error_only", [False, True])
+def test_main_output_sibling_and_queue_integration(tmp_path, monkeypatch, plan_only, error_only):
     from qwen3vl_local.action_prior import compare_checkpoints as main
     from qwen3vl_local.action_prior import comparison_render as render
     from qwen3vl_local.action_prior import comparison_shards as shards
+    from qwen3vl_local.action_prior import comparison_search as search
     automot = tmp_path / "AutoMoT"
     automot.mkdir()
     (automot / "checkpoints").mkdir()
@@ -149,6 +151,10 @@ def test_main_output_sibling_and_queue_integration(tmp_path, monkeypatch, plan_o
         return [dict(job=str(out / '_plan' / f'worker_{i}.json')) for i in range(4)]
     monkeypatch.setattr(shards, 'plan_shards', plan_jobs)
     calls = []
+    def search_jobs(jobs,manifest,plan,out,target):
+        assert error_only and not plan_only and target==5
+        calls.append(out)
+    monkeypatch.setattr(search,'search_cases',search_jobs)
     def select(requested, count):
         assert not plan_only and requested == 4 and count == 2
         return dict(selected_ids=["2", "3", "0", "1"], parallel_models=2)
@@ -159,7 +165,8 @@ def test_main_output_sibling_and_queue_integration(tmp_path, monkeypatch, plan_o
     monkeypatch.setattr(cs, "select_gpus", select)
     monkeypatch.setattr(cs, "run_queue", queue)
     monkeypatch.setattr(render, "publish", lambda out, manifest: calls.append(out))
-    monkeypatch.setattr(sys, "argv", ["compare_checkpoints.py", "run_a", "run_b", *(["--plan-only"] if plan_only else [])])
+    monkeypatch.setattr(sys, "argv", ["compare_checkpoints.py", "run_a", "run_b", *(["--plan-only"] if plan_only else []),
+                                    *(['--error-only'] if error_only else [])])
     main.main()
     results = list((automot / "test").glob("run_*"))
     assert len(results) == 1 and not list((automot / "checkpoints").iterdir())

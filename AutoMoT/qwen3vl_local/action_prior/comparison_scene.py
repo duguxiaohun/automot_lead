@@ -329,9 +329,9 @@ def render_paper(folder, row, predictions, models, inputs, scene, cloud=None, st
     title = f"{row['split']}  |  {row['scenario']}  |  frame {row['anchor']}  |  Event: {', '.join(event_groups(row))}  |  Action: {row['action_token']['name']}"
     error = row.get("visualization_error", {})
     if error.get("enabled"):
-        strongest = max(error["triggers"], key=lambda item: item["distance_m"])
+        strongest = max(error["triggers"], key=lambda item: item["distance_m"]/item["threshold_m"])
         fig.text(.5, .048, f"Selected: {strongest['trajectory']} {' vs '.join(strongest['pair'])} "
-                 f"endpoint={strongest['distance_m']:.2f} m > {error['threshold_m']:g} m (all-model selection)",
+                 f"{strongest['metric'].upper()}={strongest['distance_m']:.2f} m > {strongest['threshold_m']:g} m (all-model selection)",
                  ha="center", fontsize=9)
     fig.suptitle(title, fontsize=12, y=.993)
     labels = ["GT (recorded expert)"]

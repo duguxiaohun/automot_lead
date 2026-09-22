@@ -402,3 +402,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipe
 2026-09-22 预检静默排查：对比入口新增阶段开始/完成及每15秒心跳，记录到preflight.json/log（耗时、RSS、主线程函数位置）。
 GPU在完整CPU合同与选帧计划后才启动；选帧取消全池case-ID哈希，临时标签池选完即释放。
 共享训练源码及内容校验不变；4项新增无模型检查通过，未测远端真实耗时。
+
+2026-09-22 误差搜索更新：shell默认每类每split最多50候选、最多保留5例，waypoint任一模型-GT/模型对ADE>1m或FDE>3m触发，route不参与筛选。
+分批搜索满额类别停止单独派发，常驻GPU服务复用当前模型；search.json报告检查/命中/缺额，原始预测保留，早停统计不代表全量表现。
+详细参数、重放条件及输出布局见 [CHECKPOINT_COMPARISON.md](CHECKPOINT_COMPARISON.md)。

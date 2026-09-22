@@ -94,7 +94,7 @@ class CaptureRuntime:
 
 
 @observed
-def evaluate_worker(job):
+def evaluate_worker(job, cache=None):
     """单模型子进程运行，退出后释放 Qwen/BEV 显存。"""
     import os
     for key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
@@ -108,26 +108,34 @@ def evaluate_worker(job):
     from qwen3vl_local.action_prior.flow_matching import ConditionalFlowMatchingDecoder, FlowMatchingConfig
     from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
     checkpoint = job["checkpoint"]
-    if file_hash(checkpoint) != job["checkpoint_sha256"]:
-        raise ValueError("计划后 checkpoint 被替换；请重新运行对比")
-    state = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    args, variant = restore_args(state, checkpoint, job["overrides"])
-    contract = check_contract(state, args, variant)
-    # 新生成的缓存/运行产物留在本次对比，不写回被测训练目录。
-    args.output_dir = job["output"]
-    # seed 单独作为配对评估协议；合同先按训练 seed 检查，保留先验噪声原定义。
-    device = torch.device("cuda", 0)
-    config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
-    model = ConditionalFlowMatchingDecoder(config, FlowMatchingConfig(**state["flow_config"])).to(device=device, dtype=torch.float32)
-    model.load_state_dict(state["ema_state_dict"]["shadow"], strict=True)
-    del state
-    if variant == "action_prior":
-        from qwen3vl_local.action_prior.runtime import make_runtime
-        from qwen3vl_local.action_prior.train import evaluate
-        runtime = make_runtime(args, device, contract)
-    else:
-        from qwen3vl_local.action_expert_ablation.common import make_runtime, evaluate
-        runtime = make_runtime(args, device, variant)
+    key = (checkpoint, job["checkpoint_sha256"], sorted(job["overrides"].items()))
+    cache = {} if cache is None else cache
+    if cache.get('key') != key:
+        cache.clear()
+        import gc
+        gc.collect()
+        if file_hash(checkpoint) != job["checkpoint_sha256"]:
+            raise ValueError("计划后 checkpoint 被替换；请重新运行对比")
+        state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        args, variant = restore_args(state, checkpoint, job["overrides"])
+        contract = check_contract(state, args, variant)
+        # 新生成的缓存/运行产物留在本次对比，不写回被测训练目录。
+        args.output_dir = job.get("runtime_output", job["output"])
+        # seed 单独作为配对评估协议；合同先按训练 seed 检查，保留先验噪声原定义。
+        device = torch.device("cuda", 0)
+        config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
+        model = ConditionalFlowMatchingDecoder(config, FlowMatchingConfig(**state["flow_config"])).to(device=device, dtype=torch.float32)
+        model.load_state_dict(state["ema_state_dict"]["shadow"], strict=True)
+        del state
+        if variant == "action_prior":
+            from qwen3vl_local.action_prior.runtime import make_runtime
+            from qwen3vl_local.action_prior.train import evaluate
+            runtime = make_runtime(args, device, contract)
+        else:
+            from qwen3vl_local.action_expert_ablation.common import make_runtime, evaluate
+            runtime = make_runtime(args, device, variant)
+        cache.update(key=key, context=(args, variant, contract, config, model, runtime, evaluate))
+    args, variant, contract, config, model, runtime, evaluate = cache['context']
     # runtime 的训练条件 seed 保持原值；仅评估器的 eps/t/ODE seed 统一。
     import copy
     eval_args = copy.copy(args)

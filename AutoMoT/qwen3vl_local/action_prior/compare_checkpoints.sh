@@ -16,18 +16,16 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRIPT_DIR/../../test}"
 # ckpt多于卡数时排队，空卡自动领取任务；GPU_IDS=0,1,2,3可显式指定卡号。
 GPU_COUNT="${GPU_COUNT:-4}"
 
-# 可视化采样：默认每个类别在 train/test 各取多少例。
-CASES_PER_CATEGORY=8
-# auto：每次按当前时间+系统随机源生成新种子，重新选案例并打乱各split内顺序。
-# 要复现某次案例，把auto改为该次sampling.json中的sampling_seed整数。
-SAMPLING_SEED=auto
-# 模型推理噪声独立固定，所有ckpt共用，避免换案例时同时改变噪声。
-EVAL_SEED=2026
-# true：仅展示route/waypoint任一模型与GT、或任意两模型终点距离>阈值的案例。
-# 先按上方数量采样再筛选，最终可能不足；需更多候选可增加CASES_PER_CATEGORY。
-# 直接修改这两行，然后运行本脚本，无需在命令前传环境变量。
-ERROR_ONLY=false        # true开启误差筛选；false显示全部采样案例
-ERROR_THRESHOLD_M=1.0   # 终点距离阈值，单位米
+# 每个event/action在train/test各最多检查多少个候选；不足则检查实际可用数量。
+CASES_PER_CATEGORY=50
+SAMPLING_SEED=auto      # 新采样；复现时填sampling.json内的整数
+EVAL_SEED=2026          # 所有模型共享的评估噪声
+# true：分批寻找明显的waypoint误差；某类够5例就停止为该类派发新案例。
+ERROR_ONLY=true
+ERROR_CASES_PER_CATEGORY=5
+ERROR_ADE_THRESHOLD_M=1.0
+ERROR_FDE_THRESHOLD_M=3.0
+# route仍可绘制/记指标，但不参与筛选；已在计算的同批案例会完成，展示不超额。
 # 按需取消注释并修改；没写的类别使用上面的默认值。0表示不输出该类别。
 # train/ 或 test/ 前缀可只覆盖某个集合，例如 "test/UE7=6"。
 EVENT_CASES=(
@@ -44,7 +42,8 @@ METHOD_NAMES=()
 # 需显式覆盖或添加已保存第三人称图标定时填JSON，正常LEAD三视角留空。
 CAMERA_CONFIG=""
 OPTIONS=(--cases-per-category "$CASES_PER_CATEGORY" --output-root "$OUTPUT_ROOT" --gpus "$GPU_COUNT")
-OPTIONS+=(--error-threshold-m "$ERROR_THRESHOLD_M")
+OPTIONS+=(--error-ade-threshold-m "$ERROR_ADE_THRESHOLD_M" --error-fde-threshold-m "$ERROR_FDE_THRESHOLD_M"
+          --error-cases-per-category "$ERROR_CASES_PER_CATEGORY")
 case "${ERROR_ONLY,,}" in
   true|1|yes) OPTIONS+=(--error-only) ;;
   false|0|no) OPTIONS+=(--no-error-only) ;;

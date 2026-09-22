@@ -236,14 +236,15 @@ def test_pairing_rejects_bad_results(tmp_path, problem):
 def test_error_filter_publish_empty_or_pairwise_case(tmp_path, monkeypatch, keep):
     from qwen3vl_local.action_prior import comparison_render as renderer
     manifest, cid = make_outputs(tmp_path)
-    manifest['error_filter'] = dict(enabled=True, threshold_m=1.)
+    manifest['error_filter'] = dict(enabled=True, ade_threshold_m=1., fde_threshold_m=3.)
     if keep:
         # Both models are <1m from GT, but their endpoints are 1.5m apart.
         for index, dx in ((1, .75), (2, -.75)):
             path = tmp_path / f'_models/model_{index:02d}/test/cases/rank0_case000000.json'
             data = cc.read_json(path)
             data['pred_waypoints'] = copy.deepcopy(data['gt_waypoints'])
-            data['pred_waypoints'][0][-1][0] += dx
+            for point in data['pred_waypoints'][0]:
+                point[0] += dx
             cc.write_json(path, data)
     else:
         def no_scene_reads(*args):
@@ -252,8 +253,6 @@ def test_error_filter_publish_empty_or_pairwise_case(tmp_path, monkeypatch, keep
     publish(tmp_path, manifest)
     audit = cc.read_json(tmp_path/'error_filter.json')['splits']['test']
     assert audit['sampled'] == 1 and audit['retained'] == int(keep)
-    assert audit['retained_at_threshold_m']['1.0'] == int(keep)
-    assert audit['retained_at_threshold_m']['2.0'] == 0
     for style, category in (('event', 'UE1'), ('action', 'STOP')):
         folder = tmp_path / style / 'test' / category
         assert (folder / cid / 'comparison.png').exists() == keep
@@ -333,9 +332,12 @@ def test_worker_routes_models_preserves_seed_and_cleans_capture(tmp_path, monkey
         path = tmp_path / f"{split}.json"
         cc.write_json(path, [] if empty_train and split == "train" else [dict(row(), split=split)])
         paths[split], hashes[split] = str(path), file_hash(path)
-    cr.evaluate_worker(dict(checkpoint=str(checkpoint), checkpoint_sha256=file_hash(checkpoint),
-        overrides={}, seed=2026, workers=0, output=str(tmp_path / "output"), rows=paths, row_hashes=hashes))
-    assert len(calls) == (1 if empty_train else 2)
+    job = dict(checkpoint=str(checkpoint), checkpoint_sha256=file_hash(checkpoint),
+        overrides={}, seed=2026, workers=0, output=str(tmp_path / "output"), rows=paths, row_hashes=hashes)
+    cache = {}
+    cr.evaluate_worker(job, cache)
+    cr.evaluate_worker(job, cache)
+    assert len(calls) == (2 if empty_train else 4)
     assert loads == [({"weight": "EMA"}, True)]
     assert runtime.runner._prepare_inference_inputs is original
     assert cc.read_json(tmp_path / "output/test/metrics.json")["samples"] == 1
@@ -447,8 +449,8 @@ def test_shell_forwards_config_and_paths_with_spaces(tmp_path, enabled, flag):
     import subprocess
     script = Path(__file__).resolve().parents[1] / "compare_checkpoints.sh"
     # 模拟用户直接编辑sh配置；外部环境不覆盖脚本中的两项设置。
-    content = script.read_text().replace('ERROR_ONLY=false', f'ERROR_ONLY={enabled}').replace(
-        'ERROR_THRESHOLD_M=1.0', 'ERROR_THRESHOLD_M=1.25')
+    content = script.read_text().replace('ERROR_ONLY=true', f'ERROR_ONLY={enabled}').replace(
+        'ERROR_ADE_THRESHOLD_M=1.0', 'ERROR_ADE_THRESHOLD_M=1.25')
     script = tmp_path / 'compare_checkpoints.sh'
     script.write_text(content)
     fake = tmp_path / "fake_python"
@@ -458,9 +460,9 @@ def test_shell_forwards_config_and_paths_with_spaces(tmp_path, enabled, flag):
     run = subprocess.run(["bash", str(script), *args], check=True, capture_output=True, text=True,
                          env={**os.environ, "PYTHON": str(fake), "ERROR_ONLY": "invalid_external", "ERROR_THRESHOLD_M": "999"})
     argv = json.loads(run.stdout)
-    assert argv[1:3] == ["--cases-per-category", "8"] and argv[14:] == args
-    assert argv[7:10] == ['--error-threshold-m', '1.25', flag]
-    assert argv[10:14] == ['--sampling-seed', 'auto', '--seed', '2026']
+    assert argv[1:3] == ["--cases-per-category", "50"] and argv[18:] == args
+    assert argv[7:14] == ['--error-ade-threshold-m', '1.25', '--error-fde-threshold-m', '3.0', '--error-cases-per-category', '5', flag]
+    assert argv[14:18] == ['--sampling-seed', 'auto', '--seed', '2026']
     assert argv[3] == "--output-root" and Path(argv[4]).resolve() == script.parents[2] / "test"
     assert argv[5:7] == ["--gpus", "4"]
 

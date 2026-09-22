@@ -29,7 +29,7 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh \
 脚本顶部可直接填写每个类别的数量：
 
 ```bash
-CASES_PER_CATEGORY=8      # 未单独指定的每类，在 train/test 各取8例
+CASES_PER_CATEGORY=50     # 未单独指定的每类，在 train/test 各最多检查50个候选
 EVENT_CASES=("UE1=12" "UE4=20" "RE5=10" "test/UE7=6")
 ACTION_CASES=("STOP=12" "LANE_CHANGE_LEFT=20" "KEEP=6" "UNCOND=0")
 METHOD_NAMES=("BEV without token" "BEV with token")  # 对应CKPT_DIRS顺序
@@ -44,7 +44,7 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh \
   --action-cases 'STOP=10,LANE_CHANGE_LEFT=12'
 ```
 
-默认每类每split选8例；同一录制中的同类案例至少间隔8帧（约2秒），优先不同物理路线，不足不重复凑数。可调：
+默认每类每split准备最多50个候选；同一录制中的同类案例至少间隔8帧（约2秒），优先不同物理路线，不足不重复凑数。可调：
 
 ```bash
 bash qwen3vl_local/action_prior/compare_checkpoints.sh \
@@ -64,7 +64,7 @@ plan-only仍需要原训练环境的Python依赖、真实checkpoint、BEV/Qwen�
 脚本中直接配置，无需在命令前传环境变量：
 
 ```bash
-CASES_PER_CATEGORY=8
+CASES_PER_CATEGORY=50
 SAMPLING_SEED=auto  # 每次运行按纳秒时间+系统随机源生成新的采样种子
 EVAL_SEED=2026      # 独立的模型配对评估噪声种子
 ```
@@ -85,43 +85,58 @@ EVAL_SEED=2026      # 独立的模型配对评估噪声种子
 | SAMPLING_SEED | 默认auto；主进程生成一次并保存 | 控制选例和逻辑顺序，所有checkpoint共用 |
 | EVAL_SEED | 默认固定2026 | 与case身份共同决定FM的eps/t/ODE噪声，不混入GPU号、worker号或完成次序 |
 
-实现要点：`(time.time_ns() ^ secrets.randbits(63)) & ((1 << 63)-1)`只在主入口执行一次；先稳定归一候选顺序，再用局部Random做分层抽样/打乱，不能让每个GPU各自按时间抽样。先把完整计划落盘，再按计划切片。更改卡数时仍使用相同采样seed和EVAL_SEED，能够保持案例集合及每case的评估噪声；多卡浮点运算和不同硬件不承诺逐位一致。图像筛选、误差门槛及分组汇总均在全模型配对完成后执行，不参与种子选择。
+实现要点：`(time.time_ns() ^ secrets.randbits(63)) & ((1 << 63)-1)`只在主入口执行一次；先稳定归一候选顺序，再用局部Random做分层抽样/打乱，不能让每个GPU各自按时间抽样。先把完整计划落盘，再按计划切片。更改卡数时仍使用相同采样seed和EVAL_SEED，能够保持案例集合及每case的评估噪声；多卡浮点运算和不同硬件不承诺逐位一致。图像筛选、误差门槛及分组汇总在每批全模型配对完成后执行，不参与候选种子选择；早停的实际检查集还受批次边界影响。
 
 跨运行需要“尽量看新案例”时可用auto；需要同一组可复现对比时固定采样seed；需要研究噪声敏感性时固定采样seed并显式改变EVAL_SEED。种子只是记录条件，不能把反复筛看test当作未曝光的盲测。
 
-## 只看终点误差明显的案例
+## Waypoint误差搜索：每类最多检查50个，找到5个就停
 
-统一shell顶部直接配置 `ERROR_ONLY`（默认false）和 `ERROR_THRESHOLD_M`（默认1.0米）；三个入口均生效，不读取这两项同名环境变量。要开启，编辑sh中的两行：
+三个shell入口共用以下配置，直接在 `action_prior/compare_checkpoints.sh` 修改，无需前置环境变量：
 
 ```bash
-ERROR_ONLY=true
-ERROR_THRESHOLD_M=1.0
+CASES_PER_CATEGORY=50       # 每个event/action、每个train/test的候选检查上限
+ERROR_ONLY=true             # 默认开启分批误差搜索；false恢复全部候选的普通比较
+ERROR_CASES_PER_CATEGORY=5  # 每类最终保留目标
+ERROR_ADE_THRESHOLD_M=1.0
+ERROR_FDE_THRESHOLD_M=3.0
 ```
 
-保存后直接运行：
+保存后直接运行，选卡仍自动：
 
 ```bash
 bash qwen3vl_local/action_prior/compare_checkpoints.sh
 # 显式pin示例：
 GPU_IDS=0 bash qwen3vl_local/action_prior/compare_checkpoints.sh
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/compare_checkpoints.sh
-# CLI最后生效，可覆盖shell；筛选后不足时，可扩大推理候选数：
-bash qwen3vl_local/action_prior/compare_checkpoints.sh --error-only --error-threshold-m 1.0 --cases-per-category 24
-# 关闭恢复全部采样案例展示：
-bash qwen3vl_local/action_prior/compare_checkpoints.sh --no-error-only
+# CLI最后生效，也可以显式指定：
+bash qwen3vl_local/action_prior/compare_checkpoints.sh --cases-per-category 50 --error-only --error-cases-per-category 5 --error-ade-threshold-m 1 --error-fde-threshold-m 3
 ```
 
-判据是route与waypoint分别检查：任意一个模型的预测终点到GT终点的二维欧氏距离，或者任意两个模型预测终点间的二维欧氏距离，**任一项严格大于阈值**就保留整个配对case及所有方法的图。三模型及以上遍历所有模型对；不是两个模型各自FDE的数值差，也不是ADE或曲线中段最大距离。等于阈值不触发，阈值必须是有限正数。
+只检查 **waypoint**，route的ADE/FDE不参与筛选（轨迹仍可绘图、指标仍可记录）。对任一模型与GT、任意两个模型，逐时刻算二维欧氏距离，其平均值是ADE，末点距离是FDE；**ADE严格大于1米，或者FDE严格大于3米**就算命中，等于不触发。不是比较两个ADE/FDE标量之差。所有轨迹必须有相同时间点数且坐标有限；缺帧、坏轨迹、GT不一致会报错。旧 `ERROR_THRESHOLD_M` / `--error-threshold-m` 已被两个独立阈值替代。
 
-1.0米是诊断起点：现有两份第7轮完整val的自然waypoint FDE均值约0.939/0.924米，事件均衡均值约1.180/0.936米；route FDE均值约0.126/0.129米。相同1米阈值通常更偏向waypoint的大误差，但route或任意模型对也能独立触发。这里只掌握验证均值，没有远端逐例test分布，不能预测保留率或声称阈值最优。`error_filter.json` 按split给出0.5/1.0/1.5/2.0米分别会保留多少个当前采样case，便于按实际数量调整。
+流程如下：
 
-先按原event/action和train/test配额选择候选、运行所有checkpoint，再筛选展示；每类数量是**筛选前候选数**，不会自动补足筛后数量，也不会扫描全测试集寻找错例。无命中时仍生成报告与空图库。筛选可减少绘图量，不减少本次候选的GPU推理量。
+1. 在原训练合同的有效train/test集合内，按同源标签、路线多样性和帧间隔规则，各类别最多准备50个候选；数据不足或帧间隔约束后不足50时用实际数量。`EVENT_CASES` / `ACTION_CASES`仍是逐类**候选预算**覆盖，0关闭该类。不会为了找错例遍历预算之外的完整数据集。
+2. 在所有尚未满额类别间轮转取未评估候选，同一case仅评估一次且所有checkpoint同帧同噪声。按GPU数量自适应分片，批量固定为 `max(8, 2×所选卡数)` 个去重case。
+3. 每批完成全模型配对后，按派发顺序检查误差，命中就加入所属且尚未满额的event/action类别。某类达到5例就停止为其单独派发；其它类别继续。某类最多检查其候选预算内的50个，检查完不足5就保留实际命中数。
+4. 已派发的一批会完成，所以实际检查数可能略超过“第5个命中”的位置；满额类与其它类别重叠的case也可能继续被检查。但每类最终目录**最多5例**，不因多卡返回次序改变入选顺序。
 
-`event/`、`action/`、`_cases/`及图库只发布保留案例。`_models/`仍保存完整候选的原始推理审计和输入，以便复查，不能将其当筛后的图库。`manifest.json`保留原采样计划及筛选配置；`error_filter.json`记录每个候选是否保留、四种关系的最大终点距离及最多四条最强触发者。保留案例的 `case.json.error_filter` 与图下注释解释入选原因。
+例如某类前8个里有8个命中，只展示前5个，不再单独检查剩余42个；若50个仅2个命中，则检查完50个，保留2个并报告缺额3。train与test分别搜索、分别计数，不混用名额；完全没命中仍输出空图库及原因。
 
-`summary.json`每个桶的 `means` / `paired_vs_first`保持原采样分母，`displayed_means`只计算保留案例；`visualization`给出sampled/retained/skipped计数。REPORT表格使用保留案例指标并明确显示“保留/采样/请求”。这些是按误差挑选的诊断结果，不能用来比较整体模型表现或重新选checkpoint。
+常驻GPU服务会跨批复用当前checkpoint上下文，避免同模型每批重新读权重/合同并加载Qwen/BEV；换模型时释放旧上下文并重新严格检查。checkpoint多于GPU时会有模型切换，不能保证零重复加载。分片始终保留原条件及EMA评估，失败/中断会回收本次所有服务及加载子进程，不跳过错误case凑结果。
 
-本轮74项CPU测试通过，覆盖route/waypoint、模型-GT、第三模型及模型对、严格阈值、关闭开关、非法端点、零命中、真实合成图片发布及shell参数传递；未运行远端真实模型。
+输出说明：
+
+- `candidate_plan.json`：完整候选预算及原抽样计划；`_plan/`保存每模型输入行与哈希。
+- `search.json`：每个split/类别的candidates、evaluated、matched、retained、target、shortfall和reason；结束原因是target_reached、candidates_exhausted或disabled。运行时每批刷新，终端也报告进度。
+- `search_audit.jsonl`：实际评估的每个case的waypoint误差与触发者。批次原始结果在 `_search/batch_*/`；`_models/`按case整理已评估的预测和实际输入。
+- `manifest.json`：搜索后实际已评估case、各类最终保留列表及搜索统计；`error_filter.json`包含误差命中标记kept和最终配额选择quota_selected。命中但配额已满的案例不会额外出图。
+- `event/`、`action/`和图库只发布达到条件且进入该类配额的案例；每例图中标注触发模型对、ADE/FDE及阈值，`case.json`记录同样依据。
+- `summary.json`的means/paired_vs_first以该类**实际已评估候选**为分母，displayed_means只针对最终保留案例。REPORT包含搜索预算/检查数/命中数/保留数/结束原因；提前停止会改变统计分布，不能拿来代表全量test表现或重新选checkpoint。
+
+复现需固定采样seed、评估seed、候选预算、阈值、命中目标、数据和代码。更换GPU数量可能改变批次边界及额外完成的case，候选池与每case噪声不变，但早停后的实际检查/保留集合不保证完全一样。搜索只用于错误分析，train/test归属不改。
+
+本轮132项CPU检查通过，包括ADE/FDE独立触发、任意模型对、route忽略、严格边界、50预算/5配额、跨类别去重、零命中、常驻进程复用/失败与SIGTERM回收、三模型入口上下文缓存以及实际合成图片发布；未运行远端真实GPU模型。
 
 ## GPU启动前长时间停在preflight
 
@@ -177,7 +192,7 @@ tail -n 10 "$RUN_DIR/render.log"
 
 分片数不超过该模型的去重case总数，不用空任务或重复case占卡。例如两模型各只有1个case，即使指定4卡也只会启动2个worker。分片按原随机顺序轮转切分train/test整体清单，允许某片某split为空；每个模型的全部案例恰好执行一次，原计划/hash、条件合同及checkpoint内容校验继续生效。GPU数不参与采样种子或噪声种子。
 
-这属于多个模型副本分担独立case，每个worker仍需要在单卡装入其完整模型及冻结Qwen/BEV。不是把一个巨大模型拆开装到多卡，也不修改训练DDP或重训模型。CPU数据加载 `--workers` 是**每个worker**的数量，默认4；四个worker最多有16个加载子进程及四份模型CPU内存。多副本会重复加载与合同校验；小case量可能被启动/I/O开销主导。分片按数量分配，不预测每帧或模型的耗时，也不在尾部搬迁运行中模型，因此不保证全程满卡或线性加速。CPU预检及绘图阶段仍不会占满GPU。
+普通比较及搜索的每批任务都按上述方式分片。这属于多个模型副本分担独立case，每个worker仍需要在单卡装入其完整模型及冻结Qwen/BEV。不是把一个巨大模型拆开装到多卡，也不修改训练DDP或重训模型。CPU数据加载 `--workers` 是**每个worker**的数量，默认4；四个worker最多有16个加载子进程及四份模型CPU内存。多副本会重复加载与合同校验；小case量可能被启动/I/O开销主导。分片按数量分配，不预测每帧或模型的耗时，也不在尾部搬迁运行中模型，因此不保证全程满卡或线性加速。CPU预检及绘图阶段仍不会占满GPU。
 
 ```bash
 # 自动最多选两张卡
@@ -187,6 +202,8 @@ GPU_COUNT=4 bash qwen3vl_local/action_prior/compare_checkpoints.sh
 # 显式pin以GPU_IDS卡数为准，覆盖自动选卡上限，并跳过nvidia-smi选址
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/compare_checkpoints.sh
 ```
+
+以下一次性队列日志描述适用于ERROR_ONLY=false；误差搜索使用常驻服务，日志是 `logs/search_worker_XX.log`，scheduler记录每批任务及服务GPU/PID。
 
 自动选卡是启动时的空闲程度排序，不是跨任务的GPU资源锁；按项目入口规则覆盖已有可见卡mask，指定卡号使用 `GPU_IDS`。终端打印实际workers、parallel、shards/model及unused GPUs。单分片日志保持 `logs/model_XX.log`，多分片日志为 `logs/model_XX_shard_YY.log`；`scheduler.json`记录任务ID、模型ID、GPU、PID、开始/结束与退出码，完成数量指worker任务数。任一worker失败后停止派发并回收本次其它进程组；Ctrl-C/SIGTERM同样清理，保留已有结果，不生成不完整汇总。
 
@@ -215,7 +232,8 @@ manifest.json                 权重SHA256、原/实际参数、标签来源、c
 summary.json                  类别均值、相对第一个模型的配对差值/胜出case数
 preflight.json / preflight.log CPU预检阶段、耗时、RSS与调用位置
 render.json / render.log       CPU绘图case序号、耗时、RSS与调用位置
-status.json                   planned_only / evaluating / evaluated / rendering / complete / failed
+status.json                   planned_only / searching / evaluating / evaluated / rendering / complete / failed
+search.json                   各类候选预算、检查/命中/保留数及停止原因（误差搜索）
 scheduler.json                每个worker任务/模型的GPU、PID、日志和状态
 sampling.json                 本次采样seed、auto/fixed模式及评估噪声seed
 logs/                         各模型/分片运行日志
@@ -291,6 +309,6 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh \
 
 还有 `--model-dir`、`--lead-bev-ckpt`、`--high-level-action-index`、`--prior-labels`、两个阶段的training-index覆盖项。这些是原文件搬迁，仍检查内容。`--event-balance-index` 影响模型原条件恢复，不能给原本没有full map的uniform模型临时加训练条件；若所有模型都不使用full map，使用 `--label-index` 单独提供分类来源，保持模型原split/条件，配对不一致仍拒绝。工具不会重建或重标注数据。
 
-本机累计86项相关回归通过（含真实CPU子进程的并发队列、环境隔离、动态补位、失败/信号清理及输出路径检查），其中53项为对比与可视化无模型回归（含分类配额、投影方向/外参、道路图旋转、合成图片端到端PNG/PDF发布），并用一条已有train-only、通过异常时长过滤的录制路线检查真实RGB/道路/车辆框与GT绘图，缺PyTorch/laspy、真实权重及只读offline runner，尚未验证真实Qwen/BEV GPU推理。真实运行应在原训练环境进行。默认每类8例用于可视化诊断，不替代全量test；查看test并据此改模型后，应记录开发曝光，不再称这些case为盲测。
+本机累计86项相关回归通过（含真实CPU子进程的并发队列、环境隔离、动态补位、失败/信号清理及输出路径检查），其中53项为对比与可视化无模型回归（含分类配额、投影方向/外参、道路图旋转、合成图片端到端PNG/PDF发布），并用一条已有train-only、通过异常时长过滤的录制路线检查真实RGB/道路/车辆框与GT绘图，缺PyTorch/laspy、真实权重及只读offline runner，尚未验证真实Qwen/BEV GPU推理。真实运行应在原训练环境进行。当前默认每类最多50候选、保留5个waypoint大误差案例用于可视化诊断，不替代全量test；查看test并据此改模型后，应记录开发曝光，不再称这些case为盲测。
 
 本次两包详细审计见 [TRAINING_AUDIT_20260922.md](../action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md)。

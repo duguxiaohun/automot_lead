@@ -100,7 +100,9 @@ def prepare(cli, out):
     manifest = dict(schema="action_checkpoint_comparison_v1", seed=cli.seed, per_category=cli.cases_per_category,
         sampling_seed=sampling_seed, sampling_seed_mode=cli.sampling_seed_mode,
         evaluation_seed=cli.seed, case_order="shuffled_per_split_shared_across_models",
-        error_filter=dict(enabled=getattr(cli, "error_only", False), threshold_m=getattr(cli, "error_threshold_m", 1.0)),
+        error_filter=dict(enabled=getattr(cli, "error_only", False), ade_threshold_m=getattr(cli, "error_ade_threshold_m", 1.0),
+                          fde_threshold_m=getattr(cli, "error_fde_threshold_m", 3.0)),
+        error_case_target=getattr(cli, "error_cases_per_category", 5),
         category_counts=cli.category_counts, camera_config=cli.camera_configuration,
         min_frame_gap=cli.min_frame_gap, label_source=source.identity, models=entries, splits={},
         interpretation="分层抽样的离线同帧 EMA 对比；不是全量 test、闭环或泛化结论。event 可重叠。")
@@ -166,10 +168,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", nargs="*")
     parser.add_argument("--names", nargs="+")
-    parser.add_argument("--cases-per-category", type=int, default=8)
+    parser.add_argument("--cases-per-category", type=int, default=50)
     parser.add_argument("--error-only", action=argparse.BooleanOptionalAction, default=False,
-                        help="仅绘制任一route/waypoint模型-GT或模型间终点距离超过阈值的采样case")
-    parser.add_argument("--error-threshold-m", type=float, default=1.0, help="终点距离阈值，单位米，严格大于；默认1.0")
+                        help="分批搜索waypoint大误差，每类达到命中目标即停止派发")
+    parser.add_argument("--error-ade-threshold-m", type=float, default=1.0)
+    parser.add_argument("--error-fde-threshold-m", type=float, default=3.0)
+    parser.add_argument("--error-cases-per-category", type=int, default=5)
     parser.add_argument("--event-cases", action="append", default=[], help="逐类数量，例如 UE1=12,UE4=20,test/UE7=6；可重复，0跳过")
     parser.add_argument("--action-cases", action="append", default=[], help="例如 STOP=12,LANE_CHANGE_LEFT=20；可重复，0跳过")
     parser.add_argument("--camera-config", default="", help="显式覆盖显示标定JSON；默认优先同帧meta，缺失回退LEAD名义标定")
@@ -182,10 +186,15 @@ def main():
     parser.add_argument("--plan-only", action="store_true", help="CPU 完成选优/合同/选帧，不运行模型")
     parser.add_argument("--label-index", default="", help="仅用于 event/action 分组的 full map，不改变无 token 模型")
     parser.add_argument("--worker-job", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--worker-service", action="store_true", help=argparse.SUPPRESS)
     for key in ("data-root", "data-dir", "model-dir", "lead-bev-ckpt", "event-balance-index", "high-level-action-index",
                 "prior-labels", "phase1-training-index", "phase2-training-index"):
         parser.add_argument("--" + key, default="")
     cli = parser.parse_args()
+    if cli.worker_service:
+        from qwen3vl_local.action_prior.comparison_pool import worker_service
+        worker_service()
+        return
     if cli.worker_job:
         from qwen3vl_local.action_prior.comparison_runtime import evaluate_worker
         evaluate_worker(read_json(cli.worker_job))
@@ -195,8 +204,10 @@ def main():
         cli.sampling_seed = resolve_sampling_seed(cli.sampling_seed)
     except ValueError as exc:
         parser.error(str(exc))
-    if not math.isfinite(cli.error_threshold_m) or cli.error_threshold_m <= 0:
-        parser.error("error-threshold-m 必须为有限正数（米）")
+    if any(not math.isfinite(t) or t <= 0 for t in (cli.error_ade_threshold_m, cli.error_fde_threshold_m)):
+        parser.error("error ADE/FDE thresholds 必须为有限正数（米）")
+    if cli.error_cases_per_category < 1:
+        parser.error("error-cases-per-category 必须为正整数")
     if len(cli.runs) < 2 or (cli.names and len(cli.names) != len(cli.runs)):
         parser.error("至少两个训练目录；--names 若指定必须与目录数量相同")
     if cli.cases_per_category < 0 or cli.min_frame_gap < 1 or cli.workers < 0 or cli.gpus < 1:
@@ -231,13 +242,17 @@ def main():
         if cli.plan_only:
             write_json(out / "status.json", dict(status="planned_only", models_executed=False))
         else:
-            from qwen3vl_local.action_prior.comparison_shards import plan_shards
-            tasks = plan_shards(jobs, manifest, gpu_plan, out)
-            manifest["execution"] = gpu_plan
-            write_json(out / "manifest.json", manifest)
-            commands = [[sys.executable, str(Path(__file__).resolve()), "--worker-job",
-                         task['job']] for task in tasks]
-            run_queue(commands, gpu_plan, out)
+            if cli.error_only:
+                from qwen3vl_local.action_prior.comparison_search import search_cases
+                search_cases(jobs, manifest, gpu_plan, out, cli.error_cases_per_category)
+            else:
+                from qwen3vl_local.action_prior.comparison_shards import plan_shards
+                tasks = plan_shards(jobs, manifest, gpu_plan, out)
+                manifest["execution"] = gpu_plan
+                write_json(out / "manifest.json", manifest)
+                commands = [[sys.executable, str(Path(__file__).resolve()), "--worker-job",
+                             task['job']] for task in tasks]
+                run_queue(commands, gpu_plan, out)
             write_json(out / "status.json", dict(status="rendering", models_executed=True))
             print(f"[comparison] all GPU workers complete; starting CPU rendering; status: {out / 'status.json'}", flush=True)
             from qwen3vl_local.action_prior.comparison_render import publish

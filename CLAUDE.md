@@ -4,7 +4,7 @@
 
 新增 `action_prior/compare_checkpoints.sh`，两个消融目录同名脚本共用此入口；
 编辑 CKPT_DIRS 即可传任意多个带时间的训练目录，按原完整val选best并使用EMA。
-按同源event/action标签对有效train/test池各类默认选8例，优先物理路线多样性；
+按同源event/action标签对有效train/test池各类默认准备最多50个候选，优先物理路线多样性；
 所有模型同帧同评估噪声；event/action可逐类及逐split设配额，0跳过，优先物理路线多样性。
 保存实际RGB投影、道路/车辆框俯视与GT/多模型拼图PNG/PDF、历史输入和简洁JSON；
 RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆盖。三图为横向拼接，各相机独立投影。
@@ -18,8 +18,10 @@ RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆
 预检按阶段每15秒输出耗时/RSS/调用位置到preflight.json/log；选帧仅哈希选中case并提前释放标签池。
 GPU worker完成后仍有CPU绘图；render.json/log每15秒报case进度，优先生成GT+所有模型主图。
 本轮58项CPU回归通过；分类目录在每个split绘制后发布，总完成以status.json为准。
-可选ERROR_ONLY默认false、ERROR_THRESHOLD_M默认1米；route/waypoint任意模型-GT或模型对终点距离严格超阈值即保留。
-先采样推理再筛展示，不补例；保留原采样统计及原始审计，另报筛后指标/原因/阈值保留数。74项相关CPU测试通过。
+ERROR_ONLY默认true，仅waypoint任意模型-GT或模型对ADE>1米或FDE>3米触发；route不参与筛选。
+CASES_PER_CATEGORY默认50候选预算，ERROR_CASES_PER_CATEGORY默认5命中目标；分批搜索每类达标即停止单独派发。
+常驻GPU服务跨批复用当前模型，跨类case去重；已派发批次完成，最终每类不超额，search.json记录预算/缺额/原因。
+132项CPU检查通过，未跑真实GPU；规则/日志/早停统计偏置见CHECKPOINT_COMPARISON.md。
 SAMPLING_SEED默认auto（时间+系统随机源），每次重新选例并打乱split内执行顺序；所有模型共用同序计划。
 EVAL_SEED独立默认2026，原数据划分/训练条件不变；sampling.json/manifest/报告保存种子供复现，76项CPU回归通过。
 GPU分片保留公共逻辑顺序的子序列，逐模型case恰好一次；独立日志/缓存/输出，按case身份合并，拒绝缺帧/重复。
