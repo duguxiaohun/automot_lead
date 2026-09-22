@@ -16,6 +16,8 @@ RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆
 一卡一checkpoint并发，超额排队动态补位；GPU_IDS显式pin优先，模型少于卡时剩余卡不分配。
 独立日志及scheduler记录分配；失败/中断回收本次进程组。86项相关CPU回归通过，尚无真实GPU验收。
 预检按阶段每15秒输出耗时/RSS/调用位置到preflight.json/log；选帧仅哈希选中case并提前释放标签池。
+GPU worker完成后仍有CPU绘图；render.json/log每15秒报case进度，优先生成GT+所有模型主图。
+本轮58项CPU回归通过；分类目录在每个split绘制后发布，总完成以status.json为准。
 两份bev_only审计：自然加权ADE改善0.82%、均衡waypoint ADE改善17.31%，普通背景/UE4退化；
 详见 action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md 与 action_prior/CHECKPOINT_COMPARISON.md。
 

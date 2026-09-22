@@ -35,6 +35,21 @@ def test_preflight_failure_preserved_and_thread_stopped(tmp_path):
     assert not any(t.name=='comparison-preflight-progress' for t in threading.enumerate())
 
 
+def test_render_heartbeat_is_separate_and_failure_preserved(tmp_path):
+    cc.write_json(tmp_path/'preflight.json', dict(status='done'))
+    progress = PreflightProgress(tmp_path, interval=.01, phase='render')
+    with pytest.raises(ValueError, match='bad camera'):
+        with progress.stage('case 1/8'):
+            deadline = time.monotonic()+2
+            while '[render] running' not in (tmp_path/'render.log').read_text():
+                assert time.monotonic() < deadline
+                time.sleep(.01)
+            raise ValueError('bad camera')
+    assert cc.read_json(tmp_path/'render.json')['status'] == 'failed'
+    assert cc.read_json(tmp_path/'preflight.json') == dict(status='done')
+    assert not any(t.name=='comparison-render-progress' for t in threading.enumerate())
+
+
 def test_selection_hashes_only_chosen_cases(monkeypatch):
     rows = [dict(scenario='scene', run_id='run', route_group='group', anchor=i, split='test',
                  action_token=dict(name='STOP', reason='complete_phase3_evidence', version='v1'),

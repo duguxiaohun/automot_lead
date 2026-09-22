@@ -188,13 +188,14 @@ def main():
                          str(out / "_plan" / f"job_{index:02d}.json")] for index in range(len(jobs))]
             run_queue(commands, gpu_plan, out)
             write_json(out / "status.json", dict(status="rendering", models_executed=True))
+            print(f"[comparison] all GPU workers complete; starting CPU rendering; status: {out / 'status.json'}", flush=True)
             from qwen3vl_local.action_prior.comparison_render import publish
             publish(out, manifest)
             write_json(out / "status.json", dict(status="complete", models_executed=True))
     except BaseException as exc:
         write_json(out / "status.json", dict(status="failed", error=f"{type(exc).__name__}: {exc}"))
         raise
-    print(f"[comparison] {out}", flush=True)
+    print(f"[comparison] {'planned_only' if cli.plan_only else 'complete'}: {out}", flush=True)
 
 
 if __name__ == "__main__":

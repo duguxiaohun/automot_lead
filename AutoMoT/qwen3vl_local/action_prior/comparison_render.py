@@ -125,10 +125,17 @@ def render_panel(folder, row, predictions, models, inputs, cloud, filename):
 
 def publish(out, manifest):
     """发布每例和每桶结果；详细原始审计保留 _models，日常只读 case.json。"""
-    from matplotlib.colors import to_hex
-    from matplotlib import colormaps
-    from qwen3vl_local.action_prior.comparison_scene import load_scene, render_paper
+    from qwen3vl_local.action_prior.comparison_progress import PreflightProgress
     out = Path(out)
+    progress = PreflightProgress(out, phase="render")
+    with progress.stage("initialize CPU plotting libraries"):
+        from matplotlib.colors import to_hex
+        from matplotlib import colormaps
+        from qwen3vl_local.action_prior.comparison_scene import load_scene, render_paper
+    total = sum(len(plan["cases"]) for plan in manifest["splits"].values())
+    completed = 0
+    print(f"[render] GPU inference finished; CPU rendering {total} unique cases, "
+          f"GT + {len(manifest['models'])} models per comparison; progress: {out / 'render.json'}", flush=True)
     models = manifest["models"]
     for index, model in enumerate(models):
         model["number"] = index + 1
@@ -136,89 +143,96 @@ def publish(out, manifest):
     summary, links = {}, []
     calibration_counts = Counter()
     for split, plan in manifest["splits"].items():
-        cases = paired_cases(out, manifest, split)
+        with progress.stage(f"{split}: validate paired predictions / GT"):
+            cases = paired_cases(out, manifest, split)
         for cid, label in plan["cases"].items():
-            folder = out / "_cases" / split / cid
-            folder.mkdir(parents=True, exist_ok=False)
-            predictions = {m["id"]: cases[m["id"]][cid] for m in models}
-            first = predictions[models[0]["id"]]
-            cloud, cloud_source = lidar_background(first["sample"]["route_dir"], int(label["anchor"]))
-            scene = load_scene(first["sample"]["route_dir"], int(label["anchor"]), manifest.get("camera_config"))
-            calibration_counts[scene["audit"]["calibration_resolution"]] += 1
-            simple = dict(id=cid, split=split, scenario=label["scenario"], run_id=label["run_id"], frame=int(label["anchor"]),
-                physical_route=label["route_group"], events=event_groups(label), event_status=label["event_balance_status"],
-                high_level_action=label["action_token"]["name"], action_reason=label["action_token"]["reason"],
-                label_source="Phase3 offline oracle; not a model prediction", lidar_background=cloud_source,
-                visualization=scene["audit"], models=[])
-            inputs = {}
-            anchor_sha256 = None
-            for model in models:
-                mid = model["id"]
-                data = predictions[mid]
-                source = out / "_models" / mid / split / "inputs" / cid
-                target = folder / "inputs" / mid
-                paths = sorted(source.glob("input_rgb_*.png"))
-                if not paths:
-                    raise ValueError(f"没有实际输入图像: {source}")
-                current_hash = hashlib.sha256(paths[-1].read_bytes()).hexdigest()
-                if anchor_sha256 is not None and current_hash != anchor_sha256:
-                    raise ValueError(f"模型当前RGB不同: {cid}/{mid}")
-                anchor_sha256 = current_hash
-                for path in paths:
-                    linked_copy(path, target / path.name)
-                inputs[mid] = sorted(target.glob("*.png"))
-                actual_input = read_json(source / "input.json")
-                actual_input["current_rgb_sha256"] = current_hash
-                token = data["sample"].get("action_token")
-                if bool(token) != model["high_level_action_token"] or (token and token != label["action_token"]):
-                    raise ValueError(f"实际动作输入与模型/分类合同不同: {mid}/{cid}")
-                simple["models"].append(dict(id=mid, label=model["label"], color=model["color"],
-                    checkpoint=model["checkpoint"], step=model["selection"]["step"], ema=True,
-                    action_token=token["name"] if token else "DISABLED", text_action=data.get("high_level_action"),
-                    input=actual_input, metrics={key: data["metrics"][key] for key in METRICS}))
-            write_json(folder / "case.json", simple)
-            write_json(folder / "visualization_calibration.json", scene["config"])
-            write_json(folder / "trajectories.json", dict(gt_route=first["gt_route"][0], gt_waypoints=first["gt_waypoints"][0],
-                predictions={mid: dict(route=data["pred_route"][0], waypoints=data["pred_waypoints"][0]) for mid, data in predictions.items()}))
-            render_panel(folder, label, predictions, models, inputs, cloud, "input_history.png")
-            render_paper(folder, label, predictions, models, inputs, scene, cloud)
-            for model in models:
-                render_paper(folder, label, {model["id"]: predictions[model["id"]]}, [model], inputs, scene, cloud, stem=model["id"])
-        for style, categories in plan["groups"].items():
-            for category, ids in categories.items():
-                folder = out / style / split / category
-                folder.mkdir(parents=True, exist_ok=True)
-                for cid in ids:
-                    src = out / "_cases" / split / cid
-                    shutil.copytree(src, folder / cid, copy_function=lambda a, b: linked_copy(Path(a), Path(b)))
-                    link = str((folder / cid / "comparison.png").relative_to(out))
-                    links.append(f'<li><a href="{html.escape(link)}">{html.escape(style + "/" + split + "/" + category + "/" + cid)}</a></li>')
-                metrics = {m["id"]: {key: sum(cases[m["id"]][cid]["metrics"][key] for cid in ids) / len(ids) for key in METRICS} for m in models} if ids else {}
-                group = dict(coverage=plan["coverage"][style][category], means=metrics)
-                if ids:
-                    base = models[0]["id"]
-                    group["paired_vs_first"] = {m["id"]: dict(
-                        mean_delta={key: metrics[m["id"]][key] - metrics[base][key] for key in METRICS},
-                        lower_score_cases=sum(cases[m["id"]][cid]["metrics"]["sampled_trajectory_score"] < cases[base][cid]["metrics"]["sampled_trajectory_score"] for cid in ids)) for m in models[1:]}
-                write_json(folder / "summary.json", group)
-                summary[f"{style}/{split}/{category}"] = group
-    manifest["visualization_summary"] = dict(unique_cases=sum(calibration_counts.values()),
-                                            calibration_counts=dict(calibration_counts))
-    write_json(out / "manifest.json", manifest)
-    write_json(out / "summary.json", summary)
-    lines = ["# 多模型配对轨迹对比", "", manifest["interpretation"], "", "选择仅使用完整 val；评估使用 EMA 和同帧同 seed 噪声。", "",
-             "| 模型 | 条件 | best step | 完整 val 选优分数 |", "|---|---|---:|---:|"]
-    for model in models:
-        lines.append(f"| M{model['number']} {model['label']} | token={model['high_level_action_token']} | {model['selection']['step']} | {model['selection']['score']:.6f} |")
-    lines += ["", "RGB标定来源（去重case计数）：" + "; ".join(f"{key}={value}" for key, value in sorted(calibration_counts.items())) + "。",
-              "nominal_fallback表示缺录制标定而使用默认值；每例图注及case.json记录来源。RGB采用地面平面近似，不做遮挡判断。"]
-    lines += ["", "逐例看 `event/` 或 `action/`，`comparison.png/.pdf` 为RGB投影＋场景俯视同屏比较，`model_*.png/.pdf` 单模型对 GT；`input_history.png` 保留实际历史输入，`case.json` 为简表，坐标数组在 `trajectories.json`。", "",
-              "| 分组 | case / 请求 | 物理路线 | 模型 | FM loss | route ADE | waypoint ADE | waypoint FDE |", "|---|---:|---:|---|---:|---:|---:|---:|"]
-    for name, group in summary.items():
-        coverage = group["coverage"]
+            with progress.stage(f"case {completed+1}/{total} {split}/{cid}: comparison / history / individual models"):
+                folder = out / "_cases" / split / cid
+                folder.mkdir(parents=True, exist_ok=False)
+                predictions = {m["id"]: cases[m["id"]][cid] for m in models}
+                first = predictions[models[0]["id"]]
+                cloud, cloud_source = lidar_background(first["sample"]["route_dir"], int(label["anchor"]))
+                scene = load_scene(first["sample"]["route_dir"], int(label["anchor"]), manifest.get("camera_config"))
+                calibration_counts[scene["audit"]["calibration_resolution"]] += 1
+                simple = dict(id=cid, split=split, scenario=label["scenario"], run_id=label["run_id"], frame=int(label["anchor"]),
+                    physical_route=label["route_group"], events=event_groups(label), event_status=label["event_balance_status"],
+                    high_level_action=label["action_token"]["name"], action_reason=label["action_token"]["reason"],
+                    label_source="Phase3 offline oracle; not a model prediction", lidar_background=cloud_source,
+                    visualization=scene["audit"], models=[])
+                inputs = {}
+                anchor_sha256 = None
+                for model in models:
+                    mid = model["id"]
+                    data = predictions[mid]
+                    source = out / "_models" / mid / split / "inputs" / cid
+                    target = folder / "inputs" / mid
+                    paths = sorted(source.glob("input_rgb_*.png"))
+                    if not paths:
+                        raise ValueError(f"没有实际输入图像: {source}")
+                    current_hash = hashlib.sha256(paths[-1].read_bytes()).hexdigest()
+                    if anchor_sha256 is not None and current_hash != anchor_sha256:
+                        raise ValueError(f"模型当前RGB不同: {cid}/{mid}")
+                    anchor_sha256 = current_hash
+                    for path in paths:
+                        linked_copy(path, target / path.name)
+                    inputs[mid] = sorted(target.glob("*.png"))
+                    actual_input = read_json(source / "input.json")
+                    actual_input["current_rgb_sha256"] = current_hash
+                    token = data["sample"].get("action_token")
+                    if bool(token) != model["high_level_action_token"] or (token and token != label["action_token"]):
+                        raise ValueError(f"实际动作输入与模型/分类合同不同: {mid}/{cid}")
+                    simple["models"].append(dict(id=mid, label=model["label"], color=model["color"],
+                        checkpoint=model["checkpoint"], step=model["selection"]["step"], ema=True,
+                        action_token=token["name"] if token else "DISABLED", text_action=data.get("high_level_action"),
+                        input=actual_input, metrics={key: data["metrics"][key] for key in METRICS}))
+                write_json(folder / "case.json", simple)
+                write_json(folder / "visualization_calibration.json", scene["config"])
+                write_json(folder / "trajectories.json", dict(gt_route=first["gt_route"][0], gt_waypoints=first["gt_waypoints"][0],
+                    predictions={mid: dict(route=data["pred_route"][0], waypoints=data["pred_waypoints"][0]) for mid, data in predictions.items()}))
+                render_paper(folder, label, predictions, models, inputs, scene, cloud)
+                print(f"[render] comparison ready ({completed+1}/{total}): {folder / 'comparison.png'}", flush=True)
+                render_panel(folder, label, predictions, models, inputs, cloud, "input_history.png")
+                for model in models:
+                    render_paper(folder, label, {model["id"]: predictions[model["id"]]}, [model], inputs, scene, cloud, stem=model["id"])
+            completed += 1
+        with progress.stage(f"{split}: publish event/action folders and summaries"):
+            for style, categories in plan["groups"].items():
+                for category, ids in categories.items():
+                    folder = out / style / split / category
+                    folder.mkdir(parents=True, exist_ok=True)
+                    for cid in ids:
+                        src = out / "_cases" / split / cid
+                        shutil.copytree(src, folder / cid, copy_function=lambda a, b: linked_copy(Path(a), Path(b)))
+                        link = str((folder / cid / "comparison.png").relative_to(out))
+                        links.append(f'<li><a href="{html.escape(link)}">{html.escape(style + "/" + split + "/" + category + "/" + cid)}</a></li>')
+                    metrics = {m["id"]: {key: sum(cases[m["id"]][cid]["metrics"][key] for cid in ids) / len(ids) for key in METRICS} for m in models} if ids else {}
+                    group = dict(coverage=plan["coverage"][style][category], means=metrics)
+                    if ids:
+                        base = models[0]["id"]
+                        group["paired_vs_first"] = {m["id"]: dict(
+                            mean_delta={key: metrics[m["id"]][key] - metrics[base][key] for key in METRICS},
+                            lower_score_cases=sum(cases[m["id"]][cid]["metrics"]["sampled_trajectory_score"] < cases[base][cid]["metrics"]["sampled_trajectory_score"] for cid in ids)) for m in models[1:]}
+                    write_json(folder / "summary.json", group)
+                    summary[f"{style}/{split}/{category}"] = group
+    with progress.stage("write final report / gallery"):
+        manifest["visualization_summary"] = dict(unique_cases=sum(calibration_counts.values()),
+                                                calibration_counts=dict(calibration_counts))
+        write_json(out / "manifest.json", manifest)
+        write_json(out / "summary.json", summary)
+        lines = ["# 多模型配对轨迹对比", "", manifest["interpretation"], "", "选择仅使用完整 val；评估使用 EMA 和同帧同 seed 噪声。", "",
+                 "| 模型 | 条件 | best step | 完整 val 选优分数 |", "|---|---|---:|---:|"]
         for model in models:
-            metrics = group["means"].get(model["id"])
-            values = " | ".join(f"{metrics[k]:.5f}" for k in ("loss", "route_ade_m", "waypoint_ade_m", "waypoint_fde_m")) if metrics else "N/A | N/A | N/A | N/A"
-            lines.append(f"| {name} | {coverage['selected']}/{coverage['requested']} | {coverage['selected_physical_routes']} | M{model['number']} | {values} |")
-    (out / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    (out / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Trajectory comparison</title><h1>Case gallery</h1><p>See REPORT.md and case.json for metrics and input labels.</p><ul>' + "\n".join(links) + '</ul>', encoding="utf-8")
+            lines.append(f"| M{model['number']} {model['label']} | token={model['high_level_action_token']} | {model['selection']['step']} | {model['selection']['score']:.6f} |")
+        lines += ["", "RGB标定来源（去重case计数）：" + "; ".join(f"{key}={value}" for key, value in sorted(calibration_counts.items())) + "。",
+                  "nominal_fallback表示缺录制标定而使用默认值；每例图注及case.json记录来源。RGB采用地面平面近似，不做遮挡判断。"]
+        lines += ["", "逐例看 `event/` 或 `action/`，`comparison.png/.pdf` 为RGB投影＋场景俯视同屏比较，`model_*.png/.pdf` 单模型对 GT；`input_history.png` 保留实际历史输入，`case.json` 为简表，坐标数组在 `trajectories.json`。", "",
+                  "| 分组 | case / 请求 | 物理路线 | 模型 | FM loss | route ADE | waypoint ADE | waypoint FDE |", "|---|---:|---:|---|---:|---:|---:|---:|"]
+        for name, group in summary.items():
+            coverage = group["coverage"]
+            for model in models:
+                metrics = group["means"].get(model["id"])
+                values = " | ".join(f"{metrics[k]:.5f}" for k in ("loss", "route_ade_m", "waypoint_ade_m", "waypoint_fde_m")) if metrics else "N/A | N/A | N/A | N/A"
+                lines.append(f"| {name} | {coverage['selected']}/{coverage['requested']} | {coverage['selected_physical_routes']} | M{model['number']} | {values} |")
+        (out / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (out / "index.html").write_text('<!doctype html><meta charset="utf-8"><title>Trajectory comparison</title><h1>Case gallery</h1><p>See REPORT.md and case.json for metrics and input labels.</p><ul>' + "\n".join(links) + '</ul>', encoding="utf-8")
+    print(f"[render] complete {completed}/{total} cases; gallery: {out / 'index.html'}", flush=True)

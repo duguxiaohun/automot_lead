@@ -78,6 +78,26 @@ free -h
 
 高CPU可能在解析/标注；D状态或低CPU可能在等I/O；内存和swap情况能帮助识别内存压力。这些指标只能辅助定位，不能单凭GPU利用率0断定卡死。正在运行的旧进程不会自动获得新增日志，需要部署新版后另开测试。本机没有访问远端进程，也没有测得真实服务器预检时长。
 
+## GPU模型complete后还没有总对比图
+
+`[comparison] complete model_01 GPU=0` 仅表示该GPU worker结束。所有worker成功后，父进程更新 `status.json` 为 `rendering`，在CPU上核对配对预测/GT、读取场景、绘制每例多模型主图、历史输入和各模型单独图，再发布分类目录及汇总。`scheduler.json` 的complete仅指推理队列；总任务以 `status.json` 的complete和最终 `[comparison] complete: ...` 为准。
+
+旧版此阶段没有终端进度。新版显示总case数、当前case序号，每15秒更新 `render.json` / `render.log`（阶段、耗时、RSS、调用位置）；每例先生成 `comparison.png/.pdf`，打印可查看路径，再生成历史和单模型图。最后写完REPORT和图库后才报告整体完成。绘图失败保留失败阶段并由主入口写入status.json，不能把已有部分图片视为全部完成。
+
+每例 `comparison.png/.pdf` 将GT和所有checkpoint轨迹叠加在同一组三相机视图及俯视坐标中；`model_01.png` 等仅是单模型对GT。绘制中的去重图位于 `_cases/<train或test>/<id>/comparison.png`；整个split完成后才发布到 `event/<split>/<event>/<id>/` 和 `action/<split>/<action>/<id>/`，图库 `index.html` 最后生成。
+
+在AutoMoT目录另开终端，只读查看已有运行（替换实际时间目录）：
+
+```bash
+RUN_DIR=test/run_20260922_114725_362629
+cat "$RUN_DIR/status.json"
+rg --files "$RUN_DIR/_cases" | rg '/comparison\.png$'
+# 新版额外可查看；旧运行没有此文件：
+tail -n 10 "$RUN_DIR/render.log"
+```
+
+间隔一段时间比较图像数量/更新时间，并结合父进程CPU和I/O判断是否仍推进；单独的rendering状态可能在强杀后残留，不能证明进程存活。更新代码不会给已经进入旧绘图函数的进程补日志。本轮58项CPU测试通过，包括真实合成图中三个相机均含GT和两模型的验证；没有远端真实数据绘图耗时或GPU验收。
+
 ## GPU自适应并发
 
 脚本顶部 `GPU_COUNT=4` 表示默认最多自动选4张卡。按 `nvidia-smi` 显存占用、利用率从低到高选卡，检测到少于4张会自动减少；并发上限为所选卡数与checkpoint数的较小值。每个checkpoint独占一张卡，依次评估它的train/test案例，完成后释放显存并让该卡领取下一个checkpoint。不同模型的日志、缓存、原始结果目录相互独立；配对的case及评估噪声不随完成顺序变化。
@@ -123,6 +143,7 @@ index.html                    本地浏览逐例拼图
 manifest.json                 权重SHA256、原/实际参数、标签来源、case及覆盖计划
 summary.json                  类别均值、相对第一个模型的配对差值/胜出case数
 preflight.json / preflight.log CPU预检阶段、耗时、RSS与调用位置
+render.json / render.log       CPU绘图case序号、耗时、RSS与调用位置
 status.json                   planned_only / evaluating / evaluated / rendering / complete / failed
 scheduler.json                每个模型的GPU、PID、日志、排队/运行/完成/失败状态
 logs/                         各模型运行日志

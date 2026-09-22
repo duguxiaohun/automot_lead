@@ -1,4 +1,4 @@
-"""对比预检的阶段心跳：只观测，不改训练代码或内容校验。"""
+"""对比预检/绘图的阶段心跳：只观测，不改训练代码或内容校验。"""
 from contextlib import contextmanager
 from pathlib import Path
 import resource
@@ -11,8 +11,11 @@ from qwen3vl_local.action_prior.comparison_cases import write_json
 
 class PreflightProgress:
     """耗时调用期间每15秒发布耗时、RSS和调用位置，避免CPU预检静默。"""
-    def __init__(self, out, interval=15.):
+    def __init__(self, out, interval=15., phase="preflight"):
         self.out = Path(out)
+        if phase not in ("preflight", "render"):
+            raise ValueError(f"未知进度阶段: {phase}")
+        self.phase = phase
         self.interval = interval
         self.started = time.monotonic()
         self.history = []
@@ -42,17 +45,17 @@ class PreflightProgress:
                          total_seconds=round(now-self.started, 1), rss_mb=rss,
                          cpu_seconds=round(resource.getrusage(resource.RUSAGE_SELF).ru_utime, 1),
                          location=stack[:4], completed_stages=self.history.copy())
-            write_json(self.out / 'preflight.json', value)
+            write_json(self.out / f'{self.phase}.json', value)
             detail = ' / '.join(stack[:2]) if status == 'running' else ''
-            message = f'[preflight] {status} {name} | {value["stage_seconds"]:.1f}s | RSS={rss}MB {detail}'
+            message = f'[{self.phase}] {status} {name} | {value["stage_seconds"]:.1f}s | RSS={rss}MB {detail}'
             print(message, flush=True)
-            with (self.out / 'preflight.log').open('a', encoding='utf-8') as log:
+            with (self.out / f'{self.phase}.log').open('a', encoding='utf-8') as log:
                 log.write(message+'\n')
         def heartbeat():
             while not stopped.wait(self.interval):
                 report('running')
         report('start')
-        thread = threading.Thread(target=heartbeat, name='comparison-preflight-progress', daemon=True)
+        thread = threading.Thread(target=heartbeat, name=f'comparison-{self.phase}-progress', daemon=True)
         thread.start()
         status = 'done'
         try:

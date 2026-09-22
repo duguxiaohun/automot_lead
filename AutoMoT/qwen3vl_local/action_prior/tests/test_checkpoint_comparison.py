@@ -175,9 +175,26 @@ def make_outputs(tmp_path):
     return manifest, cid
 
 
-def test_publish_json_images_gallery_and_no_token_injection(tmp_path):
+def test_publish_json_images_gallery_and_no_token_injection(tmp_path, monkeypatch, capsys):
+    from qwen3vl_local.action_prior import comparison_scene as scene
+    original = scene.draw_camera
+    overlays = []
+    def capture(ax, rgb, camera, curves, ground):
+        overlays.append([item["label"] for item in curves])
+        return original(ax, rgb, camera, curves, ground)
+    monkeypatch.setattr(scene, "draw_camera", capture)
     manifest, cid = make_outputs(tmp_path)
     publish(tmp_path, manifest)
+    # 三个相机的主图均含GT和两个模型，后续才绘制各自单模型图。
+    assert overlays[:3] == [["GT", "synthetic 1", "synthetic 2"]] * 3
+    assert all(len(curves) == 2 for curves in overlays[3:])
+    output = capsys.readouterr().out
+    assert "[render] comparison ready (1/1):" in output
+    assert "[render] complete 1/1 cases" in output
+    stages = cc.read_json(tmp_path / "render.json")["completed_stages"]
+    assert all(stage["status"] == "done" for stage in stages)
+    assert any("case 1/1" in stage["stage"] for stage in stages)
+    assert stages[-1]["stage"] == "write final report / gallery"
     folder = tmp_path / "action/test/STOP" / cid
     case = cc.read_json(folder / "case.json")
     assert case["models"][0]["action_token"] == "DISABLED"
