@@ -2,7 +2,11 @@
 # 在 AutoMoT/ 下执行；自动准备数据、选卡。默认 event 均衡、7轮。
 # 默认 event 均衡：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-# action 均衡 + token + 单当前图（默认四图）：
+# 单当前图（默认 event 均衡，token 默认关闭；省略图数参数时默认四图）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --rgb-frame-count 1
+# 单当前图 + action 均衡（token 默认关闭）：
+#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --rgb-frame-count 1
+# action 均衡 + token + 单当前图：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
 # 续训（恢复原配置，使用匹配源码）：

@@ -2,9 +2,11 @@
 # 在 AutoMoT/ 下执行；需已有训练索引，自动准备请用 run_full_pipeline.sh。
 # 默认 event 均衡：
 #   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh
-# action 均衡 + token：
-#   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --action-balanced --high-level-action-token
-#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --action-balanced --high-level-action-token
+# 显式单图参数（BEV 始终为当前单帧 RGB + LiDAR；图数参数用于入口对齐）：
+#   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --rgb-frame-count 1
+# action 均衡 + token + 显式单图参数：
+#   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --action-balanced --high-level-action-token --rgb-frame-count 1
+#   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 # 续训：
 #   bash qwen3vl_local/action_expert_ablation/bev_only/train.sh --resume checkpoints/action_expert_ablation/bev_only/latest/latest.pt
 # 两种采样的完整 demo 见 run_full_pipeline.sh；参数说明见 run.md。

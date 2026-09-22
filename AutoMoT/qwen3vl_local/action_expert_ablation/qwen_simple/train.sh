@@ -2,6 +2,10 @@
 # 在 AutoMoT/ 下执行；需已有训练索引，自动准备请用 run_full_pipeline.sh。
 # 默认 event 均衡：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh
+# 单当前图（默认 event 均衡，token 默认关闭；省略图数参数时默认四图）：
+#   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --rgb-frame-count 1
+# 单当前图 + action 均衡（token 默认关闭）：
+#   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --action-balanced --rgb-frame-count 1
 # action 均衡 + token + 单当前图：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --action-balanced --high-level-action-token --rgb-frame-count 1
