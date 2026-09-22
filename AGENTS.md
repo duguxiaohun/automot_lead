@@ -14,7 +14,8 @@ RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆
 分类动作不注入关闭token的模型；仍严格检查原源码/权重/索引/条件合同，新增工具不改变旧指纹。
 输出到AutoMoT/test/run_<时间>/（与checkpoints同级）；默认最多4张最空闲GPU，卡不足自动减少。
 一卡一checkpoint并发，超额排队动态补位；GPU_IDS显式pin优先，模型少于卡时剩余卡不分配。
-独立日志及scheduler记录分配；失败/中断回收本次进程组。82项相关CPU回归通过，尚无真实GPU验收。
+独立日志及scheduler记录分配；失败/中断回收本次进程组。86项相关CPU回归通过，尚无真实GPU验收。
+预检按阶段每15秒输出耗时/RSS/调用位置到preflight.json/log；选帧仅哈希选中case并提前释放标签池。
 两份bev_only审计：自然加权ADE改善0.82%、均衡waypoint ADE改善17.31%，普通背景/UE4退化；
 详见 action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md 与 action_prior/CHECKPOINT_COMPARISON.md。
 

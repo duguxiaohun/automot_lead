@@ -24,17 +24,23 @@ def prepare(cli, out):
     from qwen3vl_local.action_prior.config import read_rows
     from qwen3vl_local.action_prior.action_token import token_source
     from qwen3vl_local.action_prior.contracts import file_hash
+    from qwen3vl_local.action_prior.comparison_progress import PreflightProgress
+    progress = PreflightProgress(out)
     overrides = {key: getattr(cli, key) for key in (
         "data_root", "data_dir", "model_dir", "lead_bev_ckpt", "event_balance_index",
         "high_level_action_index", "prior_labels", "phase1_training_index", "phase2_training_index") if getattr(cli, key)}
     entries, namespaces, jobs = [], [], []
     for index, run in enumerate(cli.runs):
         print(f"[preflight] model {index + 1}/{len(cli.runs)}: {run}", flush=True)
-        checkpoint, state, selection = select_checkpoint(run, lambda p: torch.load(p, map_location="cpu", weights_only=False))
-        args, variant = restore_args(state, checkpoint, overrides)
-        contract = check_contract(state, args, variant)
+        with progress.stage(f"model {index+1}/{len(cli.runs)} select/load checkpoint (CPU)"):
+            checkpoint, state, selection = select_checkpoint(run, lambda p: torch.load(p, map_location="cpu", weights_only=False))
+        with progress.stage(f"model {index+1}/{len(cli.runs)} restore paths and validate contract / full map / action candidates"):
+            args, variant = restore_args(state, checkpoint, overrides)
+            contract = check_contract(state, args, variant)
+        with progress.stage(f"model {index+1}/{len(cli.runs)} checkpoint SHA256"):
+            checkpoint_sha256 = file_hash(checkpoint)
         entry = dict(id=f"model_{index+1:02d}", label=(cli.names[index] if cli.names else f"{index+1}:{variant}:{checkpoint.parent.name}"),
-            checkpoint=str(checkpoint), checkpoint_sha256=file_hash(checkpoint), variant=variant,
+            checkpoint=str(checkpoint), checkpoint_sha256=checkpoint_sha256, variant=variant,
             selection=selection, ema=True, contract_identity=contract["identity"], dataset_hashes=state["dataset_hashes"],
             high_level_action_token=bool(args.high_level_action_token), high_level_action_prior=bool(getattr(args, "high_level_action_prior", False)),
             rgb_frame_count=args.rgb_frame_count, trained_seed=args.seed,
@@ -60,32 +66,40 @@ def prepare(cli, out):
     source_args = copy.copy(source_args or namespaces[0])
     if cli.label_index:
         source_args.event_balance_index = str(resolve_path(cli.label_index))
-    source = token_source(source_args)
-    for args in namespaces:
-        if getattr(args, "event_balance_index", ""):
-            if file_hash(args.event_balance_index) != source.full.source.sha256:
-                raise ValueError("多个模型或分类用 full map 内容不同")
+    with progress.stage("shared action labels: full map / candidate / split hash verification"):
+        source = token_source(source_args)
+        for args in namespaces:
+            if getattr(args, "event_balance_index", ""):
+                if file_hash(args.event_balance_index) != source.full.source.sha256:
+                    raise ValueError("多个模型或分类用 full map 内容不同")
     manifest = dict(schema="action_checkpoint_comparison_v1", seed=cli.seed, per_category=cli.cases_per_category,
         category_counts=cli.category_counts, camera_config=cli.camera_configuration,
         min_frame_gap=cli.min_frame_gap, label_source=source.identity, models=entries, splits={},
         interpretation="分层抽样的离线同帧 EMA 对比；不是全量 test、闭环或泛化结论。event 可重叠。")
     physical = {}
     for split in ("train", "test"):
-        reference = read_rows(namespaces[0], split)
-        physical[split] = {r["route_group"] for r in reference}
-        labels = [dict(scenario=r["scenario"], run_id=r["run_id"], anchor=r["anchor"], route_group=r["route_group"], split=split) for r in reference]
-        source.full.annotate(labels)
-        source.annotate(labels)
-        picked, groups, coverage = select_cases(labels, per_category=cli.cases_per_category, seed=cli.seed,
-            min_frame_gap=cli.min_frame_gap, category_counts=cli.category_counts, split=split)
+        with progress.stage(f"{split}: read model 1 effective pool / route filtering"):
+            reference = read_rows(namespaces[0], split)
+            physical[split] = {r["route_group"] for r in reference}
+        with progress.stage(f"{split}: annotate event/action labels ({len(reference)} frames)"):
+            labels = [dict(scenario=r["scenario"], run_id=r["run_id"], anchor=r["anchor"], route_group=r["route_group"], split=split) for r in reference]
+            source.full.annotate(labels)
+            source.annotate(labels)
+        with progress.stage(f"{split}: stratified case selection ({len(reference)} frames)"):
+            picked, groups, coverage = select_cases(labels, per_category=cli.cases_per_category, seed=cli.seed,
+                min_frame_gap=cli.min_frame_gap, category_counts=cli.category_counts, split=split)
+        # 只保留被选中的标签，避免读第二模型全量池时还占用一整份标签字典。
+        del labels
+        print(f"[preflight] {split}: selected {len(picked)} unique cases / {len(reference)} effective frames", flush=True)
         wanted = {identity(r) for r in picked}
         manifest["splits"][split] = dict(effective_frames=len(reference), selected_unique_frames=len(picked), groups=groups, coverage=coverage,
             cases={case_id(r): r for r in picked})
         for index, args in enumerate(namespaces):
-            actual = reference if index == 0 else read_rows(args, split)
-            require_same_frames(reference, actual, split)
-            rows = [r for r in actual if identity(r) in wanted]
-            rows.sort(key=identity)
+            with progress.stage(f"{split}: model {index+1}/{len(namespaces)} effective pool and paired frames"):
+                actual = reference if index == 0 else read_rows(args, split)
+                require_same_frames(reference, actual, split)
+                rows = [r for r in actual if identity(r) in wanted]
+                rows.sort(key=identity)
             # 注入开启模型的 token 必须和独立分类标签逐帧完全一致。
             expected = {identity(r): r["action_token"] for r in picked}
             for row in rows:
@@ -97,7 +111,8 @@ def prepare(cli, out):
             jobs[index]["row_hashes"][split] = file_hash(path)
             if index:
                 del actual
-        del reference, labels
+        # actual在index=0时也是reference的别名，单独释放避免跨split残留。
+        del reference
     if physical["train"] & physical["test"]:
         raise ValueError("train/test 物理路线交叉")
     if not any(plan["selected_unique_frames"] for plan in manifest["splits"].values()):

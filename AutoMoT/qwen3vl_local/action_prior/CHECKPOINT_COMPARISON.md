@@ -59,6 +59,25 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh --plan-only
 
 plan-only仍需要原训练环境的Python依赖、真实checkpoint、BEV/Qwen文件和原数据索引以核对内容身份，但不查询GPU、不构造模型、不运行GPU推理。结果始终写新的时间目录，不覆盖旧测试。
 
+## GPU启动前长时间停在preflight
+
+终端的 `model 2/2` 是“开始检查第二个模型”，不是两个模型已经检查完成。GPU选择只决定后续分配；原权重完整val选优、CPU读取checkpoint、冻结权重/源码/索引哈希、百万帧full map与动作候选验证、有效split扫描和分层选例都发生在真正启动GPU worker之前。少量可视化case仍需从完整类别池选择，降低每类数量不会消除这些固定开销。
+
+对比入口现在分别报告加载权重、合同/映射校验、checkpoint SHA256、有效pool读取、标签标注、分层选帧及模型配对检查。每个耗时阶段每15秒打印耗时、RSS内存和主线程当前函数位置，并更新 `preflight.json` / `preflight.log`。某函数位置持续相同不直接证明死锁；结合CPU时间、RSS及阶段耗时判断。旧版本仅有两行model日志，无法据此区分正常预检、慢I/O或内存压力。
+
+同一次选帧只对选中的case计算文件夹SHA256，不再对全部候选帧重复计算；临时标签池选完即释放，避免与第二模型全量pool同时保留。原训练源码/哈希/标签校验未改，未跳过任何合同。GPU推理队列开始时会出现 `[comparison] start model_01 GPU=...`，之后看独立模型日志；该worker自身仍会先校验合同再加载模型。
+
+对已在远端运行的旧版本，可在另一个终端只读检查：
+
+```bash
+pgrep -af 'compare_checkpoints.py'
+# 用上面查到的父进程PID替换12345：
+ps -p 12345 -o pid,etime,pcpu,pmem,rss,stat
+free -h
+```
+
+高CPU可能在解析/标注；D状态或低CPU可能在等I/O；内存和swap情况能帮助识别内存压力。这些指标只能辅助定位，不能单凭GPU利用率0断定卡死。正在运行的旧进程不会自动获得新增日志，需要部署新版后另开测试。本机没有访问远端进程，也没有测得真实服务器预检时长。
+
 ## GPU自适应并发
 
 脚本顶部 `GPU_COUNT=4` 表示默认最多自动选4张卡。按 `nvidia-smi` 显存占用、利用率从低到高选卡，检测到少于4张会自动减少；并发上限为所选卡数与checkpoint数的较小值。每个checkpoint独占一张卡，依次评估它的train/test案例，完成后释放显存并让该卡领取下一个checkpoint。不同模型的日志、缓存、原始结果目录相互独立；配对的case及评估噪声不随完成顺序变化。
@@ -103,6 +122,7 @@ REPORT.md                     模型选择、各类别指标表
 index.html                    本地浏览逐例拼图
 manifest.json                 权重SHA256、原/实际参数、标签来源、case及覆盖计划
 summary.json                  类别均值、相对第一个模型的配对差值/胜出case数
+preflight.json / preflight.log CPU预检阶段、耗时、RSS与调用位置
 status.json                   planned_only / evaluating / evaluated / rendering / complete / failed
 scheduler.json                每个模型的GPU、PID、日志、排队/运行/完成/失败状态
 logs/                         各模型运行日志
@@ -178,6 +198,6 @@ bash qwen3vl_local/action_prior/compare_checkpoints.sh \
 
 还有 `--model-dir`、`--lead-bev-ckpt`、`--high-level-action-index`、`--prior-labels`、两个阶段的training-index覆盖项。这些是原文件搬迁，仍检查内容。`--event-balance-index` 影响模型原条件恢复，不能给原本没有full map的uniform模型临时加训练条件；若所有模型都不使用full map，使用 `--label-index` 单独提供分类来源，保持模型原split/条件，配对不一致仍拒绝。工具不会重建或重标注数据。
 
-本机累计82项相关回归通过（含真实CPU子进程的并发队列、环境隔离、动态补位、失败/信号清理及输出路径检查），其中53项为对比与可视化无模型回归（含分类配额、投影方向/外参、道路图旋转、合成图片端到端PNG/PDF发布），并用一条已有train-only、通过异常时长过滤的录制路线检查真实RGB/道路/车辆框与GT绘图，缺PyTorch/laspy、真实权重及只读offline runner，尚未验证真实Qwen/BEV GPU推理。真实运行应在原训练环境进行。默认每类8例用于可视化诊断，不替代全量test；查看test并据此改模型后，应记录开发曝光，不再称这些case为盲测。
+本机累计86项相关回归通过（含真实CPU子进程的并发队列、环境隔离、动态补位、失败/信号清理及输出路径检查），其中53项为对比与可视化无模型回归（含分类配额、投影方向/外参、道路图旋转、合成图片端到端PNG/PDF发布），并用一条已有train-only、通过异常时长过滤的录制路线检查真实RGB/道路/车辆框与GT绘图，缺PyTorch/laspy、真实权重及只读offline runner，尚未验证真实Qwen/BEV GPU推理。真实运行应在原训练环境进行。默认每类8例用于可视化诊断，不替代全量test；查看test并据此改模型后，应记录开发曝光，不再称这些case为盲测。
 
 本次两包详细审计见 [TRAINING_AUDIT_20260922.md](../action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md)。

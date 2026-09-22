@@ -152,7 +152,9 @@ def select_cases(rows, *, per_category=8, seed=2026, min_frame_gap=8, category_c
         for name in event_groups(row):
             pools["event"].setdefault(name, []).append(row)
         pools["action"][row["action_token"]["name"]].append(row)
-    selected, coverage = {}, {}
+    # 身份只用于前面的重复检查，释放全量set再进行分桶选帧。
+    del seen
+    selected, coverage, wanted_keys = {}, {}, set()
     for style, categories in pools.items():
         selected[style], coverage[style] = {}, {}
         for category, candidates in categories.items():
@@ -186,11 +188,12 @@ def select_cases(rows, *, per_category=8, seed=2026, min_frame_gap=8, category_c
                 if not progress:
                     break
             selected[style][category] = [case_id(row) for row in chosen]
+            wanted_keys.update(identity(row) for row in chosen)
             coverage[style][category] = dict(available_frames=len(candidates), available_physical_routes=len(groups),
                 requested=requested, selected=len(chosen), selected_physical_routes=len(taken),
                 shortfall=requested - len(chosen))
-    wanted = {cid for categories in selected.values() for ids in categories.values() for cid in ids}
-    return [r for r in rows if case_id(r) in wanted], selected, coverage
+    # 只对实际选中的少量case计算文件夹ID，不对百万帧重复JSON编码/SHA256。
+    return [r for r in rows if identity(r) in wanted_keys], selected, coverage
 
 
 def require_same_frames(reference, actual, split):

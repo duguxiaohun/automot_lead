@@ -398,3 +398,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipe
 并发相关检查使用真实CPU子进程，未验证实际多GPU模型推理。
 
 投影源码核对与录制标定读取见 [PROJECTION_AUDIT_20260922.md](PROJECTION_AUDIT_20260922.md)。
+
+2026-09-22 预检静默排查：对比入口新增阶段开始/完成及每15秒心跳，记录到preflight.json/log（耗时、RSS、主线程函数位置）。
+GPU在完整CPU合同与选帧计划后才启动；选帧取消全池case-ID哈希，临时标签池选完即释放。
+共享训练源码及内容校验不变；4项新增无模型检查通过，未测远端真实耗时。
