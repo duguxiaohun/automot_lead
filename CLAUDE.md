@@ -1,5 +1,23 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-22 Action 多模型配对可视化与训练审计
+
+新增 `action_prior/compare_checkpoints.sh`，两个消融目录同名脚本共用此入口；
+编辑 CKPT_DIRS 即可传任意多个带时间的训练目录，按原完整val选best并使用EMA。
+按同源event/action标签对有效train/test池各类默认选8例，优先物理路线多样性；
+所有模型同帧同评估噪声；event/action可逐类及逐split设配额，0跳过，优先物理路线多样性。
+保存实际RGB投影、道路/车辆框俯视与GT/多模型拼图PNG/PDF、历史输入和简洁JSON；
+RGB优先同帧meta实际标定，缺失才回退名义标定；显式JSON可覆盖。三图为横向拼接，各相机独立投影。
+已对照LEAD采集顺序及Bench2Drive逆外参，避免直接沿用旧录像器[3,2,1]/欧拉/FOV约定。
+真实第三人称图须已有录制及标定；hdmap可绘制语义俯视图，RGB地面投影不做遮挡判断。
+已知非三相机/坏meta拒绝回退，RGB折线精确裁剪视野及近平面，图注/报告显示实际标定来源。
+分类动作不注入关闭token的模型；仍严格检查原源码/权重/索引/条件合同，新增工具不改变旧指纹。
+输出到AutoMoT/test/run_<时间>/（与checkpoints同级）；默认最多4张最空闲GPU，卡不足自动减少。
+一卡一checkpoint并发，超额排队动态补位；GPU_IDS显式pin优先，模型少于卡时剩余卡不分配。
+独立日志及scheduler记录分配；失败/中断回收本次进程组。82项相关CPU回归通过，尚无真实GPU验收。
+两份bev_only审计：自然加权ADE改善0.82%、均衡waypoint ADE改善17.31%，普通背景/UE4退化；
+详见 action_expert_ablation/bev_only/TRAINING_AUDIT_20260922.md 与 action_prior/CHECKPOINT_COMPARISON.md。
+
 ### 2026-09-21 全量容量检查与 v21 划分补齐
 
 全量193696候选发现旧固定哈希+开发隔离令val缺4类、test缺5类；仍有未曝光来源。

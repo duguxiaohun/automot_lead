@@ -382,3 +382,19 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipe
 新增测试执行真实 `resume.py` 配置恢复，仅替换模型 launcher，覆盖三种续训写法、CLI 优先、
 路径搬迁、latest 改指与非法 checkpoint 提前失败。跳过项为缺少 TensorBoard 依赖的事件文件测试；
 尚未运行真实 Qwen/BEV GPU/DDP 训练，首次上机先使用消融文档中的独立短预算 pipeline。
+
+
+### 2026-09-22 多模型同帧可视化
+
+新增 `compare_checkpoints.sh`：只改开头的多个训练run目录，自动校验并选择best，
+支持主线/bev_only/qwen_simple任意组合，分别按event/action对train/test分层选例。
+脚本支持逐event/action及train/test配置案例数，0跳过；输出实际RGB投影、道路/车辆框俯视GT/多模型拼图PNG/PDF、完整历史输入、逐例简洁JSON和分桶报告到新的时间目录。
+已保存第三人称CARLA图时可用显示标定JSON加入该视角；默认RGB优先同帧meta实际标定、缺失才回退名义标定；采用地面近似，不做遮挡推理。
+完整用法、搬迁与验证边界见 [CHECKPOINT_COMPARISON.md](CHECKPOINT_COMPARISON.md)。
+
+2026-09-22 对比入口补齐：结果默认写到 `AutoMoT/test/run_<时间>/`，与checkpoints同级。
+默认最多自动选4张最空闲GPU，卡不足或模型更少时减少并发，一卡一模型，其余排队动态补位；
+`--gpus`/`GPU_COUNT`设置自动上限，`GPU_IDS`显式pin优先。独立日志与scheduler记录，失败/中断回收本次子进程。
+并发相关检查使用真实CPU子进程，未验证实际多GPU模型推理。
+
+投影源码核对与录制标定读取见 [PROJECTION_AUDIT_20260922.md](PROJECTION_AUDIT_20260922.md)。

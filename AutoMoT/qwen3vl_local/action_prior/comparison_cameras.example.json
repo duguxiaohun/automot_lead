@@ -1,0 +1,62 @@
+{
+  "schema": "action_comparison_cameras_v1",
+  "source": "LEAD CARLA_LEADERBOARD2_3CAMERAS nominal collection calibration",
+  "ground_z_m": 0.0,
+  "views": [
+    {
+      "name": "Left",
+      "pos": [
+        0.1,
+        -0.35,
+        2.25
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        -54.5
+      ],
+      "width": 384,
+      "height": 384,
+      "fov": 60.0
+    },
+    {
+      "name": "Front",
+      "pos": [
+        0.35,
+        0.0,
+        2.25
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "width": 384,
+      "height": 384,
+      "fov": 60.0
+    },
+    {
+      "name": "Right",
+      "pos": [
+        0.1,
+        0.35,
+        2.25
+      ],
+      "rot": [
+        0.0,
+        0.0,
+        54.5
+      ],
+      "width": 384,
+      "height": 384,
+      "fov": 60.0
+    }
+  ],
+  "hdmap": {
+    "size": 256,
+    "pixels_per_meter": 2.0,
+    "pixels_ev_to_bottom": 128.0,
+    "stored_rotation_k": -1
+  },
+  "third_person": null
+}

@@ -361,3 +361,19 @@ GPU_IDS=0,1,2,3 OUTPUT_DIR=checkpoints/action_expert_ablation/bev_only_smoke \
 `--resume 路径` / `--resume=路径` / `RESUME=路径`，并提前解析真实 checkpoint 路径。
 主线显式数据/Qwen/BEV 路径覆盖也会传给最终 test/probe；原课程、LR、epoch 和卡数默认值
 由原 run 恢复，不把新训练默认参数带入续训。主线操作见[续训示例](../action_prior/run.md#续训)。
+
+
+### 2026-09-22 训练审计与统一对比
+
+本次bev_only无/有action token训练结果见
+[TRAINING_AUDIT_20260922.md](bev_only/TRAINING_AUDIT_20260922.md)。
+两个消融目录新增 `compare_checkpoints.sh`，统一调用主线同名脚本；
+编辑 `action_prior/compare_checkpoints.sh` 的CKPT_DIRS即可比较多个run；
+CASES_PER_CATEGORY/EVENT_CASES/ACTION_CASES配置每类及每split案例数，0跳过。
+输出RGB轨迹投影＋道路/车辆框俯视图PNG/PDF；已有第三人称图需对应标定，可加入同屏。
+细节见 [CHECKPOINT_COMPARISON.md](../action_prior/CHECKPOINT_COMPARISON.md)。
+
+2026-09-22 对比入口补齐：结果默认写到 `AutoMoT/test/run_<时间>/`，与checkpoints同级。
+默认最多自动选4张最空闲GPU，卡不足或模型更少时减少并发，一卡一模型，其余排队动态补位；
+`--gpus`/`GPU_COUNT`设置自动上限，`GPU_IDS`显式pin优先。独立日志与scheduler记录，失败/中断回收本次子进程。
+并发相关检查使用真实CPU子进程，未验证实际多GPU模型推理。
