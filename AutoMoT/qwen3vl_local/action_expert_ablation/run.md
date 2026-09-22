@@ -1,10 +1,26 @@
 # Action Expert 消融实验
 
+## 2026-09-23 与主线同步的RGB输入和支持量规则
+
+qwen_simple/bev_only与action_prior共用anchor≥4过滤、物理路线开发隔离、独立Action holdout支持补齐，
+以及主要动作容量回流；目标每事件32帧、5物理组，迁移/缺额写入训练计划。
+单图/四图/BEV-only使用同一有效帧范围。合法稀少动作保留标签，组合不另设等量桶。
+action-balanced默认单帧上限2，event-balanced仍8；采样不自动打开token，也不向消融注入Phase3问答。
+新条件必须新full map、新run；旧run使用原源码。
+详见 [v23 RGB与容量审计](../sft_new_loop_phase3/V23_RGB_SUPPORT_20260923.md)。
+
 ## 2026-09-22 action-balanced：事件内动作均衡
 
 新增 `--action-balanced` / `--sampling-mode action_balanced` / `ACTION_BALANCED=1`，主线和两个消融共用。
-默认仍是 `uniform`，原 `--event-balanced` 行为保留。三种采样互斥，CLI 按最后出现的模式选择；
-`--no-action-balanced` 恢复 uniform。环境变量先解析、CLI 后覆盖；同时设置两个环境开关时 ACTION_BALANCED 优先。
+默认使用 `event_balanced`，省略采样参数等价于 `--event-balanced`；加入 `--action-balanced` 即切换为动作均衡。
+新训练只保留这两种采样，不再提供 uniform/随机采样。多个正向 CLI 模式按最后出现的值选择。
+环境变量先解析、CLI 后覆盖；`ACTION_BALANCED=1` 选择动作均衡，`ACTION_BALANCED=0` 选择事件均衡；
+`EVENT_BALANCED=1` 仍可用，同时设置两个环境开关时 ACTION_BALANCED 优先。
+旧 `--no-event-balanced`、`--no-action-balanced`、`EVENT_BALANCED=0`、`--sampling-mode uniform` 均报错，
+需要切回事件均衡时使用 `--event-balanced`。默认 event 也自动准备/复用 full map；不会自动开启动作 token 或文字动作先验。
+续训恢复保存的模式，不注入新默认；旧 uniform（含未记录模式的历史 run）必须使用原源码，不能静默改采样续训。
+验证/测试仍遍历原有效 split，不执行训练均衡采样。
+本轮525项相关CPU回归通过；7项因本机缺只读 runner 源码未执行，未绕过生产校验；未验证真实GPU训练。
 
 新模式分两层：
 
@@ -107,7 +123,7 @@ ACTION_TOKEN_SEPARATION_WEIGHT=0.02 ACTION_TOKEN_SEPARATION_MARGIN=0.5 bash qwen
 
 两条消融复用主线的 Phase3 candidate/full map、主要动作投影、动作 token 和开发路线隔离，无单独的旧速度标定副本。启用动作 token 时，确认起步修订来自 v21；开关仍默认关闭。事件均衡仅改变采样，不能据此声称模型已获得动作标签。
 
-`qwen_simple` 保留 LeadMoT 简短导航提示词，`bev_only` 没有 Qwen 提示词；主线自然先验的 UE1/信号故障文案更新不注入这两个消融。这样保留各组原有条件定义。比较时使用同一新 full map、有效 split、seed 和预算；uniform 需显式传相同 full map 才同步开发路线隔离。
+`qwen_simple` 保留 LeadMoT 简短导航提示词，`bev_only` 没有 Qwen 提示词；主线自然先验的 UE1/信号故障文案更新不注入这两个消融。这样保留各组原有条件定义。比较时使用同一新 full map、有效 split、seed 和预算；event/action 两种模式均使用 full map 同步开发路线隔离。
 
 新来源合同需要新产物、新 run，已有生产映射/缓存/checkpoint 尚未全量更新。实际 7900 行 v21 候选的共享消费者回放和 14 项消融入口测试通过；完整范围、164 项测试及复用方式见 [主线 v21 同步说明](../action_prior/run.md)。
 
@@ -133,7 +149,7 @@ HIGH_LEVEL_ACTION_TOKEN=1 RGB_FRAME_COUNT=1 bash qwen3vl_local/action_expert_abl
 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced --no-high-level-action-token --rgb-frame-count 1
 ```
 
-`train.sh` 同样支持这些选项；token 模式首次自动准备 Phase3 candidate/full map。当前图始终为 anchor 的完整三视角拼接 RGB；不改变 BEV 单帧 RGB＋LiDAR，所以 `bev_only` 的图数选项不改变模型有效条件。请共用 `DATA_DIR=checkpoints/action_prior_data`、full map、seed、卡数、采样及预算比较，且检查训练计划中的有效 split/七类覆盖。uniform 对照如需要同样隔离开发路线，可给开/关两组都显式传同一个 `--event-balance-index`，该参数不自动启用均衡采样或文字先验。
+`train.sh` 同样支持这些选项；token 模式首次自动准备 Phase3 candidate/full map。当前图始终为 anchor 的完整三视角拼接 RGB；不改变 BEV 单帧 RGB＋LiDAR，所以 `bev_only` 的图数选项不改变模型有效条件。请共用 `DATA_DIR=checkpoints/action_prior_data`、full map、seed、卡数、采样及预算比较，且检查训练计划中的有效 split/七类覆盖。开/关 token 的对照应使用同一 `--event-balance-index`；该路径参数不切换 event/action 模式或开启文字先验。
 
 普通 RE/过滤或未确认帧为 UNCOND；证据完整的保持为 KEEP。缺 eligible 标签、坏哈希、冲突不降级为 UNCOND。逐例审计保留来源原因，验证提供 `group/action_token/*`。动作来自未来轨迹标注，属于离线 oracle 条件增益实验，不能当 Phase3 预测或闭环成绩。开关和图数绑定 checkpoint；eval 自动恢复，不能临时切换；新条件新训、旧 run 用原源码。
 
@@ -245,9 +261,9 @@ epoch、梯度累积或默认索引；只有用户实际传入的 CLI 参数或�
 ## 与主线完全共用 event-balanced
 
 三个 full pipeline / train.sh 共用 `action_prior/event_balance_common.sh` 解析开关和环境变量，
-自动准备调用 `action_prior/prepare_event_balance.py`。不传开关默认 `uniform`；
+自动准备调用 `action_prior/prepare_event_balance.py`。不传开关默认 `event_balanced`；
 `--event-balanced` 与 `EVENT_BALANCED=1`、`--sampling-mode event_balanced` 等价，
-`--no-event-balanced` 显式关闭。CLI 优先于环境变量，多个 CLI 开关按最后一次取值。
+`--action-balanced` 切换动作均衡。CLI 优先于环境变量，多个正向 CLI 开关按最后一次取值。
 两个消融无需传 `--dataset-priors`，也不会构建 Phase1 标定先验索引或加载 Phase1/2 模型。
 
 ```bash
@@ -259,11 +275,11 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_p
 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
 
-# 环境变量写法；CLI 可显式覆盖关闭。
+# 环境变量写法；CLI 可切换另一种模式。
 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
 GPU_IDS=0,1,2,3 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh
-EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --no-event-balanced
-GPU_IDS=0,1,2,3 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --no-event-balanced
+EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --action-balanced
+GPU_IDS=0,1,2,3 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --action-balanced
 ```
 
 默认 UE1–UE7、RE2、RE3、RE5 十个 special 桶各权重 1，`REGULAR_BACKGROUND` 权重 2。
@@ -313,7 +329,7 @@ bash qwen3vl_local/action_expert_ablation/bev_only/eval.sh \
   --event-balance-index checkpoints/moved_event_map/full_event_mapping.jsonl
 ```
 
-`train.sh` 不自动构建 full map；新实验建议用 full pipeline。显式路径缺失会报错，不会替换为默认文件。
+`train.sh` 需已有 Action split 索引，Python 会在模型预检前自动准备 full map；从零开始建议用 full pipeline。显式路径缺失会报错，不会替换为默认文件。
 续训不自动准备新的 full map；源内容与合同不符会拒绝。三组还应核对相同 seed、world size、累积数、
 epoch 呈现预算、重复上限、best 指标和 `training_plan.json` 中的 sampling source/quotas。
 共享 full map 按同一规则将 Phase3 开发物理路线限制在 train；val/test 保持自然分布遍历，不进行均衡重采样。
@@ -324,7 +340,7 @@ epoch 呈现预算、重复上限、best 指标和 `training_plan.json` 中的 s
 
 均衡模式追加 `sampling/epoch_*.json` 的配额、唯一帧、重复次数审计，以及 TensorBoard/metrics 中的
 `group/event_balance/*`、桶覆盖和 `event_balanced_*`；默认训练不做 Euler 采样时只记 FM MSE
-与覆盖，ADE/FDE 在验证中生成。普通 uniform 消融继续只记核心轨迹指标。
+与覆盖，ADE/FDE 在验证中生成。两种训练模式都记录共享事件指标。
 
 ## SIGTERM / SIGINT 安全停止
 

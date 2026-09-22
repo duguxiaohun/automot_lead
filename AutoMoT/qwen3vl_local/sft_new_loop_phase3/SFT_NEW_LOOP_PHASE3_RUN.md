@@ -1,4 +1,20 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-22，v22容量回流）
+# SFT New Loop Phase3 当前运行入口（2026-09-23，v23）
+
+## 2026-09-23 当前默认：有效历史、主要动作额度、物理路线支持
+
+新训练默认 `4rgb + choice`、`sft_new_loop_phase3_data_v23`、`v23_grounded_stage` 提示词。
+anchor<4 的初始化历史统一排除；稀少纵横组合并入主要动作采样额度，保留原始 YES/NO 标签。
+候选 holdout 默认每事件32帧、5物理组，已曝光1779组仍 train-only；所有 split 优先物理路线轮转。
+Action/两个消融共享初始化过滤、主要动作容量回流及独立 Action split 支持补齐。
+final 权重新增独立验证记录；旧run须原源码，新索引/full map/新run，不能沿用旧缓存或修改hash。
+报告、回放数量和验证边界见 [v23 RGB与支持量审计](V23_RGB_SUPPORT_20260923.md)。
+
+```bash
+# 从 AutoMoT/ 运行；自动构建 v23，然后新训
+bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
+以下按日期保留历史说明；涉及 v22/v21 的默认值以本节为准。
 
 ## 2026-09-22 支持量审计补齐
 

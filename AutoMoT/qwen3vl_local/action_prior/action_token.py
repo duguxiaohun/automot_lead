@@ -33,11 +33,11 @@ def conditioning_env_args():
 
 def ensure_token_inputs(args):
     """新训自动准备 full map；恢复只能使用保存的文件。"""
-    if not (getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced"):
+    if not (getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") in ("event_balanced", "action_balanced")):
         return
     if not getattr(args, "event_balance_index", ""):
         if getattr(args, "resume", ""):
-            raise ValueError("resume requires the saved action-token full mapping; do not regenerate labels")
+            raise ValueError("resume requires the saved event/action full mapping; do not regenerate labels")
         from qwen3vl_local.action_prior.prepare_action_priors import ensure_full_mapping
         ensure_full_mapping(args)
 
@@ -50,7 +50,7 @@ def project_token(record, candidates):
         # full map 可以明确没有收录某些 action 背景路线，不借邻帧标签。
         return dict(name="UNCOND", reason="outside_phase3_mapping")
     if record["status"] != SPECIAL_ELIGIBLE:
-        return dict(name="UNCOND", reason=record["status"])
+        return dict(name="UNCOND", reason=record.get("input_exclusion_reason") or record["status"])
     answers = {}
     for bucket in record["eligible_buckets"]:
         if bucket not in candidates:
@@ -113,7 +113,7 @@ class ActionTokenSource:
             projection="embedding_then_sequence_concat_after_bev", keep_scope="merged",
             source_sha256=file_hash(__file__),
             projection_sources={name: file_hash(Path(__file__).parents[1] / "sft_new_loop_phase3" / name)
-                                for name in ("choice_semantics.py", "primary_action.py", "context_taxonomy.py")},
+                                for name in ("choice_semantics.py", "primary_action.py", "context_taxonomy.py", "history_rgb.py")},
         )
 
     def annotate(self, rows):

@@ -16,12 +16,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from qwen3vl_local.action_prior.contracts import file_hash
 
-SAMPLING_MODE_UNIFORM = "uniform"
 SAMPLING_MODE_EVENT_BALANCED = "event_balanced"
 SAMPLING_MODE_ACTION_BALANCED = "action_balanced"
 DEFAULT_ACTION_REPEAT_CAP = 2
 BALANCED_MODES = (SAMPLING_MODE_EVENT_BALANCED, SAMPLING_MODE_ACTION_BALANCED)
-SAMPLING_MODES = (SAMPLING_MODE_UNIFORM, *BALANCED_MODES)
+SAMPLING_MODES = BALANCED_MODES
 # v2 binds the post-quarantine normal-background rule and diversity-first allocation contract.
 # v1 must be rebuilt: it could classify an empty quarantined R-E2/3/5 context as normal.
 FULL_INDEX_SCHEMA = "action_prior_event_balance_full_v2"
@@ -80,12 +79,14 @@ class EventBalanceSource:
     schema: str
 
     def identity_dict(self) -> Dict[str, Any]:
+        from qwen3vl_local.action_prior.split_support import VERSION as split_support_version
         return dict(
             schema=self.schema, sha256=self.sha256, mapping_contract_hash=self.mapping_contract_hash,
             candidate_sha256=self.candidate_sha256,
             action_dataset_hashes=dict(self.action_dataset_hashes),
             mapping_policy=EVENT_BALANCE_MAPPING_POLICY,
             bucket_weights=dict(EVENT_BALANCE_WEIGHTS),
+            split_support_policy=split_support_version,
             normal_pool_policy="confirmed_regular_only; unconfirmed and special_filtered are excluded",
         )
 
@@ -152,6 +153,7 @@ class EventBalanceIndex:
                 special_buckets=contexts, eligible_buckets=eligible, status=status,
                 scene_contexts=tuple(str(x) for x in row.get("scene_contexts", ())),
                 source_split=str(row.get("source_split", "")),
+                input_exclusion_reason=row.get("input_exclusion_reason"),
             )
         if not self.records:
             raise ValueError("event balance full-frame mapping is empty")
@@ -190,6 +192,7 @@ class EventBalanceIndex:
                 event_balance_all_special_buckets=list(record["special_buckets"]),
                 event_balance_scene_contexts=list(record["scene_contexts"]),
                 event_balance_status=record["status"], event_balance_mapping_missing=False,
+                event_balance_input_exclusion_reason=record.get("input_exclusion_reason"),
                 event_balance_source_split_mismatch=bool(record["source_split"] and record["source_split"] != row.get("split")),
                 event_balance_development_route=bool(str(row.get("route_group", "")) in development),
             )
@@ -216,7 +219,10 @@ def source_contract(args) -> Dict[str, Any] | None:
 
 
 def source_audit(args) -> Dict[str, Any] | None:
-    return source_for_args(args).source.audit_dict() if getattr(args, "event_balance_index", "") else None
+    if not getattr(args, "event_balance_index", ""):
+        return None
+    return {**source_for_args(args).source.audit_dict(),
+            "split_support": getattr(args, "event_balance_split_support", None)}
 
 
 def annotate_rows(args, rows: Iterable[Mapping[str, Any]]) -> None:
@@ -511,6 +517,8 @@ def validate_sampling_args(args):
     """主线与消融共用采样配置校验；场景先验的输入权限由各自入口校验。"""
     if args.sampling_mode not in SAMPLING_MODES:
         raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
+    if args.event_balanced_epoch_samples < 0 or args.event_balance_max_frame_repeats < 1:
+        raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
     if (
         args.sampling_mode in BALANCED_MODES
         or args.event_balanced_scene_priors
@@ -525,8 +533,6 @@ def validate_sampling_args(args):
             )
         if args.event_balance_index and not Path(args.event_balance_index).expanduser().is_file():
             raise FileNotFoundError(args.event_balance_index)
-    if args.event_balanced_epoch_samples < 0 or args.event_balance_max_frame_repeats < 1:
-        raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
     if args.best_selection_metric not in ("natural_ade", "event_balanced_ade"):
         raise ValueError("best_selection_metric must be natural_ade/event_balanced_ade")
     if args.best_selection_metric == "event_balanced_ade" and args.sampling_mode not in BALANCED_MODES:
@@ -575,13 +581,7 @@ def add_sampling_aliases(parser):
 
     parser.add_argument("--event-balanced", dest="sampling_mode", action="store_const",
                         const=SAMPLING_MODE_EVENT_BALANCED, default=argparse.SUPPRESS,
-                        help="与 --sampling-mode event_balanced 相同，均衡 UE/RE 采样")
-    parser.add_argument("--no-event-balanced", dest="sampling_mode", action="store_const",
-                        const="uniform", default=argparse.SUPPRESS,
-                        help="与 --sampling-mode uniform 相同，使用自然采样")
-
+                        help="默认模式：与 --sampling-mode event_balanced 相同，均衡 UE/RE 采样")
     parser.add_argument("--action-balanced", dest="sampling_mode", action="store_const",
                         const=SAMPLING_MODE_ACTION_BALANCED, default=argparse.SUPPRESS,
                         help="事件内按主要动作容量回流，事件等配额；不自动开启 token")
-    parser.add_argument("--no-action-balanced", dest="sampling_mode", action="store_const",
-                        const="uniform", default=argparse.SUPPRESS)

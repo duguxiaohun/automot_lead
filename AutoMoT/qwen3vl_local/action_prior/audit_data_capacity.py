@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """只读审计三条 Action 入口共享的数据容量；不加载模型或重建数据。
 
-使用正式训练参数，另传 --report 和 --world-sizes；动作 token 需已有 full map。
+使用正式训练参数，另传 --report 和 --world-sizes；均衡采样需已有 full map。
 """
 from collections import Counter
 import json
 from pathlib import Path
-import random
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -21,8 +20,8 @@ from qwen3vl_local.action_prior.action_token import token_support, require_condi
 def audit(args):
     if args.num_epochs < 1 or not args.world_sizes or min(args.world_sizes) < 1:
         raise ValueError("positive num_epochs and world-sizes required")
-    if (args.high_level_action_token or args.sampling_mode == "action_balanced") and not args.event_balance_index:
-        raise ValueError("capacity audit requires an existing --event-balance-index for action tokens")
+    if not args.event_balance_index:
+        raise ValueError("capacity audit requires an existing --event-balance-index for balanced sampling")
     rows = {split: read_rows(args, split) for split in ("train", "val", "test")}
     result = dict(
         scope="shared_action_data_and_planned_full_epochs_only",
@@ -44,17 +43,11 @@ def audit(args):
         plan = training_plan(args, rows, world)
         epochs = []
         for epoch in range(args.num_epochs):
-            if args.sampling_mode in ("event_balanced", "action_balanced"):
-                selected, report = build_balanced_epoch(
-                    rows["train"], mode=args.sampling_mode, total=plan["samples_per_epoch"], seed=args.seed + epoch,
-                    route_diverse=args.event_balance_route_diverse,
-                    repeat_cap=args.event_balance_max_frame_repeats,
-                )
-            else:
-                selected = list(rows["train"])
-                random.Random(args.seed + epoch).shuffle(selected)
-                selected = selected[:plan["samples_per_epoch"]]
-                report = dict(total=len(selected), seed=args.seed + epoch, mode="uniform")
+            selected, report = build_balanced_epoch(
+                rows["train"], mode=args.sampling_mode, total=plan["samples_per_epoch"], seed=args.seed + epoch,
+                route_diverse=args.event_balance_route_diverse,
+                repeat_cap=args.event_balance_max_frame_repeats,
+            )
             if args.high_level_action_token:
                 support = token_support({"train": selected})
                 require_conditioned_training(support, stage=f"capacity audit world={world} epoch={epoch + 1}")

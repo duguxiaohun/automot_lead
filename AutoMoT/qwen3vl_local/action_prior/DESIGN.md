@@ -119,7 +119,7 @@ resume/eval/probe 保留原条件，不按新默认重新推导；旧 run 仍须
 
 只有最终 `selected` 渲染动作段；`no_action / unavailable / not_applicable` 和被门控拒绝的动作
 都保持同一上游条件下的原始 prompt，摘要/复核/fallback 同步。审计保存原始输入、有效动作和门控理由。
-普通背景两份配额不变；动作开关不隐式改变 uniform/event_balanced 采样模式。
+普通背景两份配额不变；默认 event_balanced，显式 --action-balanced 切换；动作输入开关不隐式改变采样模式，新训练不再支持 uniform。
 
 这是用户显式开启的离线真值条件实验，来源标记 `phase3_oracle` 和
 `privileged_action_conditioning=True`，不冒充 Phase3 模型推理。候选标签依赖未来轨迹证据，

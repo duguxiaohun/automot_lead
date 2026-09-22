@@ -90,7 +90,7 @@ def test_navigation_cli_reaches_actual_legacy_loader(tmp_path, monkeypatch):
         split="train",
         scenario="Scene",
         run_id=route.name,
-        anchor=0,
+        anchor=4,
         route_group="Scene/Town01_route_1",
         tp_mode="route_lookahead",
         rgb_frame_count=4,
@@ -99,6 +99,8 @@ def test_navigation_cli_reaches_actual_legacy_loader(tmp_path, monkeypatch):
         next_target_point_lookahead_s=2.0,
     )
     (tmp_path / "train.jsonl").write_text(json.dumps(row) + "\n")
+    for split in ("val", "test"):
+        (tmp_path / f"{split}.jsonl").write_text("")
     import lead_video_tools.abnormal_duration_filter as abnormal
 
     monkeypatch.setattr(abnormal, "is_abnormal_lead_route", lambda *a: (False, {}))
@@ -114,6 +116,7 @@ def test_navigation_cli_reaches_actual_legacy_loader(tmp_path, monkeypatch):
             "3.0",
         ]
     )
+    args.event_balance_source_identity = {"fixture": True}
     config.validate_args(args)
     rows = config.read_rows(args, "train")
     # 提取真实旧 Dataset 的方法，仅替换昂贵 build_clip/GT IO，核对实际传参。

@@ -42,26 +42,39 @@ def test_all_uncond_rejected_by_all_training_plans_before_model_load(variant):
             common.training_plan(args, rows, 1, variant)
 
 
+def balanced_rows(split):
+    from qwen3vl_local.action_prior import event_balance as eb
+    special = [dict(row("STOP", split, i), event_balance_status=eb.SPECIAL_ELIGIBLE,
+                    event_balance_buckets=[bucket], event_balance_all_special_buckets=[bucket])
+               for i, bucket in enumerate(eb.SPECIAL_BUCKETS)]
+    background = [dict(row("UNCOND", split, 20 + i), event_balance_status=eb.CONFIRMED_REGULAR,
+                       event_balance_buckets=[], event_balance_all_special_buckets=[]) for i in range(2)]
+    return special + background
+
+
 def test_sparse_valid_actions_reported_without_manufacturing_coverage():
     args = config.parser().parse_args(["--high-level-action-token"])
-    rows = {s: [row("STOP", s)] for s in ("train", "val", "test")}
+    rows = {s: balanced_rows(s) for s in ("train", "val", "test")}
     plan = config.training_plan(args, rows, 1)
     assert "RESUME" in plan["action_token_support"]["train"]["missing_actions"]
-    assert plan["action_token_support"]["train"]["conditioned_presentations"] == 1
+    assert plan["action_token_support"]["train"]["conditioned_presentations"] == 10
+    assert plan["ddp_tail_per_epoch"] == 0
 
 
-def test_capacity_audit_replays_ddp_tail_instead_of_reporting_pool_support(tmp_path, monkeypatch):
+def test_capacity_audit_checks_actual_epoch_instead_of_only_pool_support(tmp_path, monkeypatch):
     from qwen3vl_local.action_prior import audit_data_capacity as module
-    args = config.parser().parse_args(["--high-level-action-token", "--event-balance-index", "unused"])
+    args = config.parser().parse_args(["--high-level-action-token"])
     args.world_sizes, args.num_epochs, args.data_dir = [4], 1, str(tmp_path)
-    # 找到确定 seed 下被 DDP 尾部截掉的唯一动作帧：源池有支持，实际 epoch 无支持。
-    rows = {s: [row(split=s)] for s in ("val", "test")}
-    rows["train"] = [row(frame=i) for i in range(5)]
-    import random
-    order = list(range(5)); random.Random(args.seed).shuffle(order)
-    rows["train"][order[-1]] = row("RESUME", frame=order[-1])
+    rows = {s: balanced_rows(s) for s in ("train", "val", "test")}
     for split in rows:
         (tmp_path / f"{split}.jsonl").write_text("fixture\n")
+    # 数据/来源 IO 用夹具；计划保留真实事件预算，故障注入模拟实际 epoch 错误丢失动作条件。
     monkeypatch.setattr(module, "read_rows", lambda args, split: rows[split])
+    from qwen3vl_local.action_prior import event_balance as eb
+    monkeypatch.setattr(eb, "source_contract", lambda args: {"fixture": True})
+    monkeypatch.setattr(eb, "source_audit", lambda args: {})
+    args.event_balance_index = "fixture"
+    monkeypatch.setattr(module, "build_balanced_epoch", lambda rows, **kw: (
+        [row(frame=i) for i in range(kw["total"])], {"total": kw["total"]}))
     with pytest.raises(ValueError, match="epoch=1.*no conditioned training frames"):
         audit(args)

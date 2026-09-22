@@ -51,7 +51,7 @@ GPU_IDS=0 bash qwen3vl_local/action_prior/eval.sh --checkpoint checkpoints/actio
 自动均衡候选/full map 位于 `checkpoints/action_prior_prepared/`，按来源、规则和 action split 内容区分，构建成功后才发布；续训不会重新生成改变合同的索引。
 
 base/prior、Qwen-simple/BEV-only 等消融应分别训练，核对 seed、实际 split 和采样预算；不能临时切换同一 decoder 的条件。
-特别是 balanced 将 Phase3 开发路线移入 train，和 uniform 比较时须核对实际 holdout。消融用法见 [消融运行说明](../action_expert_ablation/run.md)。
+event/action 两种模式都会将 Phase3 开发路线移入 train；与历史 uniform run 比较时须核对实际 holdout。消融用法见 [消融运行说明](../action_expert_ablation/run.md)。
 
 ## CARLA / Bench2Drive
 

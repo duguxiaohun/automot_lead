@@ -48,3 +48,25 @@ def test_holdout_frame_floor_is_met_from_real_source_capacity():
     assert report['after']['val'] == {'A': 6, 'B': 6}
     assert report['after']['test'] == {'A': 6, 'B': 6}
     assert len(report['moves']) == 4
+
+
+def test_route_support_floor_cannot_be_filled_with_frames_from_one_route():
+    rows = [dict(group=g, split='train', context_id='A')
+            for g in range(15) for _ in range(40)]
+    report = complete_context_splits(rows, contexts=('A',), splits=('train','val','test'),
+        development={0}, group_of=lambda r:r['group'], seed=17,
+        min_holdout_frames=32, min_holdout_groups=5)
+    assert not report['unresolved']
+    assert report['physical_groups_after'] == {s:{'A':5} for s in ('train','val','test')}
+    assert all(r['split']=='train' for r in rows if r['group']==0)
+
+
+def test_group_shortage_is_reported_and_does_not_drain_train_or_block_other_contexts():
+    rows = [dict(group=s+'A', split=s, context_id='A') for s in ('train','val','test')]
+    rows += [dict(group=str(g)+'B', split='train', context_id='B') for g in range(15)]
+    report = complete_context_splits(rows, contexts=('A','B'), splits=('train','val','test'),
+        development=set(), group_of=lambda r:r['group'], seed=17,
+        min_holdout_frames=1, min_holdout_groups=5)
+    assert not report['unresolved']
+    assert report['group_deficits'] == {'val':{'A':4},'test':{'A':4}}
+    assert all(report['physical_groups_after'][s]['B']==5 for s in ('train','val','test'))

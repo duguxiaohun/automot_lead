@@ -13,12 +13,13 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_CONTEXTS
 from qwen3vl_local.sft_new_loop_phase3.sampling import support_aware_quota, SUPPORT_BALANCE_VERSION, support_diagnostic
 
 EVENT_ACTIONS = {c.source_event.replace("-", ""): (*c.action_keys, "KEEP") for c in ACTION_CONTEXTS}
-VERSION = "action_balanced_domain_capacity_v2"
+VERSION = "action_balanced_primary_capacity_v3"
 
 
 def policy_contract():
     return dict(version=VERSION, event_weights=dict(EVENT_BALANCE_WEIGHTS),
                 action_weights=SUPPORT_BALANCE_VERSION,
+                sampling_group="primary_action_preserve_raw_evidence; no_compound_quota",
                 event_action_domains={e: list(a) for e, a in EVENT_ACTIONS.items()},
                 out_of_domain="skip_membership_preserve_frame_token_and_event_facts",
                 absent_actions="report_and_skip; never_synthesize",

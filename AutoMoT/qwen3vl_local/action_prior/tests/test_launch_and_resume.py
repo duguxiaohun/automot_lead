@@ -67,12 +67,14 @@ def test_probe_does_not_overwrite_full_eval(tmp_path, monkeypatch, launch_env):
     assert commands[1][-1] == str(tmp_path / "probe_test/cases")
 
 
+@pytest.mark.parametrize("sampling_mode", ["event_balanced", "action_balanced"])
 def test_resume_recovers_actual_config_and_selected_priors(
-    tmp_path, monkeypatch, launch_env
+    tmp_path, monkeypatch, launch_env, sampling_mode
 ):
     (tmp_path / "config.json").write_text(
         json.dumps(
             dict(
+                sampling_mode=sampling_mode,
                 learning_rate=0.0003,
                 grad_accum_steps=5,
                 data_dir="index_original",
@@ -100,6 +102,7 @@ def test_resume_recovers_actual_config_and_selected_priors(
     monkeypatch.setattr(sys, "argv", ["resume", str(tmp_path / "latest.pt")])
     resume.main()
     command = commands[0]
+    assert command[command.index("--sampling-mode") + 1] == sampling_mode
     assert command[command.index("--learning-rate") + 1] == "0.0003"
     assert command[command.index("--grad-accum-steps") + 1] == "5"
     assert command[command.index("--phase1-adapter") + 1] == "one/best_generation"

@@ -61,8 +61,8 @@ from qwen3vl_local.sft_new_loop_phase3.choice_semantics import (
     primary_choice, binary_answers, action_description, CONTEXT_ACTION_DESCRIPTIONS,
 )
 
-# v21：同步已确认起步、事件持续阶段和记录终点；控制与未来数值只留在标定器。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v21_confirmed_pullaway"
+# v23：突出当前阶段与绕障/回正，控制与未来数值只留在标定器。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v23_grounded_stage"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, KEEP_ACTION, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -84,7 +84,7 @@ CHOICE_OUTPUT_KEY = "ACTION_CHOICE"
 OBSERVATION_RULES = (
     "Use images, speed and scene to judge ego's upcoming driving behavior. "
     "Do not invent hidden actors or repeat an action already completed in the images. "
-    "Events can span approach, response and recovery."
+    "Read the current response/recovery stage; events alone do not imply STOP."
 )
 # 模型只读动作阶段语义；秒数、0.5m/s、两连续采样、max(1.2m/s,20%)留在标定器。
 SPEED_ACTION_RULES = (
@@ -96,13 +96,13 @@ SPEED_ACTION_RULES = (
 )
 SPEED_RULES = SPEED_ACTION_RULES + " At most one speed answer is YES; STOP takes priority."
 
-LANE_ACTION_RULES = """Predict the FIRST crossing of an ego lane boundary after the newest frame: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore later return crossings and crossings already in the input.
+LANE_ACTION_RULES = """Predict the FIRST crossing of an ego lane boundary after the newest frame: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore later return crossings and crossings already in the input. Distinguish bypass/return by current lane/obstacle positions.
 Steering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count."""
 LANE_RULES = "Lane: at most one side YES.\n" + LANE_ACTION_RULES + " Speed and lane YES can coexist and may happen in sequence, such as slowing before crossing."
 
 # 条件性目的的边界共用一句，动作段专注条件、动作与作用，不逐项重复否定。
 PURPOSE_RULES = (
-    "Use these conditional meanings to interpret behavior: a scene alone does not establish "
+    "Conditionally, a scene alone does not establish "
     "the cause of an action, a safe gap or an inevitable maneuver."
 )
 
@@ -368,12 +368,7 @@ def build_action_prompt(
         options = "\n".join(
             f"{action}: {action_description(spec.context_id, action)}" for action in choice_options(spec)
         )
-        lane_rule = (
-            "For lane options, use only the FIRST upcoming ego lane-boundary crossing; "
-            "ignore crossings already in the input and later return crossings. "
-            "A curve, steering, or another vehicle changing lanes is not ego lane change."
-            if spec.question_domain == DOMAIN_MANEUVER else ""
-        )
+        lane_rule = LANE_ACTION_RULES if spec.question_domain == DOMAIN_MANEUVER else ""
         priority_rule = (PRIMARY_CHOICE_RULES if spec.question_domain == DOMAIN_MANEUVER
                          else LONGITUDINAL_CHOICE_RULES)
         return f"""RGB: {history_rgb_prompt_description(mode)}. Each image is left/front/right stitched views.

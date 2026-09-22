@@ -38,6 +38,7 @@ EXECUTION_SEEDS = (
             "build_dataset",
             "metrics",
             "event_balance",
+            "split_support",
             "provenance",
         )
     ],
@@ -47,6 +48,7 @@ EXECUTION_SEEDS = (
     "qwen3vl_local/leadmot/decoder.py",
     "qwen3vl_local/sft_new_loop_phase1/prompts.py",
     "qwen3vl_local/sft_new_loop_phase2/prompts.py",
+    "qwen3vl_local/sft_new_loop_phase3/history_rgb.py",
     "lead_video_tools/abnormal_duration_filter.py",
     "leaderboard/team_code/mot_lead_offline_runner.py",
     "Automot/mot/modeling/bev_encoder/bev_encoder_utils.py",

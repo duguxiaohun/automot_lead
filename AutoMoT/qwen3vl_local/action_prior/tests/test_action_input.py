@@ -162,10 +162,14 @@ def test_action_switch_works_alone_and_requires_prior_condition_mode():
     """动作输入无额外 planning 开关前提；base 消融仍不能接入先验。"""
     args = parser().parse_args([])
     assert not args.high_level_action_prior
-    validate_args(parser().parse_args(["--high-level-action-prior"]))
+    enabled = parser().parse_args(["--high-level-action-prior"])
+    enabled.event_balance_source_identity = {"fixture": True}
+    validate_args(enabled)
     with pytest.raises(ValueError, match="condition-mode prior"):
         validate_args(parser().parse_args(["--high-level-action-prior", "--condition-mode", "base"]))
-    validate_args(parser().parse_args(["--no-high-level-action-prior", "--high-level-action-index", "/missing/ignored.jsonl"]))
+    disabled = parser().parse_args(["--no-high-level-action-prior", "--high-level-action-index", "/missing/ignored.jsonl"])
+    disabled.event_balance_source_identity = {"fixture": True}
+    validate_args(disabled)
 
 
 def test_bench2drive_rejects_missing_live_provider_before_loading_models(tmp_path):

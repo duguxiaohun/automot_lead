@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 在 AutoMoT/ 下执行；需已有训练索引，自动准备请用 run_full_pipeline.sh。
-# 默认训练：
+# 默认 event 均衡：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh
 # action 均衡 + token + 单当前图：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 # 续训：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/train.sh --resume checkpoints/action_expert_ablation/qwen_simple/latest/latest.pt
-# event 均衡等完整 demo 见 run_full_pipeline.sh；参数说明见 run.md。
+# 两种采样的完整 demo 见 run_full_pipeline.sh；参数说明见 run.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1

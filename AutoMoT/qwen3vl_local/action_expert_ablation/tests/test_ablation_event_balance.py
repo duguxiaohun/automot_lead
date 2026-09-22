@@ -19,9 +19,9 @@ from qwen3vl_local.action_expert_ablation.tests.test_common import _capture_trai
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
 def test_aliases_validation_and_prior_boundary(variant):
     parser = common.parser(variant)
-    for options, mode in [([], "uniform"), (["--event-balanced"], "event_balanced"),
-                          (["--event-balanced", "--no-event-balanced"], "uniform"),
-                          (["--no-event-balanced", "--sampling-mode=event_balanced"], "event_balanced")]:
+    for options, mode in [([], "event_balanced"), (["--event-balanced"], "event_balanced"),
+                          (["--event-balanced", "--action-balanced"], "action_balanced"),
+                          (["--action-balanced", "--sampling-mode=event_balanced"], "event_balanced")]:
         assert parser.parse_args(options).sampling_mode == mode
         assert config.parser().parse_args(options).sampling_mode == mode
     with pytest.raises(ValueError, match="require --event-balance-index"):
@@ -92,7 +92,7 @@ def test_train_environment_and_cli_precedence(tmp_path, variant):
 
 
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
-@pytest.mark.parametrize("mode", ["auto", "explicit", "disabled", "resume"])
+@pytest.mark.parametrize("mode", ["auto", "explicit", "default", "resume"])
 @pytest.mark.parametrize("sampling", ["event_balanced", "action_balanced"])
 def test_pipeline_shares_preparation_and_forwards_eval_source(tmp_path, variant, mode, sampling):
     """执行真实 shell，仅替换 Python 的重型入口，检查自动准备与 train/eval 实参。"""
@@ -109,8 +109,8 @@ def test_pipeline_shares_preparation_and_forwards_eval_source(tmp_path, variant,
     args = ["--" + sampling.replace("_", "-")]
     if mode == "explicit":
         args += ["--event-balance-index", source]
-    elif mode == "disabled":
-        args = ["--no-event-balanced"]
+    elif mode == "default":
+        args = []
     elif mode == "resume":
         saved = vars(common.parser(variant).parse_args([]))
         saved.update(data_dir=str(index), sampling_mode=sampling, event_balance_index="old/map.jsonl")
@@ -134,23 +134,19 @@ if sys.argv[1].endswith("prepare_event_balance.py"):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("EVENT_", "DATA_", "RESUME", "OUTPUT_DIR"))}
     env.update(PATH=str(binary) + os.pathsep + env["PATH"], CALL_LOG=str(log), REAL_PYTHON=sys.executable,
                AUTO_SOURCE=source, DATA_DIR=str(index), OUTPUT_DIR=str(run), NO_RUN_SUBDIR="1")
-    if mode == "disabled":
-        env["EVENT_BALANCED"] = "1"
     result = subprocess.run(["bash", f"qwen3vl_local/action_expert_ablation/{variant}/run_full_pipeline.sh", *args],
                             cwd=common.AUTOMOT_ROOT, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     prep = [call for call in calls if call[0].endswith("prepare_event_balance.py")]
-    assert len(prep) == int(mode == "auto")
+    assert len(prep) == int(mode in ("auto", "default"))
     training, evaluation = [call for call in calls if call[0].endswith("launch.py")]
-    if mode not in ("disabled", "resume"):
+    if mode not in ("default", "resume"):
         assert training[training.index("--sampling-mode") + 1] == sampling
-    if mode != "disabled":
-        assert training[training.index("--event-balance-index") + 1] == source
-        assert evaluation[evaluation.index("--event-balance-index") + 1] == source
-    else:
-        assert training[training.index("--sampling-mode") + 1] == "uniform"
-        assert "--event-balance-index" not in evaluation
+    assert training[training.index("--event-balance-index") + 1] == source
+    assert evaluation[evaluation.index("--event-balance-index") + 1] == source
+    if mode == "default":
+        assert common.parser(variant).parse_args(training[4:]).sampling_mode == "event_balanced"
     if mode == "resume":
         assert "--sampling-mode" not in training
         assert "--event-balanced-epoch-samples" not in training
@@ -192,7 +188,7 @@ action_shared_index_ready "$1"
 
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
 @pytest.mark.parametrize("cli,expected", [([], "action_balanced"), (["--event-balanced"], "event_balanced"),
-                                         (["--no-action-balanced"], "uniform")])
+                                         (["--sampling-mode=event_balanced"], "event_balanced")])
 def test_action_balanced_environment_and_cli(tmp_path, variant, cli, expected):
     argv = _capture_train_sh_args(tmp_path, variant, cli,
                                 {"ACTION_BALANCED": "1", "EVENT_BALANCE_INDEX": "full map.jsonl"})

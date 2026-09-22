@@ -71,9 +71,9 @@ DEFAULTS = dict(
     prior_labels="",
     prior_noise=0.0,
     prior_noise_invalid_share=0.25,
-    # 默认仍完整自然分布 shuffle。event_balanced 以全帧语义映射为课程来源：
+    # 默认 event_balanced，以全帧语义映射为课程来源：
     # UE1-7、RE2、RE3、RE5 各一份，确认的常规背景池两份。
-    sampling_mode="uniform",
+    sampling_mode="event_balanced",
     event_balance_index="",
     event_balance_route_diverse=True,
     event_balanced_epoch_samples=0,
@@ -145,8 +145,15 @@ INPUT_FIELDS = (
 class SamplingArgumentParser(argparse.ArgumentParser):
     """模式相关默认值在所有别名解析完后确定，不覆盖显式参数或保存值。"""
 
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
     def parse_known_args(self, args=None, namespace=None):
         parsed, rest = super().parse_known_args(args, namespace)
+        from qwen3vl_local.action_prior.event_balance import SAMPLING_MODES
+        if parsed.sampling_mode not in SAMPLING_MODES:
+            self.error("sampling-mode must be event_balanced or action_balanced; uniform runs require their original source")
         if getattr(parsed, "event_balance_max_frame_repeats", None) is None:
             from qwen3vl_local.action_prior.event_balance import DEFAULT_ACTION_REPEAT_CAP
             parsed.event_balance_max_frame_repeats = (
@@ -186,6 +193,7 @@ def parser():
 def read_rows(args, split):
     """索引必须来自新 builder，并在实际使用前再检查异常 route。"""
     from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
+    from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason
 
     rows, seen, blocked = [], set(), {}
     root = Path(args.data_root).resolve()
@@ -200,7 +208,13 @@ def read_rows(args, split):
     # 的同组帧在训练读取时移入 train，holdout 读取时排除。
     from qwen3vl_local.action_prior.event_balance import development_route_groups
     development = development_route_groups() if event_active else frozenset()
+    assignments = None
+    if event_active and getattr(args, "event_balance_index", ""):
+        from qwen3vl_local.action_prior.split_support import split_plan_for_args
+        assignments = split_plan_for_args(args)
     source_splits = ("train", "val", "test") if event_active and split == "train" else (split,)
+    if assignments is not None:
+        source_splits = ("train", "val", "test")
     for source_split in source_splits:
         with (Path(args.data_dir) / f"{source_split}.jsonl").open(encoding="utf-8") as f:
             for line in f:
@@ -211,6 +225,8 @@ def read_rows(args, split):
                     )
                 original_split = source_split
                 target_split = "train" if row.get("route_group") in development else original_split
+                if assignments is not None:
+                    target_split = assignments[row["route_group"]]
                 if target_split != split:
                     continue
                 row["split"] = target_split
@@ -223,6 +239,8 @@ def read_rows(args, split):
                     raise ValueError(
                         "future-truth navigation or incompatible RGB input is forbidden"
                     )
+                if history_exclusion_reason(row["anchor"]):
+                    continue
                 route = root / row["scenario"] / row["run_id"]
                 key = str(route)
                 if key not in blocked:
@@ -562,7 +580,9 @@ def build_contract(args):
 
 
 def training_plan(args, rows, world):
-    """全量样本尾部按 rank 不重复分片；报告步数，避免把 micro-step 当 optimizer step。"""
+    """均衡采样先生成全局预算，再按 rank 分片并计算 optimizer steps。"""
+    if args.sampling_mode not in ("event_balanced", "action_balanced"):
+        raise ValueError("uniform runs require their original source; choose event_balanced or action_balanced")
     action_support = None
     if getattr(args, "high_level_action_token", False):
         from qwen3vl_local.action_prior.action_token import token_support, require_conditioned_training
@@ -575,75 +595,65 @@ def training_plan(args, rows, world):
     for a, b in (("train", "val"), ("train", "test"), ("val", "test")):
         if groups[a] & groups[b]:
             raise ValueError(f"physical route leakage: {a}/{b}")
-    event_available = None
-    if args.sampling_mode in ("event_balanced", "action_balanced"):
-        from qwen3vl_local.action_prior.event_balance import (
-            REGULAR_BACKGROUND,
-            SPECIAL_BUCKETS,
-            available_counts,
-            event_balanced_total,
-        )
+    from qwen3vl_local.action_prior.event_balance import (
+        REGULAR_BACKGROUND,
+        SPECIAL_BUCKETS,
+        available_counts,
+        event_balanced_total,
+        source_contract,
+        source_audit,
+        weighted_quotas,
+    )
 
-        event_available = available_counts(rows["train"])
-        missing = [
-            key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
-            if int(event_available.get(key, 0)) <= 0
-        ]
-        if missing:
-            raise ValueError(
-                "event-balanced sampling needs every UE1-7/RE2/RE3/RE5 bucket and "
-                f"a regular background pool; missing={missing} available={event_available}"
-            )
-        total_function = event_balanced_total
-        if args.sampling_mode == "action_balanced":
-            from qwen3vl_local.action_prior.action_balance import action_balanced_total
-            total_function = action_balanced_total
-        usable = total_function(
-            rows["train"], requested=args.event_balanced_epoch_samples,
-            repeat_cap=args.event_balance_max_frame_repeats, world=world,
+    event_available = available_counts(rows["train"])
+    missing = [
+        key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+        if int(event_available.get(key, 0)) <= 0
+    ]
+    if missing:
+        raise ValueError(
+            "event-balanced sampling needs every UE1-7/RE2/RE3/RE5 bucket and "
+            f"a regular background pool; missing={missing} available={event_available}"
         )
+    total_function = event_balanced_total
+    if args.sampling_mode == "action_balanced":
+        from qwen3vl_local.action_prior.action_balance import action_balanced_total
+        total_function = action_balanced_total
+    usable = total_function(
+        rows["train"], requested=args.event_balanced_epoch_samples,
+        repeat_cap=args.event_balance_max_frame_repeats, world=world,
+    )
     updates = math.ceil((usable // world) / args.grad_accum_steps)
     sampling = dict(mode=args.sampling_mode)
-    if args.sampling_mode in ("event_balanced", "action_balanced"):
-        from qwen3vl_local.action_prior.event_balance import (
-            REGULAR_BACKGROUND,
-            SPECIAL_BUCKETS,
-            available_counts,
-            source_contract,
-            source_audit,
-            weighted_quotas,
+    sampling.update(
+        event_balance_source=source_contract(args),
+        event_balance_source_audit=source_audit(args),
+        train_available=event_available,
+        epoch_quotas=weighted_quotas(usable),
+        route_diverse=bool(args.event_balance_route_diverse),
+        special_bucket_missing=[],
+        scene_priors=bool(args.event_balanced_scene_priors),
+        max_frame_repeats=int(args.event_balance_max_frame_repeats),
+        requested_epoch_samples=int(args.event_balanced_epoch_samples),
+        effective_epoch_samples=usable,
+        best_selection_metric=args.best_selection_metric,
+    )
+    if args.sampling_mode == "action_balanced":
+        from qwen3vl_local.action_prior.action_balance import action_balance_plan
+        sampling["action_balance"] = action_balance_plan(rows["train"], usable, repeat_cap=args.event_balance_max_frame_repeats)
+    val_available = available_counts(rows["val"], for_evaluation=True)
+    val_missing = [
+        key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+        if int(val_available.get(key, 0)) <= 0
+    ]
+    sampling["validation_available"] = val_available
+    sampling["validation_bucket_coverage_missing"] = val_missing
+    sampling["validation_bucket_coverage_complete"] = not val_missing
+    if args.best_selection_metric == "event_balanced_ade" and val_missing:
+        raise ValueError(
+            "event-balanced best selection needs every bucket in validation; "
+            f"missing={val_missing}. Use natural_ade or revise the route split/source."
         )
-
-        available = event_available
-        sampling.update(
-            event_balance_source=source_contract(args),
-            event_balance_source_audit=source_audit(args),
-            train_available=available,
-            epoch_quotas=weighted_quotas(usable),
-            route_diverse=bool(args.event_balance_route_diverse),
-            special_bucket_missing=[],
-            scene_priors=bool(args.event_balanced_scene_priors),
-            max_frame_repeats=int(args.event_balance_max_frame_repeats),
-            requested_epoch_samples=int(args.event_balanced_epoch_samples),
-            effective_epoch_samples=usable,
-            best_selection_metric=args.best_selection_metric,
-        )
-        if args.sampling_mode == "action_balanced":
-            from qwen3vl_local.action_prior.action_balance import action_balance_plan
-            sampling["action_balance"] = action_balance_plan(rows["train"], usable, repeat_cap=args.event_balance_max_frame_repeats)
-        val_available = available_counts(rows["val"], for_evaluation=True)
-        val_missing = [
-            key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
-            if int(val_available.get(key, 0)) <= 0
-        ]
-        sampling["validation_available"] = val_available
-        sampling["validation_bucket_coverage_missing"] = val_missing
-        sampling["validation_bucket_coverage_complete"] = not val_missing
-        if args.best_selection_metric == "event_balanced_ade" and val_missing:
-            raise ValueError(
-                "event-balanced best selection needs every bucket in validation; "
-                f"missing={val_missing}. Use natural_ade or revise the route split/source."
-            )
     return dict(
         samples={s: len(v) for s, v in rows.items()},
         effective_batch=world * args.grad_accum_steps,
@@ -681,7 +691,7 @@ def training_plan(args, rows, world):
         budget_note="Epoch/LR are initial settings; measure cold and cached throughput with smoke before full training.",
         epochs=args.num_epochs,
         samples_per_epoch=usable,
-        ddp_tail_per_epoch=(len(rows["train"]) - usable if args.sampling_mode == "uniform" else 0),
+        ddp_tail_per_epoch=0,
         optimizer_steps_per_epoch=updates,
         planned_optimizer_steps=updates * args.num_epochs,
         actual_step_limit=(

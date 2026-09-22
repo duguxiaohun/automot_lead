@@ -98,7 +98,12 @@ def test_sampling_aliases_are_independent_of_model_conditioning(variant):
     assert not p.parse_args(["--action-balanced"]).high_level_action_token
     assert p.parse_args(["--event-balanced", "--action-balanced"]).sampling_mode == "action_balanced"
     assert p.parse_args(["--action-balanced", "--event-balanced"]).sampling_mode == "event_balanced"
-    assert p.parse_args(["--action-balanced", "--no-action-balanced"]).sampling_mode == "uniform"
+    assert p.parse_args([]).sampling_mode == "event_balanced"
+    assert p.parse_args([]).event_balance_max_frame_repeats == 8
+    assert p.parse_args(["--action-balanced"]).event_balance_max_frame_repeats == 2
+    for removed in (["--no-action-balanced"], ["--no-event-balanced"], ["--sampling-mode", "uniform"]):
+        with pytest.raises(SystemExit):
+            p.parse_args(removed)
 
 
 def test_sampling_contract_restores_without_online_label_files(monkeypatch):
@@ -247,3 +252,40 @@ def test_support_audit_flags_do_not_change_labels_or_quotas():
     assert audit['max_frame_repeats'] <= 2
     assert plan['support'] == audit['support']
     assert json.dumps(rows, sort_keys=True) == before
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+@pytest.mark.parametrize("options", [[], ["--action-balanced"]])
+def test_two_modes_auto_prepare_mapping_without_enabling_tokens(monkeypatch, variant, options):
+    from qwen3vl_local.action_prior import action_token, prepare_action_priors
+    p = parser() if variant == "prior" else common.parser(variant)
+    args = p.parse_args(options)
+    prepared = []
+    def prepare(args):
+        prepared.append(args.sampling_mode)
+        args.event_balance_index = "prepared/full_event_mapping.jsonl"
+    monkeypatch.setattr(prepare_action_priors, "ensure_full_mapping", prepare)
+    action_token.ensure_token_inputs(args)
+    action_token.ensure_token_inputs(args)
+    assert prepared == [args.sampling_mode]
+    assert not args.high_level_action_token
+    assert not getattr(args, "high_level_action_prior", False)
+    args.event_balance_index, args.resume = "", "saved/latest.pt"
+    with pytest.raises(ValueError, match="resume requires the saved"):
+        action_token.ensure_token_inputs(args)
+    assert len(prepared) == 1
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+@pytest.mark.parametrize("saved", [{}, {"sampling_mode": "uniform"}])
+def test_legacy_uniform_resume_is_not_silently_changed(tmp_path, monkeypatch, variant, saved):
+    import sys
+    from qwen3vl_local.action_prior import resume
+    (tmp_path / "config.json").write_text(json.dumps(saved))
+    checkpoint = str(tmp_path / "latest.pt")
+    with pytest.raises(ValueError, match="uniform runs require their original source"):
+        if variant == "prior":
+            monkeypatch.setattr(sys, "argv", ["resume", checkpoint])
+            resume.main()
+        else:
+            common.parse_train_args(variant, ["--resume", checkpoint])

@@ -4,7 +4,7 @@
 ulimit -S -c 0 2>/dev/null || true
 
 action_event_balance_options() {
-  ACTION_EVENT_SAMPLING_MODE=uniform
+  ACTION_EVENT_SAMPLING_MODE=event_balanced
   ACTION_EVENT_BALANCE_INDEX="${EVENT_BALANCE_INDEX:-}"
   ACTION_EVENT_BALANCE_ARGS=()
   if [[ -v HIGH_LEVEL_ACTION_TOKEN ]]; then
@@ -23,12 +23,13 @@ action_event_balance_options() {
   local explicit_mode=0 explicit_index=0
   if [[ -v EVENT_BALANCED ]]; then
     explicit_mode=1
-    [[ "$EVENT_BALANCED" != 1 ]] || ACTION_EVENT_SAMPLING_MODE=event_balanced
+    [[ "$EVENT_BALANCED" == 1 ]] || { echo "EVENT_BALANCED only accepts 1; use ACTION_BALANCED=1 or --action-balanced to switch" >&2; return 2; }
+    ACTION_EVENT_SAMPLING_MODE=event_balanced
   fi
   if [[ -v ACTION_BALANCED ]]; then
     [[ "$ACTION_BALANCED" == 0 || "$ACTION_BALANCED" == 1 ]] || { echo "ACTION_BALANCED must be 0 or 1" >&2; return 2; }
     explicit_mode=1
-    if [[ "$ACTION_BALANCED" == 1 ]]; then ACTION_EVENT_SAMPLING_MODE=action_balanced; else ACTION_EVENT_SAMPLING_MODE=uniform; fi
+    if [[ "$ACTION_BALANCED" == 1 ]]; then ACTION_EVENT_SAMPLING_MODE=action_balanced; else ACTION_EVENT_SAMPLING_MODE=event_balanced; fi
   fi
   [[ ! -v EVENT_BALANCE_INDEX ]] || explicit_index=1
   # 环境变量只在显式设置时转发，续训不注入新默认值；后面的 CLI 优先。
@@ -52,7 +53,7 @@ action_event_balance_options() {
     case "$1" in
       --event-balanced) ACTION_EVENT_SAMPLING_MODE=event_balanced; explicit_mode=1 ;;
       --action-balanced) ACTION_EVENT_SAMPLING_MODE=action_balanced; explicit_mode=1 ;;
-      --no-event-balanced|--no-action-balanced) ACTION_EVENT_SAMPLING_MODE=uniform; explicit_mode=1 ;;
+      --no-event-balanced|--no-action-balanced) echo "removed $1; use --event-balanced or --action-balanced" >&2; return 2 ;;
       --sampling-mode|--event-balance-index)
         option="$1"
         [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$option needs a value" >&2; return 2; }
@@ -68,7 +69,7 @@ action_event_balance_options() {
     esac
     shift
   done
-  [[ "$ACTION_EVENT_SAMPLING_MODE" == uniform || "$ACTION_EVENT_SAMPLING_MODE" == event_balanced || "$ACTION_EVENT_SAMPLING_MODE" == action_balanced ]] || {
+  [[ "$ACTION_EVENT_SAMPLING_MODE" == event_balanced || "$ACTION_EVENT_SAMPLING_MODE" == action_balanced ]] || {
     echo "invalid sampling mode: $ACTION_EVENT_SAMPLING_MODE" >&2; return 2;
   }
   [[ "$explicit_mode" == 0 ]] || ACTION_EVENT_BALANCE_ARGS+=(--sampling-mode "$ACTION_EVENT_SAMPLING_MODE")

@@ -58,7 +58,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS, INVALID_KEY, PROMPT_NAME, action_prompt_sha256,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
-    support_aware_quota, SUPPORT_BALANCE_VERSION, support_diagnostic,
+    support_aware_quota, SUPPORT_BALANCE_VERSION, support_diagnostic, sampling_action,
     route_diverse_sample,
     route_diversity_report, primary_action_distribution,
 )
@@ -120,6 +120,7 @@ def development_route_groups() -> frozenset:
     groups.update(json.loads(path.with_name("development_route_groups_20260920.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_20260921.json").read_text())["groups"])
     groups.update(json.loads(path.with_name("development_route_groups_noise_20260921.json").read_text())["groups"])
+    groups.update(json.loads(path.with_name("development_route_groups_20260923.json").read_text())["groups"])
     return frozenset(groups)
 
 
@@ -162,10 +163,13 @@ def _event_codes(annotation: Mapping[str, Any]) -> Tuple[str, ...]:
 
 
 def _history(run_dir: pathlib.Path, frame_id: int) -> Optional[List[str]]:
-    """读取四帧 left-pad RGB history 路径。"""
+    """读取初始化之后的完整四帧；不再复制天气/actor生成前的f0。"""
+    from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason
+    if history_exclusion_reason(frame_id):
+        return None
 
     paths: List[str] = []
-    for idx in [max(0, frame_id - offset) for offset in reversed(range(RGB_HISTORY_COUNT))]:
+    for idx in [frame_id - offset for offset in reversed(range(RGB_HISTORY_COUNT))]:
         path = _rgb_path(run_dir, idx)
         if path is None:
             return None
@@ -292,6 +296,7 @@ def iter_base_frames(
     """流式遍历可用基础帧，并记录本次实际扫描到的 route-level scenario/Town。"""
 
     collection_dir = pathlib.Path(args.collection_dir)
+    from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
     if int(getattr(args, "workers", 0)) > 0:
         from qwen3vl_local.sft_new_loop_phase3.parallel_scan import parallel_frames
@@ -306,6 +311,10 @@ def iter_base_frames(
                 validate_action_rule(base)
                 if base.get("mapping_contract_hash") != mapping_contract_hash():
                     raise ValueError("candidate cache lacks current annotation repair contract; rebuild from collection")
+                if reason := history_exclusion_reason(base["frame_id"]):
+                    if risk_stats is not None:
+                        risk_stats[f"input_excluded/{reason}"] += 1
+                    continue
                 from qwen3vl_local.sft_new_loop_phase3.lateral_rgb_audit import lateral_uncertainty
                 lateral_review = lateral_uncertainty(base["scenario"], base["route_id"], base["frame_id"])
                 if lateral_review:
@@ -375,6 +384,10 @@ def iter_base_frames(
                 try:
                     frame_id = int(ann.get("frame_id"))
                 except (TypeError, ValueError):
+                    continue
+                if reason := history_exclusion_reason(frame_id):
+                    if risk_stats is not None:
+                        risk_stats[f"input_excluded/{reason}"] += 1
                     continue
                 rs, primary, codes, repair = repair_annotation(scenario, route_id, frame_id,
                     ann, _rs_label(ann), str(ann.get("primary_event") or "UNKNOWN"), _event_codes(ann))
@@ -465,30 +478,37 @@ def _sample_context_bucket(
     rng: random.Random,
     route_diverse: bool,
 ) -> Tuple[List[Mapping[str, Any]], Dict[str, Any]]:
-    """在一个上下文桶内按动作签名尽量均分，再在签名内做 route 轮转抽样。"""
+    """按主要动作分配配额；稀少组合并入主动作，保留完整原始监督。"""
 
     if target <= 0 or not bucket:
         return [], {"signature_capacity": {}, "signature_quota": {}}
     by_signature: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
+    by_action: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
     for base in bucket:
         by_signature[action_signature(base["action_labels"], context_id=context_id)].append(base)
+        by_action[sampling_action(base["action_labels"], context_id)].append(base)
     capacities = {key: len(value) for key, value in by_signature.items()}
-    quotas = support_aware_quota(capacities, int(target))
+    action_capacities = {key: len(value) for key, value in by_action.items()}
+    quotas = support_aware_quota(action_capacities, int(target))
     selected: List[Mapping[str, Any]] = []
     for key in sorted(quotas):
         count = int(quotas[key])
         if count <= 0:
             continue
         selected.extend(
-            route_diverse_sample(by_signature[key], target=count, rng=rng)
+            route_diverse_sample(by_action[key], target=count, rng=rng)
             if route_diverse
-            else _plain_sample(by_signature[key], count, rng)
+            else _plain_sample(by_action[key], count, rng)
         )
     rng.shuffle(selected)
-    return selected, {"signature_capacity": capacities, "signature_quota": dict(quotas),
+    signature_counts = Counter(action_signature(base["action_labels"], context_id=context_id)
+                               for base in selected)
+    return selected, {"signature_capacity": capacities, "signature_quota": dict(signature_counts),
+                      "sampling_group": "primary_action_preserve_raw_evidence",
+                      "primary_action_capacity": action_capacities, "primary_action_quota": quotas,
                       "signature_support": {
                           key: support_diagnostic(len(values), len({physical_route_group(
-                              row["scenario"], row["route_id"]) for row in values}), quotas[key])
+                              row["scenario"], row["route_id"]) for row in values}), signature_counts[key])
                           for key, values in by_signature.items()}}
 
 
@@ -593,6 +613,7 @@ def _balanced_rows_by_split(
         development=development_route_groups(),
         group_of=lambda row: physical_route_group(row["scenario"], row["route_id"]), seed=args.split_seed,
         min_holdout_frames=int(getattr(args, "min_holdout_context_frames", 32)),
+        min_holdout_groups=int(getattr(args, "min_holdout_context_groups", 5)),
     )
     # 同组全部 context/重复采集同时移动；重新统计，不能只补一帧而留下物理泄漏。
     buckets.clear(); invalid_sources.clear(); raw_counts.clear()
@@ -605,6 +626,10 @@ def _balanced_rows_by_split(
     if split_coverage["moves"]:
         print(f"[new-phase3-build] moved {len(split_coverage['moves'])} unexposed physical groups "
               "from train to meet holdout context capacity; see split_coverage.json", flush=True)
+    if any(split_coverage.get("group_deficits", {}).values()):
+        print(f"[new-phase3-build] insufficient independent holdout routes: "
+              f"{split_coverage['group_deficits']}; keep explicit support status, never repeat routes to fill it",
+              flush=True)
 
     from qwen3vl_local.sft_new_loop_phase3.same_rs_invalid import reviewed_invalid_rows
     same_rs_pool = reviewed_invalid_rows(args, {
@@ -665,7 +690,7 @@ def _balanced_rows_by_split(
                 context_id=context_id,
                 target=per_context,
                 rng=rng,
-                route_diverse=split == "train",
+                route_diverse=True,
             )
             signature_reports[context_id] = report
             for base in selected:
@@ -798,9 +823,13 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         raise
     temporary.replace(target)
 
+    from qwen3vl_local.sft_new_loop_phase3.history_rgb import HISTORY_QUALITY_VERSION, MIN_ACTION_ANCHOR
     manifest = {
         "format": FRAME_INDEX_FORMAT,
         "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "input_quality_policy": {"version": HISTORY_QUALITY_VERSION,
+                                 "minimum_anchor": MIN_ACTION_ANCHOR,
+                                 "excluded": "any four-frame history containing initialization frame 0"},
         "split_contract": "physical_route_without_rep_or_collection_timestamp",
         "split_coverage": balance["split_coverage"],
         "development_route_groups": len(development_route_groups()),
@@ -904,7 +933,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--collection-dir", default=str(_AUTOMOT_ROOT / "keyframe_filter/collection_output"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v22"))
+    p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v23"))
     p.add_argument(
         "--review-root",
         default=str(
@@ -924,6 +953,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-holdout-context-frames", type=int, default=32,
                    help="minimum distinct source frames per val/test context before sampling; "
                         "32 matches the default generation budget; 1 is for small smoke builds only")
+    p.add_argument("--min-holdout-context-groups", type=int, default=5,
+                   help="target independent physical routes per val/test context; protect train support, "
+                        "report insufficient_support when unavailable instead of duplicating routes")
     p.add_argument(
         "--target-per-context",
         type=int,

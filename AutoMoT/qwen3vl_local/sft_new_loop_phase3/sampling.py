@@ -8,13 +8,25 @@
 from __future__ import annotations
 
 import random
+import re
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Mapping, Sequence, Tuple, TypeVar
 
 
 T = TypeVar("T")
 
-SUPPORT_BALANCE_VERSION = "capacity_return_natural_cycles_v1"
+SUPPORT_BALANCE_VERSION = "primary_action_capacity_return_v2"
+
+
+def sampling_action(answers, context_id):
+    """Only six primary buckets; compound evidence is supervision, not a rare class.
+
+    A RESUME+LEFT example shares LEFT's quota while binary keeps both YES labels.
+    Never turn a rare but valid maneuver into KEEP or an unconditioned example.
+    """
+    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
+    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
+    return primary_choice(answers, CONTEXT_BY_ID[context_id].action_keys)
 
 
 def support_diagnostic(frames: int, routes: int, presentations=None) -> Dict[str, Any]:
@@ -75,12 +87,16 @@ def primary_action_distribution(signature_counts: Mapping[str, int]) -> Dict[str
 
 
 def _route_key(item: Any) -> Tuple[str, str]:
-    """从 dict、WorkItem 或 FrameRow 读取稳定 route 身份。"""
+    """按物理路线轮转，Rep和重复采集不能冒充独立支持。"""
 
     row = getattr(item, "row", item)
     if isinstance(row, Mapping):
-        return str(row.get("scenario", "")), str(row.get("route_id", ""))
-    return str(row.scenario), str(row.route_id)
+        scenario, route = str(row.get("scenario", "")), str(row.get("route_id", ""))
+    else:
+        scenario, route = str(row.scenario), str(row.route_id)
+    stem = re.sub(r"_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}$", "", route)
+    stem = re.sub(r"_route0$", "", stem)
+    return scenario, re.sub(r"_Rep\d+_", "_", stem)
 
 
 def route_diverse_sample(items: Sequence[T], *, target: int, rng: random.Random) -> List[T]:
@@ -160,6 +176,7 @@ def _route_counts_report(items: Sequence[Any]) -> Dict[str, Any]:
     counts = Counter(_route_key(item) for item in items)
     ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
     return {
+        "route_identity": "physical_route_without_rep_or_collection_timestamp",
         "cases": len(items),
         "unique_routes": len(counts),
         "unique_scenarios": len({scenario for scenario, _ in counts}),

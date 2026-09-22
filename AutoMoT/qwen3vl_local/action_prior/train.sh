@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 # 在 AutoMoT/ 下执行；需已有训练索引，自动准备请用 run_full_pipeline.sh。
-# 默认训练：
+# 默认 event 均衡：
 #   bash qwen3vl_local/action_prior/train.sh --dataset-priors
 # action 均衡 + token + 单当前图：
 #   bash qwen3vl_local/action_prior/train.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/train.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
 # 续训：
 #   bash qwen3vl_local/action_prior/train.sh --resume checkpoints/action_prior/latest/latest.pt
-# event 均衡等完整 demo 见 run_full_pipeline.sh；参数说明见 run.md。
+# 两种采样的完整 demo 见 run_full_pipeline.sh；参数说明见 run.md。
 ulimit -S -c 0 2>/dev/null || true
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 # 参数用数组传递，路径包含空格时也不会被拆开。
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-scene_priors_requested="$(python "$HERE/scene_policy.py" "$@")"
+python "$HERE/scene_policy.py" "$@" >/dev/null
 source "$HERE/event_balance_common.sh"
 action_event_balance_options "$@"
 set -- "${ACTION_EVENT_BALANCE_ARGS[@]}"
 has_flag() { local flag="$1"; shift; [[ " $* " == *" $flag "* || " $* " == *" $flag="* ]]; }
-has_value() { local flag="$1" value="$2"; shift 2; [[ " $* " == *" $flag $value "* || " $* " == *" $flag=$value "* ]]; }
 # 在拼接任何新训练默认值之前分流；保留数组边界，兼容带空格的路径与 CLI > RESUME。
 resume_checkpoint="${RESUME:-}"
 train_cli=()
@@ -94,27 +93,10 @@ if ! has_flag --generate-analysis "$@" && ! has_flag --no-generate-analysis "$@"
  esac
 fi
 # 均衡采样只改抽样；特殊 RE 场景由共用策略自动决定。
-# 动作模式允许 Python 在预检前自动准备完整映射。
-action_priors_requested="${HIGH_LEVEL_ACTION_PRIOR:-0}"
-action_token_requested="${HIGH_LEVEL_ACTION_TOKEN:-0}"
-for option in "$@"; do
- case "$option" in
-  --high-level-action-token) action_token_requested=1 ;;
-  --no-high-level-action-token) action_token_requested=0 ;;
-  --high-level-action-prior) action_priors_requested=1 ;;
-  --no-high-level-action-prior) action_priors_requested=0 ;;
- esac
-done
-if has_value --sampling-mode action_balanced "$@" || has_value --sampling-mode event_balanced "$@" || { [[ "${EVENT_BALANCED:-0}" == 1 ]] && ! has_flag --sampling-mode "$@"; } || [[ "$scene_priors_requested" == 1 || "$action_priors_requested" == 1 ]]; then
- if ! has_flag --event-balance-index "$@"; then
-  if [[ -n "${EVENT_BALANCE_INDEX:-}" ]]; then
-   args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
-  elif [[ "$action_priors_requested" != 1 && "$scene_priors_requested" != 1 && "$action_token_requested" != 1 ]] && ! has_value --sampling-mode action_balanced "$@"; then
-   echo "set EVENT_BALANCE_INDEX to action_prior full_event_mapping.jsonl" >&2; exit 2
-  fi
-  # 具体动作开关允许 train.py 在预检前自动准备 full map 和 Phase3 标注。
- fi
+if ! has_flag --event-balance-index "$@" && [[ -n "${EVENT_BALANCE_INDEX:-}" ]]; then
+ args+=(--event-balance-index "$EVENT_BALANCE_INDEX")
 fi
+# 两种均衡模式都允许 Python 在模型预检前准备 full map；续训已在上方分流。
 # 采样默认值统一由 config.DEFAULTS 提供，显式环境变量已由共享 helper 转成 CLI。
 # v5 条件 Flow Matching：10 步 Euler 是默认起点；坐标缩放/时间编码均写入 checkpoint 合同。
 args+=(--flow-sample-steps "${FLOW_SAMPLE_STEPS:-10}"

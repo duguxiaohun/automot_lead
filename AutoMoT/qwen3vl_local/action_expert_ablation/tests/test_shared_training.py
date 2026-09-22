@@ -14,16 +14,17 @@ from qwen3vl_local.action_expert_ablation import common
 from qwen3vl_local.action_prior import train, runtime, launch, flow_matching, lora_bundle
 from qwen3vl_local.action_prior.training_core import GracefulTerminationExit
 from qwen3vl_local.action_prior.tests.test_training_loop import (
-    TinyConfig, TinyFlowDecoder, lightweight_old_helpers,
+    TinyConfig, TinyFlowDecoder, lightweight_old_helpers, stub_toy_sampling,
 )
 import qwen3vl_local.leadmot as leadmot
 
 
 @pytest.fixture
 def harness(tmp_path, monkeypatch):
-    """只替换冻结模型和日志 IO，执行真实 FM loss、优化器、EMA 与保存/恢复。"""
+    """替换模型/数据/日志 IO，小样本采样用夹具；执行真实 loss、优化器、EMA 与保存/恢复。"""
     # 测试使用 CPU 小模型；不能由其它入口选卡后的宿主 CUDA 状态触发 GPU 内存统计。
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    stub_toy_sampling(monkeypatch)
     old = lightweight_old_helpers()
     monkeypatch.setitem(sys.modules, "qwen3vl_local.leadmot.train", old)
     monkeypatch.setattr(leadmot, "train", old, raising=False)
@@ -517,7 +518,6 @@ def test_token_separation_reaches_shared_loop_and_logs(harness, tmp_path, monkey
     """Real loss/accumulation/optimizer/EMA/checkpoint; only costly model/data IO is stubbed."""
     from qwen3vl_local.action_prior import action_token
     run, state = harness
-    monkeypatch.setattr(action_token, "ensure_token_inputs", lambda args: None)
     monkeypatch.setattr(action_token, "token_contract", lambda args: {"fixture": True})
     for rows in state.rows.values():
         for row in rows:

@@ -1,5 +1,7 @@
 # BEV-Only Action Expert
 
+2026-09-23：已同步v23的anchor≥4有效帧范围与Action物理路线支持补齐；BEV仍单当前图，需新full map、新run，详见 [共享说明](../run.md)。
+
 当前 action-balanced 新训练默认单帧最多重复2次，共用 Phase3 合法动作域和容量回流；稀少动作保留标签、不再强行等量，详见 [共享说明](../run.md)。
 
 ## action-balanced 两层均衡（2026-09-22）
@@ -75,7 +77,7 @@ FM loss 用于看训练趋势，效果看采样 ADE/FDE 和独立 test。
 ```bash
 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --event-balanced
-# 关闭：--no-event-balanced；环境变量写法：EVENT_BALANCED=1。
+# 默认即事件均衡；切换动作均衡：--action-balanced；不再提供随机采样。
 ```
 
 自动准备、UE1–UE7/RE2/RE3/RE5 各 1 份与确认常规背景 2 份、重复上限、DDP 采样和事件桶评测

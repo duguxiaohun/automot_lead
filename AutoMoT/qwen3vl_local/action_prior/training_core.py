@@ -708,28 +708,19 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         torch.cuda.reset_peak_memory_stats(device)
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(cursor["epoch"], args.num_epochs):
-        sampling_audit = None
-        if getattr(args, "sampling_mode", "uniform") in ("event_balanced", "action_balanced"):
-            # 每个 epoch 从相同的十个显式事件桶和两份背景池重建课程。先构造全局
-            # presentation，再按 rank 分片，避免每张卡各自均衡而破坏全局 1:…:1:2。
-            from qwen3vl_local.action_prior.event_balance import build_balanced_epoch
+        # 全局事件/动作配额生成后再按 rank 分片，保持十事件各一份、背景两份。
+        from qwen3vl_local.action_prior.event_balance import build_balanced_epoch
 
-            usable = int(plan["samples_per_epoch"])
-            ordered, sampling_audit = build_balanced_epoch(
-                rows["train"], mode=args.sampling_mode, total=usable, seed=args.seed + epoch,
-                route_diverse=bool(getattr(args, "event_balance_route_diverse", True)),
-                repeat_cap=int(getattr(args, "event_balance_max_frame_repeats", 8)),
-            )
-        else:
-            ordered = list(rows["train"])
-            random.Random(args.seed + epoch).shuffle(ordered)
-            usable = len(ordered) // world * world
+        usable = int(plan["samples_per_epoch"])
+        ordered, sampling_audit = build_balanced_epoch(
+            rows["train"], mode=args.sampling_mode, total=usable, seed=args.seed + epoch,
+            route_diverse=bool(getattr(args, "event_balance_route_diverse", True)),
+            repeat_cap=int(getattr(args, "event_balance_max_frame_repeats", 8)),
+        )
         if getattr(args, "high_level_action_token", False):
             from qwen3vl_local.action_prior.action_token import token_support, require_conditioned_training
             support = token_support({"train": ordered[:usable]})
             require_conditioned_training(support, stage=f"epoch {epoch + 1} sampling")
-            if sampling_audit is None:
-                sampling_audit = dict(mode="uniform", seed=args.seed + epoch, total=usable)
             sampling_audit["action_token_support"] = support
             sampling_audit["action_token_support_scope"] = "planned_full_epoch_before_max_train_steps"
         if rank == 0 and sampling_audit is not None:

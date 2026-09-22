@@ -99,7 +99,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     validate_action_output_mode,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
-    support_aware_quota, SUPPORT_BALANCE_VERSION,
+    support_aware_quota, SUPPORT_BALANCE_VERSION, sampling_action,
     route_diverse_sample,
     route_diversity_report, primary_action_distribution,
 )
@@ -405,7 +405,7 @@ def _balanced_work(
     require_invalid_coverage: bool = True,
     action_output_mode: str = "binary",
 ) -> List[WorkItem]:
-    """按动作上下文构建 deterministic work list；上下文内再按动作签名尽量均分。"""
+    """按上下文及主要动作分配容量；binary保留组合标签但不为组合另建配额。"""
 
     output_mode = validate_action_output_mode(action_output_mode)
     if output_mode == "choice":
@@ -482,7 +482,7 @@ def _balanced_work(
             continue
         by_signature: Dict[str, List[WorkItem]] = defaultdict(list)
         for item in items:
-            by_signature[item.row.action_signature].append(item)
+            by_signature[sampling_action(item.row.answers, item.row.context_id)].append(item)
         quotas = support_aware_quota({k: len(v) for k, v in by_signature.items()}, target)
         selected: List[WorkItem] = []
         for signature in sorted(quotas):
@@ -1223,6 +1223,27 @@ def _save_adapter(
     return final_dir
 
 
+def record_final_generation(bundle, work, args, output_dir, step):
+    """Measure the saved final weights, after the accumulation tail is committed.
+
+    This diagnostic is separate from best-selection guards and cannot silently
+    substitute an earlier periodic validation score for the final checkpoint.
+    """
+    metrics = evaluate_generation_probe(
+        bundle, work, history_rgb_mode=args.history_rgb_mode,
+        max_new_tokens=int(args.generation_eval_max_new_tokens),
+        record_path=output_dir / "final_generation_val_cases.jsonl", step=step,
+        log_every=int(args.generation_eval_log_every),
+    )
+    record = dict(step=int(step), kind="free_generation", split=str(args.eval_split),
+                  checkpoint="final", after_accumulation_flush=True, **metrics)
+    (output_dir / "final_generation.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    _append_jsonl(output_dir / "train_eval_metrics.jsonl", record)
+    print(f"[final-generation-val] step={step} exact={metrics['exact_accuracy']:.4f}", flush=True)
+    return record
+
+
 def default_pipeline_adapter(
     *,
     best_generation_available: bool,
@@ -1941,6 +1962,10 @@ def train(args: argparse.Namespace) -> None:
         if rank == 0 and bool(args.save_final)
         else None
     )
+    if rank == 0 and final_dir is not None and full_generation_eval_work and int(args.generation_eval_steps) > 0:
+        record_final_generation(bundle, full_generation_eval_work, args, output_dir, global_step)
+    if world_size > 1:
+        ddp_barrier(local_rank)
     if rank == 0:
         best_generation_available = (
             (output_dir / "best_generation.json").is_file()
@@ -1982,7 +2007,7 @@ def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
-    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v22/frame_index.jsonl"))
+    p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v23/frame_index.jsonl"))
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))

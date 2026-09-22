@@ -152,7 +152,8 @@ def test_training_plan_reports_effective_generation_budget(dataset, generate, re
     assert args.generate_analysis is False
     args.dataset_priors, args.generate_analysis, args.analysis_review = dataset, generate, review
     args.recheck_mode = mode
-    rows = {split: [{"route_group": split}] for split in ("train", "val", "test")}
+    from qwen3vl_local.action_prior.tests.test_data_capacity import balanced_rows
+    rows = {split: balanced_rows(split) for split in ("train", "val", "test")}
     plan = training_plan(args, rows, 1)
     assert plan["cold_generations_per_unique_frame"] == expected
     assert plan["independent_analysis_review"] == (generate and review)
@@ -163,6 +164,7 @@ def test_saved_legacy_args_do_not_silently_take_new_default():
     """旧配置缺开关时仍按历史摘要语义检查合同，不宣称兼容旧执行指纹。"""
     args = parser().parse_args([])
     del args.generate_analysis
+    args.event_balance_source_identity = {"fixture": True}
     validate_args(args)
     assert args.generate_analysis is True
 

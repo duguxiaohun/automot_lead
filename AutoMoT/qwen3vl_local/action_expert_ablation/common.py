@@ -184,6 +184,8 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
         )
     with config_path.open("r", encoding="utf-8") as f:
         saved = json.load(f)
+    if saved.get("sampling_mode", "uniform") not in ("event_balanced", "action_balanced"):
+        raise ValueError("uniform runs require their original source; start a new balanced run")
     legacy_optimization_defaults(saved)
     saved.setdefault("action_token_separation_weight", 0.0)
     saved.setdefault("action_token_separation_margin", 0.5)
@@ -354,6 +356,9 @@ def contract_source_paths(variant: str) -> list[str]:
         "qwen3vl_local/action_prior/precision.py",
         "qwen3vl_local/action_prior/config.py",
         "qwen3vl_local/action_prior/event_balance.py",
+        "qwen3vl_local/action_prior/split_support.py",
+        "qwen3vl_local/sft_new_loop_phase3/split_coverage.py",
+        "qwen3vl_local/sft_new_loop_phase3/history_rgb.py",
         "qwen3vl_local/action_prior/event_balance_common.sh",
         "qwen3vl_local/action_prior/prepare_event_balance.py",
         "qwen3vl_local/action_prior/build_event_balance_index.py",

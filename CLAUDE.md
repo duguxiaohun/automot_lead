@@ -1,5 +1,29 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-23 Phase3 v23 RGB输入、主要动作采样与路线支持
+
+Phase3默认data_v23/prompt v23_grounded_stage，动作v9物理阈值/窗口及主要动作优先级保留。
+RGB复核确认f0初始化突变，anchor<4统一排除；Phase3两/四图和Action三入口单/四图共用有效帧。
+稀少纵横组合并入主要动作配额，binary证据保留；构建/train/eval一致，不按低频改KEEP/UNCOND。
+Phase3按去除Rep/录制时间的物理路线轮转，构建holdout也优先多样性；支持补齐默认32帧/5组。
+新增170曝光组，累计1779组train-only；Action用独立split_support计划整组补未曝光路线，三入口共享。
+final提交累积尾部并保存后单独验证，输出final_generation.json及cases，不替换best守卫。
+旧候选回放Phase3排除3696条、移动54组；Action排除34456帧、移动18组；两者holdout各事件≥32帧/5组。
+这些是旧标签容量回放，不是当前生产重建；601项Phase3与328项相关Action/消融CPU回归通过。
+更广检查受缺runner/peft/matplotlib限制；未跑真实GPU。新索引/full map/新run，旧run须原源码。
+详见sft_new_loop_phase3/V23_RGB_SUPPORT_20260923.md；不宣称模型效果提升或五组足以证明泛化。
+
+
+### 2026-09-22 Action 默认事件均衡、仅保留两种采样
+
+Action主线与qwen_simple/bev_only新训练默认event_balanced，--action-balanced切换动作均衡；不再支持uniform。
+移除--no-event-balanced/--no-action-balanced及EVENT_BALANCED=0；ACTION_BALANCED=0回到event，CLI优先。
+默认事件采样同样自动准备full map，动作token/文字先验保持独立开关；十特殊事件各一份、背景两份不变。
+event默认重复上限8、action默认2；显式预算/上限仍可覆盖，比较应对齐预算，验证/测试不重采样。
+训练循环/容量审计只走两种均衡器；续训恢复保存模式，不注入默认，历史uniform或缺模式run须原源码。
+525项相关CPU回归通过；7项因缺只读mot_lead_offline_runner.py未执行，未绕过合同校验；Python/Bash语法检查通过。
+说明与简易demo见action_prior/run.md及action_expert_ablation/run.md；未跑真实GPU训练。
+
 ### 2026-09-22 Action低重复默认与Phase3支持量诊断（覆盖上限8的新训默认）
 
 三条Action入口共用SamplingArgumentParser，新action-balanced默认全局单帧上限2，event-balanced仍8。

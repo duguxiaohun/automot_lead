@@ -347,11 +347,16 @@ def test_timing_excludes_validation_checkpoint_and_preserves_final_overhead():
 def test_warmup_counts_first_epoch_including_partial_accumulation(scheduler):
     """真实 plan 使用每轮 ceil(micro/accum)，缩短总轮数不应缩短 warmup。"""
     from qwen3vl_local.action_prior.config import training_plan
-    rows = {split: [dict(route_group=split)] * (201 if split == "train" else 1)
+    from qwen3vl_local.action_prior.tests.test_action_balance import row
+    from qwen3vl_local.action_prior.event_balance import SPECIAL_BUCKETS
+    # 十二份均衡预算204，每份17；累积5仍有4帧尾窗口，共41次更新。
+    rows = {split: [row(i, [bucket] if bucket else [], split=split)
+                    for i, bucket in enumerate((*SPECIAL_BUCKETS, "", ""))]
             for split in ("train", "val", "test")}
     for epochs in (7, 15):
         args = parser().parse_args(["--num-epochs", str(epochs), "--grad-accum-steps", "5",
-                                  "--lr-scheduler", scheduler])
+                                  "--lr-scheduler", scheduler, "--event-balanced-epoch-samples", "204",
+                                  "--event-balance-max-frame-repeats", "17"])
         plan = training_plan(args, rows, 1)
         schedule = plan["optimization"]["schedule"]
         assert plan["optimizer_steps_per_epoch"] == 41

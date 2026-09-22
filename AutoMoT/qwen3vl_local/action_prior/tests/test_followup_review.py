@@ -66,7 +66,7 @@ def test_unrelated_phase3_mutation_does_not_invalidate(tmp_path):
     helper = engine.with_name("helper.py")
     helper.write_text("VALUE=1\n")
     unused = tmp_path / "qwen3vl_local/sft_new_loop_phase3/train.py"
-    unused.parent.mkdir(parents=True)
+    unused.parent.mkdir(parents=True, exist_ok=True)
     unused.write_text("VALUE=1\n")
     a = provenance.execution_fingerprint(tmp_path)
     unused.write_text("VALUE=2\n")
@@ -74,7 +74,9 @@ def test_unrelated_phase3_mutation_does_not_invalidate(tmp_path):
     helper.write_text("VALUE=2\n")
     assert provenance.execution_fingerprint(tmp_path) != a
     real = provenance.execution_fingerprint()
-    assert not any("sft_new_loop_phase3" in path for path in real["code"])
+    assert "qwen3vl_local/sft_new_loop_phase3/history_rgb.py" in real["code"]
+    assert "qwen3vl_local/sft_new_loop_phase3/split_coverage.py" in real["code"]
+    assert "qwen3vl_local/sft_new_loop_phase3/train.py" not in real["code"]
     assert "qwen3vl_local/sft_loop_phase2_augment/prompts.py" in real["code"]
 
 

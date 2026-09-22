@@ -21,6 +21,7 @@ EVENT_ADDITIONS = Path(__file__).with_name("event_rgb_additions_v1.jsonl")
 def mapping_contract_hash():
     """训练索引绑定实际语义决定；旧索引不能绕过新隔离/同 RS 负例规则。"""
     paths = (Path(__file__).with_name("mapping_rgb_decisions_v18_20260920.jsonl"),
+             Path(__file__).with_name("development_route_groups_20260923.json"),
              Path(__file__).with_name("development_route_groups_noise_20260921.json"),
              Path(__file__).with_name("development_route_groups_20260921.json"),
              Path(__file__).with_name("mapping_rgb_decisions_20260920.jsonl"),

@@ -11,12 +11,14 @@ from qwen3vl_local.sft_new_loop_phase3.primary_action import primary_action
 PRIMARY_CHOICE_VERSION = "primary_choice_v3_choice_and_binary_keep"
 KEEP_ACTION = "KEEP"
 PRIMARY_CHOICE_RULES = (
-    "Choose STOP first; otherwise the first upcoming lane crossing takes priority over "
+    "Choose STOP first only when its sustained near-stop or waiting definition applies; "
+    "otherwise the first upcoming lane crossing takes priority over "
     "its accompanying speed change; otherwise choose the speed action or KEEP. Preparatory slowing may happen before the selected crossing. "
     "KEEP does not mean the event has ended or visibility is poor."
 )
 LONGITUDINAL_CHOICE_RULES = (
-    "Choose STOP first; otherwise choose the speed action or KEEP. "
+    "Choose STOP first only when its sustained near-stop or waiting definition applies; "
+    "otherwise choose the speed action or KEEP. "
     "KEEP does not mean the event has ended or visibility is poor."
 )
 
@@ -126,7 +128,7 @@ CONTEXT_ACTION_DESCRIPTIONS = {
     "DYNAMIC_CUTIN": {
         "DECELERATE": "As the entering vehicle reduces forward space, slow to avoid closing on its path and create room for it to establish a position ahead.",
         "STOP": "When the entering vehicle leaves insufficient room to proceed, stop or keep waiting so it can pass or settle ahead without a collision.",
-        "RESUME": "As space opens behind or beyond the entering vehicle, gain speed to continue progress while adapting to its motion.",
+        "RESUME": "As space opens behind or beyond the entering vehicle, gain speed from a wait or while already moving, continuing progress even while the other vehicle remains nearby.",
         "KEEP": "Continue the current speed stage while adjusting separation from the entering vehicle as it moves across or becomes established ahead."
     },
     "VULNERABLE_CROSSING": {

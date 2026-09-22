@@ -121,18 +121,18 @@ def test_event_balanced_env_forwards_the_full_event_mapping_source(stub):
     assert value_of(tokens, "--event-balance-index") == source
 
 
-def test_uniform_planning_auto_forwards_the_full_event_mapping_source(stub):
+def test_default_planning_auto_forwards_the_full_event_mapping_source(stub):
     source = "/tmp/action_prior/full_event_mapping.jsonl"
     tokens = flags(run(
         "train.sh", [], stub,
         DATASET_PRIORS="1", HIGH_LEVEL_ACTION_PRIOR="1", EVENT_BALANCE_INDEX=source,
     ))
-    assert "--sampling-mode" not in tokens  # uniform 是 parser 默认值
+    assert "--sampling-mode" not in tokens  # event_balanced 是 parser 默认值
     assert "--event-balanced-scene-priors" not in tokens
     assert value_of(tokens, "--event-balance-index") == source
 
 
-def test_uniform_action_priors_forward_explicit_full_map_or_allow_auto_prepare(stub):
+def test_default_action_priors_forward_explicit_full_map_or_allow_auto_prepare(stub):
     """动作开关独立于重采样，显式 map 优先；不填索引交给自动准备。"""
     for source in ("", "/tmp/action/full_event_mapping.jsonl"):
         overrides = dict(EVENT_BALANCE_INDEX=source) if source else {}
@@ -164,10 +164,16 @@ def test_resume_and_final_eval_remap_event_balance_index(stub, tmp_path):
     assert value_of(probe_call, "--event-balance-index") == str(moved)
 
 
-def test_explicit_uniform_mode_overrides_event_balanced_env(stub):
-    tokens = flags(run("train.sh", ["--sampling-mode", "uniform"], stub, EVENT_BALANCED="1"))
-    assert value_of(tokens, "--sampling-mode") == "uniform"
-    assert "--event-balance-index" not in tokens
+@pytest.mark.parametrize("options,extra", [
+    (["--sampling-mode", "uniform"], {}), (["--no-event-balanced"], {}),
+    (["--no-action-balanced"], {}), ([], {"EVENT_BALANCED": "0"}),
+])
+def test_removed_sampling_options_fail(stub, options, extra):
+    for script in ("train.sh", "run_full_pipeline.sh"):
+        result = subprocess.run(["bash", str(SCRIPTS / script), *options], cwd=ROOT,
+                                env=dict(stub, **extra), capture_output=True, text=True)
+        assert result.returncode != 0
+        assert "ARGV" not in result.stdout
 
 
 def test_eval_only_fills_missing_label_paths(stub):
@@ -401,25 +407,25 @@ def test_pipeline_auto_prepares_before_preflight_and_passes_map_to_eval(stub, tm
         assert value_of(tokens, "--event-balance-index") == "/auto/full_event_mapping.jsonl"
 
 
-def test_pipeline_disable_skips_auto_preparation_and_preserves_custom_paths(stub, tmp_path):
+def test_pipeline_action_override_prepares_and_preserves_custom_paths(stub, tmp_path):
     out = tmp_path / "out"
     (out / "run_demo").mkdir(parents=True)
     (out / "run_demo" / "best.pt").write_bytes(b"stub")
     labels = tmp_path / "labels.jsonl"
     labels.write_text("{}\n")
     result = subprocess.run(
-        ["bash", str(SCRIPTS / "run_full_pipeline.sh"), "--dataset-priors", "--no-event-balanced",
+        ["bash", str(SCRIPTS / "run_full_pipeline.sh"), "--dataset-priors", "--action-balanced",
          "--data-dir", str(tmp_path / "custom index"), "--data-root", str(tmp_path / "custom data")],
         cwd=ROOT, env=dict(stub, OUTPUT_DIR=str(out), RUN_TAG="demo", PRIOR_LABELS=str(labels), EVENT_BALANCED="1"),
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert "PREPARE" not in result.stdout + result.stderr
+    assert "PREPARE" in result.stdout + result.stderr
     assert str(tmp_path / "custom index") in result.stdout
     assert str(tmp_path / "custom data") in result.stdout
     training = next(c for c in all_flags(result.stdout) if len(c) > 2 and c[2] == "train")
-    assert value_of(training, "--sampling-mode") == "uniform"
-    assert "--event-balance-index" not in training
+    assert value_of(training, "--sampling-mode") == "action_balanced"
+    assert value_of(training, "--event-balance-index") == "/auto/full_event_mapping.jsonl"
 
 
 def test_pipeline_balanced_resume_does_not_rebuild_inputs(stub, tmp_path):
@@ -443,15 +449,15 @@ def test_pipeline_balanced_resume_does_not_rebuild_inputs(stub, tmp_path):
     (["--dataset-priors", "--event-balanced"], {}, True),
     (["--dataset-priors", "--sampling-mode=event_balanced"], {}, True),
     (["--dataset-priors"], {"EVENT_BALANCED": "1"}, True),
-    (["--dataset-priors", "--no-event-balanced"], {"EVENT_BALANCED": "1"}, False),
+    (["--dataset-priors"], {}, True),
     (["--dataset-priors", "--high-level-action-prior"], {}, True),
     (["--dataset-priors", "--high-level-action-prior", "--prior-noise=0.1"], {}, True),
     (["--dataset-priors", "--high-level-action-prior", "--prior-noise=0"], {"PRIOR_NOISE": "0.1"}, True),
-    (["--dataset-priors", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, False),
+    (["--dataset-priors", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
     (["--dataset-priors"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
     (["--dataset-priors", "--high-level-action-prior"], {}, True),
     (["--dataset-priors", "--high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
-    (["--dataset-priors", "--high-level-action-prior", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, False),
+    (["--dataset-priors", "--high-level-action-prior", "--no-high-level-action-prior"], {"HIGH_LEVEL_ACTION_PRIOR": "1"}, True),
 ])
 def test_pipeline_simple_switch_prepares_inputs_before_preflight_and_propagates_index(stub, tmp_path, options, env_extra, prepared):
     """执行真实 shell，用桩边界验证一条命令的准备/训练/评测顺序。"""
@@ -521,7 +527,7 @@ def test_removed_planning_fails_before_preparation(script, options, extra, stub)
 @pytest.mark.parametrize("cli,env,expected", [
     (["--action-balanced"], {}, "action_balanced"),
     ([], {"ACTION_BALANCED": "1"}, "action_balanced"),
-    (["--no-action-balanced"], {"ACTION_BALANCED": "1"}, "uniform"),
+    (["--event-balanced"], {"ACTION_BALANCED": "1"}, "event_balanced"),
     (["--event-balanced", "--action-balanced"], {}, "action_balanced"),
     (["--event-balanced"], {"ACTION_BALANCED": "1", "EVENT_BALANCE_INDEX": "fixture"}, "event_balanced"),
 ])

@@ -29,6 +29,7 @@ from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT, 
 from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import context_detail, mapped_contexts, mapping_contract_hash
+from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason, HISTORY_QUALITY_VERSION
 
 CONTEXT_TO_BUCKET = {
     "LEAD_BRAKE": "UE1", "STATIC_BLOCKAGE": "UE2", "DYNAMIC_CUTIN": "UE3",
@@ -198,6 +199,10 @@ def main():
                         regular_block_reasons = _regular_confirmation_block_reasons(
                             context_ids, evidence, repair, codes
                         )
+                        input_exclusion = history_exclusion_reason(frame)
+                        if input_exclusion:
+                            eligible_buckets = []
+                            regular_block_reasons.append(input_exclusion)
                         if buckets:
                             # 并发事实逐桶判 eligibility：某个 context 不适合 Phase3
                             # 动作问答，不能让同帧另一个通过过滤的 context 一并消失。
@@ -217,6 +222,7 @@ def main():
                             special_buckets=buckets, eligible_buckets=eligible_buckets,
                             scene_contexts=_scene_contexts(context_ids, detail),
                             status=status, context_detail=detail,
+                            input_exclusion_reason=input_exclusion,
                             regular_confirmation_blocked=regular_block_reasons,
                         )
                         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -235,6 +241,7 @@ def main():
                     source_split=split, rs="UNKNOWN", event_codes=[],
                     special_buckets=[], eligible_buckets=[], scene_contexts=[],
                     status=UNCONFIRMED, context_detail="",
+                    input_exclusion_reason=history_exclusion_reason(frame),
                 )
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                 counts[UNCONFIRMED] += 1
@@ -247,6 +254,7 @@ def main():
         index_sha256=file_hash(index), mapping_contract_hash=expected,
         mapping_policy=EVENT_BALANCE_MAPPING_POLICY,
         candidate_index=str(candidate_path), candidate_sha256=file_hash(candidate_path),
+        input_quality_policy=HISTORY_QUALITY_VERSION,
         action_data_dir=str(action_dir), action_dataset_hashes=action_hashes,
         rows=sum(counts[key] for key in (SPECIAL_ELIGIBLE, SPECIAL_FILTERED, CONFIRMED_REGULAR, UNCONFIRMED)),
         counts=dict(counts), special_buckets=list(SPECIAL_BUCKETS),

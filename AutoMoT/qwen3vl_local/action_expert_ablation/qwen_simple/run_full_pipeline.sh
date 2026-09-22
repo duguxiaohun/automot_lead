@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# 在 AutoMoT/ 下执行；自动准备数据、选卡。默认自然采样、7轮。
-# 默认训练：
+# 在 AutoMoT/ 下执行；自动准备数据、选卡。默认 event 均衡、7轮。
+# 默认 event 均衡：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh
-# event 均衡：
-#   bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
 # action 均衡 + token + 单当前图（默认四图）：
 #   bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1

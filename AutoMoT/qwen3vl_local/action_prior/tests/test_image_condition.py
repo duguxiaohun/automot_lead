@@ -78,6 +78,7 @@ def test_prior_current_image_cache_isolated_from_four_images(tmp_path):
 @pytest.mark.parametrize("count", [1, 4])
 def test_ablation_validates_supported_image_counts(variant, count):
     args = common.parser(variant).parse_args(["--rgb-frame-count", str(count)])
+    args.event_balance_source_identity = {"fixture": True}
     common.validate_args(args, variant)
     args.rgb_frame_count = 2
     with pytest.raises(ValueError, match="RGB"):

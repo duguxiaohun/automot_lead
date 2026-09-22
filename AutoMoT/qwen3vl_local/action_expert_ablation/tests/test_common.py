@@ -152,7 +152,7 @@ def test_optimization_defaults_env_cli_and_saved_resume(tmp_path, monkeypatch, v
     override = common.parse_train_args(variant, [*resume, "--optimizer=adamw"])
     assert (override.optimizer, override.lr_scheduler) == ("adamw", "cosine_restarts")
     # 没有新字段的旧配置在恢复时仍解释为旧算法，后续源码合同另行核验。
-    (tmp_path / "config.json").write_text(json.dumps({"learning_rate": 1e-4}))
+    (tmp_path / "config.json").write_text(json.dumps({"sampling_mode": "event_balanced", "learning_rate": 1e-4}))
     for key in OPTIMIZATION_ENV:
         monkeypatch.delenv(key, raising=False)
     restored = common.parse_train_args(variant, resume)

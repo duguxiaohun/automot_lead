@@ -77,10 +77,10 @@ def test_current_phase3_development_routes_are_train_only_in_all_entries(tmp_pat
     for number, group in enumerate(sorted(current)):
         scenario, run_id = group.split("/", 1)
         split = "val" if number % 2 else "test"
-        rows[split].append(dict(scenario=scenario, run_id=run_id, anchor=0,
+        rows[split].append(dict(scenario=scenario, run_id=run_id, anchor=4,
                                 route_group=group, split=split))
     for split in rows:
-        rows[split].append(dict(scenario="Unseen", run_id=split, anchor=0,
+        rows[split].append(dict(scenario="Unseen", run_id=split, anchor=4,
                                 route_group=f"Unseen/{split}", split=split))
         for row in rows[split]:
             row.update(schema="action_prior_data_v1", tp_mode="route_lookahead",
@@ -88,6 +88,10 @@ def test_current_phase3_development_routes_are_train_only_in_all_entries(tmp_pat
             (tmp_path / row["scenario"] / row["run_id"]).mkdir(parents=True, exist_ok=True)
         (tmp_path / f"{split}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows[split]))
     monkeypatch.setattr(abnormal, "is_abnormal_lead_route", lambda *a: (False, {}))
+    from qwen3vl_local.action_prior import split_support
+    # This test isolates development-list routing; real capacity planning is
+    # exercised with complete datasets in test_split_support.py.
+    monkeypatch.setattr(split_support, "split_plan_for_args", lambda args: None)
     # 此测试只隔离 full-map IO；名单、物理路线迁移与三个入口的读取均为真实实现。
     monkeypatch.setattr(balance, "annotate_rows", lambda *a: None)
     from qwen3vl_local.action_prior import action_token

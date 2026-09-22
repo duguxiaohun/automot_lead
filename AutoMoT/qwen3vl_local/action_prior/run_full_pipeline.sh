@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# 在 AutoMoT/ 下执行；自动准备数据、选卡。默认自然采样、7轮。
-# 默认训练：
+# 在 AutoMoT/ 下执行；自动准备数据、选卡。默认 event 均衡、7轮。
+# 默认 event 均衡：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
-# event 均衡：
-#   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced
 # action 均衡 + token + 单当前图（默认四图）：
 #   bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
 #   GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
@@ -36,12 +34,7 @@ for name in DATA_ROOT DATA_DIR MODEL_DIR LEAD_BEV_CKPT HIGH_LEVEL_ACTION_INDEX; 
  if [[ -v "$name" ]]; then pipeline_paths["$name"]="${!name}"; fi
 done
 ARGS=()
-sampling_mode=uniform
-if [[ "${EVENT_BALANCED:-0}" == 1 ]]; then sampling_mode=event_balanced; fi
-if [[ -v ACTION_BALANCED ]]; then
- [[ "$ACTION_BALANCED" == 0 || "$ACTION_BALANCED" == 1 ]] || { echo "ACTION_BALANCED must be 0 or 1" >&2; exit 2; }
- if [[ "$ACTION_BALANCED" == 1 ]]; then sampling_mode=action_balanced; else sampling_mode=uniform; fi
-fi
+sampling_mode="$ACTION_EVENT_SAMPLING_MODE"
 action_priors="${HIGH_LEVEL_ACTION_PRIOR:-0}"
 sampling_explicit=0
 explicit_prior_source="$DATASET_PRIORS_ENV_SET"
@@ -52,7 +45,7 @@ while (( $# )); do
   --no-dataset-priors) DATASET_PRIORS=0; explicit_prior_source=1 ;;
   --event-balanced) sampling_mode=event_balanced; sampling_explicit=1 ;;
   --action-balanced) sampling_mode=action_balanced; sampling_explicit=1 ;;
-  --no-event-balanced|--no-action-balanced) sampling_mode=uniform; sampling_explicit=1 ;;
+  --no-event-balanced|--no-action-balanced) echo "removed $1; use --event-balanced or --action-balanced" >&2; exit 2 ;;
   --resume|--sampling-mode|--data-dir|--data-root|--model-dir|--lead-bev-ckpt|--prior-labels|--event-balance-index|--high-level-action-index)
    flag="$1"
    [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { echo "$flag needs a value" >&2; exit 2; }
@@ -99,7 +92,7 @@ if [[ -n "${RESUME:-}" ]]; then
  [[ -f "$RESUME" ]] || { echo "resume checkpoint is not a file: $RESUME" >&2; exit 2; }
  export RESUME
 fi
-[[ "$sampling_mode" == uniform || "$sampling_mode" == event_balanced || "$sampling_mode" == action_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
+[[ "$sampling_mode" == event_balanced || "$sampling_mode" == action_balanced ]] || { echo "invalid sampling mode: $sampling_mode" >&2; exit 2; }
 [[ "$sampling_explicit" == 0 ]] || ARGS+=(--sampling-mode "$sampling_mode")
 if [[ -n "${RESUME:-}" && "$explicit_prior_source" == 0 ]]; then
  RESUME_CONFIG="$(dirname -- "$RESUME")/config.json"

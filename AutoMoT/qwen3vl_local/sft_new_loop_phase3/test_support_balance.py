@@ -45,3 +45,27 @@ def test_signature_support_uses_physical_routes_and_does_not_relabel():
     assert support['frames'] == 3 and support['physical_routes'] == 1
     assert support['presentations'] == 2 and support['diagnostic_only']
     assert all(r['action_labels']['STOP'] for r in selected)
+
+
+def test_compound_is_not_a_separate_quota_and_binary_evidence_survives():
+    from copy import deepcopy
+    from qwen3vl_local.sft_new_loop_phase3.build_dataset import _sample_context_bucket
+    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
+    rows = [dict(scenario='s', route_id='same_route', frame_id=i,
+                 action_labels={k: k == 'LANE_CHANGE_LEFT' or (k == 'RESUME' and i == 0)
+                                for k in ACTION_KEYS}) for i in range(100)]
+    original = deepcopy(rows)
+    selected, audit = _sample_context_bucket(rows, context_id='RAMP_MERGE_EXIT', target=150,
+                                             rng=random.Random(1), route_diverse=True)
+    assert audit['primary_action_quota'] == {'LANE_CHANGE_LEFT': 150}
+    assert sum(r['action_labels']['RESUME'] for r in selected) <= 2
+    assert rows == original and all(r['action_labels']['LANE_CHANGE_LEFT'] for r in selected)
+
+
+def test_repeated_recordings_do_not_crowd_out_other_physical_routes():
+    from qwen3vl_local.sft_new_loop_phase3.sampling import route_diverse_sample, route_diversity_report
+    rows = [dict(scenario='s',route_id=f'Town13_Rep{i}_1710_7_route0',frame_id=4) for i in range(20)]
+    rows.append(dict(scenario='s',route_id='Town13_Rep0_9999_7_route0',frame_id=4))
+    selected = route_diverse_sample(rows,target=2,rng=random.Random(4))
+    assert any('9999' in r['route_id'] for r in selected)
+    assert route_diversity_report(rows)['unique_routes']==2

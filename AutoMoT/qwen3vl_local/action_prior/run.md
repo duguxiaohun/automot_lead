@@ -1,10 +1,27 @@
 # Action prior 使用说明
 
+## 2026-09-23 RGB输入和稀少组合审计同步
+
+三条Action入口共用v23输入质量过滤：anchor<4排除；单图/四图/BEV-only用同一有效帧范围。
+有效split在开发路线隔离后，从未曝光train整组补足事件支持，目标每事件32帧、5物理组；
+原数据文件不改，实际迁移/缺额见训练计划的 `event_balance_source_audit.split_support`。
+`--action-balanced`仍默认全局单帧最多2次，低频组合不额外分桶；合法稀少动作不改KEEP/UNCOND。
+文字动作先验自动复用更新后的Phase3因果句，token/文字开关仍独立；默认event-balanced不变。
+需按新hash准备候选/full map并新开run，旧run使用原源码。
+详细RGB判断、容量回放与限制见 [v23审计](../sft_new_loop_phase3/V23_RGB_SUPPORT_20260923.md)。
+
 ## 2026-09-22 action-balanced：事件内动作均衡
 
 新增 `--action-balanced` / `--sampling-mode action_balanced` / `ACTION_BALANCED=1`，主线和两个消融共用。
-默认仍是 `uniform`，原 `--event-balanced` 行为保留。三种采样互斥，CLI 按最后出现的模式选择；
-`--no-action-balanced` 恢复 uniform。环境变量先解析、CLI 后覆盖；同时设置两个环境开关时 ACTION_BALANCED 优先。
+默认使用 `event_balanced`，省略采样参数等价于 `--event-balanced`；加入 `--action-balanced` 即切换为动作均衡。
+新训练只保留这两种采样，不再提供 uniform/随机采样。多个正向 CLI 模式按最后出现的值选择。
+环境变量先解析、CLI 后覆盖；`ACTION_BALANCED=1` 选择动作均衡，`ACTION_BALANCED=0` 选择事件均衡；
+`EVENT_BALANCED=1` 仍可用，同时设置两个环境开关时 ACTION_BALANCED 优先。
+旧 `--no-event-balanced`、`--no-action-balanced`、`EVENT_BALANCED=0`、`--sampling-mode uniform` 均报错，
+需要切回事件均衡时使用 `--event-balanced`。默认 event 也自动准备/复用 full map；不会自动开启动作 token 或文字动作先验。
+续训恢复保存的模式，不注入新默认；旧 uniform（含未记录模式的历史 run）必须使用原源码，不能静默改采样续训。
+验证/测试仍遍历原有效 split，不执行训练均衡采样。
+本轮525项相关CPU回归通过；7项因本机缺只读 runner 源码未执行，未绕过生产校验；未验证真实GPU训练。
 
 新模式分两层：
 
@@ -120,7 +137,7 @@ bash qwen3vl_local/action_prior/run_full_pipeline.sh --high-level-action-token -
 | qwen_simple | 保留原简短导航 prompt；不注入 Phase3 问答或 RS/EVENT 先验 |
 | bev_only | 无 Qwen prompt；标定只在启用相应采样/动作条件时发挥作用 |
 
-Action 导航继续来自其 LeadMoT 输入合同，不能把 Phase3 原始 ego 坐标轴或字段模板直接复制过来。三条路径使用 full map 时共享更新后的开发路线隔离；uniform 对照需显式提供同一 full map 才获得相同隔离，不改基础 split 文件。
+Action 导航继续来自其 LeadMoT 输入合同，不能把 Phase3 原始 ego 坐标轴或字段模板直接复制过来。三条路径使用 full map 时共享更新后的开发路线隔离；event/action 两种模式都使用 full map 同步隔离，不改基础 split 文件。
 
 **代码同步不等于已有数据更新。** 新训练自动准备路径包含当前 mapping/source 身份，会准备新候选和 full map；显式指定旧产物仍须通过哈希校验。已有生产索引、full map、动作索引、文字 KV 缓存和 checkpoint 本轮未全量重建或回写。请更新整套源码后为新条件启动新 run；不能用 `SKIP_BUILD`、手改 manifest 或旧缓存跳过合同。旧 run 用原源码恢复。
 
@@ -257,7 +274,7 @@ RE3 解释等待合流/驶出空间、RE5 解释遵守停车/让行路权与等�
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-prior
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced --high-level-action-prior
 
-# 环境变量等价；CLI 优先。去掉 --event-balanced 即自然采样。
+# 环境变量等价；CLI 优先。省略 --event-balanced 仍是默认事件均衡。
 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
 GPU_IDS=0 HIGH_LEVEL_ACTION_PRIOR=1 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
 
@@ -317,7 +334,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-p
 ```
 
 `--event-balanced`：UE1–UE7、RE2、RE3、RE5 各一份，确认的普通 RE 合计两份。
-默认每帧单 epoch 最多重复 8 次，自动确定可行预算，并优先覆盖不同帧。省略此开关就是自然采样；`--no-event-balanced` 可覆盖环境变量中开启的设置。
+默认每帧单 epoch 最多重复 8 次，自动确定可行预算，并优先覆盖不同帧。省略此开关仍为事件均衡；`--action-balanced` 切换为动作均衡。
 
 脚本自动准备 action 索引、Phase1 标签索引、先验标签以及均衡采样所需的候选/full map；已存在的有效结果会复用。
 这只构建数据，不训练 Phase1/Phase3。首次准备可能较慢，终端和 pipeline 日志会显示进度。

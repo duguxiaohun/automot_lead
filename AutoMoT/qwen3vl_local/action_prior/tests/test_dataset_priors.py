@@ -119,15 +119,18 @@ def test_row_count_must_match_manifest(tmp_path):
 
 
 def test_switch_requires_prior_mode_and_a_label_index(tmp_path):
+    p = parser()
+    p.set_defaults(event_balance_source_identity={"fixture": True})
     path = write_index(tmp_path / "labels", [row()])
-    validate_args(parser().parse_args(["--dataset-priors", "--prior-labels", str(path)]))
+    args = p.parse_args(["--dataset-priors", "--prior-labels", str(path)])
+    validate_args(args)
     with pytest.raises(ValueError, match="prior-labels"):
-        validate_args(parser().parse_args(["--dataset-priors"]))
+        validate_args(p.parse_args(["--dataset-priors"]))
     with pytest.raises(ValueError, match="condition-mode prior"):
-        validate_args(parser().parse_args(
+        validate_args(p.parse_args(
             ["--dataset-priors", "--prior-labels", str(path), "--condition-mode", "base"]))
     with pytest.raises(ValueError, match="only used together"):
-        validate_args(parser().parse_args(["--prior-labels", str(path)]))
+        validate_args(p.parse_args(["--prior-labels", str(path)]))
 
 
 def dataset_args(tmp_path):
@@ -293,13 +296,15 @@ def test_noise_seed_changes_contract_identity(tmp_path):
 
 
 def test_noise_requires_dataset_priors_and_a_valid_rate(tmp_path):
+    p = parser()
+    p.set_defaults(event_balance_source_identity={"fixture": True})
     path = write_index(tmp_path / "labels", [row()])
-    validate_args(parser().parse_args(
-        ["--dataset-priors", "--prior-labels", str(path), "--prior-noise", "0.1"]))
+    args = p.parse_args(["--dataset-priors", "--prior-labels", str(path), "--prior-noise", "0.1"])
+    validate_args(args)
     with pytest.raises(ValueError, match="perturbs dataset ground-truth priors"):
-        validate_args(parser().parse_args(["--prior-noise", "0.1"]))
+        validate_args(p.parse_args(["--prior-noise", "0.1"]))
     with pytest.raises(ValueError, match="within \\[0, 1\\]"):
-        validate_args(parser().parse_args(
+        validate_args(p.parse_args(
             ["--dataset-priors", "--prior-labels", str(path), "--prior-noise", "1.5"]))
 
 

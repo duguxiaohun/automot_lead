@@ -134,8 +134,43 @@ def lightweight_old_helpers():
     return fake
 
 
+def stub_toy_sampling(monkeypatch):
+    """五帧故障恢复夹具替换采样/映射 IO；带事件标注的回归仍运行真实均衡器。
+
+    五帧用于验证累积尾窗口，不能当作完整的十二份事件预算。
+    """
+    import random
+    from qwen3vl_local.action_prior import action_token, event_balance as eb
+    original_counts, original_total = eb.available_counts, eb.event_balanced_total
+    original_quotas, original_build = eb.weighted_quotas, eb.build_balanced_epoch
+    original_ensure = action_token.ensure_token_inputs
+    def toy(rows):
+        return bool(rows) and all("event_balance_status" not in r for r in rows)
+    def counts(rows, **kw):
+        return {key: 1 for key in (*eb.SPECIAL_BUCKETS, eb.REGULAR_BACKGROUND)} if toy(rows) else original_counts(rows, **kw)
+    def total(rows, **kw):
+        return len(rows) // kw["world"] * kw["world"] if toy(rows) else original_total(rows, **kw)
+    def build(rows, **kw):
+        if not toy(rows):
+            return original_build(rows, **kw)
+        selected = list(rows)
+        random.Random(kw["seed"]).shuffle(selected)
+        selected = selected[:kw["total"]]
+        return selected, dict(mode=kw["mode"], total=len(selected), fixture=True)
+    def ensure(args):
+        if args.event_balance_index:
+            return original_ensure(args)
+        args.event_balance_source_identity = {"fixture": True}
+    monkeypatch.setattr(eb, "available_counts", counts)
+    monkeypatch.setattr(eb, "event_balanced_total", total)
+    monkeypatch.setattr(eb, "weighted_quotas", lambda n: {"fixture": n} if n % 12 else original_quotas(n))
+    monkeypatch.setattr(eb, "build_balanced_epoch", build)
+    monkeypatch.setattr(action_token, "ensure_token_inputs", ensure)
+
+
 @pytest.mark.parametrize("failure", ["mid_epoch", "final_validation"])
 def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failure, capsys):
+    stub_toy_sampling(monkeypatch)
     old = lightweight_old_helpers()
     # 本机没有 TensorBoard；仅替换日志 IO，训练/恢复/EMA 仍执行真实循环。
     tb = ModuleType("torch.utils.tensorboard")

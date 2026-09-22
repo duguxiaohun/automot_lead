@@ -1,5 +1,7 @@
 # Qwen Simple Action Expert
 
+2026-09-23：已同步v23的anchor≥4有效历史与Action物理路线支持补齐；需新full map、新run，详见 [共享说明](../run.md)。
+
 当前 action-balanced 新训练默认单帧最多重复2次，共用 Phase3 合法动作域和容量回流；稀少动作保留标签、不再强行等量，详见 [共享说明](../run.md)。
 
 ## action-balanced 两层均衡（2026-09-22）
@@ -60,7 +62,7 @@ bash qwen3vl_local/action_expert_ablation/qwen_simple/eval.sh \
 ```
 
 TB 看 `train/loss`、`train/route_fm_mse`、`train/waypoint_fm_mse`、`val/route_ade_m`、
-`val/waypoint_ade_m`。uniform 时只有核心指标；均衡时追加共享 full-map 事件桶，不产生 prior/复核分桶。
+`val/waypoint_ade_m`。event/action 两种模式均追加共享 full-map 事件桶，不产生 prior/复核分桶。
 
 训练与验证由 [`action_prior/training_core.py`](../../action_prior/training_core.py) 统一执行，
 与主线共用梯度累积、Muon/AdamW、EMA、验证选优和恢复流程。
@@ -74,7 +76,7 @@ FM loss 用于看训练趋势，效果看采样 ADE/FDE 和独立 test。
 ```bash
 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --event-balanced
-# 关闭：--no-event-balanced；环境变量写法：EVENT_BALANCED=1。
+# 默认即事件均衡；切换动作均衡：--action-balanced；不再提供随机采样。
 ```
 
 自动准备、UE1–UE7/RE2/RE3/RE5 各 1 份与确认常规背景 2 份、重复上限、DDP 采样和事件桶评测

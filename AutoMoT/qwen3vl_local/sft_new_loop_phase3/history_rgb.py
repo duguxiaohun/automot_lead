@@ -13,6 +13,17 @@ HISTORY_RGB_MODE_ALL4 = "4rgb"
 HISTORY_RGB_MODE_END2 = "2rgb_endpoints"
 DEFAULT_HISTORY_RGB_MODE = HISTORY_RGB_MODE_ALL4
 HISTORY_RGB_MODES = (HISTORY_RGB_MODE_ALL4, HISTORY_RGB_MODE_END2)
+HISTORY_QUALITY_VERSION = "post_initialization_history_v1"
+MIN_ACTION_ANCHOR = 4
+
+
+def history_exclusion_reason(frame_id: int):
+    """LEAD f0 precedes weather/actor initialization; a complete history starts at f1.
+
+    Use the same anchors for single-image Action and both Phase3 image modes, so
+    ablations cannot silently change the available labels or sampling population.
+    """
+    return "initialization_frame_in_history" if int(frame_id) < MIN_ACTION_ANCHOR else None
 
 
 def validate_history_rgb_mode(mode: str) -> str:
@@ -42,8 +53,8 @@ def history_rgb_prompt_description(mode: str) -> str:
     """描述可见时间证据，避免 prompt 提到不存在的帧。"""
 
     if validate_history_rgb_mode(mode) == HISTORY_RGB_MODE_ALL4:
-        return "four-frame history at t-0.75 s, t-0.50 s, t-0.25 s and t=0 (missing early history repeats frame 0)"
-    return "two endpoint frames at t-0.75 s and t=0 (missing early history repeats frame 0)"
+        return "four-frame history at t-0.75 s, t-0.50 s, t-0.25 s and t=0"
+    return "two endpoint frames at t-0.75 s and t=0"
 
 
 def select_history_rgb_paths(paths: Sequence[str], mode: str) -> List[str]:
