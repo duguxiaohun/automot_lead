@@ -1,5 +1,33 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-23 分层子池公平性与完整训练池审计补齐
+
+smooth_cap联合分配在动作目标和本轮不同帧数同样最优时，优先补偿连续未选轮数，再按每帧累计曝光排序。
+每个归属子池审计容量、本轮/累计呈现和未选轮数；Action三入口checkpoint保存本轮起始历史，轮末才提交，
+Phase3同次训练跨轮推进。主要约束排除某子池时不承诺强行覆盖，不改变事件预算、标签或全epoch重复上限。
+Phase3 RGB/原始meta审计覆盖带哈希的完整train池＋原val/test；完整管线显式要求训练池，缺失拒绝回退。
+RGB按路径、原始signals按物理帧复用；不同上下文/证据变体仍分别核验，仅完全相同行去重。
+报告input_coverage按来源记行/帧/case数量，counts_scope标明原索引预检口径；未执行人工RGB复审。
+907项相关CPU回归通过，2项缺只读mot_lead_offline_runner.py的合同测试排除，未绕过生产校验。
+Action正式入口14帧/每轮12次/cap1的7轮回归，前两轮全覆盖；三入口中途/第二轮/轮末恢复历史与参数一致。
+含新增池缺图、原始证据冲突拒绝回归；未全量生产数据/GPU验收。采样hash变化须重建索引/full map并新run。
+详见 sft_new_loop_phase3/HIERARCHICAL_SAMPLING_PLAN_20260923.md 及三包运行说明。
+
+### 2026-09-23 分层采样接线、全局容量与跨轮游标修复
+
+Phase3 与 Action 主线/qwen_simple/bev_only 新训默认 smooth_cap：事件内 N^0.5 动作配额、全epoch帧上限8。
+Action 默认模式名仍 event_balanced，事件1:…:1:2和背景1/6保留；显式 action-balanced 保留 global_action 对照，
+不可与 smooth_cap 混用。cycle_even 保留旧配额对照；token/文字先验、标签和split规则不变。
+两包共用压缩最小费用流，共享帧可回退重分配，同事件动作缺额回流；固定主种子和规范输入顺序，环形队列跨周期不洗牌。
+Action checkpoint保存当前epoch起始游标，整轮完成才提交下一位置，三入口中途/第二轮/轮末恢复顺序和CPU参数一致。
+Phase3新建带SHA256的train_sampling_pool.jsonl，完整train正例不再受构建均衡索引截断；验证/测试仍用原索引。
+binary保留INVALID分层配额和人工无重复题，自动负例与正例联合分配；manifest/adapter/epoch审计保存实际策略和游标。
+898项相关CPU回归通过；2项合同测试受缺只读mot_lead_offline_runner.py阻断，未绕过校验。
+10万帧合成池7轮、每轮95136次回放，累计全覆盖、实际最大重复2，单轮约1.1–1.2秒；非生产数据容量结论。
+尚未全量生产重建或真实GPU训练；新索引/full map、新run，旧run原源码。Phase3无optimizer断点恢复入口。
+详见 sft_new_loop_phase3/HIERARCHICAL_SAMPLING_PLAN_20260923.md 及三包运行说明。
+
+
 ### 2026-09-23 Action全局动作比例与温和事件加权（覆盖事件内均衡/上限2）
 
 新action-balanced全局六语义动作等量、普通背景UNCOND保留1/6，整数余数按epoch seed轮换。

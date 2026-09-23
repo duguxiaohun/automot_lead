@@ -311,10 +311,13 @@ def test_separation_ddp_and_accumulation_match_global_objective(tmp_path):
     assert torch.allclose(saved["grad"], weight.grad, atol=1e-7, rtol=1e-5)
 
 
-def test_action_sampling_loads_same_labels_without_enabling_token(sources):
+@pytest.mark.parametrize("mode,policy", [("action_balanced", "global_action"), ("event_balanced", "smooth_cap")])
+def test_action_sampling_loads_same_labels_without_enabling_token(sources, mode, policy):
     args, _ = complete_source(sources)
     args.high_level_action_token = False
-    args.sampling_mode = "action_balanced"
+    args.sampling_mode = mode
+    args.sampling_policy = policy
+    args.seed = 2026
     rows = [dict(scenario="S", run_id="R", anchor=i) for i in range(1, 6)]
     token.annotate_tokens(args, rows)
     assert rows[0]["action_token"]["name"] == "STOP"
@@ -329,4 +332,5 @@ def test_action_sampling_loads_same_labels_without_enabling_token(sources):
     args.best_selection_metric = "natural_ade"
     contract = sampling_contract(args)
     assert contract["action_labels"] == token.token_source(args).identity
-    assert contract["mode"] == "action_balanced"
+    assert contract["mode"] == mode
+    assert contract["sampling_policy"] == policy

@@ -74,6 +74,8 @@ DEFAULTS = dict(
     # 默认 event_balanced，以全帧语义映射为课程来源：
     # UE1-7、RE2、RE3、RE5 各一份，确认的常规背景池两份。
     sampling_mode="event_balanced",
+    sampling_policy="smooth_cap",
+    sampling_smooth_power=0.5,
     event_balance_index="",
     event_balance_route_diverse=True,
     event_balanced_epoch_samples=0,
@@ -159,6 +161,11 @@ class SamplingArgumentParser(argparse.ArgumentParser):
             parsed.event_balance_max_frame_repeats = (
                 DEFAULT_ACTION_REPEAT_CAP if parsed.sampling_mode == "action_balanced" else 8
             )
+        if getattr(parsed, "sampling_policy", None) is None:
+            parsed.sampling_policy = "global_action" if parsed.sampling_mode == "action_balanced" else "smooth_cap"
+        allowed = ("global_action",) if parsed.sampling_mode == "action_balanced" else ("smooth_cap", "cycle_even")
+        if parsed.sampling_policy not in allowed:
+            self.error(f"sampling-policy must be one of {allowed} for {parsed.sampling_mode}")
         return parsed, rest
 
 
@@ -184,7 +191,7 @@ def parser():
         )
     p.add_argument("--preflight", action="store_true")
     p.add_argument("--models-only", action="store_true")
-    p.set_defaults(event_balanced_scene_priors=None, event_balance_max_frame_repeats=None)
+    p.set_defaults(event_balanced_scene_priors=None, event_balance_max_frame_repeats=None, sampling_policy=None)
     from qwen3vl_local.action_prior.event_balance import add_sampling_aliases
     add_sampling_aliases(p)
     return p
@@ -624,7 +631,9 @@ def training_plan(args, rows, world):
         repeat_cap=args.event_balance_max_frame_repeats, world=world,
     )
     updates = math.ceil((usable // world) / args.grad_accum_steps)
-    sampling = dict(mode=args.sampling_mode)
+    sampling = dict(mode=args.sampling_mode, policy=args.sampling_policy,
+                    smooth_power=args.sampling_smooth_power, master_seed=args.seed,
+                    queue="fixed_canonical_route_ring_v1")
     sampling.update(
         event_balance_source=source_contract(args),
         event_balance_source_audit=source_audit(args),
@@ -650,6 +659,15 @@ def training_plan(args, rows, world):
         sampling["epoch_quotas_scope"] = "first_epoch_event_attribution_not_hard_event_targets"
         sampling["budget_reference"] = ("explicit" if args.event_balanced_epoch_samples else
                                         "event_balanced_same_pool_repeat_cap_world")
+    if args.sampling_policy == "smooth_cap":
+        from qwen3vl_local.action_prior.event_balance import build_balanced_epoch
+        _, first_audit = build_balanced_epoch(
+            rows["train"], mode=args.sampling_mode, sampling_policy=args.sampling_policy,
+            total=usable, seed=args.seed, master_seed=args.seed,
+            repeat_cap=args.event_balance_max_frame_repeats,
+            smooth_power=args.sampling_smooth_power, route_diverse=args.event_balance_route_diverse,
+        )
+        sampling["hierarchical"] = first_audit
     val_available = available_counts(rows["val"], for_evaluation=True)
     val_missing = [
         key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)

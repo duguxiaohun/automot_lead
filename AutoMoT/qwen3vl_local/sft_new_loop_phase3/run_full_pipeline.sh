@@ -90,16 +90,16 @@ else
   python qwen3vl_local/sft_new_loop_phase3/build_dataset.py "${BUILD_ARGS[@]}"
 fi
 
-# 标签完整精度复算、RGB路径与split核验结果随pipeline保存，失败时不启动训练。
+# 标签/RGB/raw meta审计必须覆盖完整训练池＋原val/test，缺池/缺图/证据不一致时不启动训练。
 python qwen3vl_local/sft_new_loop_phase3/audit_rebuilt_index.py \
-  --index "${INDEX}" --data-root "${DATA_ROOT}" \
+  --index "${INDEX}" --data-root "${DATA_ROOT}" --include-training-pool \
   --action-output-mode "${ACTION_OUTPUT_MODE}" \
   --output "${PIPELINE_ROOT}/index_audit.json"
 
 echo
 # 再从原始 meta 复算，不能只用索引自己保存的未来速度自证。
 python qwen3vl_local/sft_new_loop_phase3/audit_raw_index.py \
-  --index "${INDEX}" --data-root "${DATA_ROOT}" \
+  --index "${INDEX}" --data-root "${DATA_ROOT}" --include-training-pool \
   --action-output-mode "${ACTION_OUTPUT_MODE}" \
   --output "${PIPELINE_ROOT}/raw_index_audit.json"
 

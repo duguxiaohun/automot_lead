@@ -1,5 +1,24 @@
 # Action Expert 消融实验
 
+## 2026-09-23 默认事件内平滑采样与跨轮恢复（覆盖下方历史默认说明）
+
+三条 Action 新训默认 `event_balanced + smooth_cap`：十事件1:1、普通背景1/6，
+事件内动作按 N^0.5 分配，单帧全epoch上限8。共享帧联合分配，冲突缺额回到同事件其它动作；
+预算仍复用同池event容量，动作域过滤后无法满足时明确报错。token/文字先验开关独立。
+固定队列种子与输入顺序，游标写入checkpoint；中途恢复重放本轮起点，轮末才提交下一轮位置。
+同成本联合分配优先补偿长期未选子池，再比较每帧累计曝光，不牺牲动作目标和本轮不同帧数。
+逐轮 `pools` 审计累计呈现/连续未选轮数；`sampling_pool_history` 随游标按本轮起点保存，整轮后提交。
+
+- `--sampling-policy smooth_cap`：新默认；`--sampling-smooth-power 0.5` 可改幂指数。
+- `--event-balance-max-frame-repeats 2`：可选较低上限，预算不足会报错。
+- `--event-balanced --sampling-policy cycle_even`：保留旧事件配额对照。
+- `--action-balanced`：显式全局动作等量对照，策略自动为 `global_action`，不能与 smooth_cap 混用。
+
+启动脚本支持 `SAMPLING_POLICY`、`SAMPLING_SMOOTH_POWER`，显式CLI优先；恢复使用保存配置。
+本轮采样和构建源码hash变化，重建索引/full map并新开run，旧run使用原源码。
+详见 [联合采样方案](../sft_new_loop_phase3/HIERARCHICAL_SAMPLING_PLAN_20260923.md)。
+
+
 ## 2026-09-23 与主线同步的RGB输入和支持量规则
 
 qwen_simple/bev_only与action_prior共用anchor≥4过滤、物理路线开发隔离、独立Action holdout支持补齐，

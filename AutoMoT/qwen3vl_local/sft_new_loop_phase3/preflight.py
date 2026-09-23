@@ -1,5 +1,6 @@
 """训练前验证新索引、物理路线分割及本地模型文件；绝不下载模型。"""
 import argparse
+import hashlib
 from collections import Counter, defaultdict
 import json
 import math
@@ -14,6 +15,70 @@ from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS, CONT
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import validate_choice_row
 from qwen3vl_local.sft_new_loop_phase3.quality_guards import same_rs_coverage
 from qwen3vl_local.sft_new_loop_phase3.prompts import DEFAULT_ACTION_OUTPUT_MODE, PROMPT_NAME, action_prompt_sha256
+
+
+def training_pool_path(index):
+    """读取绑定到 manifest 的完整训练池；缺失/被修改必须重建，不能静默回退子集。"""
+    index = Path(index)
+    manifest = json.loads(index.with_name("manifest.json").read_text())
+    info = manifest.get("training_pool", {})
+    if info.get("file") != "train_sampling_pool.jsonl" or not info.get("sha256"):
+        raise ValueError("smooth_cap requires a hashed training_pool; rebuild the Phase3 index")
+    path = index.with_name(info["file"])
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != info["sha256"]:
+        raise ValueError("training_pool hash mismatch; rebuild the Phase3 index")
+    return path
+
+
+def audit_input_rows(index, coverage, *, include_training_pool=None):
+    """审计实际训练池和原holdout；帧IO去重不能丢掉不同context/前提的监督。
+
+    返回去掉完全相同副本的行，冲突副本仍各自送往核验器。各来源分别记录读入行、
+    物理帧和语义case数；跨来源完全相同的行复用核验结果，不掩盖仅新池出现的帧。
+    """
+    index = Path(index)
+    manifest_path = index.with_name("manifest.json")
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+    use_pool = bool(manifest.get("training_pool")) if include_training_pool is None else include_training_pool
+    pool = training_pool_path(index) if use_pool else None
+    coverage.update(scope="training_pool_plus_original_holdout" if use_pool else "original_index",
+                    training_pool=manifest.get("training_pool") if use_pool else None,
+                    sources={}, unique_frames=0, row_variants_verified=0, identical_rows_reused=0)
+    seen_rows, all_frames = set(), set()
+    source_frames, source_cases = defaultdict(set), defaultdict(set)
+    paths = [("training_pool", pool)] if pool else []
+    paths.append(("index", index))
+    for source, path in paths:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if source == "index" and use_pool and row["split"] == "train":
+                    continue
+                if source == "training_pool" and row["split"] != "train":
+                    raise ValueError("non-train row entered training_pool audit")
+                label = source if source == "training_pool" else "index_" + row["split"]
+                frame = (row["scenario"], row["route_id"], int(row["frame_id"]))
+                case = (*frame, row["context_id"], row["prompt_road_structure"], row["invalid_reason"])
+                source_frames[label].add(frame)
+                source_cases[label].add(case)
+                all_frames.add(frame)
+                stats = coverage["sources"].setdefault(label, dict(rows=0, unique_frames=0, unique_cases=0))
+                stats.update(rows=stats["rows"] + 1, unique_frames=len(source_frames[label]),
+                             unique_cases=len(source_cases[label]))
+                coverage["unique_frames"] = len(all_frames)
+                fingerprint = hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()).digest()
+                if fingerprint in seen_rows:
+                    coverage["identical_rows_reused"] += 1
+                    continue
+                seen_rows.add(fingerprint)
+                coverage["row_variants_verified"] += 1
+                yield row, label
 
 
 def check_index(path, action_output_mode="binary"):
@@ -45,6 +110,7 @@ def check_index(path, action_output_mode="binary"):
             raise ValueError(
                 f"{manifest_path}: prompt hash mismatch; rebuild this index for the current prompt contract"
             )
+    pool_path = training_pool_path(path) if manifest_path.is_file() and manifest.get("training_pool") else None
     counts = Counter()
     groups = {}
     unique = defaultdict(set)
@@ -70,6 +136,15 @@ def check_index(path, action_output_mode="binary"):
         counts[f"{split}/{cls}"] += 1
         unique[split].add((row["scenario"], row["route_id"], row["frame_id"],
                            row["context_id"], row["prompt_road_structure"], row["invalid_reason"]))
+    if pool_path is not None:
+        for line in pool_path.open():
+            row = json.loads(line)
+            validate_action_rule(row)
+            validate_mapping_contract(row)
+            validate_choice_row(row)
+            group = physical_route_group(row["scenario"], row["route_id"])
+            if row["split"] != "train" or groups.get(group, "train") != "train":
+                raise ValueError(f"physical route leakage in training_pool: {group}")
     for split in ("train", "val", "test"):
         missing = [key for key in (*CONTEXT_IDS, "INVALID") if not counts[f"{split}/{key}"]]
         if missing:
@@ -83,10 +158,11 @@ def check_index(path, action_output_mode="binary"):
                       f"{len(same_rs_groups[split])} independent routes; insufficient_support. "
                       "Training allowed; this subgroup is excluded from checkpoint guards.",
                       file=sys.stderr)
-    return dict(counts=dict(counts), unique_cases={k: len(v) for k, v in unique.items()},
+    return dict(counts_scope="original_index", counts=dict(counts), unique_cases={k: len(v) for k, v in unique.items()},
                 same_rs_physical_routes={s: len(same_rs_groups[s]) for s in ("train", "val", "test")},
                 same_rs_evaluation=support,
-                physical_routes=len(groups), physical_route_overlap=0)
+                physical_routes=len(groups), physical_route_overlap=0,
+                training_pool=manifest.get("training_pool") if manifest_path.is_file() else None)
 
 
 def check_model(path):

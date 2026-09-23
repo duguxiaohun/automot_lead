@@ -712,11 +712,18 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         from qwen3vl_local.action_prior.event_balance import build_balanced_epoch
 
         usable = int(plan["samples_per_epoch"])
+        cursor_offsets = dict(cursor.get("sampling_cursor_offsets", {}))
+        pool_history = cursor.get("sampling_pool_history", {})
         ordered, sampling_audit = build_balanced_epoch(
             rows["train"], mode=args.sampling_mode, total=usable, seed=args.seed + epoch,
             route_diverse=bool(getattr(args, "event_balance_route_diverse", True)),
             repeat_cap=int(getattr(args, "event_balance_max_frame_repeats", 8)),
+            cursor_offsets=cursor_offsets, master_seed=args.seed, pool_history=pool_history,
+            sampling_policy=getattr(args, "sampling_policy", None),
+            smooth_power=float(getattr(args, "sampling_smooth_power", 0.5)),
         )
+        next_sampling_offsets = sampling_audit.get("next_cursor_offsets", cursor_offsets)
+        next_pool_history = sampling_audit.get("next_pool_history", {})
         if getattr(args, "high_level_action_token", False):
             from qwen3vl_local.action_prior.action_token import token_support, require_conditioned_training
             support = token_support({"train": ordered[:usable]})
@@ -845,6 +852,11 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
                 if full_epoch
                 else {"epoch": epoch, "micro": micro + 1}
             )
+            # 中途保存本轮起点以重建同一计划；仅整轮完成后提交下一轮起点。
+            if next_sampling_offsets or cursor_offsets:
+                next_cursor["sampling_cursor_offsets"] = dict(next_sampling_offsets if full_epoch else cursor_offsets)
+            if next_pool_history:
+                next_cursor["sampling_pool_history"] = next_pool_history if full_epoch else pool_history
             if full_validation_due(step, schedule, full_epoch=full_epoch, cycle_end=phase['cycle_end']):
                 next_cursor = with_validation_pending(next_cursor, epoch, full_epoch,
                                                        cycle=validation_phase['cycle'] if cycle_due else 0)

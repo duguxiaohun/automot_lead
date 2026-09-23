@@ -44,6 +44,12 @@ def candidate_rows(reviewed_contexts=5):
     return rows
 
 
+def capacity_ready_rows():
+    rows = candidate_rows()
+    return rows + [replace(row, route_id=f"copy_{copy}_{row.route_id}")
+                   for copy in range(3) for row in rows if not row.invalid_source]
+
+
 @pytest.mark.parametrize("seed", range(12))
 @pytest.mark.parametrize("target", [41, 42])
 def test_quota_remainder_goes_to_required_reviewed_source(seed, target):
@@ -129,7 +135,7 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
     for key, value in {"WORLD_SIZE": "4", "RANK": "0", "LOCAL_RANK": "0"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
-    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
+    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: capacity_ready_rows())
 
     def forbidden(*args, **kwargs):
         """CPU采样阶段不得进入任何模型或分布式运行路径。"""
@@ -153,7 +159,7 @@ def test_strict_validation_failure_precedes_distributed_setup(monkeypatch):
                                      "--no-auto-eval-balance-count", "--action-output-mode", "binary"])
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
     monkeypatch.setattr(preflight, "check_model", lambda path, **kwargs: {})
-    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
+    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: capacity_ready_rows())
     monkeypatch.setattr(train, "setup_distributed", lambda *a: pytest.fail("NCCL initialized before sampling"))
     with pytest.raises(RuntimeError, match="periodic loss validation sampling failed.*quota shortage") as caught:
         train.train(train.parse_args())
@@ -168,7 +174,7 @@ def test_generation_budget_can_increase_independently(monkeypatch):
                                      "--eval-balance-count", "32", "--generation-eval-balance-count", "16",
                                      "--action-output-mode", "binary"])
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
-    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
+    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: capacity_ready_rows())
     args = train.parse_args()
     train.train(args)
     assert args.validation_sampling["loss"]["requested"] == args.eval_balance_count == 32

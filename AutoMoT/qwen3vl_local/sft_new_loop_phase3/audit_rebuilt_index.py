@@ -6,14 +6,14 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, audit_input_rows
 from qwen3vl_local.sft_new_loop_phase3.build_dataset import physical_route_group
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import label_actions
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.prompts import make_prompt_spec, build_action_prompt
 
 
-def audit(index, data_root, action_output_mode="binary"):
+def audit(index, data_root, action_output_mode="binary", *, include_training_pool=None):
     """逐行验证被问动作，按split报告独立case/负例/动作；不伪造视觉审核。"""
     report = check_index(index, action_output_mode=action_output_mode)
     signatures = defaultdict(Counter)
@@ -23,8 +23,9 @@ def audit(index, data_root, action_output_mode="binary"):
     checked_paths = set()
     near_boundary = Counter()
     boundary_cases = []
-    for line in Path(index).open():
-        row = json.loads(line)
+    coverage = {}
+    rgb_by_source = defaultdict(set)
+    for row, source in audit_input_rows(index, coverage, include_training_pool=include_training_pool):
         split = row['split']
         key = (row['scenario'], row['route_id'], row['frame_id'], row['context_id'],
                row['prompt_road_structure'], row['invalid_reason'])
@@ -32,11 +33,15 @@ def audit(index, data_root, action_output_mode="binary"):
         signatures[split][row['action_signature']] += 1
         if row['invalid_reason'] == 'same_rs_wrong_event':
             negatives[split].add((row['scenario'], row['route_id'], row['frame_id'], row['context_id']))
-        for path in row['history_rgb_paths']:
+        paths = list(row['history_rgb_paths'])
+        if row.get('latest_rgb_path'):
+            paths.append(row['latest_rgb_path'])
+        for path in paths:
             full = Path(data_root) / path
             if full not in checked_paths and not full.is_file():
                 raise FileNotFoundError(full)
             checked_paths.add(full)
+            rgb_by_source[source].add(full)
         if not row['invalid_action_context']:
             evidence = row['action_evidence']
             exact_speeds = evidence['future_speeds_exact_mps']
@@ -65,7 +70,8 @@ def audit(index, data_root, action_output_mode="binary"):
         prompt = build_action_prompt(spec=spec)
         if 'future_speeds_mps' in prompt or 'lane_change_direction' in prompt:
             raise AssertionError('offline evidence leaked into prompt')
-    report.update(manual_rgb_confirmation_by_this_program=False, rgb_files_checked=len(checked_paths),
+    report.update(input_coverage=coverage, rgb_files_by_source={k: len(v) for k, v in rgb_by_source.items()},
+        manual_rgb_confirmation_by_this_program=False, rgb_files_checked=len(checked_paths),
         exact_speed_label_mismatches=0,
         signature_counts={k: dict(v) for k, v in signatures.items()},
         asked_action_counts={k: dict(v) for k, v in positive.items()},
@@ -86,8 +92,10 @@ def main():
     parser.add_argument('--data-root', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--action-output-mode', choices=('binary', 'choice'), default='binary')
+    parser.add_argument("--include-training-pool", action="store_true", default=None,
+                        help="require hashed full training pool and audit it plus original val/test")
     args = parser.parse_args()
-    result = audit(args.index, args.data_root, args.action_output_mode)
+    result = audit(args.index, args.data_root, args.action_output_mode, include_training_pool=args.include_training_pool)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({k: v for k, v in result.items() if k not in ('signature_counts', 'asked_action_counts')}, ensure_ascii=False))
 

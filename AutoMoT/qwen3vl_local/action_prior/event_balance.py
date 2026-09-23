@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 import random
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from qwen3vl_local.sft_new_loop_phase3.sampling import _MinCostFlow
 
 from qwen3vl_local.action_prior.contracts import file_hash
 
@@ -256,10 +257,14 @@ def available_counts(rows: Sequence[Mapping[str, Any]], *, for_evaluation: bool 
     return dict(counts)
 
 
-def _ordered_route_cycle(rows, rng, route_diverse):
-    values = list(rows)
+def _ordered_route_cycle(rows, rng, route_diverse, cursor: int = 0):
+    values = sorted(rows, key=lambda row: tuple(map(str, _identity(row))))
     if not route_diverse:
-        rng.shuffle(values); return values
+        rng.shuffle(values)
+        if values:
+            offset = int(cursor) % len(values)
+            values = values[offset:] + values[:offset]
+        return values
     by_route = defaultdict(list)
     for row in values: by_route[_route_key(row)].append(row)
     keys = sorted(by_route); rng.shuffle(keys)
@@ -269,65 +274,11 @@ def _ordered_route_cycle(rows, rng, route_diverse):
         for key in keys:
             if depth < len(by_route[key]): result.append(by_route[key][depth])
         depth += 1
+    if result:
+        offset = int(cursor) % len(result)
+        result = result[offset:] + result[:offset]
     return result
 
-
-class _MinCostFlow:
-    """用势函数和最短增广路求整数最小费用流；只在压缩后的事件归属图上运行。"""
-
-    def __init__(self, nodes):
-        """初始化残量图；边记录终点、反向边位置、剩余容量和单位费用。"""
-        self.graph = [[] for _ in range(nodes)]
-
-    def add(self, start, end, capacity, cost=0):
-        """添加正反向边，返回正向边位置供恢复分配使用。"""
-        forward = [end, len(self.graph[end]), int(capacity), int(cost)]
-        backward = [start, len(self.graph[start]), 0, -int(cost)]
-        self.graph[start].append(forward)
-        self.graph[end].append(backward)
-        return len(self.graph[start]) - 1
-
-    def flow(self, source, sink, requested):
-        """每次按整条路径瓶颈批量增广，避免逐个 presentation 求解。"""
-        from heapq import heappop, heappush
-
-        potential = [0] * len(self.graph)
-        total = cost = 0
-        while total < requested:
-            distance = [math.inf] * len(self.graph)
-            previous = [None] * len(self.graph)
-            distance[source] = 0
-            queue = [(0, source)]
-            while queue:
-                current, node = heappop(queue)
-                if current != distance[node]:
-                    continue
-                for index, (target, _back, capacity, price) in enumerate(self.graph[node]):
-                    candidate = current + price + potential[node] - potential[target]
-                    if capacity and candidate < distance[target]:
-                        distance[target] = candidate
-                        previous[target] = (node, index)
-                        heappush(queue, (candidate, target))
-            if previous[sink] is None:
-                break
-            for node, value in enumerate(distance):
-                if value < math.inf:
-                    potential[node] += value
-            amount, node = requested - total, sink
-            while node != source:
-                parent, index = previous[node]
-                amount = min(amount, self.graph[parent][index][2])
-                node = parent
-            node = sink
-            while node != source:
-                parent, index = previous[node]
-                edge = self.graph[parent][index]
-                edge[2] -= amount
-                self.graph[node][edge[1]][2] += amount
-                cost += amount * edge[3]
-                node = parent
-            total += amount
-        return total, cost
 
 
 def _groups(rows):
@@ -345,7 +296,7 @@ def _groups(rows):
 
 
 def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True, groups=None,
-                      event_quotas=None):
+                      event_quotas=None, cursor_offsets=None, master_seed=0):
     """固定配额和全局重复上限下，精确最大化整个 epoch 的唯一帧数。"""
     if repeat_cap < 1:
         raise ValueError("event_balance_max_frame_repeats must be positive")
@@ -404,8 +355,13 @@ def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True, g
     for bucket, signature, node, edge, capacity in edges:
         group_assignments[signature][bucket] = capacity - flow.graph[node][edge][2]
     assigned = {key: Counter() for key in keys}
+    next_offsets = dict(cursor_offsets or {})
     for signature in signatures:
-        ordered = _ordered_route_cycle(by_membership[signature], rng, route_diverse)
+        cursor_key = json.dumps(signature, separators=(",", ":"))
+        queue_rng = random.Random(f"event-queue:{master_seed}:{cursor_key}")
+        start_cursor = next_offsets.get(cursor_key, 0)
+        ordered = _ordered_route_cycle(by_membership[signature], queue_rng, route_diverse, cursor=start_cursor)
+        next_offsets[cursor_key] = start_cursor + sum(group_assignments[signature].values())
         cursor = 0
         # 同组内持续轮转，跨桶共享同一个 cursor：先覆盖所有不同帧再重复。
         # 总组容量 <= len(ordered)*repeat_cap，因此展开后每帧也满足全局上限。
@@ -426,6 +382,7 @@ def _joint_allocation(rows, quotas, *, repeat_cap, seed=0, route_diverse=True, g
         optimal_unique_frames=total - repeated,
         repeat_presentations=repeated,
         membership_groups=len(signatures),
+        cursor_start=dict(cursor_offsets or {}), next_cursor_offsets=next_offsets, master_seed=master_seed,
         **({"action_quota_overflow": (cost - repeated) // (total + 1)} if event_quotas is not None else {}),
     )
 
@@ -476,11 +433,13 @@ def event_balanced_total(rows: Sequence[Mapping[str, Any]], *, requested: int, r
 
 
 def build_event_balanced_epoch(rows: Sequence[Mapping[str, Any]], *, total: int, seed: int,
-                               route_diverse: bool = True, repeat_cap: int = 8):
+                               route_diverse: bool = True, repeat_cap: int = 8,
+                               cursor_offsets=None, master_seed=0):
     """固定 1:…:1:2 配额，同时限制每个 frame 在整个 epoch 的总出现次数。"""
     quotas = weighted_quotas(total)
     allocation = _joint_allocation(
-        rows, quotas, repeat_cap=repeat_cap, seed=seed, route_diverse=route_diverse
+        rows, quotas, repeat_cap=repeat_cap, seed=seed, route_diverse=route_diverse,
+        cursor_offsets=cursor_offsets, master_seed=master_seed,
     )
     if allocation is None:
         raise ValueError("event-balanced epoch quota is infeasible under shared-frame repeat caps")
@@ -499,7 +458,7 @@ def build_event_balanced_epoch(rows: Sequence[Mapping[str, Any]], *, total: int,
     if len(used) != allocation_audit["optimal_unique_frames"] or max(used.values(), default=0) > repeat_cap:
         raise AssertionError("event-balanced allocation expansion violated the global optimum/cap")
     return selected, dict(
-        schema="action_prior_event_balanced_epoch_v4", seed=int(seed), total=int(total), quotas=quotas,
+        schema="action_prior_event_balanced_epoch_v5_cursor", seed=int(seed), total=int(total), quotas=quotas,
         sampled=dict(Counter(row["event_balance_bucket"] for row in selected)), available=available_counts(rows),
         unique_frames=len(used), max_frame_repeats=max(used.values(), default=0),
         repeat_histogram={str(k): v for k, v in sorted(repeats.items())}, repeat_cap=int(repeat_cap),
@@ -517,6 +476,13 @@ def validate_sampling_args(args):
     """主线与消融共用采样配置校验；场景先验的输入权限由各自入口校验。"""
     if args.sampling_mode not in SAMPLING_MODES:
         raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
+    policy = getattr(args, "sampling_policy", "cycle_even")
+    expected = ("global_action",) if args.sampling_mode == SAMPLING_MODE_ACTION_BALANCED else ("cycle_even", "smooth_cap")
+    if policy not in expected:
+        raise ValueError(f"sampling_policy must be one of {expected} for {args.sampling_mode}")
+    power = getattr(args, "sampling_smooth_power", 0.5)
+    if not math.isfinite(power) or not 0 <= power <= 1:
+        raise ValueError("sampling_smooth_power must be finite in [0, 1]")
     if args.event_balanced_epoch_samples < 0 or args.event_balance_max_frame_repeats < 1:
         raise ValueError("event-balanced epoch samples must be nonnegative and repeat cap positive")
     if (
@@ -546,6 +512,9 @@ def sampling_contract(args):
         return None
     result = dict(
         mode=args.sampling_mode,
+        sampling_policy=getattr(args, "sampling_policy", "cycle_even"),
+        smooth_power=float(getattr(args, "sampling_smooth_power", 0.5)),
+        queue="fixed_canonical_route_ring_v1", master_seed=int(args.seed),
         source=source,
         route_diverse=bool(args.event_balance_route_diverse),
         scene_priors=bool(args.event_balanced_scene_priors),
@@ -553,10 +522,11 @@ def sampling_contract(args):
         max_frame_repeats=int(args.event_balance_max_frame_repeats),
         best_selection_metric=args.best_selection_metric,
     )
-    if args.sampling_mode == SAMPLING_MODE_ACTION_BALANCED:
+    if args.sampling_mode == SAMPLING_MODE_ACTION_BALANCED or getattr(args, "sampling_policy", "") == "smooth_cap":
         from qwen3vl_local.action_prior.action_balance import policy_contract
         from qwen3vl_local.action_prior.action_token import token_source
-        result["action_balance"] = policy_contract()
+        if args.sampling_mode == SAMPLING_MODE_ACTION_BALANCED:
+            result["action_balance"] = policy_contract()
         if getattr(args, "event_balance_index", ""):
             args.action_balance_label_identity = token_source(args).identity
         labels = getattr(args, "action_balance_label_identity", None)
@@ -566,7 +536,15 @@ def sampling_contract(args):
     return result
 
 
-def build_balanced_epoch(rows, *, mode, **kwargs):
+def build_balanced_epoch(rows, *, mode, sampling_policy=None, smooth_power=0.5, pool_history=None, **kwargs):
+    policy = sampling_policy or ("global_action" if mode == SAMPLING_MODE_ACTION_BALANCED else "cycle_even")
+    if policy == "smooth_cap":
+        if mode != SAMPLING_MODE_EVENT_BALANCED:
+            raise ValueError("smooth_cap requires event_balanced; global action quotas are a separate comparison")
+        from qwen3vl_local.action_prior.action_balance import build_hierarchical_epoch
+        return build_hierarchical_epoch(rows, smooth_power=smooth_power, pool_history=pool_history, **kwargs)
+    if policy != ("global_action" if mode == SAMPLING_MODE_ACTION_BALANCED else "cycle_even"):
+        raise ValueError(f"sampling policy {policy} is incompatible with mode {mode}")
     if mode == SAMPLING_MODE_ACTION_BALANCED:
         from qwen3vl_local.action_prior.action_balance import build_action_balanced_epoch
         return build_action_balanced_epoch(rows, **kwargs)

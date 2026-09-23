@@ -26,6 +26,7 @@ def main():
     cfg.setdefault("event_balance_max_frame_repeats", DEFAULTS["event_balance_max_frame_repeats"])
     if cfg.get("sampling_mode", "uniform") not in ("event_balanced", "action_balanced"):
         raise ValueError("uniform runs require their original source; start a new balanced run")
+    cfg.setdefault("sampling_policy", "global_action" if cfg["sampling_mode"] == "action_balanced" else "cycle_even")
     legacy_optimization_defaults(cfg)
     cfg.setdefault("action_token_separation_weight", 0.0)
     cfg.setdefault("action_token_separation_margin", 0.5)

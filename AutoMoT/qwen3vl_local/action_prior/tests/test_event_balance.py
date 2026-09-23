@@ -118,6 +118,11 @@ def test_validation_preflight_counts_filtered_special_like_actual_metrics(tmp_pa
     index = balance.EventBalanceIndex(source)
     training = [_action_row(i) for i in range(40)]
     index.annotate(training)
+    from qwen3vl_local.action_prior.action_token import ACTION_TOKEN_NAMES, TOKEN_VERSION
+    for row in training:
+        name = "STOP" if row["event_balance_status"] == balance.SPECIAL_ELIGIBLE else "UNCOND"
+        row.update(action_token_id=ACTION_TOKEN_NAMES.index(name),
+                   action_token=dict(name=name, version=TOKEN_VERSION, reason="fixture"))
     validation = [dict(row, route_group="Val/" + row["route_group"]) for row in training]
     for row in validation:
         if row.get("event_balance_all_special_buckets"):

@@ -131,7 +131,7 @@ def parser(variant: str) -> argparse.ArgumentParser:
         )
         p.add_argument("--" + key.replace("_", "-"), default=value, **kwargs)
     p.set_defaults(**{key: defaults[key] for key in ignored if key in defaults})
-    p.set_defaults(event_balance_max_frame_repeats=None)
+    p.set_defaults(event_balance_max_frame_repeats=None, sampling_policy=None)
     add_sampling_aliases(p)
     p.add_argument("--preflight", action="store_true")
     return p
@@ -186,6 +186,7 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
         saved = json.load(f)
     if saved.get("sampling_mode", "uniform") not in ("event_balanced", "action_balanced"):
         raise ValueError("uniform runs require their original source; start a new balanced run")
+    saved.setdefault("sampling_policy", "global_action" if saved["sampling_mode"] == "action_balanced" else "cycle_even")
     legacy_optimization_defaults(saved)
     saved.setdefault("action_token_separation_weight", 0.0)
     saved.setdefault("action_token_separation_margin", 0.5)

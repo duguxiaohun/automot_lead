@@ -34,11 +34,13 @@ action_event_balance_options() {
   [[ ! -v EVENT_BALANCE_INDEX ]] || explicit_index=1
   # 环境变量只在显式设置时转发，续训不注入新默认值；后面的 CLI 优先。
   local name option
-  for name in EVENT_BALANCED_EPOCH_SAMPLES EVENT_BALANCE_MAX_FRAME_REPEATS BEST_SELECTION_METRIC; do
+  for name in EVENT_BALANCED_EPOCH_SAMPLES EVENT_BALANCE_MAX_FRAME_REPEATS BEST_SELECTION_METRIC SAMPLING_POLICY SAMPLING_SMOOTH_POWER; do
     case "$name" in
       EVENT_BALANCED_EPOCH_SAMPLES) option=--event-balanced-epoch-samples ;;
       EVENT_BALANCE_MAX_FRAME_REPEATS) option=--event-balance-max-frame-repeats ;;
       BEST_SELECTION_METRIC) option=--best-selection-metric ;;
+      SAMPLING_POLICY) option=--sampling-policy ;;
+      SAMPLING_SMOOTH_POWER) option=--sampling-smooth-power ;;
     esac
     [[ ! -v "$name" ]] || ACTION_EVENT_BALANCE_ARGS+=("$option" "${!name}")
   done

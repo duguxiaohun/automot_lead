@@ -100,7 +100,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     support_aware_quota, SUPPORT_BALANCE_VERSION, sampling_action,
-    route_diverse_sample,
+    route_diverse_sample, hierarchical_event_action_epoch_sample, _item_identity,
     route_diversity_report, primary_action_distribution,
 )
 from qwen3vl_local.sft_v2.train import (  # noqa: E402
@@ -264,9 +264,15 @@ def _read_rows(
     split: str,
     max_frames: int = 0,
     data_root: Optional[pathlib.Path] = None,
+    training_pool: bool = False,
 ) -> List[FrameRow]:
     """读取 frame_index.jsonl。"""
 
+    if training_pool:
+        if split != "train":
+            raise ValueError("smooth_cap training pool is train-only")
+        from qwen3vl_local.sft_new_loop_phase3.preflight import training_pool_path
+        path = training_pool_path(path)
     root = pathlib.Path(data_root) if data_root is not None else (_AUTOMOT_ROOT / "lead_data")
     rows: List[FrameRow] = []
     with path.open("r", encoding="utf-8") as f:
@@ -395,6 +401,16 @@ def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, i
     return dict(sorted(counts.items()))
 
 
+def sampling_config(args):
+    """保存实际训练策略；验证仍使用固定的历史选择口径。"""
+    return dict(policy=getattr(args, "sampling_policy", "smooth_cap"),
+                repeat_cap=int(getattr(args, "sampling_repeat_cap", 8)),
+                smooth_power=float(getattr(args, "sampling_smooth_power", 0.5)),
+                master_seed=int(args.seed), queue="fixed_canonical_route_ring_v1",
+                training_pool_identity=getattr(args, "training_pool_identity", None),
+                training_pool="all_train_candidates" if getattr(args, "sampling_policy", "smooth_cap") != "cycle_even" else "frame_index")
+
+
 def _balanced_work(
     rows: Sequence[FrameRow],
     *,
@@ -404,10 +420,54 @@ def _balanced_work(
     route_diverse: bool = False,
     require_invalid_coverage: bool = True,
     action_output_mode: str = "binary",
-) -> List[WorkItem]:
+    mode: str = "cycle_even",
+    repeat_cap: int = 8,
+    smooth_power: float = 0.5,
+    cursor_state: Dict[str, int] | None = None,
+    master_seed: int = 0,
+    return_cursors: bool = False,
+    sampling_audit: Dict[str, Any] | None = None,
+    pool_history: Mapping | None = None,
+) -> List[WorkItem] | Tuple[List[WorkItem], Dict[str, int]]:
     """按上下文及主要动作分配容量；binary保留组合标签但不为组合另建配额。"""
 
     output_mode = validate_action_output_mode(action_output_mode)
+    if mode not in ("cycle_even", "smooth_cap", "hierarchical_event_action"):
+        raise ValueError(f"unknown sampling policy: {mode}")
+
+    def joint(groups, rng, target, invalid=(), invalid_candidates=()):
+        # 保留原 INVALID 分层/覆盖/人工题配额；自动负例只在相同签名和错误前提内
+        # 替换具体帧，并与正例一起求解，避免先随机占帧误拒可行训练预算。
+        targets = {key: target for key in groups}
+        groups = dict(groups)
+        def invalid_key(item):
+            row = item.row
+            return "INVALID|" + "|".join((row.invalid_source, row.prompt_road_structure, row.invalid_reason))
+        fixed = [item for item in invalid if item.row.invalid_reason == "same_rs_wrong_event"]
+        for item in invalid_candidates:
+            if item.row.invalid_reason != "same_rs_wrong_event":
+                key = invalid_key(item)
+                groups.setdefault(key, []).append(item)
+                targets.setdefault(key, 0)
+        for item in invalid:
+            if item.row.invalid_reason != "same_rs_wrong_event":
+                targets[invalid_key(item)] += 1
+        reserved = Counter(_item_identity(item) for item in fixed)
+        work, audit = hierarchical_event_action_epoch_sample(
+            groups, targets, repeat_cap=repeat_cap,
+            smooth_power=smooth_power, cursor_state=cursor_state, master_seed=master_seed,
+            rng=rng, route_diverse=route_diverse, initial_frame_usage=reserved, pool_history=pool_history,
+            action_fn=lambda item: ("INVALID" if item.row.invalid_source else
+                                    sampling_action(item.row.answers, item.row.context_id)),
+        )
+        work.extend(fixed)
+        rng.shuffle(work)
+        audit.pop("selected_cells")
+        audit["reserved_reviewed_invalid_presentations"] = len(fixed)
+        audit["invalid_presentations"] = len(invalid)
+        if sampling_audit is not None:
+            sampling_audit.update(audit)
+        return (work, audit["next_cursors"]) if return_cursors else work
     if output_mode == "choice":
         eligible: List[WorkItem] = []
         rejected: Counter = Counter()
@@ -430,6 +490,8 @@ def _balanced_work(
         for item in eligible:
             groups[f"all_random_order/context/{item.row.context_id}"].append(item)
         rng = random.Random(f"{seed}:phase3_choice_balance:{len(eligible)}:{effective_target}")
+        if mode != "cycle_even":
+            return joint({key.split("/")[-1]: items for key, items in groups.items()}, rng, effective_target)
         work: List[WorkItem] = []
         for key in sorted(groups):
             by_action: Dict[str, List[WorkItem]] = defaultdict(list)
@@ -448,7 +510,7 @@ def _balanced_work(
                 )
             work.extend(selected)
         rng.shuffle(work)
-        return work
+        return (work, dict(cursor_state or {})) if return_cursors else work
 
     class_counts = Counter(_balance_class(row) for row in rows)
     missing = [key for key in BALANCE_CLASSES if class_counts.get(key, 0) <= 0]
@@ -467,6 +529,20 @@ def _balanced_work(
         item = _make_item(row, seed=seed, action_output_mode=action_output_mode)
         groups[item.balance_key].append(item)
     rng = random.Random(f"{seed}:new_phase3_balance:{len(rows)}:{effective_target}:{invalid_multiplier:.6f}")
+    if mode != "cycle_even":
+        invalid = []
+        invalid_candidates = []
+        positive = {}
+        for key, items in sorted(groups.items()):
+            if key.endswith("/class/INVALID"):
+                invalid_candidates.extend(items)
+                invalid.extend(balanced_invalid_items(
+                    items, target=max(1, int(round(effective_target * invalid_multiplier))),
+                    rng=rng, require_coverage=bool(require_invalid_coverage),
+                ))
+            else:
+                positive[key.split("/")[-1]] = items
+        return joint(positive, rng, effective_target, invalid, invalid_candidates)
     work: List[WorkItem] = []
     for key in sorted(groups):
         items = list(groups[key])
@@ -497,7 +573,7 @@ def _balanced_work(
             )
         work.extend(selected)
     rng.shuffle(work)
-    return work
+    return (work, dict(cursor_state or {})) if return_cursors else work
 
 
 def _validation_work(
@@ -1170,6 +1246,7 @@ def _save_adapter(
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
         "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "sampling_config": sampling_config(args),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
         "git": _git_metadata(),
@@ -1318,6 +1395,7 @@ def _write_run_metadata(
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
         "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "sampling_config": sampling_config(args),
     }
     (output_dir / "train_run_manifest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
@@ -1359,7 +1437,8 @@ def train(args: argparse.Namespace) -> None:
 
     validate_history_rgb_mode(args.history_rgb_mode)
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
-    check_index(args.index, action_output_mode=args.action_output_mode)
+    index_audit = check_index(args.index, action_output_mode=args.action_output_mode)
+    args.training_pool_identity = index_audit.get("training_pool")
     if not args.sampling_only:
         check_model(args.model_dir)
     # 先完成纯 CPU 采样预检；失败时尚未创建 NCCL 进程组。
@@ -1377,13 +1456,19 @@ def train(args: argparse.Namespace) -> None:
         split=str(args.split),
         max_frames=int(args.max_frames),
         data_root=pathlib.Path(args.data_root),
+        training_pool=getattr(args, "sampling_policy", "smooth_cap") != "cycle_even",
     )
     choice_filter = _choice_filter_report(rows, seed=int(args.seed)) if args.action_output_mode == "choice" else None
     raw_focus_counts = _raw_focus_bin_counts(rows)
     effective_target = _effective_class_target(
         rows, int(args.focus_balance_count), action_output_mode=args.action_output_mode
     )
-    full_work = _balanced_work(
+    sampling_policy = getattr(args, "sampling_policy", "smooth_cap")
+    sampling_mode = "smooth_cap" if sampling_policy in ("smooth_cap", "hierarchical_event_action") else "cycle_even"
+    epoch_cursor_state: Dict[str, int] = {}
+    epoch_sampling_audit: Dict[str, Any] = {}
+    epoch_pool_history = {}
+    init_work = _balanced_work(
         rows,
         target_per_bin=int(args.focus_balance_count),
         seed=int(args.seed),
@@ -1391,7 +1476,20 @@ def train(args: argparse.Namespace) -> None:
         route_diverse=bool(args.train_route_diverse),
         require_invalid_coverage=bool(args.require_invalid_coverage),
         action_output_mode=args.action_output_mode,
+        mode=sampling_mode,
+        repeat_cap=int(getattr(args, "sampling_repeat_cap", 8)),
+        smooth_power=float(getattr(args, "sampling_smooth_power", 0.5)),
+        master_seed=int(args.seed),
+        sampling_audit=epoch_sampling_audit,
+        pool_history=epoch_pool_history,
+        cursor_state=epoch_cursor_state,
+        return_cursors=True,
     )
+    if isinstance(init_work, tuple):
+        full_work, epoch_cursor_state = init_work
+    else:
+        full_work = init_work
+    epoch_pool_history = epoch_sampling_audit.get("next_pool_history", {})
     if not full_work:
         raise ValueError("balanced work list is empty")
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
@@ -1456,6 +1554,8 @@ def train(args: argparse.Namespace) -> None:
                 "ok": True, "index": str(args.index),
                 "history_rgb_mode": args.history_rgb_mode,
                 "action_output_mode": args.action_output_mode,
+                "sampling": epoch_sampling_audit,
+                "sampling_config": sampling_config(args),
                 "train_sampled_cases": len(full_work),
                 "train_unique_cases": len(unique_cases(full_work)),
                 "train_distribution_layer": "epoch_1_work_items_snapshot_not_cumulative",
@@ -1609,7 +1709,8 @@ def train(args: argparse.Namespace) -> None:
     epoch = 0
     while global_step < total_steps:
         if epoch > 0:
-            full_work = _balanced_work(
+            epoch_sampling_audit = {}
+            epoch_work = _balanced_work(
                 rows,
                 target_per_bin=int(args.focus_balance_count),
                 seed=int(args.seed) + epoch * 1_000_003,
@@ -1617,7 +1718,20 @@ def train(args: argparse.Namespace) -> None:
                 route_diverse=bool(args.train_route_diverse),
                 require_invalid_coverage=bool(args.require_invalid_coverage),
                 action_output_mode=args.action_output_mode,
+                mode=sampling_mode,
+                repeat_cap=int(getattr(args, "sampling_repeat_cap", 8)),
+                smooth_power=float(getattr(args, "sampling_smooth_power", 0.5)),
+                master_seed=int(args.seed),
+                sampling_audit=epoch_sampling_audit,
+                pool_history=epoch_pool_history,
+                cursor_state=epoch_cursor_state,
+                return_cursors=True,
             )
+            if isinstance(epoch_work, tuple):
+                full_work, epoch_cursor_state = epoch_work
+            else:
+                full_work = epoch_work
+            epoch_pool_history = epoch_sampling_audit.get("next_pool_history", {})
         random.Random(int(args.seed) + epoch * 1_000_003).shuffle(full_work)
         work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
         if rank == 0:
@@ -1630,6 +1744,8 @@ def train(args: argparse.Namespace) -> None:
             (epoch_balance_dir / f"epoch_{epoch + 1:04d}.json").write_text(
                 json.dumps(
                     {
+                        "sampling": epoch_sampling_audit,
+                        "sampling_config": sampling_config(args),
                         "epoch": int(epoch + 1),
                         "seed": int(args.seed) + epoch * 1_000_003,
                         "class_counts": dict(Counter(
@@ -2034,6 +2150,24 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="within each train class, rotate routes before taking another frame from the same route",
+    )
+    p.add_argument(
+        "--sampling-policy",
+        choices=("cycle_even", "smooth_cap", "hierarchical_event_action"),
+        default="smooth_cap",
+        help="action quota distribution mode: smooth_cap (default) or cycle_even (legacy comparison)",
+    )
+    p.add_argument(
+        "--sampling-repeat-cap",
+        type=int,
+        default=8,
+        help="maximum presentations per frame in smooth_cap/hierarchical mode",
+    )
+    p.add_argument(
+        "--sampling-smooth-power",
+        type=float,
+        default=0.5,
+        help="sub-linear scaling power for intra-event action capacity (default 0.5 for square-root)",
     )
     p.add_argument(
         "--invalid-focus-multiplier",

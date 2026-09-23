@@ -68,6 +68,10 @@ def harness(tmp_path, monkeypatch):
         def forward_sample(self, sample, decoder, config, dtype, clip=None, **kwargs):
             if sample["split"] == "train":
                 assert kwargs["sample_trajectory"] is False
+                if state.failure == "second_sampling_epoch" and len(state.train_cases) == 26:
+                    raise RuntimeError("injected interruption")
+                if state.failure == "sampling_epoch_boundary" and len(state.train_cases) == 23:
+                    os.kill(os.getpid(), signal.SIGTERM)
                 if state.failure == "mid_epoch" and len(state.train_cases) == 2:
                     raise RuntimeError("injected interruption")
                 if state.failure == "after_epoch" and len(state.train_cases) == 5:
@@ -315,7 +319,7 @@ def test_sigterm_during_validation_preserves_pre_validation_cursor(harness, tmp_
     assert torch.equal(restored["decoder"]["weight"], reference["decoder"]["weight"])
 
 
-@pytest.mark.parametrize("sampling", ["event_balanced", "action_balanced"])
+@pytest.mark.parametrize("sampling", ["event_balanced", "action_balanced", "cycle_even"])
 def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_path, monkeypatch, sampling):
     """真实共享循环：同源均衡课程、best 指标、样本顺序和参数更新三组一致。"""
     from qwen3vl_local.action_prior.tests.test_event_balance import _write_source, _action_row
@@ -336,7 +340,7 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
         state.rows[split] = [dict(_action_row(i), scenario=split, split=split,
                                  route_group=f"{split}/route_{i % 3}") for i in range(40)]
         index.annotate(state.rows[split])
-    if sampling == "action_balanced":
+    if sampling in ("event_balanced", "action_balanced", "cycle_even"):
         from qwen3vl_local.action_prior import action_token
         # Source IO is covered separately; this fixture exercises the actual shared loop.
         for rr in state.rows.values():
@@ -350,9 +354,11 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
             for action in action_token.ACTION_TOKEN_NAMES[1:]:
                 for i in range(2):
                     rr.append(action_row(100 + len(rr), ["UE2"], action, split=split))
-    extra = ["--sampling-mode", sampling, "--event-balance-index", str(source),
+    extra = ["--sampling-mode", "event_balanced" if sampling == "cycle_even" else sampling, "--event-balance-index", str(source),
              "--event-balanced-epoch-samples", "24", "--event-balance-max-frame-repeats", "2",
              "--best-selection-metric", "event_balanced_ade"]
+    if sampling == "cycle_even":
+        extra += ["--sampling-policy", "cycle_even"]
     results = []
     for variant in ("prior", "qwen_simple", "bev_only"):
         state.train_cases.clear(); state.eval_cases.clear()
@@ -369,13 +375,26 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
         assert "event_balanced_route_ade_m" in metrics
         event_metrics = {k: v for k, v in metrics.items() if "event_balance" in k}
         results.append((ckpt, list(state.train_cases), list(state.eval_cases), audit, event_metrics))
-        if sampling == "action_balanced":
-            expected_order = list(state.train_cases)
+        expected_order = list(state.train_cases)
+        for failure in ("mid_epoch", "second_sampling_epoch", "sampling_epoch_boundary"):
             state.train_cases.clear(); state.eval_cases.clear()
-            state.failure = "mid_epoch"
-            interrupted = tmp_path / (variant + "_action_interrupted")
-            with pytest.raises(RuntimeError, match="injected interruption"):
+            state.failure = failure
+            interrupted = tmp_path / (variant + "_" + failure)
+            expected_exception = GracefulTerminationExit if failure == "sampling_epoch_boundary" else RuntimeError
+            with pytest.raises(expected_exception):
                 run(variant, interrupted, extra=extra, val_steps=100)
+            partial = torch.load(interrupted / "latest.pt", weights_only=False)
+            if failure == "mid_epoch":
+                assert not partial['cursor'].get('sampling_cursor_offsets')
+            else:
+                assert partial['cursor']['sampling_cursor_offsets']
+            if sampling == "event_balanced":
+                if failure == "mid_epoch":
+                    assert partial['cursor']['sampling_pool_history'] == {}
+                else:
+                    completed = json.loads((interrupted / "sampling/epoch_001.json").read_text())
+                    assert partial['cursor']['sampling_pool_history'] == completed['next_pool_history']
+                    assert sum(p['presentations'] for p in partial['cursor']['sampling_pool_history'].values()) == 24
             state.failure = None
             restored_action = run(variant, interrupted, resume=True, extra=extra, val_steps=100)
             assert state.train_cases == expected_order
@@ -386,7 +405,7 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
                            for tag, *_ in state.logs[str(out)])
             calls = len(state.train_cases)
             restored = run(variant, out, resume=True, val_steps=100)
-            assert restored["args"]["sampling_mode"] == sampling
+            assert restored["args"]["sampling_mode"] == ("event_balanced" if sampling == "cycle_even" else sampling)
             assert restored["args"]["event_balanced_epoch_samples"] == 24
             assert len(state.train_cases) == calls
     for result in results[1:]:

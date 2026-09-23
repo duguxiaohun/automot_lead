@@ -282,3 +282,85 @@ def test_plan_reports_actual_event_distribution_and_global_actions(variant):
     assert plan["sampling"]["action_balance"]["action_quotas"] == audit["sampled_actions"]
     assert plan["sampling"]["epoch_quotas"] != eb.weighted_quotas(120)
     assert plan["sampling"]["budget_reference"] == "explicit"
+
+
+@pytest.mark.parametrize('variant', ['prior', 'qwen_simple', 'bev_only'])
+def test_new_training_defaults_and_explicit_comparisons(variant):
+    p = parser() if variant == 'prior' else common.parser(variant)
+    args = p.parse_args([])
+    assert args.sampling_mode == 'event_balanced' and args.sampling_policy == 'smooth_cap'
+    assert args.sampling_smooth_power == .5 and args.event_balance_max_frame_repeats == 8
+    assert p.parse_args(['--action-balanced']).sampling_policy == 'global_action'
+    assert p.parse_args(['--sampling-policy', 'cycle_even']).sampling_policy == 'cycle_even'
+    with pytest.raises(SystemExit):
+        p.parse_args(['--action-balanced', '--sampling-policy', 'smooth_cap'])
+
+
+@pytest.mark.parametrize('policy', ['smooth_cap', 'cycle_even', 'global_action'])
+def test_real_action_sampler_interface_and_cross_epoch_cursor(policy):
+    rows = []
+    for event in eb.SPECIAL_BUCKETS:
+        for i in range(20):
+            rows.append(row(len(rows), [event], 'STOP'))
+    for i in range(40):
+        rows.append(row(len(rows)))
+    if policy == 'global_action':
+        rows = pool()
+    mode = 'action_balanced' if policy == 'global_action' else 'event_balanced'
+    cursor, seen = {}, set()
+    for epoch in range(2):
+        chosen, audit = eb.build_balanced_epoch(
+            rows if epoch == 0 else rows[::-1], mode=mode, sampling_policy=policy,
+            total=120, seed=epoch, master_seed=13, repeat_cap=1, cursor_offsets=cursor,
+        )
+        assert audit['cursor_start'] == cursor
+        cursor = audit['next_cursor_offsets']
+        assert cursor and audit['max_frame_repeats'] == 1
+        if policy != 'global_action':
+            assert audit['quotas'] == eb.weighted_quotas(120)
+        seen.update(eb._identity(r) for r in chosen)
+    if policy != 'global_action':
+        assert len(seen) == 240
+
+
+def test_hierarchical_rare_action_cap_and_same_event_return():
+    rows = []
+    for event in eb.SPECIAL_BUCKETS:
+        for _ in range(100):
+            rows.append(row(len(rows), [event], 'STOP'))
+        for _ in range(4):
+            rows.append(row(len(rows), [event], 'KEEP'))
+    for _ in range(200):
+        rows.append(row(len(rows)))
+    selected, audit = ab.build_hierarchical_epoch(rows, total=1200, seed=1, repeat_cap=2)
+    assert len(selected) == 1200 and audit['max_frame_repeats'] <= 2
+    assert audit['sampled_actions'] == {'STOP': 920, 'KEEP': 80, 'UNCOND': 200}
+    assert audit['quotas'] == eb.weighted_quotas(1200)
+
+
+def test_formal_action_sampler_fairly_exposes_all_fourteen_frames():
+    """原固定最小费用同解只覆盖13/14；事件/动作/cap都不允许因公平性改变。"""
+    rows = [row(i, [event], 'STOP') for i, event in enumerate(eb.SPECIAL_BUCKETS)]
+    rows += [row(10), row(11), row(12, ['UE1'], 'STOP'), row(13, ['UE1', 'UE2'], 'STOP')]
+    cursor, history, seen = {}, {}, set()
+    for epoch in range(7):
+        kwargs = dict(mode='event_balanced', sampling_policy='smooth_cap', total=12,
+                      seed=epoch, master_seed=1, repeat_cap=1, cursor_offsets=cursor, pool_history=history)
+        selected, audit = eb.build_balanced_epoch(rows, **kwargs)
+        # JSON保存/恢复与输入倒序不能影响计划或公平历史。
+        restored = json.loads(json.dumps(dict(cursor_offsets=cursor, pool_history=history)))
+        replay, report = eb.build_balanced_epoch(rows[::-1], **{**kwargs, **restored})
+        assert replay == selected and report == audit
+        assert audit['sampled'] == eb.weighted_quotas(12)
+        assert audit['sampled_actions'] == {'STOP': 10, 'UNCOND': 2}
+        assert audit['max_frame_repeats'] == 1 and audit['unique_frames'] == 12
+        assert audit['action_quota_overflow'] == 0
+        for key, pool in audit['pools'].items():
+            assert pool['cumulative_presentations'] == cursor.get(key, 0) + pool['presentations']
+            assert pool['skipped_epochs'] == (0 if pool['presentations'] else history.get(key, {}).get('skipped_epochs', 0) + 1)
+        cursor, history = audit['next_cursor_offsets'], audit['next_pool_history']
+        seen.update(r['anchor'] for r in selected)
+        if epoch == 1:
+            assert seen == set(range(14))
+    assert sum(p['presentations'] for p in history.values()) == 84
+    assert max(p['skipped_epochs'] for p in history.values()) <= 1

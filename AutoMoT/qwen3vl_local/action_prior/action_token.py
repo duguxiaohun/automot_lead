@@ -204,7 +204,8 @@ def embedding_diagnostics(weight):
 
 
 def annotate_tokens(args, rows):
-    if getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced":
+    if (getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced"
+            or getattr(args, "sampling_policy", "") == "smooth_cap"):
         token_source(args).annotate(rows)
 
 

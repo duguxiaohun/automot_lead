@@ -477,6 +477,9 @@ def _sample_context_bucket(
     target: int,
     rng: random.Random,
     route_diverse: bool,
+    mode: str = "cycle_even",
+    repeat_cap: int = 8,
+    smooth_power: float = 0.5,
 ) -> Tuple[List[Mapping[str, Any]], Dict[str, Any]]:
     """按主要动作分配配额；稀少组合并入主动作，保留完整原始监督。"""
 
@@ -489,7 +492,10 @@ def _sample_context_bucket(
         by_action[sampling_action(base["action_labels"], context_id)].append(base)
     capacities = {key: len(value) for key, value in by_signature.items()}
     action_capacities = {key: len(value) for key, value in by_action.items()}
-    quotas = support_aware_quota(action_capacities, int(target))
+    quotas = support_aware_quota(
+        action_capacities, int(target),
+        mode=mode, repeat_cap=repeat_cap, smooth_power=smooth_power,
+    )
     selected: List[Mapping[str, Any]] = []
     for key in sorted(quotas):
         count = int(quotas[key])
@@ -711,6 +717,8 @@ def _balanced_rows_by_split(
                 f"split={split} cannot construct required INVALID bucket: "
                 f"target={invalid_target} built={len(invalid_rows)}"
             )
+        if split == "train":
+            train_pool = _write_training_pool(split_buckets, invalid_rows, out_dir, args.split_seed)
         sampled.extend(invalid_rows)
         rng.shuffle(sampled)
         rows.extend(sampled)
@@ -742,6 +750,7 @@ def _balanced_rows_by_split(
         }
     return rows, {
         "split_coverage": split_coverage,
+        "training_pool": train_pool,
         "raw_counts": dict(raw_counts),
         "balance": balance_report,
         "actual_scenario_town_pairs": [
@@ -769,6 +778,30 @@ def _assert_actual_review_coverage(
             "new Phase3 actual dataset contains scenario/Town pairs without completed full-frame RGB review: "
             f"{rendered[:50]}"
         )
+
+
+def _write_training_pool(buckets, invalid_rows, output_dir, seed):
+    """保存全部 train 正例，避免先截断索引再做跨轮游标；INVALID 沿用已审核配额。"""
+    rows = [_make_row(base=base, context_id=context, invalid=False)
+            for context in CONTEXT_IDS for base in buckets[context]]
+    rows.extend(invalid_rows)
+    random.Random(f"train-pool:{seed}").shuffle(rows)
+    path = output_dir / "train_sampling_pool.jsonl"
+    temporary = path.with_suffix(".jsonl.tmp")
+    digest = hashlib.sha256()
+    with temporary.open("wb") as handle:
+        for row in rows:
+            annotation = (dict(primary_action_version=PRIMARY_ACTION_VERSION, primary_action=None,
+                               keep_scope=None, primary_action_evidence_status="invalid_context")
+                          if row["invalid_action_context"] else
+                          choice_annotation(row["answers"], row["context_id"], row["action_evidence"]))
+            line = (json.dumps({**row, **annotation}, ensure_ascii=False) + "\n").encode("utf-8")
+            handle.write(line)
+            digest.update(line)
+    temporary.replace(path)
+    return dict(file=path.name, sha256=digest.hexdigest(), rows=len(rows),
+                positive_rows=sum(len(v) for v in buckets.values()), invalid_rows=len(invalid_rows),
+                scope="all_train_positive_candidates_and_original_index_invalid")
 
 
 def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
@@ -827,6 +860,8 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     manifest = {
         "format": FRAME_INDEX_FORMAT,
         "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "training_pool": balance["training_pool"],
+        "index_sampling_config": {"policy": "cycle_even", "scope": "fixed_index_and_validation"},
         "input_quality_policy": {"version": HISTORY_QUALITY_VERSION,
                                  "minimum_anchor": MIN_ACTION_ANCHOR,
                                  "excluded": "any four-frame history containing initialization frame 0"},

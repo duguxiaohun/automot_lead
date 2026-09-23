@@ -1,7 +1,10 @@
 """全局主要动作均衡；动作内温和提高小事件权重，预算对齐 event 模式。"""
+from __future__ import annotations
+
 from collections import Counter, defaultdict
 import math
 import random
+from typing import Dict
 
 from qwen3vl_local.action_prior.action_token import ACTION_TOKEN_NAMES, TOKEN_VERSION
 from qwen3vl_local.action_prior.event_balance import (
@@ -15,7 +18,7 @@ from qwen3vl_local.sft_new_loop_phase3.sampling import support_diagnostic
 EVENT_ACTIONS = {c.source_event.replace("-", ""): (*c.action_keys, "KEEP") for c in ACTION_CONTEXTS}
 SEMANTIC_ACTIONS = tuple(a for a in ACTION_TOKEN_NAMES if a != "UNCOND")
 EVENT_BOOST_CAP = 2.0
-VERSION = "action_balanced_global_soft_event_v4"
+VERSION = "action_balanced_global_soft_event_v5_cursor"
 
 
 def policy_contract():
@@ -233,14 +236,16 @@ def action_balanced_total(rows, *, requested, repeat_cap, world):
     return total
 
 
-def build_action_balanced_epoch(rows, *, total, seed, route_diverse=True, repeat_cap=DEFAULT_ACTION_REPEAT_CAP):
+def build_action_balanced_epoch(rows, *, total, seed, route_diverse=True, repeat_cap=DEFAULT_ACTION_REPEAT_CAP, cursor_offsets: Dict[str, int] | None = None, master_seed=0):
     data = _sampling_pools(rows)
     targets, pool_quotas, event_orders, quotas = _layout(data, total, repeat_cap, seed)
     selected = []
+    offsets = cursor_offsets or {}
     for key, count in pool_quotas.items():
         action, events = key
-        rng = random.Random(f"{VERSION}:frames:{seed}:{action}:{events}")
-        ordered = _ordered_route_cycle(data["pools"][key], rng, route_diverse)
+        rng = random.Random(f"{VERSION}:frames:{master_seed}:{action}:{events}")
+        cursor = offsets.get(f"{action}:{events}", 0)
+        ordered = _ordered_route_cycle(data["pools"][key], rng, route_diverse, cursor=cursor)
         attribution = event_orders[key]
         for i in range(count):
             event = attribution[i % len(attribution)]
@@ -259,6 +264,10 @@ def build_action_balanced_epoch(rows, *, total, seed, route_diverse=True, repeat
         cell_frames[row["action_balance_cell"]].add(_identity(row))
         cell_routes[row["action_balance_cell"]].add(_route_key(row))
         event_routes[row["event_balance_bucket"]].add(_route_key(row))
+    next_offsets = dict(offsets)
+    for (act, evs), count in pool_quotas.items():
+        cur = offsets.get(f"{act}:{evs}", 0)
+        next_offsets[f"{act}:{evs}"] = cur + count
     return selected, dict(schema=VERSION, mode="action_balanced", seed=int(seed), total=total,
         policy=policy_contract(), quotas=dict(events), cell_quotas=quotas,
         action_quotas=targets, sampled_actions=dict(actions), event_boosts=data["boosts"],
@@ -270,5 +279,40 @@ def build_action_balanced_epoch(rows, *, total, seed, route_diverse=True, repeat
         cell_unique_routes={k: len(cell_routes[k]) for k in quotas},
         unique_routes={k: len(v) for k, v in event_routes.items()},
         repeat_presentations=total - len(used), membership_groups=len(data["pools"]),
+        cursor_start=dict(offsets), next_cursor_offsets=next_offsets, master_seed=master_seed,
         event_counts_scope="single_attribution_per_presentation; all_original_events_kept_in_row",
         route_diverse=bool(route_diverse))
+
+
+def build_hierarchical_epoch(rows, *, total, seed, route_diverse=True,
+                             repeat_cap=8, cursor_offsets=None, master_seed=0, smooth_power=0.5, pool_history=None):
+    """三条 Action 默认入口：事件 1:…:1:2，事件内主要动作开方配额。"""
+    from qwen3vl_local.sft_new_loop_phase3.sampling import hierarchical_event_action_epoch_sample
+
+    excluded = Counter()
+    groups, available = action_groups(rows, diagnostics=excluded)
+    event_groups = defaultdict(list)
+    for cell, values in groups.items():
+        event, _ = cell.split("/")
+        event_groups[event].extend(values)
+    targets = weighted_quotas(total)
+    chosen, audit = hierarchical_event_action_epoch_sample(
+        event_groups, targets, repeat_cap=repeat_cap, smooth_power=smooth_power,
+        cursor_state=cursor_offsets, master_seed=master_seed, rng=random.Random(seed),
+        route_diverse=route_diverse, action_fn=lambda row: row["action_token"]["name"],
+        pool_history=pool_history,
+    )
+    selected = [dict(row, event_balance_bucket=event, action_balance_cell=f"{event}/{action}")
+                for row, (event, action) in zip(chosen, audit.pop("selected_cells"))]
+    cells = Counter(row["action_balance_cell"] for row in selected)
+    audit.update(mode="event_balanced", seed=seed, total=total, quotas=targets,
+                 sampled=dict(Counter(row["event_balance_bucket"] for row in selected)),
+                 sampled_actions=dict(Counter(row["action_token"]["name"] for row in selected)),
+                 cell_quotas=dict(cells), available=available, excluded_out_of_domain=dict(excluded),
+                 next_cursor_offsets=audit.pop("next_cursors"),
+                 max_frame_repeats=audit["max_frame_repeat"],
+                 repeat_presentations=total - audit["unique_frames"],
+                 support=support_audit(groups, cells), joint_allocation=True,
+                 unique_routes={event: len({_route_key(r) for r in selected if r["event_balance_bucket"] == event})
+                                for event in targets})
+    return selected, audit

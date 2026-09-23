@@ -1,5 +1,26 @@
 # SFT New Loop Phase3 当前运行入口（2026-09-23，v23）
 
+## 2026-09-23 采样接线修复后的新训默认
+
+默认 `--sampling-policy smooth_cap --sampling-repeat-cap 8 --sampling-smooth-power 0.5`。
+构建器额外发布完整 `train_sampling_pool.jsonl` 并在manifest绑定SHA256；新训练读取全部train正例，
+不再只能在旧均衡索引截取的子集上轮转。验证/测试继续读取 `frame_index.jsonl`，没有训练游标。
+十context预算不变，动作温和提权、共享帧全epoch限次；binary自动INVALID按原分层数量联合分配。
+`--sampling-policy cycle_even` 可作旧选样对照；`--max-frames` 显式截断后只承诺覆盖保留池。
+
+启动脚本支持 `SAMPLING_POLICY`、`SAMPLING_REPEAT_CAP`、`SAMPLING_SMOOTH_POWER`，CLI优先。
+训练manifest、adapter配置保存实际设置和训练池身份；逐轮balance文件记录起止游标、目标/实际动作配额、
+重复直方图及容量回流。同成本联合分配按未选轮数和每帧累计曝光公平分配，`pools` 保存子池历史，
+跨轮同步推进 `next_pool_history`。Phase3没有optimizer断点恢复入口，不把adapter当作完整恢复checkpoint。
+
+完整管线的 RGB/原始meta审计显式要求带哈希训练池，检查完整train池＋原val/test；
+文件/物理帧IO去重，不丢弃不同上下文或冲突证据。两份报告的 `input_coverage.sources` 分来源
+记录行数、独立帧和case数，`counts_scope=original_index` 区分原索引预检计数。单独运行两个审计
+程序也会自动发现manifest训练池；传 `--include-training-pool` 可强制要求，缺池拒绝继续。
+必须重建当前v23索引（不要SKIP_BUILD复用旧hash产物）并新训，旧run使用原源码。
+详见 [实现、约束与验证范围](HIERARCHICAL_SAMPLING_PLAN_20260923.md)。
+
+
 ## 2026-09-23 当前默认：有效历史、主要动作额度、物理路线支持
 
 新训练默认 `4rgb + choice`、`sft_new_loop_phase3_data_v23`、`v23_grounded_stage` 提示词。
