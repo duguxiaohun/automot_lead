@@ -1,4 +1,4 @@
-"""两层均衡、共享帧容量、DDP预算和CLI合同的CPU回归。"""
+"""全局动作比例、温和事件权重、共同预算与CLI合同的CPU回归。"""
 from collections import Counter
 import json
 from types import SimpleNamespace
@@ -23,12 +23,14 @@ def row(frame, events=(), action="UNCOND", status=None, split="train"):
 def pool():
     rows = []
     frame = 0
-    for i, event in enumerate(eb.SPECIAL_BUCKETS):
-        # Unequal label frequencies, and different action domains across events.
-        for action in (("STOP", "KEEP", "RESUME") if i == 0 else ("STOP", "KEEP")):
+    for event in eb.SPECIAL_BUCKETS:
+        for action in ("STOP", "KEEP", "RESUME", "DECELERATE"):
             for _ in range(6 if action == "STOP" else 3):
                 rows.append(row(frame, [event], action)); frame += 1
-    for _ in range(30):
+    for action in ("LANE_CHANGE_LEFT", "LANE_CHANGE_RIGHT"):
+        for _ in range(50):
+            rows.append(row(frame, ["RE2"], action)); frame += 1
+    for _ in range(60):
         rows.append(row(frame)); frame += 1
     rows.extend([row(frame, ["UE1"], status=eb.SPECIAL_FILTERED),
                  row(frame + 1, status=eb.UNCONFIRMED)])
@@ -36,47 +38,97 @@ def pool():
 
 
 @pytest.mark.parametrize("world", [1, 4, 7])
-def test_capacity_return_event_quotas_repeat_caps_and_seven_epoch_replay(world):
+def test_global_action_ratios_event_reference_budget_and_seven_epochs(world):
     rows = pool()
     total = ab.action_balanced_total(rows, requested=0, repeat_cap=8, world=world)
+    assert total == eb.event_balanced_total(rows, requested=0, repeat_cap=8, world=world)
     assert total % world == 0
-    plan = ab.action_balance_plan(rows, total, repeat_cap=8)
-    assert plan["supported_actions"]["UE1"] == ["STOP", "RESUME", "KEEP"]
-    assert "LANE_CHANGE_LEFT" not in plan["missing_actions"]["UE1"]
-    assert "DECELERATE" in plan["missing_actions"]["UE1"]
+    accumulated = Counter()
     for epoch in range(7):
-        selected, audit = ab.build_action_balanced_epoch(rows, total=total, seed=epoch, repeat_cap=8)
-        assert selected == ab.build_action_balanced_epoch(rows, total=total, seed=epoch, repeat_cap=8)[0]
-        assert len(selected) == total
-        counts = Counter(r["event_balance_bucket"] for r in selected)
-        assert all(counts[e] == total // 12 for e in eb.SPECIAL_BUCKETS)
-        assert counts[eb.REGULAR_BACKGROUND] == total // 6
-        for event, actions in plan["supported_actions"].items():
-            actual = Counter(r["action_token"]["name"] for r in selected if r["event_balance_bucket"] == event)
-            assert set(actual) == set(actions)
-            assert dict(actual) == {a: plan["cell_quotas"][f"{event}/{a}"] for a in actions}
+        selected, audit = ab.build_action_balanced_epoch(rows, total=total, seed=epoch)
+        assert selected == ab.build_action_balanced_epoch(rows, total=total, seed=epoch)[0]
+        plan = ab.action_balance_plan(rows, total, seed=epoch)
+        counts = Counter(r["action_token"]["name"] for r in selected)
+        assert counts == ab.global_action_quotas(total, seed=epoch)
+        assert counts["UNCOND"] == total // 6
+        semantic = [counts[a] for a in ab.SEMANTIC_ACTIONS]
+        assert max(semantic) - min(semantic) <= 1
         assert audit["max_frame_repeats"] <= 8
-        assert audit["sampled_cells"] == plan["cell_quotas"]
-        assert audit["unique_frames"] == audit["optimal_unique_frames"]
+        assert audit["cell_quotas"] == plan["cell_quotas"]
+        assert audit["support"] == plan["support"]
+        assert len(selected) == total
         assert all(r["event_balance_status"] in (eb.SPECIAL_ELIGIBLE, eb.CONFIRMED_REGULAR) for r in selected)
         assert sum(len(selected[rank::world]) for rank in range(world)) == total
-    assert ab.build_action_balanced_epoch(rows, total=total, seed=0, repeat_cap=8)[0] != selected
+        if epoch < 6:
+            accumulated.update(counts)
+    assert len({accumulated[a] for a in ab.SEMANTIC_ACTIONS}) == 1
+    # 横向动作只来自RE2；全局动作均衡不强行维护事件1:1。
+    assert audit["quotas"]["RE2"] > audit["quotas"]["UE1"]
 
 
-def test_shared_frame_capacity_is_global_across_events():
-    # Ten event pools all reference the same STOP frame; independent capacities overcount it.
-    rows = [row(0, eb.SPECIAL_BUCKETS, "STOP"), row(1), row(2)]
-    with pytest.raises(ValueError, match="no jointly feasible"):
-        ab.action_balanced_total(rows, requested=0, repeat_cap=8, world=1)
-    with pytest.raises(ValueError, match="infeasible"):
-        ab.action_balanced_total(rows, requested=24, repeat_cap=10, world=1)
-    assert ab.action_balanced_total(rows, requested=0, repeat_cap=10, world=1) == 12
-    selected, audit = ab.build_action_balanced_epoch(rows, total=12, seed=4, repeat_cap=10)
-    assert Counter(r["anchor"] for r in selected)[0] == 10
-    assert audit["unique_frames"] == 3
+def test_soft_event_boost_is_bounded_and_rare_frames_not_forced_to_equal_event_counts():
+    rows = []
+    for action in ab.SEMANTIC_ACTIONS:
+        # UE2/RE2均为机动域；每个动作中大事件1000帧、小事件10帧。
+        for event, n in (("UE2", 1000), ("RE2", 10)):
+            for _ in range(n):
+                rows.append(row(len(rows), [event], action))
+    for _ in range(2400):
+        rows.append(row(len(rows)))
+    _, audit = ab.build_action_balanced_epoch(rows, total=14400, seed=8)
+    assert audit["event_boosts"]["UE2"] == 1
+    assert audit["event_boosts"]["RE2"] == 2
+    for action in ab.SEMANTIC_ACTIONS:
+        large = audit["cell_quotas"][f"UE2/{action}"]
+        small = audit["cell_quotas"][f"RE2/{action}"]
+        assert large + small == 2000
+        assert 1.8 < (small / 10) / (large / 1000) <= 2.1
+        assert small < large / 20
+    assert audit["max_frame_repeats"] <= 4
 
 
-def test_budget_validation_and_missing_data_are_not_synthesized():
+def test_concurrent_events_do_not_duplicate_capacity_or_multiply_boost():
+    rows = pool() + [row(999, ["UE1", "UE2"], "STOP")]
+    data = ab._sampling_pools(rows)
+    assert data["counts"]["STOP"] == 61
+    selected, audit = ab.build_action_balanced_epoch(rows, total=120, seed=4, repeat_cap=1)
+    assert max(Counter(eb._identity(r) for r in selected).values()) == 1
+    assert audit["unique_frames"] == 120
+    assert rows[-1]["event_balance_buckets"] == ["UE1", "UE2"]
+
+
+def test_shared_frames_are_counted_once_even_with_several_attributions():
+    rows = pool()
+    for r in rows:
+        if r["action_token"]["name"] == "STOP":
+            r["event_balance_buckets"] = list(eb.SPECIAL_BUCKETS)
+    selected, audit = ab.build_action_balanced_epoch(rows, total=720, seed=19, repeat_cap=4)
+    assert audit["action_unique_frames"]["STOP"] == 60
+    assert max(Counter(eb._identity(r) for r in selected).values()) <= 4
+    assert sum(audit["quotas"].values()) == 720
+
+
+def test_capacity_shortage_reports_action_and_does_not_shrink_requested_or_auto_budget():
+    rows = [r for r in pool() if r["action_token"]["name"] != "RESUME"]
+    rows.append(row(999, ["UE1"], "RESUME"))
+    for requested in (0, 120):
+        with pytest.raises(ValueError, match="RESUME.*Budget was not shortened"):
+            ab.action_balanced_total(rows, requested=requested, repeat_cap=8, world=1)
+    # 首轮余数可能没有落到某动作；仍按所有epoch的最大需要量预检。
+    rows = pool()
+    rows = [r for r in rows if r["action_token"]["name"] != "RESUME"] + [row(999, ["UE1"], "RESUME")]
+    with pytest.raises(ValueError, match="RESUME"):
+        ab.build_action_balanced_epoch(rows, total=12, seed=5, repeat_cap=1)
+
+
+def test_missing_global_action_is_error_but_missing_event_is_allowed_with_explicit_budget():
+    rows = [r for r in pool() if "UE7" not in r["event_balance_buckets"]]
+    assert ab.action_balanced_total(rows, requested=120, repeat_cap=8, world=1) == 120
+    with pytest.raises(ValueError, match="missing global action.*KEEP"):
+        ab.action_balance_plan([r for r in rows if r["action_token"]["name"] != "KEEP"], 120)
+
+
+def test_budget_validation_and_bad_labels_are_not_synthesized():
     rows = pool()
     with pytest.raises(ValueError, match="divisible"):
         ab.action_balanced_total(rows, requested=13, repeat_cap=8, world=1)
@@ -84,11 +136,30 @@ def test_budget_validation_and_missing_data_are_not_synthesized():
         ab.action_balanced_total(rows, requested=72000, repeat_cap=1, world=1)
     with pytest.raises(ValueError, match="duplicate"):
         ab.action_groups([*rows, rows[0]])
-    with pytest.raises(ValueError, match="missing event"):
-        ab.action_groups([r for r in rows if "UE7" not in r["event_balance_buckets"]])
     rows[0].pop("action_token")
     with pytest.raises(ValueError, match="validated Phase3"):
         ab.action_groups(rows)
+
+
+def test_out_of_domain_memberships_never_change_labels_or_facts():
+    rows = pool() + [row(999, ["RE2", "RE5"], "LANE_CHANGE_RIGHT")]
+    before = json.dumps(rows, sort_keys=True)
+    plan = ab.action_balance_plan(rows, 120)
+    assert plan["excluded_out_of_domain"] == {"RE5/LANE_CHANGE_RIGHT": 1}
+    assert plan["available"]["RE5"]["LANE_CHANGE_RIGHT"] == 0
+    ab.build_action_balanced_epoch(rows, total=120, seed=1)
+    assert json.dumps(rows, sort_keys=True) == before
+    with pytest.raises(ValueError, match="no supporting event"):
+        ab.action_groups(pool() + [row(999, ["RE5"], "LANE_CHANGE_RIGHT")])
+
+
+def test_weighted_capacity_return_and_seeded_integer_rounding():
+    sizes, weights = {"large": 100, "small": 1}, {"large": 1, "small": 2}
+    import random
+    quotas = ab._weighted_capacity_quota(sizes, weights, 202, 2, random.Random(0))
+    assert quotas == {"large": 200, "small": 2}
+    with pytest.raises(ValueError, match="capacity infeasible"):
+        ab._weighted_capacity_quota(sizes, weights, 203, 2, random.Random(0))
 
 
 @pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
@@ -100,7 +171,7 @@ def test_sampling_aliases_are_independent_of_model_conditioning(variant):
     assert p.parse_args(["--action-balanced", "--event-balanced"]).sampling_mode == "event_balanced"
     assert p.parse_args([]).sampling_mode == "event_balanced"
     assert p.parse_args([]).event_balance_max_frame_repeats == 8
-    assert p.parse_args(["--action-balanced"]).event_balance_max_frame_repeats == 2
+    assert p.parse_args(["--action-balanced"]).event_balance_max_frame_repeats == 8
     for removed in (["--no-action-balanced"], ["--no-event-balanced"], ["--sampling-mode", "uniform"]):
         with pytest.raises(SystemExit):
             p.parse_args(removed)
@@ -117,113 +188,18 @@ def test_sampling_contract_restores_without_online_label_files(monkeypatch):
     args.event_balance_index = ""
     monkeypatch.setattr(action_token, "token_source", lambda args: pytest.fail("online label access"))
     assert eb.sampling_contract(args) == expected
-    assert expected["action_balance"]["event_weights"][eb.REGULAR_BACKGROUND] == 2
+    assert expected["action_balance"]["background_fraction"] == "1/6"
     assert expected["action_labels"] == {"hash": "actions"}
     args.action_balance_label_identity = {"hash": "changed"}
     assert eb.sampling_contract(args) != expected
 
-
-def test_same_primary_token_as_model_even_for_concurrent_events():
-    # The single token is global for this frame, never relabeled to a local context action.
-    rows = [row(i, [event], "STOP") for i, event in enumerate(eb.SPECIAL_BUCKETS)]
-    rows += [row(99, ["UE1", "UE2"], "LANE_CHANGE_LEFT"), row(100), row(101)]
-    groups, available = ab.action_groups(rows)
-    assert "UE1/LANE_CHANGE_LEFT" not in groups
-    assert groups["UE2/LANE_CHANGE_LEFT"][0]["action_token"]["name"] == "LANE_CHANGE_LEFT"
-    assert available["UE1"]["LANE_CHANGE_LEFT"] == 0
-    assert rows[-3]["event_balance_buckets"] == ["UE1", "UE2"]
-
-
-def test_re5_lateral_membership_excluded_without_relabeling_or_losing_frame():
-    rows = pool() + [row(999, ["RE2", "RE5"], "LANE_CHANGE_RIGHT")]
-    plan = ab.action_balance_plan(rows, 120)
-    assert plan["excluded_out_of_domain"] == {"RE5/LANE_CHANGE_RIGHT": 1}
-    assert plan["available"]["RE2"]["LANE_CHANGE_RIGHT"] == 1
-    assert plan["available"]["RE5"]["LANE_CHANGE_RIGHT"] == 0
-    assert rows[-1]["action_token"]["name"] == "LANE_CHANGE_RIGHT"
-    assert rows[-1]["event_balance_buckets"] == ["RE2", "RE5"]
-
-
-def test_rare_action_does_not_limit_epoch_and_is_not_independently_repeated():
-    rows = []
-    for i, event in enumerate(eb.SPECIAL_BUCKETS):
-        rows += [row(i * 1000 + j, [event], "STOP") for j in range(100)]
-    rows += [row(20000 + j) for j in range(200)]
-    rows += [row(30000, ["UE1"], "KEEP")]
-    assert ab.action_balanced_total(rows, requested=0, repeat_cap=8, world=4) == 9600
-    selected, audit = ab.build_action_balanced_epoch(rows, total=1200, seed=1)
-    assert audit["sampled_cells"]["UE1/KEEP"] == 1
-    assert audit["sampled_cells"]["UE1/STOP"] == 99
-    assert next(r for r in selected if r["anchor"] == 30000)["action_token"]["name"] == "KEEP"
-
-
-def test_joint_conflict_returns_quota_instead_of_reducing_event_budget():
-    # UE1 的 KEEP 只有共享帧；UE2 优先分给 KEEP 的目标必须回流一份到 STOP。
-    rows = [row(0, ["UE1", "UE2"], "KEEP"), row(1, ["UE2"], "STOP")]
-    rows += [row(i + 10, [e], "STOP") for i, e in enumerate(eb.SPECIAL_BUCKETS[2:])]
-    rows += [row(100), row(101)]
-    selected, audit = ab.build_action_balanced_epoch(rows, total=12, seed=1, repeat_cap=1)
-    assert len(selected) == 12
-    assert audit["max_frame_repeats"] == 1
-    assert audit["quotas"] == eb.weighted_quotas(12)
-    assert audit["sampled_cells"]["UE2/STOP"] == 1
-    assert audit["action_quota_overflow"] == 1
-
-
-def test_orphan_out_of_domain_action_is_error_not_background():
-    with pytest.raises(ValueError, match="no supporting event"):
-        ab.action_groups(pool() + [row(999, ["RE5"], "LANE_CHANGE_RIGHT")])
-
-
-def test_joint_return_matches_exhaustive_small_allocation():
-    import itertools
-    import random
-    rng = random.Random(19)
-    for _ in range(20):
-        rows = [row(i, rng.choice([["UE1"], ["UE2"], ["UE1", "UE2"]]),
-                    rng.choice(["KEEP", "STOP"])) for i in range(4)]
-        groups = {}
-        for r in rows:
-            for event in r["event_balance_buckets"]:
-                groups.setdefault(f'{event}/{r["action_token"]["name"]}', []).append(r)
-        if {k.split('/')[0] for k in groups} != {"UE1", "UE2"}:
-            continue
-        available = {e: {k.split('/')[1]: len(v) for k, v in groups.items() if k.startswith(e + '/')}
-                     for e in ("UE1", "UE2")}
-        from qwen3vl_local.sft_new_loop_phase3.sampling import support_aware_quota
-        desired = {f'{e}/{a}': n for e in available
-                   for a, n in support_aware_quota(available[e], 2).items()}
-        choices = []
-        for r in rows:
-            cells = [f'{e}/{r["action_token"]["name"]}' for e in r["event_balance_buckets"]]
-            choices.append([dict(zip(cells, counts)) for counts in itertools.product(range(3), repeat=len(cells))
-                            if sum(counts) <= 2])
-        optimum = None
-        for solution in itertools.product(*choices):
-            counts = Counter()
-            for assignment in solution:
-                counts.update(assignment)
-            if any(sum(n for k, n in counts.items() if k.startswith(e + '/')) != 2 for e in available):
-                continue
-            objective = (sum(max(0, counts[k] - desired[k]) for k in groups),
-                         -sum(sum(v.values()) > 0 for v in solution))
-            optimum = objective if optimum is None else min(optimum, objective)
-        allocation = eb._joint_allocation(rows, desired, repeat_cap=2, groups=groups,
-                                           event_quotas={"UE1": 2, "UE2": 2})
-        if optimum is None:
-            assert allocation is None
-        else:
-            audit = allocation[3]
-            assert (audit["action_quota_overflow"], -audit["optimal_unique_frames"]) == optimum
-
-
 @pytest.mark.parametrize('variant', ['prior', 'qwen_simple', 'bev_only'])
 def test_repeat_default_follows_final_mode_and_explicit_cap_wins(variant):
     p = parser() if variant == 'prior' else common.parser(variant)
-    for flags, expected in [([], 8), (['--event-balanced'], 8), (['--action-balanced'], 2),
-                            (['--sampling-mode', 'action_balanced'], 2),
+    for flags, expected in [([], 8), (['--event-balanced'], 8), (['--action-balanced'], 8),
+                            (['--sampling-mode', 'action_balanced'], 8),
                             (['--action-balanced', '--event-balanced'], 8),
-                            (['--event-balanced', '--action-balanced'], 2),
+                            (['--event-balanced', '--action-balanced'], 8),
                             (['--event-balance-max-frame-repeats', '8', '--action-balanced'], 8),
                             (['--action-balanced', '--event-balance-max-frame-repeats', '1'], 1)]:
         assert p.parse_args(flags).event_balance_max_frame_repeats == expected
@@ -237,22 +213,6 @@ def test_resume_preserves_saved_repeat_cap(tmp_path, variant, saved_cap):
     restored = common.parse_train_args(variant, ['--resume', str(tmp_path / 'latest.pt')])
     assert restored.sampling_mode == 'action_balanced'
     assert restored.event_balance_max_frame_repeats == saved_cap
-
-
-def test_support_audit_flags_do_not_change_labels_or_quotas():
-    rows = pool()
-    before = json.dumps(rows, sort_keys=True)
-    total = ab.action_balanced_total(rows, requested=0, repeat_cap=2, world=1)
-    plan = ab.action_balance_plan(rows, total)
-    selected, audit = ab.build_action_balanced_epoch(rows, total=total, seed=1)
-    support = audit['support']['cells']['UE1/RESUME']
-    assert support['review_flags'] == ['fewer_than_100_frames', 'fewer_than_10_physical_routes']
-    assert support['diagnostic_only']
-    assert support['presentations'] == audit['cell_quotas']['UE1/RESUME']
-    assert audit['max_frame_repeats'] <= 2
-    assert plan['support'] == audit['support']
-    assert json.dumps(rows, sort_keys=True) == before
-
 
 @pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
 @pytest.mark.parametrize("options", [[], ["--action-balanced"]])
@@ -289,3 +249,36 @@ def test_legacy_uniform_resume_is_not_silently_changed(tmp_path, monkeypatch, va
             resume.main()
         else:
             common.parse_train_args(variant, ["--resume", checkpoint])
+
+
+def test_concurrent_membership_has_no_extra_sampling_mass():
+    rows = []
+    for action in ab.SEMANTIC_ACTIONS:
+        for events in (["UE2"], ["RE2"], ["UE2", "RE2"]):
+            for _ in range(10):
+                rows.append(row(len(rows), events, action))
+    for _ in range(36):
+        rows.append(row(len(rows)))
+    selected, audit = ab.build_action_balanced_epoch(rows, total=216, seed=0, repeat_cap=1)
+    assert audit["event_boosts"]["UE2"] == audit["event_boosts"]["RE2"] == 1
+    membership_counts = Counter(tuple(r["event_balance_buckets"]) for r in selected if r["action_token"]["name"] != "UNCOND")
+    assert set(membership_counts.values()) == {60}
+    assert audit["unique_frames"] == 216
+
+
+@pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
+def test_plan_reports_actual_event_distribution_and_global_actions(variant):
+    from qwen3vl_local.action_prior import config
+    args = (parser() if variant == "prior" else common.parser(variant)).parse_args(
+        ["--action-balanced", "--event-balanced-epoch-samples", "120"])
+    rows = {s: [dict(r, route_group=s + "/" + r["route_group"], split=s) for r in pool()]
+            for s in ("train", "val", "test")}
+    plan = config.training_plan(args, rows, 4) if variant == "prior" else common.training_plan(args, rows, 4, variant)
+    selected, audit = ab.build_action_balanced_epoch(rows["train"], total=120, seed=args.seed)
+    assert plan["samples_per_epoch"] == 120
+    expected = dict.fromkeys(plan["sampling"]["epoch_quotas"], 0)
+    expected.update(audit["quotas"])
+    assert plan["sampling"]["epoch_quotas"] == expected
+    assert plan["sampling"]["action_balance"]["action_quotas"] == audit["sampled_actions"]
+    assert plan["sampling"]["epoch_quotas"] != eb.weighted_quotas(120)
+    assert plan["sampling"]["budget_reference"] == "explicit"

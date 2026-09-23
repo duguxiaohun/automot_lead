@@ -2,15 +2,15 @@
 
 2026-09-23：已同步v23的anchor≥4有效历史与Action物理路线支持补齐；需新full map、新run，详见 [共享说明](../run.md)。
 
-当前 action-balanced 新训练默认单帧最多重复2次，共用 Phase3 合法动作域和容量回流；稀少动作保留标签、不再强行等量，详见 [共享说明](../run.md)。
+当前 action-balanced 按全局六种语义动作等量、背景1/6采样，小事件权重最多2倍，重复上限8；与event同源同参数时预算一致，详见 [共享说明](../run.md)。
 
-## action-balanced 两层均衡（2026-09-22）
+## action-balanced 全局动作均衡（2026-09-23）
 
-`--action-balanced` 在每个特殊事件内均衡实际存在的主要动作（含 KEEP），十事件各一份、普通背景 UNCOND 两份。
+`--action-balanced` 全局均衡主要动作（含 KEEP），小事件温和加权，不再要求事件等量；普通背景 UNCOND 保留1/6。
 与 `--event-balanced` 二选一，不自动开启 token；完整预算/重复上限/恢复说明见 [共用说明](../run.md)。
 
 ```bash
-# AutoMoT/ 下；单图 + token + 两层均衡，bev_only 的 BEV 仍为单帧
+# AutoMoT/ 下；单图 + token + 全局动作均衡，bev_only 的 BEV 仍为单帧
 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 GPU_IDS=0,1,2,3 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1
 ```

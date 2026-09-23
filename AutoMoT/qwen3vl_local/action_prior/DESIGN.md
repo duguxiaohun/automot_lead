@@ -1,27 +1,33 @@
 # Action prior 实现与合同
 
-## 2026-09-22 降低默认重复强度与支持量诊断
+## 2026-09-23 全局动作均衡与小事件温和加权
 
-主线和两消融使用同一个 `SamplingArgumentParser`：在全部别名解析后，未显式指定重复上限的
-新 action-balanced 默认为2，event-balanced仍为8。CLI/环境变量的显式值及保存配置优先；旧配置缺字段按8恢复。
-实际上限继续绑定采样合同和训练计划，不为提高容量自动放宽，不自动延长轮数。
+默认 `--event-balanced` 保持十特殊事件各一份、普通背景两份。加入 `--action-balanced` 后：
 
-Phase3构建器在每个签名保存 `signature_support`，Action计划/逐轮报告保存 `support.cells/events`；
-共享 `sampling.support_diagnostic` 的100帧/10物理路线标记只供复查，绝不驱动标签或采样。
-保持KEEP的真实语义、不以UNCOND掩盖低频，避免UE6的小类被抹掉后只剩STOP的事件捷径。
-UNCOND条件屏蔽是另一个需要保留原真值和屏蔽理由的实验，本轮不启用。
+- 六种语义动作（DECELERATE、STOP、RESUME、LEFT、RIGHT、KEEP）在全局等量，背景 UNCOND 保留总预算的1/6。
+  六类配额因整数余数最多差1，余数随epoch轮换；不要求各事件1:1。七种token并非全部等量。
+- 在动作内部，小事件按 `min(2, sqrt(最大事件帧数 / 当前事件帧数))` 加权。权重最高2倍，
+  避免4帧之类的小事件×动作格子被强拉到与大格子一样多；这是初始实验设置，不代表效果最优。
+- 并发帧按“动作＋支持该动作的事件集合”只入一个池；事件权重取均值，容量和权重不重复相加。
+  池配额按帧数×权重分配，饱和缺额回到同动作其它池；池内优先不同帧和物理路线，硬上限仍检查。
+- 两模式新训练的单帧重复上限统一为8；显式值与保存值优先。8是允许上限，不要求每帧重复8次。
+  默认预算0使用**同一数据、repeat cap和world size下event模式的自动预算**，action不再自动缩到1/4。
+  动作容量不足会在模型加载前列出缺口及最低重复上限，不静默缩短epoch或放宽限制。
 
+只保留event/action两种采样；`ACTION_BALANCED=1`选action、`ACTION_BALANCED=0`选event，CLI优先。
+`--no-event-balanced`、`--no-action-balanced`、`EVENT_BALANCED=0`和uniform仍拒绝。
+采样不会自动开启token或文字动作先验；token关闭时动作标签只用于选样。验证/测试仍按有效split遍历。
+完整epoch满足全局比例，micro-batch、rank子序列或max_train_steps截断前缀不保证等量。
 
-## 2026-09-22 两层动作均衡采样
+若要复现旧run的116256次/轮，给两组都显式加 `--event-balanced-epoch-samples 116256`；
+4卡、grad_accum_steps=16时为1817次更新/轮。这个预算**仍需两模式各自通过容量校验**，
+最新v23过滤/划分后不保证event模式上限8能满足；报错时应选共同可行预算或明确调整上限。
+仅改成action模式不保证恢复某个历史run的精确数量，默认对齐的是当前同源event基线。
 
-`action_balance.py` 以与模型 token 相同的逐帧主要动作构造 event×action 桶，按 Phase3 taxonomy 排除域外归属，事件内容量回流、事件间1:…:1:2。
-共用 `event_balance._joint_allocation`，按全局共享帧容量限制重复，先最少偏离动作目标，再优先不同帧/路线覆盖；原 event-balanced 配额和随机序列保留。
-预算预检使用事件权重总和12与world size的LCM，三入口从同一全局计划按rank切片；无支持动作报告，不伪造。
-`action-balanced` 即使关闭 token 也加载标签选样，runtime 仍按 token 开关决定输入；不注入文字先验。
-采样规则与标签身份绑定合同；闭环纯采样可用保存身份复现合同而不加载离线文件，oracle token 仍拒绝闭环。
-Phase3 构建、binary/choice训练共用 `sampling.support_aware_quota`：完整自然池循环＋余量容量内均分。
-稀少动作保留真值，不另设删标签阈值；Action 并发冲突可在事件内回流，日志记录域外排除及目标/实际差额。
-运行与公平预算示例见 [run.md](run.md)。
+`training_plan.json` / `sampling/epoch_*.json`记录动作配额、事件权重、事件归属次数、真实唯一帧和重复直方图。
+并发帧的配额审计每次只归属一个事件，原事件事实全部保留；`group/event_balance/*`事实指标可以重叠。
+小类审计阈值仍只供复查，不改KEEP/UNCOND真值。旧两层采样/上限2的run使用原源码，当前方案需新run。
+算法详见 [全局动作均衡说明](GLOBAL_ACTION_BALANCED_20260923.md)。
 
 ## 2026-09-22 七类动作 token 弱分离
 

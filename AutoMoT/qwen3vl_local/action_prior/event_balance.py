@@ -18,7 +18,7 @@ from qwen3vl_local.action_prior.contracts import file_hash
 
 SAMPLING_MODE_EVENT_BALANCED = "event_balanced"
 SAMPLING_MODE_ACTION_BALANCED = "action_balanced"
-DEFAULT_ACTION_REPEAT_CAP = 2
+DEFAULT_ACTION_REPEAT_CAP = 8
 BALANCED_MODES = (SAMPLING_MODE_EVENT_BALANCED, SAMPLING_MODE_ACTION_BALANCED)
 SAMPLING_MODES = BALANCED_MODES
 # v2 binds the post-quarantine normal-background rule and diversity-first allocation contract.
@@ -584,4 +584,4 @@ def add_sampling_aliases(parser):
                         help="默认模式：与 --sampling-mode event_balanced 相同，均衡 UE/RE 采样")
     parser.add_argument("--action-balanced", dest="sampling_mode", action="store_const",
                         const=SAMPLING_MODE_ACTION_BALANCED, default=argparse.SUPPRESS,
-                        help="事件内按主要动作容量回流，事件等配额；不自动开启 token")
+                        help="全局六类动作等量、背景1/6；小事件温和加权，不自动开启 token")

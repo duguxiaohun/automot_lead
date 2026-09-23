@@ -1,5 +1,17 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-23 Action全局动作比例与温和事件加权（覆盖事件内均衡/上限2）
+
+新action-balanced全局六语义动作等量、普通背景UNCOND保留1/6，整数余数按epoch seed轮换。
+动作内按支持事件样本量平方根倒数加权、最高2倍；取消事件1:1硬约束，KEEP/UNCOND标签不改。
+并发事件按集合只入一个动作池、权重取均值，池内路线轮转优先覆盖不同帧；全epoch单帧上限仍严格。
+两模式新训默认重复上限统一8；action自动预算复用同源同cap/world的event预算，容量不足明确报错不缩轮。
+显式epoch预算继续生效；旧116256需当前容量预检，不保证v23过滤后event仍可达。动作输入开关独立。
+三入口共用action_balance.py，计划/epoch审计记录全局动作配额和真实事件分布，新run，旧run原源码。
+402项相关CPU回归通过；3项因缺只读runner未执行，未绕过校验。历史843913帧1/4rank各7轮回放通过：
+95136次/轮与同池event一致，不同帧88910–88912，实际最多重复3次；非v23生产重建/真实GPU验收。
+Phase3标签、过滤及split规则未改；实现与demo见action_prior/GLOBAL_ACTION_BALANCED_20260923.md及两包run.md。
+
 ### 2026-09-23 Phase3 v23 RGB输入、主要动作采样与路线支持
 
 Phase3默认data_v23/prompt v23_grounded_stage，动作v9物理阈值/窗口及主要动作优先级保留。

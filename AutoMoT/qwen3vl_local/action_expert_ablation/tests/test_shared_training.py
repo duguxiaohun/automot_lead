@@ -344,6 +344,12 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
                 name = "STOP" if row["event_balance_status"] == "special_eligible" else "UNCOND"
                 row.update(action_token_id=action_token.ACTION_TOKEN_NAMES.index(name),
                            action_token=dict(name=name, reason="fixture", version=action_token.TOKEN_VERSION))
+            from qwen3vl_local.action_prior.tests.test_action_balance import row as action_row
+            # 全局动作均衡需六种语义动作都有独立容量；不再用全STOP伪造完整动作域。
+            split = rr[0]["split"]
+            for action in action_token.ACTION_TOKEN_NAMES[1:]:
+                for i in range(2):
+                    rr.append(action_row(100 + len(rr), ["UE2"], action, split=split))
     extra = ["--sampling-mode", sampling, "--event-balance-index", str(source),
              "--event-balanced-epoch-samples", "24", "--event-balance-max-frame-repeats", "2",
              "--best-selection-metric", "event_balanced_ade"]
@@ -355,7 +361,7 @@ def test_three_entries_event_balanced_updates_metrics_and_resume(harness, tmp_pa
         audit = json.loads((out / "sampling/epoch_001.json").read_text())
         assert audit["total"] == 24
         if sampling == "action_balanced":
-            assert audit["sampled_cells"] == audit["cell_quotas"]
+            assert audit["sampled_cells"] == {k: v for k, v in audit["cell_quotas"].items() if v}
             assert "conditioner.action_embedding.weight" not in ckpt["decoder"]
         assert audit["max_frame_repeats"] <= 2
         metrics = json.loads(next((out / "validation").glob("*.json")).read_text())

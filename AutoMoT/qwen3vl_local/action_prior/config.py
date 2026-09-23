@@ -77,7 +77,7 @@ DEFAULTS = dict(
     event_balance_index="",
     event_balance_route_diverse=True,
     event_balanced_epoch_samples=0,
-    # 8 同时保留旧配置缺字段时的恢复兜底；新 CLI 按最终采样模式解析默认值。
+    # 两种模式统一上限8；保存配置与显式参数优先，旧源码合同仍严格校验。
     event_balance_max_frame_repeats=8,
     best_selection_metric="natural_ade",
     # 内部保存字段，不再暴露 CLI；新训练按 dataset/action/noise 自动推导。
@@ -610,7 +610,7 @@ def training_plan(args, rows, world):
         key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
         if int(event_available.get(key, 0)) <= 0
     ]
-    if missing:
+    if missing and args.sampling_mode == "event_balanced":
         raise ValueError(
             "event-balanced sampling needs every UE1-7/RE2/RE3/RE5 bucket and "
             f"a regular background pool; missing={missing} available={event_available}"
@@ -631,7 +631,7 @@ def training_plan(args, rows, world):
         train_available=event_available,
         epoch_quotas=weighted_quotas(usable),
         route_diverse=bool(args.event_balance_route_diverse),
-        special_bucket_missing=[],
+        special_bucket_missing=missing,
         scene_priors=bool(args.event_balanced_scene_priors),
         max_frame_repeats=int(args.event_balance_max_frame_repeats),
         requested_epoch_samples=int(args.event_balanced_epoch_samples),
@@ -640,7 +640,16 @@ def training_plan(args, rows, world):
     )
     if args.sampling_mode == "action_balanced":
         from qwen3vl_local.action_prior.action_balance import action_balance_plan
-        sampling["action_balance"] = action_balance_plan(rows["train"], usable, repeat_cap=args.event_balance_max_frame_repeats)
+        sampling["action_balance"] = action_balance_plan(
+            rows["train"], usable, repeat_cap=args.event_balance_max_frame_repeats, seed=args.seed)
+        # action模式事件数为温和加权后的结果，不再伪报事件1:1配额。
+        sampling["epoch_quotas"] = {}
+        for cell, count in sampling["action_balance"]["cell_quotas"].items():
+            event = cell.split("/")[0]
+            sampling["epoch_quotas"][event] = sampling["epoch_quotas"].get(event, 0) + count
+        sampling["epoch_quotas_scope"] = "first_epoch_event_attribution_not_hard_event_targets"
+        sampling["budget_reference"] = ("explicit" if args.event_balanced_epoch_samples else
+                                        "event_balanced_same_pool_repeat_cap_world")
     val_available = available_counts(rows["val"], for_evaluation=True)
     val_missing = [
         key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)

@@ -17,9 +17,9 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRIPT_DIR/../../test}"
 GPU_COUNT="${GPU_COUNT:-4}"
 
 # 每个event/action在train/test各最多检查多少个候选；不足则检查实际可用数量。
-CASES_PER_CATEGORY=50
+CASES_PER_CATEGORY=30
 # 独立控制分类采样/搜索/输出；关闭event只测action的train/test，反之亦然。
-ENABLE_EVENT=true
+ENABLE_EVENT=false
 ENABLE_ACTION=true
 SAMPLING_SEED=auto      # 新采样；复现时填sampling.json内的整数
 EVAL_SEED=2026          # 所有模型共享的评估噪声

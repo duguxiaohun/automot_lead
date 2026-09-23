@@ -708,7 +708,7 @@ def _run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flo
         torch.cuda.reset_peak_memory_stats(device)
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(cursor["epoch"], args.num_epochs):
-        # 全局事件/动作配额生成后再按 rank 分片，保持十事件各一份、背景两份。
+        # 全局事件/动作配额生成后再按 rank 分片；两模式都保留背景1/6。
         from qwen3vl_local.action_prior.event_balance import build_balanced_epoch
 
         usable = int(plan["samples_per_epoch"])
