@@ -350,7 +350,7 @@ def test_warmup_counts_first_epoch_including_partial_accumulation(scheduler):
     from qwen3vl_local.action_prior.tests.test_action_balance import row
     from qwen3vl_local.action_prior.event_balance import SPECIAL_BUCKETS
     # 十二份均衡预算204，每份17；累积5仍有4帧尾窗口，共41次更新。
-    rows = {split: [row(i, [bucket] if bucket else [], split=split)
+    rows = {split: [row(i, [bucket] if bucket else [], action="STOP" if bucket else "UNCOND", split=split)
                     for i, bucket in enumerate((*SPECIAL_BUCKETS, "", ""))]
             for split in ("train", "val", "test")}
     for epochs in (7, 15):

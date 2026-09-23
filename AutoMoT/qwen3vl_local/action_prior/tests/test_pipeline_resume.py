@@ -92,6 +92,25 @@ def test_optimization_resume_preserves_saved_values_and_cli_priority(pipeline, e
     assert args.lr_scheduler == ("cosine_restarts" if override else "cosine")
 
 
+@pytest.mark.parametrize('budget,cap', [(0, 8), (95136, 8), (116256, 11), (None, None)])
+def test_resume_retains_sampling_budget_including_legacy_missing_fields(pipeline, budget, cap):
+    scripts, run, link, env = pipeline
+    saved = json.loads((run / 'config.json').read_text())
+    for key, value in [('event_balanced_epoch_samples', budget), ('event_balance_max_frame_repeats', cap)]:
+        if value is None:
+            saved.pop(key)
+        else:
+            saved[key] = value
+    (run / 'config.json').write_text(json.dumps(saved))
+    result = subprocess.run(['bash', str(scripts / 'run_full_pipeline.sh'), '--resume', str(link / 'latest.pt')],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    call = json.loads(Path(env['TRACE_FILE']).read_text().splitlines()[0])
+    restored = parser().parse_args(call['argv'][1:])
+    assert restored.event_balanced_epoch_samples == (0 if budget is None else budget)
+    assert restored.event_balance_max_frame_repeats == (8 if cap is None else cap)
+
+
 @pytest.mark.parametrize("style", ["separate", "equals", "environment"])
 def test_resume_restores_config_and_pins_real_run(pipeline, style):
     """三种入口一致，且训练期间 latest 改指不会把最终评测切换到另一 run。"""

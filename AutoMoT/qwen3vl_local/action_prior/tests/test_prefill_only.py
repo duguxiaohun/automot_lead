@@ -148,7 +148,7 @@ def test_mode_is_in_identity_and_cannot_be_changed_as_prior_source(tmp_path, mon
 ])
 def test_training_plan_reports_effective_generation_budget(dataset, generate, review, mode, expected):
     """关掉摘要后，预算仅保留上游先验问答，dataset 模式为零生成。"""
-    args = parser().parse_args([])
+    args = parser().parse_args(["--event-balanced-epoch-samples", "0"])
     assert args.generate_analysis is False
     args.dataset_priors, args.generate_analysis, args.analysis_review = dataset, generate, review
     args.recheck_mode = mode

@@ -7,8 +7,11 @@
 
 | 模式 | 特殊样本分配 | 普通背景 | 默认重复上限 |
 | --- | --- | --- | ---: |
-| event-balanced | 十种特殊事件等配额 | 总量1/6 | 8 |
-| action-balanced | 六种主要动作全局等配额，事件比例可变 | 总量1/6 | 8 |
+| event-balanced | 十种特殊事件等配额 | 总量1/6 | 11 |
+| action-balanced | 六种主要动作全局等配额，事件比例可变 | 总量1/6 | 11 |
+
+两模式新训练默认固定116256次/轮，容量不足报错。上限11是允许值，不要求每帧重复11次；
+显式预算0保留下述自动预算机制。最新默认/续训约定见 [运行说明](run.md)。
 
 六种语义动作是 DECELERATE、STOP、RESUME、LANE_CHANGE_LEFT、LANE_CHANGE_RIGHT、KEEP。
 因此 UNCOND 加六种动作不是七类1:1；沿用用户此前指定的背景两份比例。
@@ -20,10 +23,9 @@
 不足则报告 `action_capacity_deficits`，包含所需次数、独立帧、容量和最低重复上限。
 预检检查余数轮转的最大配额，避免首轮可行而后续失败。不自动缩短epoch或增大重复上限。
 
-这恢复与**当前event基线**相同的训练量，不承诺恢复任意历史数据版本的原数字。
-旧run的116256次/轮可通过显式 `--event-balanced-epoch-samples 116256` 请求；
-两组须各自通过容量检查。4卡、累积16时对应1817次更新/轮；v23过滤和划分后，
-event模式在上限8下可能无法达到旧预算。选择共同可行N或显式改变两组上限，不能绕过检查。
+默认116256对齐旧run的呈现预算，两组仍须各自通过容量检查。
+4卡、累积16时对应1817次更新/轮；v23过滤和划分的历史标签回放中UE3有958帧，
+事件配额9688次至少需要上限11。对齐预算不等于沿用旧标签/数据分布，不能绕过检查。
 自动event参考仍需要完整十事件支持；显式action预算不要求每事件都存在，但必须有六类动作和背景。
 
 ## 温和提高小事件权重
@@ -103,6 +105,6 @@ bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-b
 # 两个消融共享同一规则
 bash qwen3vl_local/action_expert_ablation/bev_only/run_full_pipeline.sh --action-balanced --high-level-action-token
 bash qwen3vl_local/action_expert_ablation/qwen_simple/run_full_pipeline.sh --action-balanced --high-level-action-token --rgb-frame-count 1
-# 若需要固定旧预算，在两组命令都追加以下参数，并通过各自容量预检
-# --event-balanced-epoch-samples 116256
+# 默认已固定116256；如需旧自动预算/cap8对照，在两组命令都追加
+# --event-balanced-epoch-samples 0 --event-balance-max-frame-repeats 8
 ```

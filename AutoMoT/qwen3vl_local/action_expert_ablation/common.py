@@ -187,6 +187,9 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
     if saved.get("sampling_mode", "uniform") not in ("event_balanced", "action_balanced"):
         raise ValueError("uniform runs require their original source; start a new balanced run")
     saved.setdefault("sampling_policy", "global_action" if saved["sampling_mode"] == "action_balanced" else "cycle_even")
+    # 历史缺字段配置保留自动预算/上限8，不注入新训练116256/11。
+    saved.setdefault("event_balanced_epoch_samples", 0)
+    saved.setdefault("event_balance_max_frame_repeats", 8)
     legacy_optimization_defaults(saved)
     saved.setdefault("action_token_separation_weight", 0.0)
     saved.setdefault("action_token_separation_margin", 0.5)

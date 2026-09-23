@@ -1,7 +1,9 @@
 # 层次化因果数据采样方案与实施全案 (线路 -> Event -> Action)
 
 > 2026-09-23 接线修复后的实际合同：Phase3 与 Action 主线/qwen_simple/bev_only 新训默认
-> `smooth_cap`，事件内动作开方配额、全局单帧上限8。Action 仍使用 `event_balanced` 模式名，
+> `smooth_cap`，事件内动作开方配额。Phase3全局单帧上限仍为8；Action后续对齐旧run预算，
+> 新训默认每轮116256次、全局单帧上限11（两种模式一致，容量不足报错）；显式预算0恢复自动计算。
+> Action 仍使用 `event_balanced` 模式名，
 > 十特殊事件各一份、普通背景两份；显式 `--action-balanced` 是全局动作均衡对照，自动选 `global_action`。
 > 不支持把 `--action-balanced` 与 `--sampling-policy smooth_cap` 混用。旧run须原源码，新源码须重建索引/full map、新开run。
 >
@@ -179,7 +181,8 @@ Phase3 binary 仍由 `balanced_invalid_items` 决定原分层配额与人工题�
 1. **训练启动建议**：
    - 对于 Phase3 SFT 训练与 Action Prior 轨迹流匹配训练，可通过 `--sampling-policy smooth_cap` 显式启用三级因果采样；
    - Phase3：`--sampling-repeat-cap 2 --sampling-smooth-power 0.5`；
-   - Action 三入口：`--event-balance-max-frame-repeats 2 --sampling-smooth-power 0.5`；
+   - Action 三入口默认116256次/轮、cap11，无需追加参数。较低重复上限的自动预算实验用
+     `--event-balanced-epoch-samples 0 --event-balance-max-frame-repeats 2 --sampling-smooth-power 0.5`，轮长会改变；
    - cap=1 才表示单轮每帧不重复，cap=2 允许最多两次。较低上限可能使显式预算不可行。
    - 两者启动脚本均支持 `SAMPLING_POLICY` / `SAMPLING_SMOOTH_POWER`；cap 环境变量分别为
      `SAMPLING_REPEAT_CAP` / `EVENT_BALANCE_MAX_FRAME_REPEATS`，CLI 优先。

@@ -78,9 +78,10 @@ DEFAULTS = dict(
     sampling_smooth_power=0.5,
     event_balance_index="",
     event_balance_route_diverse=True,
-    event_balanced_epoch_samples=0,
-    # 两种模式统一上限8；保存配置与显式参数优先，旧源码合同仍严格校验。
-    event_balance_max_frame_repeats=8,
+    # 固定旧对照的呈现预算；显式0仍按当前池容量自动计算。
+    event_balanced_epoch_samples=116256,
+    # 两模式统一上限11：958帧UE3支撑9688次需至少11；容量不足仍报错。
+    event_balance_max_frame_repeats=11,
     best_selection_metric="natural_ade",
     # 内部保存字段，不再暴露 CLI；新训练按 dataset/action/noise 自动推导。
     event_balanced_scene_priors=False,
@@ -159,7 +160,8 @@ class SamplingArgumentParser(argparse.ArgumentParser):
         if getattr(parsed, "event_balance_max_frame_repeats", None) is None:
             from qwen3vl_local.action_prior.event_balance import DEFAULT_ACTION_REPEAT_CAP
             parsed.event_balance_max_frame_repeats = (
-                DEFAULT_ACTION_REPEAT_CAP if parsed.sampling_mode == "action_balanced" else 8
+                DEFAULT_ACTION_REPEAT_CAP if parsed.sampling_mode == "action_balanced"
+                else DEFAULTS["event_balance_max_frame_repeats"]
             )
         if getattr(parsed, "sampling_policy", None) is None:
             parsed.sampling_policy = "global_action" if parsed.sampling_mode == "action_balanced" else "smooth_cap"

@@ -19,7 +19,7 @@ from qwen3vl_local.action_prior.contracts import file_hash
 
 SAMPLING_MODE_EVENT_BALANCED = "event_balanced"
 SAMPLING_MODE_ACTION_BALANCED = "action_balanced"
-DEFAULT_ACTION_REPEAT_CAP = 8
+DEFAULT_ACTION_REPEAT_CAP = 11
 BALANCED_MODES = (SAMPLING_MODE_EVENT_BALANCED, SAMPLING_MODE_ACTION_BALANCED)
 SAMPLING_MODES = BALANCED_MODES
 # v2 binds the post-quarantine normal-background rule and diversity-first allocation contract.

@@ -133,7 +133,7 @@ def test_validation_preflight_counts_filtered_special_like_actual_metrics(tmp_pa
     for variant in ("prior", "qwen_simple", "bev_only"):
         parser = config.parser() if variant == "prior" else common.parser(variant)
         args = parser.parse_args(["--event-balanced", "--event-balance-index", str(source),
-                                  "--best-selection-metric", "event_balanced_ade"])
+                                  "--best-selection-metric", "event_balanced_ade", "--event-balanced-epoch-samples", "0"])
         splits = dict(train=training, val=validation,
                       test=[dict(row, route_group="Test/" + row["route_group"]) for row in validation])
         plan = (config.training_plan(args, splits, 1) if variant == "prior"

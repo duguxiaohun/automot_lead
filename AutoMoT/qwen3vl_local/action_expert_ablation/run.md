@@ -1,16 +1,37 @@
 # Action Expert 消融实验
 
+## 2026-09-23 固定每轮116256次（覆盖此前自动预算默认值）
+
+Action 主线、qwen_simple、bev_only 新训练统一默认每轮 **116256次呈现**，event/action两种模式相同；
+全epoch单帧重复上限统一 **11**。历史标签按当前过滤/划分回放时UE3有958帧，事件配额9688次，
+上限8不足，至少需要11；这是允许上限，不要求每帧重复11次，也不是新增独立数据。
+默认event仍为smooth_cap（十事件各9688、背景19376，事件内动作开方分配）；
+action仍为全局六动作各16146或16147、背景19376，小事件权重最多2倍。
+
+4卡、梯度累积16时为1817次优化器更新/轮，默认7轮共12719次；其它卡数/累积按实际计划换算。
+这只对齐旧run的呈现/更新预算，当前过滤、标签、重复分布与旧数据不必相同。
+两模式分别预检容量，不足会报错，不静默缩轮或自动提高上限。
+显式 `--event-balanced-epoch-samples 0` 恢复同池event容量自动预算；显式cap=2/8在固定预算下可能报错，
+若要重现旧自动预算需同时指定预算0和对应cap。
+CLI/环境变量仍可覆盖；续训保留保存的预算和上限，历史缺字段按0/8解释，旧run须使用原源码。
+新默认需新run；采样源码合同变化按入口校验重建full map，Phase3采样默认值与标签规则不变。
+
+验证：284项相关CPU回归通过；3项合同测试受本机缺少只读 `mot_lead_offline_runner.py` 阻断，未绕过生产校验。
+843913帧历史标签池上event/action各回放7轮，均为116256次/轮；event每轮74347个不同帧、最多重复11次，
+action每轮103300–103302个不同帧、最多重复3次。另按当前过滤/划分处理历史标签的817258帧池，
+1/4rank的event容量检查均接受116256/cap11。这些是历史标签CPU回放，未重建当前生产标签或跑真实GPU训练。
+
 ## 2026-09-23 默认事件内平滑采样与跨轮恢复（覆盖下方历史默认说明）
 
 三条 Action 新训默认 `event_balanced + smooth_cap`：十事件1:1、普通背景1/6，
-事件内动作按 N^0.5 分配，单帧全epoch上限8。共享帧联合分配，冲突缺额回到同事件其它动作；
-预算仍复用同池event容量，动作域过滤后无法满足时明确报错。token/文字先验开关独立。
+事件内动作按 N^0.5 分配，单帧全epoch上限11。共享帧联合分配，冲突缺额回到同事件其它动作；
+默认预算116256；显式预算0才复用同池event容量，动作域过滤后无法满足时明确报错。token/文字先验开关独立。
 固定队列种子与输入顺序，游标写入checkpoint；中途恢复重放本轮起点，轮末才提交下一轮位置。
 同成本联合分配优先补偿长期未选子池，再比较每帧累计曝光，不牺牲动作目标和本轮不同帧数。
 逐轮 `pools` 审计累计呈现/连续未选轮数；`sampling_pool_history` 随游标按本轮起点保存，整轮后提交。
 
 - `--sampling-policy smooth_cap`：新默认；`--sampling-smooth-power 0.5` 可改幂指数。
-- `--event-balance-max-frame-repeats 2`：可选较低上限，预算不足会报错。
+- `--event-balance-max-frame-repeats 2`：可选较低上限；默认固定116256若容量不足会报错，自动缩量实验需同时指定预算0。
 - `--event-balanced --sampling-policy cycle_even`：保留旧事件配额对照。
 - `--action-balanced`：显式全局动作等量对照，策略自动为 `global_action`，不能与 smooth_cap 混用。
 
@@ -24,7 +45,7 @@
 qwen_simple/bev_only与action_prior共用anchor≥4过滤、物理路线开发隔离、独立Action holdout支持补齐，
 以及主要动作容量回流；目标每事件32帧、5物理组，迁移/缺额写入训练计划。
 单图/四图/BEV-only使用同一有效帧范围。合法稀少动作保留标签，组合不另设等量桶。
-action/event默认单帧上限均为8；采样不自动打开token，也不向消融注入Phase3问答。
+action/event默认单帧上限均为11；采样不自动打开token，也不向消融注入Phase3问答。
 新条件必须新full map、新run；旧run使用原源码。
 详见 [v23 RGB与容量审计](../sft_new_loop_phase3/V23_RGB_SUPPORT_20260923.md)。
 
@@ -38,8 +59,8 @@ action/event默认单帧上限均为8；采样不自动打开token，也不向�
   避免4帧之类的小事件×动作格子被强拉到与大格子一样多；这是初始实验设置，不代表效果最优。
 - 并发帧按“动作＋支持该动作的事件集合”只入一个池；事件权重取均值，容量和权重不重复相加。
   池配额按帧数×权重分配，饱和缺额回到同动作其它池；池内优先不同帧和物理路线，硬上限仍检查。
-- 两模式新训练的单帧重复上限统一为8；显式值与保存值优先。8是允许上限，不要求每帧重复8次。
-  默认预算0使用**同一数据、repeat cap和world size下event模式的自动预算**，action不再自动缩到1/4。
+- 两模式新训练的单帧重复上限统一为11；显式值与保存值优先。11是允许上限，不要求每帧重复11次。
+  默认固定116256；显式预算0使用**同一数据、repeat cap和world size下event模式的自动预算**。
   动作容量不足会在模型加载前列出缺口及最低重复上限，不静默缩短epoch或放宽限制。
 
 只保留event/action两种采样；`ACTION_BALANCED=1`选action、`ACTION_BALANCED=0`选event，CLI优先。
@@ -47,10 +68,8 @@ action/event默认单帧上限均为8；采样不自动打开token，也不向�
 采样不会自动开启token或文字动作先验；token关闭时动作标签只用于选样。验证/测试仍按有效split遍历。
 完整epoch满足全局比例，micro-batch、rank子序列或max_train_steps截断前缀不保证等量。
 
-若要复现旧run的116256次/轮，给两组都显式加 `--event-balanced-epoch-samples 116256`；
-4卡、grad_accum_steps=16时为1817次更新/轮。这个预算**仍需两模式各自通过容量校验**，
-最新v23过滤/划分后不保证event模式上限8能满足；报错时应选共同可行预算或明确调整上限。
-仅改成action模式不保证恢复某个历史run的精确数量，默认对齐的是当前同源event基线。
+新训练默认已固定116256次/轮，4卡、grad_accum_steps=16时为1817次更新/轮。
+这个预算**仍需两模式各自通过容量校验**；容量不足报错，不自动改预算或上限。
 
 `training_plan.json` / `sampling/epoch_*.json`记录动作配额、事件权重、事件归属次数、真实唯一帧和重复直方图。
 并发帧的配额审计每次只归属一个事件，原事件事实全部保留；`group/event_balance/*`事实指标可以重叠。
@@ -278,8 +297,8 @@ GPU_IDS=0,1,2,3 EVENT_BALANCED=1 bash qwen3vl_local/action_expert_ablation/bev_o
 | 训练默认值、数据读取、split 隔离、预算 | `action_prior/config.py`，两个消融直接引用 |
 | 梯度更新、验证、选优 | `action_prior/training_core.py` |
 | 事件桶与 ADE/FDE 聚合 | `action_prior/metrics.py`，三组直接引用 |
-| epoch 呈现数 | `EVENT_BALANCED_EPOCH_SAMPLES` / `--event-balanced-epoch-samples`；默认 0，自动选择可行预算 |
-| 每帧总重复上限 | `EVENT_BALANCE_MAX_FRAME_REPEATS` / `--event-balance-max-frame-repeats`；两模式默认均为8 |
+| epoch 呈现数 | `EVENT_BALANCED_EPOCH_SAMPLES` / `--event-balanced-epoch-samples`；默认116256；显式0才自动选择可行预算 |
+| 每帧总重复上限 | `EVENT_BALANCE_MAX_FRAME_REPEATS` / `--event-balance-max-frame-repeats`；两模式默认均为11 |
 | 组内路线轮转 | `EVENT_BALANCE_ROUTE_DIVERSE=0/1` / `--no-event-balance-route-diverse` / `--event-balance-route-diverse` |
 | best 选优 | `BEST_SELECTION_METRIC` / `--best-selection-metric`；默认 `natural_ade`，可选 `event_balanced_ade` |
 

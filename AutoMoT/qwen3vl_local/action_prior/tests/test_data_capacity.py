@@ -33,7 +33,7 @@ def test_support_counts_frames_and_physical_routes_not_presentations():
 
 @pytest.mark.parametrize("variant", ["prior", "qwen_simple", "bev_only"])
 def test_all_uncond_rejected_by_all_training_plans_before_model_load(variant):
-    args = config.parser().parse_args(["--high-level-action-token"])
+    args = config.parser().parse_args(["--high-level-action-token", "--event-balanced-epoch-samples", "0"])
     rows = {s: [row(split=s)] for s in ("train", "val", "test")}
     with pytest.raises(ValueError, match="no conditioned training frames.*outside_phase3_mapping"):
         if variant == "prior":
@@ -53,7 +53,7 @@ def balanced_rows(split):
 
 
 def test_sparse_valid_actions_reported_without_manufacturing_coverage():
-    args = config.parser().parse_args(["--high-level-action-token"])
+    args = config.parser().parse_args(["--high-level-action-token", "--event-balanced-epoch-samples", "0"])
     rows = {s: balanced_rows(s) for s in ("train", "val", "test")}
     plan = config.training_plan(args, rows, 1)
     assert "RESUME" in plan["action_token_support"]["train"]["missing_actions"]
@@ -63,7 +63,7 @@ def test_sparse_valid_actions_reported_without_manufacturing_coverage():
 
 def test_capacity_audit_checks_actual_epoch_instead_of_only_pool_support(tmp_path, monkeypatch):
     from qwen3vl_local.action_prior import audit_data_capacity as module
-    args = config.parser().parse_args(["--high-level-action-token"])
+    args = config.parser().parse_args(["--high-level-action-token", "--event-balanced-epoch-samples", "0"])
     args.world_sizes, args.num_epochs, args.data_dir = [4], 1, str(tmp_path)
     rows = {s: balanced_rows(s) for s in ("train", "val", "test")}
     for split in rows:

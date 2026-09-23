@@ -1,16 +1,37 @@
 # Action prior 使用说明
 
+## 2026-09-23 固定每轮116256次（覆盖此前自动预算默认值）
+
+Action 主线、qwen_simple、bev_only 新训练统一默认每轮 **116256次呈现**，event/action两种模式相同；
+全epoch单帧重复上限统一 **11**。历史标签按当前过滤/划分回放时UE3有958帧，事件配额9688次，
+上限8不足，至少需要11；这是允许上限，不要求每帧重复11次，也不是新增独立数据。
+默认event仍为smooth_cap（十事件各9688、背景19376，事件内动作开方分配）；
+action仍为全局六动作各16146或16147、背景19376，小事件权重最多2倍。
+
+4卡、梯度累积16时为1817次优化器更新/轮，默认7轮共12719次；其它卡数/累积按实际计划换算。
+这只对齐旧run的呈现/更新预算，当前过滤、标签、重复分布与旧数据不必相同。
+两模式分别预检容量，不足会报错，不静默缩轮或自动提高上限。
+显式 `--event-balanced-epoch-samples 0` 恢复同池event容量自动预算；显式cap=2/8在固定预算下可能报错，
+若要重现旧自动预算需同时指定预算0和对应cap。
+CLI/环境变量仍可覆盖；续训保留保存的预算和上限，历史缺字段按0/8解释，旧run须使用原源码。
+新默认需新run；采样源码合同变化按入口校验重建full map，Phase3采样默认值与标签规则不变。
+
+验证：284项相关CPU回归通过；3项合同测试受本机缺少只读 `mot_lead_offline_runner.py` 阻断，未绕过生产校验。
+843913帧历史标签池上event/action各回放7轮，均为116256次/轮；event每轮74347个不同帧、最多重复11次，
+action每轮103300–103302个不同帧、最多重复3次。另按当前过滤/划分处理历史标签的817258帧池，
+1/4rank的event容量检查均接受116256/cap11。这些是历史标签CPU回放，未重建当前生产标签或跑真实GPU训练。
+
 ## 2026-09-23 默认事件内平滑采样与跨轮恢复（覆盖下方历史默认说明）
 
 三条 Action 新训默认 `event_balanced + smooth_cap`：十事件1:1、普通背景1/6，
-事件内动作按 N^0.5 分配，单帧全epoch上限8。共享帧联合分配，冲突缺额回到同事件其它动作；
-预算仍复用同池event容量，动作域过滤后无法满足时明确报错。token/文字先验开关独立。
+事件内动作按 N^0.5 分配，单帧全epoch上限11。共享帧联合分配，冲突缺额回到同事件其它动作；
+默认预算116256；显式预算0才复用同池event容量，动作域过滤后无法满足时明确报错。token/文字先验开关独立。
 固定队列种子与输入顺序，游标写入checkpoint；中途恢复重放本轮起点，轮末才提交下一轮位置。
 同成本联合分配优先补偿长期未选子池，再比较每帧累计曝光，不牺牲动作目标和本轮不同帧数。
 逐轮 `pools` 审计累计呈现/连续未选轮数；`sampling_pool_history` 随游标按本轮起点保存，整轮后提交。
 
 - `--sampling-policy smooth_cap`：新默认；`--sampling-smooth-power 0.5` 可改幂指数。
-- `--event-balance-max-frame-repeats 2`：可选较低上限，预算不足会报错。
+- `--event-balance-max-frame-repeats 2`：可选较低上限；默认固定116256若容量不足会报错，自动缩量实验需同时指定预算0。
 - `--event-balanced --sampling-policy cycle_even`：保留旧事件配额对照。
 - `--action-balanced`：显式全局动作等量对照，策略自动为 `global_action`，不能与 smooth_cap 混用。
 
@@ -24,7 +45,7 @@
 三条Action入口共用v23输入质量过滤：anchor<4排除；单图/四图/BEV-only用同一有效帧范围。
 有效split在开发路线隔离后，从未曝光train整组补足事件支持，目标每事件32帧、5物理组；
 原数据文件不改，实际迁移/缺额见训练计划的 `event_balance_source_audit.split_support`。
-`--action-balanced`按下述全局动作比例采样，重复上限与event统一为8；合法稀少动作不改KEEP/UNCOND。
+`--action-balanced`按下述全局动作比例采样，重复上限与event统一为11；合法稀少动作不改KEEP/UNCOND。
 文字动作先验自动复用更新后的Phase3因果句，token/文字开关仍独立；默认event-balanced不变。
 需按新hash准备候选/full map并新开run，旧run使用原源码。
 详细RGB判断、容量回放与限制见 [v23审计](../sft_new_loop_phase3/V23_RGB_SUPPORT_20260923.md)。
@@ -39,8 +60,8 @@
   避免4帧之类的小事件×动作格子被强拉到与大格子一样多；这是初始实验设置，不代表效果最优。
 - 并发帧按“动作＋支持该动作的事件集合”只入一个池；事件权重取均值，容量和权重不重复相加。
   池配额按帧数×权重分配，饱和缺额回到同动作其它池；池内优先不同帧和物理路线，硬上限仍检查。
-- 两模式新训练的单帧重复上限统一为8；显式值与保存值优先。8是允许上限，不要求每帧重复8次。
-  默认预算0使用**同一数据、repeat cap和world size下event模式的自动预算**，action不再自动缩到1/4。
+- 两模式新训练的单帧重复上限统一为11；显式值与保存值优先。11是允许上限，不要求每帧重复11次。
+  默认固定116256；显式预算0使用**同一数据、repeat cap和world size下event模式的自动预算**。
   动作容量不足会在模型加载前列出缺口及最低重复上限，不静默缩短epoch或放宽限制。
 
 只保留event/action两种采样；`ACTION_BALANCED=1`选action、`ACTION_BALANCED=0`选event，CLI优先。
@@ -48,10 +69,8 @@
 采样不会自动开启token或文字动作先验；token关闭时动作标签只用于选样。验证/测试仍按有效split遍历。
 完整epoch满足全局比例，micro-batch、rank子序列或max_train_steps截断前缀不保证等量。
 
-若要复现旧run的116256次/轮，给两组都显式加 `--event-balanced-epoch-samples 116256`；
-4卡、grad_accum_steps=16时为1817次更新/轮。这个预算**仍需两模式各自通过容量校验**，
-最新v23过滤/划分后不保证event模式上限8能满足；报错时应选共同可行预算或明确调整上限。
-仅改成action模式不保证恢复某个历史run的精确数量，默认对齐的是当前同源event基线。
+新训练默认已固定116256次/轮，4卡、grad_accum_steps=16时为1817次更新/轮。
+这个预算**仍需两模式各自通过容量校验**；容量不足报错，不自动改预算或上限。
 
 `training_plan.json` / `sampling/epoch_*.json`记录动作配额、事件权重、事件归属次数、真实唯一帧和重复直方图。
 并发帧的配额审计每次只归属一个事件，原事件事实全部保留；`group/event_balance/*`事实指标可以重叠。
@@ -59,7 +78,7 @@
 算法详见 [全局动作均衡说明](GLOBAL_ACTION_BALANCED_20260923.md)。
 
 ```bash
-# AutoMoT/ 下；默认event，同源自动预算
+# AutoMoT/ 下；默认event，每轮116256次
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
 # 全局action比例 + 温和事件加权 + token + 单当前图
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
@@ -317,7 +336,7 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-p
 ```
 
 `--event-balanced`：UE1–UE7、RE2、RE3、RE5 各一份，确认的普通 RE 合计两份。
-默认每帧单 epoch 最多重复 8 次，自动确定可行预算，并优先覆盖不同帧。省略此开关仍为事件均衡；`--action-balanced` 切换为动作均衡。
+默认每帧单 epoch 最多重复 11 次，每轮固定116256次并检查容量，并优先覆盖不同帧。省略此开关仍为事件均衡；`--action-balanced` 切换为动作均衡。
 
 脚本自动准备 action 索引、Phase1 标签索引、先验标签以及均衡采样所需的候选/full map；已存在的有效结果会复用。
 这只构建数据，不训练 Phase1/Phase3。首次准备可能较慢，终端和 pipeline 日志会显示进度。

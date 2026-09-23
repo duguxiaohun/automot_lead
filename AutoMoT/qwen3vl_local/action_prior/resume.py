@@ -22,8 +22,9 @@ def main():
     cli, extra = p.parse_known_args()
     checkpoint = Path(cli.checkpoint).resolve()
     cfg = json.loads((checkpoint.parent / "config.json").read_text())
-    # 老配置缺字段时仍按历史上限8恢复，不能套用新 action-balanced 的上限2。
-    cfg.setdefault("event_balance_max_frame_repeats", DEFAULTS["event_balance_max_frame_repeats"])
+    # 缺字段沿用历史自动预算/上限8，不能套用新训练116256/11。
+    cfg.setdefault("event_balanced_epoch_samples", 0)
+    cfg.setdefault("event_balance_max_frame_repeats", 8)
     if cfg.get("sampling_mode", "uniform") not in ("event_balanced", "action_balanced"):
         raise ValueError("uniform runs require their original source; start a new balanced run")
     cfg.setdefault("sampling_policy", "global_action" if cfg["sampling_mode"] == "action_balanced" else "cycle_even")

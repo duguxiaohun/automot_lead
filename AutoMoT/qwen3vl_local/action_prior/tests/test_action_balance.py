@@ -170,8 +170,8 @@ def test_sampling_aliases_are_independent_of_model_conditioning(variant):
     assert p.parse_args(["--event-balanced", "--action-balanced"]).sampling_mode == "action_balanced"
     assert p.parse_args(["--action-balanced", "--event-balanced"]).sampling_mode == "event_balanced"
     assert p.parse_args([]).sampling_mode == "event_balanced"
-    assert p.parse_args([]).event_balance_max_frame_repeats == 8
-    assert p.parse_args(["--action-balanced"]).event_balance_max_frame_repeats == 8
+    assert p.parse_args([]).event_balance_max_frame_repeats == 11
+    assert p.parse_args(["--action-balanced"]).event_balance_max_frame_repeats == 11
     for removed in (["--no-action-balanced"], ["--no-event-balanced"], ["--sampling-mode", "uniform"]):
         with pytest.raises(SystemExit):
             p.parse_args(removed)
@@ -196,10 +196,10 @@ def test_sampling_contract_restores_without_online_label_files(monkeypatch):
 @pytest.mark.parametrize('variant', ['prior', 'qwen_simple', 'bev_only'])
 def test_repeat_default_follows_final_mode_and_explicit_cap_wins(variant):
     p = parser() if variant == 'prior' else common.parser(variant)
-    for flags, expected in [([], 8), (['--event-balanced'], 8), (['--action-balanced'], 8),
-                            (['--sampling-mode', 'action_balanced'], 8),
-                            (['--action-balanced', '--event-balanced'], 8),
-                            (['--event-balanced', '--action-balanced'], 8),
+    for flags, expected in [([], 11), (['--event-balanced'], 11), (['--action-balanced'], 11),
+                            (['--sampling-mode', 'action_balanced'], 11),
+                            (['--action-balanced', '--event-balanced'], 11),
+                            (['--event-balanced', '--action-balanced'], 11),
                             (['--event-balance-max-frame-repeats', '8', '--action-balanced'], 8),
                             (['--action-balanced', '--event-balance-max-frame-repeats', '1'], 1)]:
         assert p.parse_args(flags).event_balance_max_frame_repeats == expected
@@ -289,11 +289,53 @@ def test_new_training_defaults_and_explicit_comparisons(variant):
     p = parser() if variant == 'prior' else common.parser(variant)
     args = p.parse_args([])
     assert args.sampling_mode == 'event_balanced' and args.sampling_policy == 'smooth_cap'
-    assert args.sampling_smooth_power == .5 and args.event_balance_max_frame_repeats == 8
+    assert args.sampling_smooth_power == .5 and args.event_balance_max_frame_repeats == 11
+    assert args.event_balanced_epoch_samples == 116256
+    assert p.parse_args(['--action-balanced']).event_balanced_epoch_samples == 116256
+    assert p.parse_args(['--event-balanced-epoch-samples', '0']).event_balanced_epoch_samples == 0
     assert p.parse_args(['--action-balanced']).sampling_policy == 'global_action'
     assert p.parse_args(['--sampling-policy', 'cycle_even']).sampling_policy == 'cycle_even'
     with pytest.raises(SystemExit):
         p.parse_args(['--action-balanced', '--sampling-policy', 'smooth_cap'])
+
+
+@pytest.mark.parametrize('variant', ['prior', 'qwen_simple', 'bev_only'])
+def test_fixed_default_budget_preserves_event_quotas_and_old_update_count(variant):
+    from qwen3vl_local.action_prior import config
+    args = (parser() if variant == 'prior' else common.parser(variant)).parse_args([])
+    # 当前审计瓶颈958帧；每事件9688次需要cap11，cap8必须拒绝而非缩轮。
+    train = [row(i * 958 + j, [event], 'STOP')
+             for i, event in enumerate(eb.SPECIAL_BUCKETS) for j in range(958)]
+    train.extend(row(10000 + i) for i in range(1916))
+    splits = dict(train=train, val=[], test=[])
+    plan = (config.training_plan(args, splits, 4) if variant == 'prior'
+            else common.training_plan(args, splits, 4, variant))
+    assert plan['samples_per_epoch'] == 116256
+    assert plan['optimizer_steps_per_epoch'] == 1817
+    assert plan['actual_step_limit'] == 12719
+    audit = plan['sampling']['hierarchical']
+    assert audit['sampled'] == {**dict.fromkeys(eb.SPECIAL_BUCKETS, 9688), eb.REGULAR_BACKGROUND: 19376}
+    assert audit['max_frame_repeats'] == 11
+    args.event_balance_max_frame_repeats = 8
+    with pytest.raises(ValueError, match='infeasible.*shared-frame'):
+        config.training_plan(args, splits, 4)
+    args.event_balanced_epoch_samples = 0
+    assert config.training_plan(args, splits, 4)['samples_per_epoch'] == 91968
+
+
+@pytest.mark.parametrize('variant', ['qwen_simple', 'bev_only'])
+@pytest.mark.parametrize('budget,cap', [(0, 8), (95136, 8), (116256, 11), (None, None)])
+def test_resume_budget_does_not_inherit_new_training_defaults(tmp_path, variant, budget, cap):
+    saved = vars(common.parser(variant).parse_args(['--action-balanced']))
+    for key, value in [('event_balanced_epoch_samples', budget), ('event_balance_max_frame_repeats', cap)]:
+        if value is None:
+            saved.pop(key)
+        else:
+            saved[key] = value
+    (tmp_path / 'config.json').write_text(json.dumps(saved))
+    restored = common.parse_train_args(variant, ['--resume', str(tmp_path / 'latest.pt')])
+    assert restored.event_balanced_epoch_samples == (0 if budget is None else budget)
+    assert restored.event_balance_max_frame_repeats == (8 if cap is None else cap)
 
 
 @pytest.mark.parametrize('policy', ['smooth_cap', 'cycle_even', 'global_action'])
