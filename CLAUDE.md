@@ -1,5 +1,14 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-26 Phase3 固定配额容量诊断（不放宽训练约束）
+
+用户要求保留每类1024与单帧cap8，只排查重分配。train失败分支新增capacity_diagnostic，
+精确最大流/最小割报告受限分组、物理帧、可用次数和预留人工题；原ValueError子类兼容。
+INVALID仅来源配额的容量上界单列，未保留细签名覆盖的上界不能当可执行计划，不自动采用。
+66项相关CPU回归通过（使用已有pvi环境）；同12236/12206数值为合成拓扑，未复现训练机实际池。
+原sampler/build/mapping/prompt未改，现有匹配索引可直接CPU sampling-only诊断；不绕过旧索引校验。
+远端须贴phase3-capacity报告后才能确认合法重分配空间；详见Phase3运行说明及PROJECT_CONTEXT.md。
+
 ### 2026-09-26 Action / Phase3 数据发布 ESTALE 恢复
 
 BEV-only和qwen_simple真实shell入口确认共用prepare_event_balance，候选/full map/actions完成缓存

@@ -1,5 +1,23 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-26 Phase3 binary 固定配额容量失败诊断
+
+用户提供四卡CPU采样预检失败：joint请求12236、feasible12206、repeat_cap8；前置same-RS零路线
+提示明确Training allowed，不是中断原因。用户选择保持每类1024和cap8，只排查是否能重新分配。
+现有最小费用流已经允许共享帧反向重分配和同事件动作回流；当前候选/固定细分配额下缺30次
+不等于全train缺30张不同图，不能靠改shuffle宣称解决，也不自动降低预算/提高上限/变更标签。
+只在train._balanced_work容量失败分支调用新增capacity_diagnostic：独立无费用压缩最大流，
+残量最小割给出bottleneck_events、bottleneck_unique_frames、bottleneck_target/available_presentations，
+并区分预留人工题和联合分配次数。minimum_repeat_cap仅诊断数值，绝不实际提高上限。
+另报告合并INVALID细分组但保持来源总配额的乐观容量上界；signature/prompt-RS覆盖未保证，
+标记executable_plan=false，不能当符合原覆盖约束的解决方案；不足则说明仅放松这些细分配额也无解。
+错误仍为ValueError子类、打印rank0的phase3-capacity JSON；成功路径无诊断调用/随机数或游标变化。
+66项CPU回归通过（已有/home/codon/anaconda3/envs/pvi含torch），覆盖最小割、预留、缺池、
+随机小池穷举容量/最小cap、真实_balanced_work失败保持状态和原support/validation回归。
+12236/12206/差30的数值测试是合成拓扑，不能认作远端实池复现；未读取训练机索引、未GPU训练。
+采样器、构建器、mapping hash依赖文件和prompt未变，此诊断补丁本身不要求重建匹配索引。
+保留此前版本合同检查，旧run仍按其源码要求；不自动push。运行命令见Phase3运行说明。
+
 ### 2026-09-26 Action / Phase3 数据产物发布 ESTALE
 
 训练机日志定位：BEV-only全流程在Phase3扫描完成、写出15180行索引后，候选目录rename返回Errno116。

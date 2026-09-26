@@ -1,5 +1,27 @@
 # SFT New Loop Phase3 当前运行入口（2026-09-26，v24）
 
+## 2026-09-26 保持1024/cap8的容量诊断
+
+`insufficient shared frame capacity: target=12236, feasible=12206, repeat_cap=8` 表示当前
+候选和固定细分配额的联合分配缺30次；`same-RS ... insufficient_support. Training allowed`不是此错误原因。
+用户要求不缩预算、不放大cap。共享求解器已有反向重分配能力，因此先用最小割定位具体受限分组。
+同步本次 `train.py` 与新增 `capacity_diagnostic.py` 后，可在AutoMoT目录运行（原任务自定义参数需保持一致）：
+
+```bash
+python qwen3vl_local/sft_new_loop_phase3/train.py \
+  --index checkpoints/sft_new_loop_phase3_data_v24/frame_index.jsonl \
+  --action-output-mode binary --focus-balance-count 1024 \
+  --sampling-policy smooth_cap --sampling-repeat-cap 8 \
+  --seed 20260904 --invalid-focus-multiplier 2 --sampling-only
+```
+
+只执行CPU采样预检，不加载模型权重、不初始化NCCL或写训练run。容量失败仍以非零退出，
+但rank0先打印 `[phase3-capacity]` JSON：最小割分组、不同物理帧、配额/可用次数、预留人工题。
+`invalid_source_only_upper_bound`只是未保证细签名/错误RS覆盖的乐观上界，不能当作可执行重分配。
+`minimum_repeat_cap`仅供解释瓶颈，不会修改实际cap8。请根据真实报告再判断能否在原覆盖约束内重分配。
+该补丁未改采样器/构建/mapping/prompt，匹配现有源码的索引无需因此重建；旧哈希仍严格拒绝。
+66项相关CPU回归通过；同日志数值的测试是合成池，未复现远端实际候选，尚无“原预算与cap已可行”的结论。
+
 ## 2026-09-26 数据文件发布 ESTALE 恢复
 
 候选、frame index、完整训练池、并行scenario扫描及相关元信息共用

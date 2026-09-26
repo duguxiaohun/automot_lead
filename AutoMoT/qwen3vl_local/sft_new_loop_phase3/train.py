@@ -453,13 +453,27 @@ def _balanced_work(
             if item.row.invalid_reason != "same_rs_wrong_event":
                 targets[invalid_key(item)] += 1
         reserved = Counter(_item_identity(item) for item in fixed)
-        work, audit = hierarchical_event_action_epoch_sample(
-            groups, targets, repeat_cap=repeat_cap,
-            smooth_power=smooth_power, cursor_state=cursor_state, master_seed=master_seed,
-            rng=rng, route_diverse=route_diverse, initial_frame_usage=reserved, pool_history=pool_history,
-            action_fn=lambda item: ("INVALID" if item.row.invalid_source else
-                                    sampling_action(item.row.answers, item.row.context_id)),
-        )
+        try:
+            work, audit = hierarchical_event_action_epoch_sample(
+                groups, targets, repeat_cap=repeat_cap,
+                smooth_power=smooth_power, cursor_state=cursor_state, master_seed=master_seed,
+                rng=rng, route_diverse=route_diverse, initial_frame_usage=reserved, pool_history=pool_history,
+                action_fn=lambda item: ("INVALID" if item.row.invalid_source else
+                                        sampling_action(item.row.answers, item.row.context_id)),
+            )
+        except ValueError as exc:
+            if not str(exc).startswith(('insufficient shared frame capacity:', 'smooth_cap quota infeasible:')):
+                raise
+            from qwen3vl_local.sft_new_loop_phase3.capacity_diagnostic import (
+                SharedFrameCapacityError, diagnose_joint_capacity,
+            )
+            report = diagnose_joint_capacity(groups, targets, repeat_cap=repeat_cap, initial_frame_usage=reserved)
+            report.update(seed=seed, target_per_bin=target, action_output_mode=output_mode)
+            if sampling_audit is not None:
+                sampling_audit['capacity_failure'] = report
+            if int(os.environ.get('RANK', '0')) == 0:
+                print('[phase3-capacity] ' + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+            raise SharedFrameCapacityError(report) from exc
         work.extend(fixed)
         rng.shuffle(work)
         audit.pop("selected_cells")
