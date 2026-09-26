@@ -10,7 +10,7 @@ import warnings
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
-from qwen3vl_local.sft_new_loop_phase3.action_review import build_action_review
+from qwen3vl_local.sft_new_loop_phase3.action_review import build_action_review, near_stop_review
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID, DOMAIN_MANEUVER
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
@@ -18,7 +18,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
     longitudinal_decision, longitudinal_from_signals, load_route_trajectory, label_actions,
 )
 
-AUDIT_VERSION = "phase3_boundary_diagnostics_v3_recorded_response"
+AUDIT_VERSION = "phase3_boundary_diagnostics_v4_near_stop_segments"
 # 固定审查带宽，不是动作阈值，不用于过滤、权重或修改 KEEP。
 REVIEW_MARGIN_MPS = 0.10
 
@@ -39,6 +39,8 @@ def speed_boundaries(speeds, *, brake=None, throttle=None):
                  "first_drop_single_sample", "isolated_gain_present", "gain_unconfirmed_at_2s_boundary"):
         if decision[name]:
             flags.append(name)
+    near_stop = near_stop_review(values, brake=brake, throttle=throttle)
+    flags.extend(near_stop['flags'])
     # 最多额外一秒，同一基准下的窗外邻近变化；不运行变长标定器。
     tail = list(map(float, speeds[9:13]))
     tail_complete = len(tail) == 4 and all(math.isfinite(v) and v >= 0 for v in tail)
@@ -55,6 +57,7 @@ def speed_boundaries(speeds, *, brake=None, throttle=None):
             flags.append("speed_continuation_gain_just_outside_window")
     return {"eligible": True, "speed_action": decision["action"], **margins,
             "drop_mps": drop, "sustained_gain_mps": gain, "flags": flags,
+            "near_stop": near_stop,
             "tail_complete": tail_complete, "outside_drop_s": outside_drop,
             "outside_gain_confirmed_s": outside_gain}
 

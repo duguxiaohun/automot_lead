@@ -1,5 +1,13 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-26 Phase3 v24 连续RGB审计与小幅提示词修订
+
+四包历史对比、60段/1020张不同RGB逐帧观察及修订见
+[Phase3 v24审计](AutoMoT/qwen3vl_local/sft_new_loop_phase3/V24_RGB_CALIBRATION_20260926.md)。
+新默认data_v24/prompt v24_motion_reference；动作v9阈值、窗口及采样策略保留。
+新索引/full map、新run；旧run原源码。技术细节与验证边界见PROJECT_CONTEXT.md同日条目。
+
+
 ### 2026-09-23 分层子池公平性与完整训练池审计补齐
 
 smooth_cap联合分配在动作目标和本轮不同帧数同样最优时，优先补偿连续未选轮数，再按每帧累计曝光排序。

@@ -115,7 +115,8 @@ def test_keep_risk_meaning_shared_without_review_metadata_in_prompt(context_id,m
     prompt = build_action_prompt(spec=spec)
     assert 'Brief braking can occur within this stage' in prompt
     assert 'KEEP does not imply that traffic risks have cleared' in prompt
-    for private in ('target_speed','speed_reduced_by_obj_id','motion_milestones','review_only','1.5 s'):
+    for private in ('target_speed','speed_reduced_by_obj_id','motion_milestones','review_only','1.5 s',
+                    'near_stop_pair_confirmation_crosses_immediate_boundary', 'release_s', 'sample_count'):
         assert private not in prompt
     target = build_action_target(spec)
     assert target == 'KEEP' if mode == 'choice' else 'KEEP: YES' in target

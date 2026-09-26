@@ -61,8 +61,8 @@ from qwen3vl_local.sft_new_loop_phase3.choice_semantics import (
     primary_choice, binary_answers, action_description, CONTEXT_ACTION_DESCRIPTIONS,
 )
 
-# v23：突出当前阶段与绕障/回正，控制与未来数值只留在标定器。
-PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v23_grounded_stage"
+# v24：连续 RGB 复核后澄清短暂停顿及最新帧基准，控制与未来数值只留在标定器。
+PROMPT_NAME = "sft_new_loop_phase3_high_level_action_v24_motion_reference"
 INVALID_KEY = "INVALID_ACTION_CONTEXT"
 ANSWER_KEYS: Tuple[str, ...] = (*ACTION_KEYS, KEEP_ACTION, INVALID_KEY)
 ANSWER_VALUES = ("YES", "NO")
@@ -88,10 +88,10 @@ OBSERVATION_RULES = (
 )
 # 模型只读动作阶段语义；秒数、0.5m/s、两连续采样、max(1.2m/s,20%)留在标定器。
 SPEED_ACTION_RULES = (
-    "STOP means an immediate sustained near-stop or continued waiting before a later release. "
-    "Low speed alone does not establish continued waiting; immediate pull-away can be RESUME when sustained acceleration begins. "
-    "Judge the first meaningful speed change relative to current speed: "
-    "a clear reduction is DECELERATE even if speed recovers; a sustained speed increase is RESUME without requiring a previous stop. "
+    "Judge the first meaningful speed change relative to the newest speed, not earlier peaks or trends. "
+    "STOP means immediate sustained near-stop or continued waiting, not a momentary dip followed by motion. "
+    "Low speed alone does not establish continued waiting; immediate pull-away can be RESUME. "
+    "DECELERATE is a clear reduction even if speed recovers; RESUME is a sustained speed increase without prior stopping. "
     "Small adjustments mean continued driving."
 )
 SPEED_RULES = SPEED_ACTION_RULES + " At most one speed answer is YES; STOP takes priority."

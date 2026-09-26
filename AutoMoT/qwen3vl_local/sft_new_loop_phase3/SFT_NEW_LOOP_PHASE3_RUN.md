@@ -1,4 +1,21 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-23，v23）
+# SFT New Loop Phase3 当前运行入口（2026-09-26，v24）
+
+## 2026-09-26 v24 当前默认（覆盖下方历史版本默认）
+
+新训仍默认 4rgb + choice；数据目录改为 `sft_new_loop_phase3_data_v24`，提示词为
+`v24_motion_reference`。只澄清最新速度基准和短暂近停，动作 v9 阈值、窗口、主动作优先级及采样策略保留。
+近停连续片段诊断只供审计，新增176个已曝光物理组为train-only（累计1955）；历史数据容量回放可补齐holdout，非生产重建验收。
+必须重新构建索引/full map并新建run，不能用SKIP_BUILD复用旧哈希或用新源码续训旧run。
+
+760项相关CPU检查通过，460题原始动作回放不变、1840次提示词回放通过；未跑新GPU训练。
+训练历史对比及60段/1020张RGB逐帧证据见 [v24复核](V24_RGB_CALIBRATION_20260926.md) 和
+[训练审计](AUDIT_COMPARISON_20260926.md)。下方v23及更早记录均为历史说明，当前路径以上方为准。
+
+```bash
+# 从 AutoMoT/ 运行；用默认新目录构建并训练，不复用旧SKIP_BUILD设置
+bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
+```
+
 
 ## 2026-09-23 采样接线修复后的新训默认
 

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
     STOP_SPEED_MPS, LONGITUDINAL_MIN_DELTA_MPS, LONGITUDINAL_RELATIVE_DELTA,
     LONGITUDINAL_HORIZON_FRAMES, longitudinal_decision)
+from qwen3vl_local.sft_new_loop_phase3.action_review import near_stop_review
 
 
 def timing_diagnostics(speeds, *, brake=None, throttle=None):
@@ -37,6 +38,8 @@ def slices(row):
                                 throttle=row["action_evidence"].get("throttle"))
     if timing["confirmed_pullaway"]:
         flags.append("confirmed_pullaway_at_near_stop")
+    flags.extend(near_stop_review(speeds, brake=row['action_evidence'].get('brake'),
+                 throttle=row['action_evidence'].get('throttle'))['flags'])
     for key in ("stop_pair_crosses_1_5s_boundary", "isolated_near_stop_in_1_5s",
                 "subthreshold_drop_present", "first_drop_single_sample",
                 "isolated_gain_present", "gain_unconfirmed_at_2s_boundary"):

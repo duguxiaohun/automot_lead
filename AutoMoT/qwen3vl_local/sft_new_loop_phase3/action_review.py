@@ -5,10 +5,11 @@ from numbers import Integral, Real
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID, DOMAIN_MANEUVER
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import (
-    FRAME_DT_SECONDS, LATERAL_HORIZON_FRAMES, longitudinal_from_signals,
+    FRAME_DT_SECONDS, LATERAL_HORIZON_FRAMES, LONGITUDINAL_HORIZON_FRAMES,
+    IMMEDIATE_HORIZON_FRAMES, STOP_SPEED_MPS, longitudinal_decision, longitudinal_from_signals,
 )
 
-ACTION_REVIEW_VERSION = "recorded_response_and_motion_v2_pullaway"
+ACTION_REVIEW_VERSION = "recorded_response_and_motion_v3_near_stop_segments"
 BOOL_FIELDS = ("brake", "vehicle_hazard", "walker_hazard", "light_hazard",
                "stop_sign_hazard", "brake_cutin", "slower_bad_visibility", "slower_clutterness")
 
@@ -50,6 +51,45 @@ def _known_limiter(meta):
     value = meta["speed_reduced_by_obj_id"]
     actor = _actor_id(value)
     return value is None or actor is not None, actor
+
+
+def near_stop_review(speeds, *, brake=None, throttle=None):
+    """只解释固定速度窗内的近停片段；截止确认与孤立低速分开，不重标动作。
+
+    旧 isolated_near_stop_in_1_5s 只表示立即窗内没有确认对，包含边界停车。
+    此处报告实际连续片段；窗末单点无法判定随后释放，不能称为短暂停顿。
+    """
+    decision = longitudinal_decision(speeds, brake=brake, throttle=throttle)
+    if not decision['eligible']:
+        return dict(eligible=False, reason=decision['reason'], segments=[], flags=[])
+    values = list(map(float, speeds[:LONGITUDINAL_HORIZON_FRAMES + 1]))
+    segments, flags = [], []
+    i = 0
+    while i < len(values):
+        if values[i] > STOP_SPEED_MPS:
+            i += 1
+            continue
+        start = i
+        while i + 1 < len(values) and values[i + 1] <= STOP_SPEED_MPS:
+            i += 1
+        confirmed = start + 1 if i > start else None
+        release = i + 1 if i + 1 < len(values) else None
+        segments.append(dict(start_s=start * FRAME_DT_SECONDS, last_near_stop_s=i * FRAME_DT_SECONDS,
+            sample_count=i-start+1,
+            confirmed_s=None if confirmed is None else confirmed * FRAME_DT_SECONDS,
+            release_s=None if release is None else release * FRAME_DT_SECONDS,
+            open_at_window_end=release is None))
+        if confirmed is None and release is not None:
+            flags.append('single_near_stop_sample_released_in_window')
+        if confirmed is None and release is None:
+            flags.append('near_stop_at_window_end_unconfirmed')
+        if start == IMMEDIATE_HORIZON_FRAMES and confirmed is not None:
+            flags.append('near_stop_pair_confirmation_crosses_immediate_boundary')
+        if start > IMMEDIATE_HORIZON_FRAMES and confirmed is not None:
+            flags.append('near_stop_pair_starts_after_immediate_window')
+        i += 1
+    return dict(eligible=True, review_only=True, segments=segments, flags=sorted(set(flags)),
+                semantics='bounded_speed_samples_not_complete_waiting_or_intent_truth')
 
 
 def build_action_review(trajectory, frame_id, context_id, labels, signals=None):
@@ -128,6 +168,8 @@ def build_action_review(trajectory, frame_id, context_id, labels, signals=None):
                 review_only=True, purpose_status="conditional_not_verified_intent",
                 controller=controller, anchor_controls=decision["anchor_controls"],
                 longitudinal_reason=decision["reason"], flags=flags, primary_action=selected,
+                near_stop=near_stop_review(signals['future_speeds'],
+                    brake=signals.get('brake'), throttle=signals.get('throttle')),
                 motion_milestones=sorted(milestones, key=lambda m:(m["start_s"],m["action"])),
                 milestone_semantics="bounded_rule_triggers_not_complete_stage_sequence",
                 speed_action_start_s=speed_start, crossing_start_s=crossing_start,

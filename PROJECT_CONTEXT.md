@@ -1,5 +1,22 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-26 Phase3 v24 连续RGB与训练结果复核
+
+四份20260923包对最近v21总分表观提高，但测试逐题交集为0；STOP/RESUME进步，RIGHT/KEEP退化，
+choice减速仅30/100与33/100；不宣称全面超过历史最好或通过production守卫。
+连续复核60段、58物理组、1020张不同RGB（全三视图、每段17帧，14正确对照/46错误），另五段原分辨率复看。
+保留60段原标签，不能由定向样本宣称全池零错标；暗光/对象可见性五段仍标未解决。
+近停诊断分开单点已释放、截止确认、晚起停车对、窗末未知，不再把旧isolated字段都解释为短暂停顿；
+action_review及两类边界审计共用，未来/控制不进入提示词。v9动作阈值、窗口与主动作优先级未改。
+prompt v24_motion_reference只改共享速度说明：最新速度基准、瞬时近停与等待；保持原610词测试预算。
+新data_v24，176个已曝光test/导出val物理组加入train-only，累计1955；mapping合同绑定名单。
+460题/117录制路线/15297meta回放，原动作/纵向判定0变化，1840次两题型/两图数回放通过；非全train审计。
+760项相关CPU测试通过；历史190000候选划分回放移动64组，val/test各类≥32帧/5组，非当前生产重建。
+未跑GPU新训/新模型效果验收，不能声称效果改善；索引/full map须重建并新run，旧run原源码。
+报告及逐段观察见 [V24_RGB_CALIBRATION_20260926.md](AutoMoT/qwen3vl_local/sft_new_loop_phase3/V24_RGB_CALIBRATION_20260926.md)，
+指标详表见 [AUDIT_COMPARISON_20260926.md](AutoMoT/qwen3vl_local/sft_new_loop_phase3/AUDIT_COMPARISON_20260926.md)。
+
+
 ### 2026-09-23 分层子池公平性与完整训练池审计补齐
 
 smooth_cap联合分配在动作目标和本轮不同帧数同样最优时，优先补偿连续未选轮数，再按每帧累计曝光排序。
