@@ -5,6 +5,7 @@ import multiprocessing
 from pathlib import Path
 import shutil
 import signal
+import subprocess
 import sys
 
 import pytest
@@ -27,6 +28,7 @@ def prepared_sources(tmp_path, monkeypatch):
     for split in ('train', 'val', 'test'):
         (data / f'{split}.jsonl').write_text('{}\n')
     state = {'mapping': 'a' * 64, 'fail_full': False, 'calls': []}
+    monkeypatch.setattr(preparation, 'ESTALE_DELAYS', (0, 0, 0, 0))
     monkeypatch.setattr(preparation, 'mapping_contract_hash', lambda: state['mapping'])
     monkeypatch.setattr(source_mapping, 'mapping_contract_hash', lambda: state['mapping'])
 
@@ -90,12 +92,30 @@ def test_prepare_builds_reuses_and_rebuilds_for_changed_sources(prepared_sources
     assert '[prepare] published:' in captured.err and '[prepare] reuse cache:' in captured.err
 
 
-def test_real_phase3_writer_passes_action_publication_and_reuse(prepared_sources, monkeypatch):
+@pytest.mark.parametrize('stale_target', [None, 'frame_index.jsonl', 'train_sampling_pool.jsonl',
+                                       'candidate_frames.jsonl', 'candidate_counts.json',
+                                       'split_coverage.json', 'same_rs_invalid_candidates.jsonl', 'manifest.json'])
+@pytest.mark.parametrize('committed', [False, True])
+def test_real_phase3_writer_passes_action_publication_and_reuse(prepared_sources, monkeypatch,
+                                                              stale_target, committed):
     """只替换原始数据读取；真实Phase3均衡、manifest写入与Action发布必须相容。"""
     from qwen3vl_local.sft_new_loop_phase3 import build_dataset as phase3, same_rs_invalid
     from qwen3vl_local.sft_new_loop_phase3.test_build_invalid_quota import candidates
     from qwen3vl_local.sft_new_loop_phase3.trajectory_action import longitudinal_decision
     data, collection, cache, state = prepared_sources
+    from qwen3vl_local.action_prior import filesystem
+    monkeypatch.setattr(filesystem, 'ESTALE_DELAYS', (0, 0, 0, 0))
+    original_replace, faults = Path.replace, []
+
+    def replace(source, target):
+        if Path(target).name == stale_target and not faults:
+            faults.append(target)
+            if committed:
+                original_replace(source, target)
+            raise OSError(errno.ESTALE, 'injected Phase3 file publication failure')
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, 'replace', replace)
     bases, _ = candidates()
     for base in bases:
         base['split'] = 'train'
@@ -129,6 +149,7 @@ def test_real_phase3_writer_passes_action_publication_and_reuse(prepared_sources
     assert len(preparation._candidate_membership(candidate_dir / 'candidate_frames.jsonl', state['mapping'])) == len(bases)
     assert preparation.prepare('raw', data, collection, cache) == full_path
     assert state['calls'] == ['build_dataset.py', 'build_event_balance_index.py']
+    assert len(faults) == int(stale_target is not None)
 
 
 @pytest.mark.parametrize('field,value,message', [
@@ -186,6 +207,26 @@ def test_prepare_failure_does_not_publish_partial_output_and_can_retry(prepared_
     assert state['calls'].count('build_dataset.py') == 1
 
 
+def test_subprocess_failure_retains_unfinished_output_without_reusing_it(prepared_sources, monkeypatch):
+    data, collection, cache, state = prepared_sources
+    original = preparation.run_builder
+
+    def fail(script, arguments):
+        original(script, arguments)
+        raise subprocess.CalledProcessError(1, ['python', str(script)])
+
+    monkeypatch.setattr(preparation, 'run_builder', fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        preparation.prepare('raw', data, collection, cache)
+    pending, = cache.glob('.pending-phase3_*')
+    assert (pending / 'index' / 'candidate_frames.jsonl').is_file()
+    assert not (pending / 'ready.json').exists()
+    monkeypatch.setattr(preparation, 'run_builder', original)
+    assert preparation.prepare('raw', data, collection, cache).is_file()
+    assert state['calls'].count('build_dataset.py') == 2
+    assert len(list(cache.glob('.invalid-*'))) == 1
+
+
 @pytest.mark.parametrize('stage', ['candidate', 'full'])
 @pytest.mark.parametrize('damage', ['row', 'manifest_syntax', 'manifest_shape', 'missing', 'counts_shape'])
 def test_prepare_preserves_corrupt_cache_and_rebuilds(prepared_sources, stage, damage):
@@ -220,7 +261,7 @@ def test_prepare_preserves_corrupt_cache_and_rebuilds(prepared_sources, stage, d
 
 @pytest.mark.parametrize('prefix', ['phase3_', 'full_'])
 @pytest.mark.parametrize('conflict', ['valid', 'partial', 'different'])
-@pytest.mark.parametrize('error_number', [errno.EEXIST, errno.ENOTEMPTY])
+@pytest.mark.parametrize('error_number', [errno.EEXIST, errno.ENOTEMPTY, errno.ESTALE])
 def test_publication_collision(prepared_sources, monkeypatch, prefix, conflict, error_number):
     """模拟检查之后、rename 之前的外部发布，覆盖两种系统目录冲突 errno。"""
     data, collection, cache, state = prepared_sources
@@ -277,6 +318,101 @@ def test_publication_io_errors_are_not_cache_hits(prepared_sources, monkeypatch,
         preparation.prepare('raw', data, collection, cache)
     assert error.value.errno == error_number
     assert not list(cache.glob('phase3_*')) and not list(cache.glob('full_*'))
+
+
+@pytest.mark.parametrize('prefix', ['phase3_', 'full_'])
+@pytest.mark.parametrize('committed', [False, True])
+@pytest.mark.parametrize('stale_read', [False, True])
+def test_estale_publication_recovers_without_rebuilding(
+        prepared_sources, monkeypatch, capsys, prefix, committed, stale_read):
+    """分别注入未执行/已执行 rename 的 ESTALE，及随后核验目标时的 ESTALE。"""
+    data, collection, cache, state = prepared_sources
+    rename, reuse = Path.rename, preparation._reuse_or_quarantine
+    injected, reads = [], []
+
+    def unstable_rename(source, target):
+        if Path(target).name.startswith(prefix) and not injected:
+            injected.append(target)
+            if committed:
+                rename(source, target)
+            raise OSError(errno.ESTALE, 'injected stale rename')
+        return rename(source, target)
+
+    def unstable_read(directory, validate):
+        if stale_read and injected and directory == injected[0] and not reads:
+            reads.append(directory)
+            raise OSError(errno.ESTALE, 'injected stale destination lookup')
+        return reuse(directory, validate)
+
+    monkeypatch.setattr(Path, 'rename', unstable_rename)
+    monkeypatch.setattr(preparation, '_reuse_or_quarantine', unstable_read)
+    assert preparation.prepare('raw', data, collection, cache).is_file()
+    assert state['calls'] == ['build_dataset.py', 'build_event_balance_index.py']
+    assert len(injected) == 1
+    assert not list(cache.glob('.pending-*'))
+    assert capsys.readouterr().out == ''
+
+
+@pytest.mark.parametrize('prefix', ['phase3_', 'full_'])
+@pytest.mark.parametrize('damage', [None, 'payload', 'manifest', 'marker'])
+def test_persistent_estale_preserves_completed_output_for_retry(
+        prepared_sources, monkeypatch, capsys, prefix, damage):
+    """耗尽重试仍保留完整结果；重跑须验证快照，损坏时隔离重建。"""
+    data, collection, cache, state = prepared_sources
+    rename = Path.rename
+    attempts = []
+
+    def fail(source, target):
+        if Path(target).name.startswith(prefix):
+            attempts.append(target)
+            raise OSError(errno.ESTALE, 'persistent stale handle')
+        return rename(source, target)
+
+    monkeypatch.setattr(Path, 'rename', fail)
+    with pytest.raises(OSError) as error:
+        preparation.prepare('raw', data, collection, cache)
+    assert error.value.errno == errno.ESTALE
+    assert len(attempts) == len(preparation.ESTALE_DELAYS) + 1
+    pending, = cache.glob('.pending-*')
+    assert (pending / 'ready.json').is_file()
+    assert not list(cache.glob(prefix + '*'))
+    assert 'completed output preserved' in capsys.readouterr().err
+    if damage == 'payload':
+        name = 'candidate_frames.jsonl' if prefix == 'phase3_' else 'full_event_mapping.jsonl'
+        with (pending / 'index' / name).open('a') as stream:
+            stream.write('\n')
+    elif damage == 'manifest':
+        with (pending / 'index' / 'manifest.json').open('a') as stream:
+            stream.write('\n')
+    elif damage == 'marker':
+        (pending / 'ready.json').write_text('null')
+    monkeypatch.setattr(Path, 'rename', rename)
+    assert preparation.prepare('raw', data, collection, cache).is_file()
+    script = 'build_dataset.py' if prefix == 'phase3_' else 'build_event_balance_index.py'
+    assert state['calls'].count(script) == (2 if damage else 1)
+    assert len(list(cache.glob('.invalid-*'))) == (1 if damage else 0)
+    assert not list(cache.glob('.pending-*'))
+    if not damage:
+        assert state['calls'] == ['build_dataset.py', 'build_event_balance_index.py']
+        assert 'resume pending publication' in capsys.readouterr().err
+
+
+def test_pending_candidate_from_changed_source_is_not_resumed(prepared_sources, monkeypatch):
+    data, collection, cache, state = prepared_sources
+    rename = Path.rename
+
+    def fail(source, target):
+        raise OSError(errno.ESTALE, 'persistent stale handle')
+
+    monkeypatch.setattr(Path, 'rename', fail)
+    with pytest.raises(OSError):
+        preparation.prepare('raw', data, collection, cache)
+    pending, = cache.glob('.pending-*')
+    (collection / 'Scenario_result.json').write_text('{"changed":true}')
+    monkeypatch.setattr(Path, 'rename', rename)
+    assert preparation.prepare('raw', data, collection, cache).is_file()
+    assert state['calls'].count('build_dataset.py') == 2
+    assert pending.is_dir()
 
 
 def test_full_map_must_match_current_candidate(prepared_sources):

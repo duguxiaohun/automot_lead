@@ -4,6 +4,7 @@ from collections import Counter
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from qwen3vl_local.action_prior.filesystem import publish_file, atomic_write_text
 
 
 def scan_one(payload):
@@ -24,9 +25,9 @@ def scan_one(payload):
         for row in iter_base_frames(args, stats, observed_scenario_town_pairs=pairs):
             handle.write(json.dumps(row, ensure_ascii=False) + '\n')
             count += 1
-    temporary.replace(target)
+    publish_file(temporary, target)
     info = dict(scenario=scenario, candidates=count, stats=dict(stats), pairs=sorted(pairs), path=str(target))
-    target.with_suffix('.summary.json').write_text(json.dumps(info, ensure_ascii=False, indent=2))
+    atomic_write_text(target.with_suffix('.summary.json'), json.dumps(info, ensure_ascii=False, indent=2))
     print(f'[phase3-scan-complete] {scenario} candidates={count}', flush=True)
     return info
 

@@ -19,6 +19,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from qwen3vl_local.action_prior.filesystem import publish_file, atomic_write_text
 from qwen3vl_local.action_prior.contracts import digest, file_hash
 from qwen3vl_local.action_prior.event_balance import (
     CONFIRMED_REGULAR, EVENT_BALANCE_MAPPING_POLICY, FULL_INDEX_SCHEMA, FULL_MANIFEST_SCHEMA, SPECIAL_ELIGIBLE,
@@ -248,7 +249,7 @@ def main():
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
-    temporary.replace(index)
+    publish_file(temporary, index)
     manifest = dict(
         schema=FULL_MANIFEST_SCHEMA, index_schema=FULL_INDEX_SCHEMA, index_file=index.name,
         index_sha256=file_hash(index), mapping_contract_hash=expected,
@@ -263,7 +264,7 @@ def main():
         re2_recovery_pending_evidence="unavailable_in_current_source_mapping; context is never emitted",
         identity=digest(dict(mapping_contract_hash=expected, candidate_sha256=file_hash(candidate_path), counts=dict(counts))),
     )
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
 
 

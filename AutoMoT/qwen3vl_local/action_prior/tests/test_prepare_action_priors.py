@@ -1,6 +1,7 @@
 """自动 Phase3 动作先验：真实内容校验、事件门控、缓存发布与默认背景行为。"""
 
 import json
+import errno
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,41 @@ def test_prepare_quarantines_corrupt_automatic_output(sources):
     assert preparation.prepare_actions(sources[2], sources[0], sources[1], sources[3]) == path
     assert len(list(sources[-1].glob(".invalid-*"))) == 1
     assert HighLevelActionIndex(path).get(("S", "R", 1))["actions"] == ["STOP"]
+
+
+@pytest.mark.parametrize('failure', ['transient', 'committed', 'persistent'])
+def test_action_publication_estale_resumes_without_rescanning(sources, monkeypatch, failure):
+    from qwen3vl_local.action_prior import prepare_event_balance
+    monkeypatch.setattr(prepare_event_balance, 'ESTALE_DELAYS', (0, 0, 0, 0))
+    root, data, full, cache = sources
+    rename, candidates = Path.rename, preparation.candidate_actions
+    faults, scans = [], []
+
+    def scan(*args):
+        scans.append(1)
+        return candidates(*args)
+
+    def publish(source, target):
+        if Path(target).name.startswith('actions_') and (not faults or failure == 'persistent'):
+            faults.append(target)
+            if failure == 'committed':
+                rename(source, target)
+            raise OSError(errno.ESTALE, 'injected action publication failure')
+        return rename(source, target)
+
+    monkeypatch.setattr(preparation, 'candidate_actions', scan)
+    monkeypatch.setattr(Path, 'rename', publish)
+    if failure == 'persistent':
+        with pytest.raises(OSError) as error:
+            preparation.prepare_actions(full, root, data, cache)
+        assert error.value.errno == errno.ESTALE
+        pending, = cache.glob('.pending-actions_*')
+        assert (pending / 'ready.json').is_file()
+        monkeypatch.setattr(Path, 'rename', rename)
+    path = preparation.prepare_actions(full, root, data, cache)
+    assert HighLevelActionIndex(path).get(('S', 'R', 1))['actions'] == ['STOP']
+    assert scans == [1]
+    assert not list(cache.glob('.pending-actions_*'))
 
 
 def test_auto_prepare_without_action_index_and_resume_never_rebuilds(sources, monkeypatch):

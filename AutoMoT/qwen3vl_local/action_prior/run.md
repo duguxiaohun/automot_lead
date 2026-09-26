@@ -349,6 +349,25 @@ GPU_IDS=0,1,2,3 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-p
 该恢复仅作用于自动准备的缓存，显式指定的 `--event-balance-index` 仍严格校验。
 不同内容的完整发布冲突、权限、磁盘空间及 I/O 错误仍会中止并报告原因。
 
+2026-09-26：扫描完成后若在 `staging.rename(...)` 报 `[Errno 116] Stale file handle`，
+表示文件系统返回 ESTALE；常见于网络/共享挂载，具体挂载类型和故障原因需在训练机检查。
+新版候选与 full map 发布对 ESTALE 按 0.5/1/2/4 秒最多重试四次；若 rename 已实际完成，
+用发布前的文件 SHA256（含 manifest）及原合同复核目标，完全一致才继续。
+完成构建的产物保存于同缓存根下 `.pending-phase3_*/index`、`.pending-full_*/index` 或 `.pending-actions_*/index`，
+`ready.json` 绑定目标身份和文件哈希；发布仍失败时保留，下次原命令在持锁后校验并继续发布，
+不重新扫描。缺失完成标记/内容损坏的待发布目录隔离后重建，源内容变化使用新的缓存身份。
+同日扩大检查后，Action 三 split/full map/prior labels 与独立 Phase3 的候选、索引、训练池、
+并行扫描和元信息发布均接入共享 `filesystem.py`。现在需要同步本轮完整相关源码，不能只复制一个准备器：
+`action_prior/{filesystem.py,prepare_event_balance.py,prepare_action_priors.py,build_dataset.py,build_event_balance_index.py,build_prior_labels.py}`
+及 `sft_new_loop_phase3/{build_dataset.py,parallel_scan.py,source_mapping.py}`。
+三条 launcher 无需修改；源码合同哈希已更新，须重建索引/full map并新run，旧run使用原源码。
+只有同来源、同合同的完成缓存能免扫描续发；独立 Phase3 文件发布只做当次重试，不新增跨进程扫描恢复。
+原始输入流式读写、训练checkpoint和模型IO仍可能受挂载故障影响，不能承诺整个流程永不出现ESTALE。
+旧版 TemporaryDirectory 可能已在退出时清除了本次扫描结果，首次升级不能保证免重建。
+若持续 ESTALE，运行 `findmnt -T checkpoints/action_prior_prepared` 检查挂载，并由存储管理员
+恢复挂载服务后重跑；程序重试不能修复持续失效的挂载。不要删除锁或手改 manifest 绕过校验。
+本轮203项CPU回归通过；torch相关扩展检查受缺依赖限制，尚未在报错训练机的真实挂载/GPU上验收。
+
 ```bash
 # 使用 Phase1/2 LoRA 现场生成先验（耗时更长，需已有 LoRA 权重）。
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --event-balanced

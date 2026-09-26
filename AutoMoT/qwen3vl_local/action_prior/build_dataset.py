@@ -10,6 +10,7 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from qwen3vl_local.action_prior.filesystem import publish_file, atomic_write_text
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 from qwen3vl_local.action_prior.contracts import digest
 
@@ -133,7 +134,7 @@ def main():
             f"empty split: {dict(counts)}; unfinished .tmp indices retained for diagnosis"
         )
     for s in handles:
-        (out / f"{s}.jsonl.tmp").replace(out / f"{s}.jsonl")
+        publish_file(out / f"{s}.jsonl.tmp", out / f"{s}.jsonl")
     manifest = dict(
         schema="action_prior_data_v1",
         config=vars(args),
@@ -145,7 +146,7 @@ def main():
         split_unit="scenario/Town/route, grouped across repetitions",
     )
     manifest["identity"] = digest(manifest)
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    atomic_write_text(out / "manifest.json", json.dumps(manifest, indent=2))
     print(json.dumps(manifest, indent=2))
 
 

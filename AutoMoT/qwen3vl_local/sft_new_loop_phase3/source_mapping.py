@@ -31,6 +31,7 @@ def mapping_contract_hash():
              Path(__file__).with_name("development_route_groups_20260916.json"),
              Path(__file__).with_name("same_rs_invalid_review_20260916.jsonl"),
              ROOT / "keyframe_filter/evidence_guards.py",
+             ROOT / "qwen3vl_local/action_prior/filesystem.py",
              Path(__file__).with_name("annotation_repair.py"),
              Path(__file__).with_name("annotation_repairs_20260910.json"),
              Path(__file__).with_name("annotation_repairs_20260914.json"),

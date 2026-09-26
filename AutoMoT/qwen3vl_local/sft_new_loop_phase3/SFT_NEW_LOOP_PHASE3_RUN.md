@@ -1,5 +1,15 @@
 # SFT New Loop Phase3 当前运行入口（2026-09-26，v24）
 
+## 2026-09-26 数据文件发布 ESTALE 恢复
+
+候选、frame index、完整训练池、并行scenario扫描及相关元信息共用
+`action_prior/filesystem.py`：ESTALE按0.5/1/2/4秒有限重试；rename实际提交但报错时核对发布前哈希。
+元信息改为临时文件写完整后原子发布。Action自动准备还会保存带ready.json的完成目录供同版本重跑续发。
+独立Phase3构建不新增跨进程扫描恢复；流式原始读取/写入、训练权重IO与持续挂载故障仍可能失败。
+203项相关CPU回归通过，torch相关扩展审计受当前环境缺依赖限制；未真实挂载/GPU验收。
+本轮构建/helper源码已绑定mapping哈希，新索引/full map、新run，旧run使用原源码。
+需同步两个包的完整相关源码，文件清单及恢复边界见 [Action运行说明](../action_prior/run.md)。
+
 ## 2026-09-26 v24 当前默认（覆盖下方历史版本默认）
 
 新训仍默认 4rgb + choice；数据目录改为 `sft_new_loop_phase3_data_v24`，提示词为

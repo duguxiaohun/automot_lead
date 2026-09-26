@@ -22,6 +22,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from qwen3vl_local.action_prior.filesystem import publish_file, atomic_write_text
 from qwen3vl_local.action_prior.contracts import digest, file_hash
 from qwen3vl_local.action_prior.dataset_labels import LABEL_SCHEMA, PRIOR_SOURCE
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _iter_routes_stream
@@ -171,7 +172,7 @@ def main():
     if not counters["labeled_frames"]:
         temporary.unlink(missing_ok=True)
         raise ValueError("no labeled frames; check --phase1-index and --collection-dir")
-    temporary.replace(target)
+    publish_file(temporary, target)
     manifest = dict(
         schema=LABEL_SCHEMA,
         prior_source=PRIOR_SOURCE,
@@ -194,7 +195,7 @@ def main():
         privileged_label_conditioning=True,
     )
     manifest["identity"] = digest(manifest)
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(out / "manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
     print(json.dumps(manifest["counts"], indent=2))
     print(f"[written] {target}", flush=True)
 

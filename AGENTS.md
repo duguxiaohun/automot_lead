@@ -1,5 +1,16 @@
 # AGENTS.md
 
+### 2026-09-26 Action / Phase3 数据发布 ESTALE 恢复
+
+BEV-only和qwen_simple真实shell入口确认共用prepare_event_balance，候选/full map/actions完成缓存
+带ready.json与哈希保留，持锁重跑复核后续发；未完成/损坏目录隔离重建，不删除锁。
+Action三split/full map/prior labels及Phase3候选、索引、训练池、并行扫描和元信息共用
+filesystem.py有限ESTALE重试，核验rename已提交但报错的目标；不承诺原始输入/训练权重IO免故障。
+203项CPU回归通过；torch相关扩展检查受当前环境缺依赖限制，未真实挂载/GPU验收。
+构建与helper源码绑定mapping哈希，需同步完整相关改动、重建索引/full map并新run，旧run原源码。
+同版本完成缓存才可免扫描续发，旧版临时结果可能已清理；持续挂载故障需训练机恢复存储服务。
+细节见action_prior/run.md、Phase3运行说明及PROJECT_CONTEXT.md同日条目。
+
 ### 2026-09-26 Phase3 v24 连续RGB审计与小幅提示词修订
 
 四包历史对比、60段/1020张不同RGB逐帧观察及修订见

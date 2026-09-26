@@ -32,6 +32,7 @@ for _path in (str(_AUTOMOT_ROOT), str(_PROJECT_ROOT)):
         sys.path.insert(0, _path)
 
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route  # noqa: E402
+from qwen3vl_local.action_prior.filesystem import publish_file, atomic_write_text
 from qwen3vl_local.sft_new_loop_phase3.action_review import ACTION_REVIEW_VERSION, build_action_review
 from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes as _iter_routes_stream
 from qwen3vl_local.sft_loop_phase1.audit_matrix import _rgb_path  # noqa: E402
@@ -651,15 +652,17 @@ def _balanced_rows_by_split(
     # 即使均衡容量检查失败也保留候选和缺口，方便继续逐帧审计而非重复解压 meta。
     out_dir = pathlib.Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "split_coverage.json").write_text(json.dumps(split_coverage, indent=2) + "\n")
-    with (out_dir / "candidate_frames.jsonl").open("w") as handle:
+    atomic_write_text(out_dir / "split_coverage.json", json.dumps(split_coverage, indent=2) + "\n")
+    candidate_temporary = out_dir / ".candidate_frames.jsonl.tmp"
+    with candidate_temporary.open("w") as handle:
         for bases in invalid_sources.values():
             for base in bases:
                 base = {**base, **choice_annotation(base["action_labels"], base["context_id"], base["action_evidence"])}
                 handle.write(json.dumps(base, ensure_ascii=False) + "\n")
-    (out_dir / "candidate_counts.json").write_text(json.dumps(dict(raw_counts), indent=2) + "\n")
+    publish_file(candidate_temporary, out_dir / "candidate_frames.jsonl")
+    atomic_write_text(out_dir / "candidate_counts.json", json.dumps(dict(raw_counts), indent=2) + "\n")
 
-    (out_dir / "same_rs_invalid_candidates.jsonl").write_text(
+    atomic_write_text(out_dir / "same_rs_invalid_candidates.jsonl",
         ''.join(json.dumps(row, ensure_ascii=False) + "\n" for row in same_rs_pool))
     if split_coverage["unresolved"]:
         raise ValueError("insufficient context capacity after unexposed-route planning: "
@@ -799,7 +802,7 @@ def _write_training_pool(buckets, invalid_rows, output_dir, seed):
             line = (json.dumps({**row, **annotation}, ensure_ascii=False) + "\n").encode("utf-8")
             handle.write(line)
             digest.update(line)
-    temporary.replace(path)
+    publish_file(temporary, path, expected_sha256=digest.hexdigest())
     return dict(file=path.name, sha256=digest.hexdigest(), rows=len(rows),
                 positive_rows=sum(len(v) for v in buckets.values()), invalid_rows=len(invalid_rows),
                 scope="all_train_positive_candidates_and_original_index_invalid")
@@ -855,7 +858,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
-    temporary.replace(target)
+    publish_file(temporary, target)
 
     from qwen3vl_local.sft_new_loop_phase3.history_rgb import HISTORY_QUALITY_VERSION, MIN_ACTION_ANCHOR
     manifest = {
@@ -957,7 +960,7 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "sampling": balance,
         "visual_label_risk_counts": dict(sorted(risk_stats.items())),
     }
-    (out_dir / "manifest.json").write_text(
+    atomic_write_text(out_dir / "manifest.json",
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return manifest

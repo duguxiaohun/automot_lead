@@ -268,6 +268,14 @@ epoch、梯度累积或默认索引；只有用户实际传入的 CLI 参数或�
 `--action-balanced` 切换动作均衡。CLI 优先于环境变量，多个正向 CLI 开关按最后一次取值。
 两个消融无需传 `--dataset-priors`，也不会构建 Phase1 标定先验索引或加载 Phase1/2 模型。
 
+2026-09-26：三入口共用的准备器已处理发布时的 `ESTALE / Stale file handle`：有限退避重试，
+并核验可能已经成功的 rename；持续失败保留带哈希完成标记的 `.pending-phase3_*` / `.pending-full_*`，
+同来源/合同下原命令重跑会校验后继续发布。两个消融的event/action模式均已用真实shell验证准备器接线。
+同日进一步补齐Action及独立Phase3的文件发布，须同步主线运行说明列出的完整相关源码（含新增filesystem.py），
+不能只复制prepare_event_balance.py；消融launcher无需修改。mapping源码哈希变化须重建索引/full map、新run，旧run原源码。
+旧版临时目录可能已经清理，升级后首次仍可能重扫；持续挂载故障需训练机恢复存储服务。
+原因、恢复边界及诊断命令见 [主线运行说明](../action_prior/run.md)。
+
 ```bash
 # 三组固定同一个 action split 索引；full map 缺省时自动构建/按内容缓存复用。
 DATA_DIR=checkpoints/action_prior_data bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --event-balanced

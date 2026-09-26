@@ -7,18 +7,29 @@ import errno
 import fcntl
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
-import tempfile
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from qwen3vl_local.action_prior.contracts import digest, file_hash
+from qwen3vl_local.action_prior.filesystem import retry_estale, atomic_write_text
 from qwen3vl_local.action_prior.event_balance import EventBalanceIndex
 from qwen3vl_local.action_prior.build_event_balance_index import _candidate_membership
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash
 
 HERE = Path(__file__).resolve().parent
+ESTALE_DELAYS = (0.5, 1.0, 2.0, 4.0)
+
+
+def _retry_estale(operation, description):
+    """重新按路径访问；只对 ESTALE 有限退避，其它错误原样上报。"""
+    return retry_estale(operation, description, delays=ESTALE_DELAYS)
+
+
+def _payload_hashes(directory, payloads):
+    return {name: file_hash(directory / name) for name in payloads}
 
 
 def run_builder(script, arguments):
@@ -46,26 +57,75 @@ def _reuse_or_quarantine(directory, validate):
 
 
 def _publish(staging, destination, validate, payloads):
-    """校验后原子发布；兼容 EEXIST/ENOTEMPTY，不能把任意 rename 错误当缓存命中。"""
-    validate(staging)
-    for _ in range(3):
+    """NFS rename 可能已成功却返回错误；用发布前快照核验最终内容。"""
+    _retry_estale(lambda: validate(staging), f'validate {staging}')
+    expected = _retry_estale(lambda: _payload_hashes(staging, payloads), f'hash {staging}')
+
+    def publish_once():
+        for _ in range(3):
+            try:
+                staging.rename(destination)
+                print(f'[prepare] published: {destination}', file=sys.stderr, flush=True)
+                return
+            except OSError as exc:
+                if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY, errno.ESTALE, errno.ENOENT):
+                    raise
+                # flock 之外仍可能有外部发布者；源已移动时也能与发布前快照比对。
+                if _reuse_or_quarantine(destination, validate):
+                    if _payload_hashes(destination, payloads) != expected:
+                        raise ValueError(f'{destination}: publication conflict: valid cache content differs; '
+                                         'check concurrent builders and source changes')
+                    print(f'[prepare] reuse concurrent publication: {destination}', file=sys.stderr, flush=True)
+                    return
+                if exc.errno in (errno.ESTALE, errno.ENOENT):
+                    raise
+        raise RuntimeError(f'{destination}: repeated publication conflicts; '
+                           'check external writers and shared filesystem locking')
+
+    _retry_estale(publish_once, f'publish {staging} -> {destination}')
+
+
+def _prepare_artifact(destination, validate, payloads, build):
+    """同一缓存锁内保存已完成产物；发布失败后下次直接复核并继续发布。"""
+    if _retry_estale(lambda: _reuse_or_quarantine(destination, validate), f'cache {destination}'):
+        return
+    pending = destination.with_name(f'.pending-{destination.name}')
+    staging = pending / 'index'
+    # manifest 同样绑定恢复快照，避免元信息变化被内容相同掩盖。
+    payloads = tuple(dict.fromkeys((*payloads, 'manifest.json')))
+
+    def validate_pending(directory):
+        ready = json.loads((directory / 'ready.json').read_text())
+        if (ready['destination'] != str(destination)
+                or ready['sha256'] != _payload_hashes(directory / 'index', payloads)):
+            raise ValueError('pending publication identity/content mismatch')
+        validate(directory / 'index')
+
+    resumed = _retry_estale(lambda: _reuse_or_quarantine(pending, validate_pending), f'pending {pending}')
+    if not resumed:
+        pending.mkdir()
         try:
-            staging.rename(destination)
-            print(f'[prepare] published: {destination}', file=sys.stderr, flush=True)
-            return
-        except OSError as exc:
-            if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                raise
-        # flock 只约束遵守同一锁的进程；构建期间仍可能有外部发布者写入目标。
-        # 只有真实内容一致才复用，避免同名目录掩盖来源变化或非确定构建。
-        if _reuse_or_quarantine(destination, validate):
-            if any(file_hash(staging / name) != file_hash(destination / name) for name in payloads):
-                raise ValueError(f'{destination}: publication conflict: valid cache content differs; '
-                                 'check concurrent builders and source changes')
-            print(f'[prepare] reuse concurrent publication: {destination}', file=sys.stderr, flush=True)
-            return
-    raise RuntimeError(f'{destination}: repeated publication conflicts; '
-                       'check external writers and shared filesystem locking')
+            build(staging)
+            _retry_estale(lambda: validate(staging), f'validate {staging}')
+            hashes = _retry_estale(lambda: _payload_hashes(staging, payloads), f'hash {staging}')
+            atomic_write_text(pending / 'ready.json', json.dumps(dict(destination=str(destination), sha256=hashes)) + '\n')
+        except (OSError, subprocess.CalledProcessError):
+            # 子构建器的文件系统错误以非零退出传播；无完整 ready 的残留下次隔离。
+            print(f'[prepare] build/filesystem failure; output preserved: {pending}', file=sys.stderr, flush=True)
+            raise
+        except BaseException:
+            shutil.rmtree(pending)
+            raise
+    else:
+        print(f'[prepare] resume pending publication: {staging}', file=sys.stderr, flush=True)
+    try:
+        _publish(staging, destination, validate, payloads)
+    except BaseException:
+        print(f'[prepare] publication failed; completed output preserved: {pending}; '
+              'rerun the same command after filesystem recovery; do not remove .prepare.lock',
+              file=sys.stderr, flush=True)
+        raise
+    _retry_estale(lambda: shutil.rmtree(pending), f'cleanup {pending}')
 
 
 def prepare(data_root, action_data_dir, collection_dir, cache_root):
@@ -86,7 +146,7 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
     candidate_dir = cache_root / ('phase3_' + digest(candidate_identity))
     candidate_path = candidate_dir / 'candidate_frames.jsonl'
     cache_root.mkdir(parents=True, exist_ok=True)
-    # 缓存是共享构建产物，不覆盖人工索引。进程退出自动释放 flock；tmp 失败自动清理。
+    # 缓存是共享构建产物，不覆盖人工索引。进程退出自动释放 flock；完成后的待发布产物保留供重跑。
     with (cache_root / '.prepare.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -99,21 +159,21 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
             """临时目录、历史缓存与并发发布结果使用同一候选完整性检查。"""
             _candidate_membership(directory / 'candidate_frames.jsonl', mapping_hash)
 
-        if not _reuse_or_quarantine(candidate_dir, validate_candidates):
+        def build_candidates(staging):
             print('[prepare] build current Phase3 candidates (data only, no Phase3 training)', file=sys.stderr, flush=True)
-            with tempfile.TemporaryDirectory(prefix='.candidate-', dir=cache_root) as temporary:
-                staging = Path(temporary) / 'index'
-                run_builder(HERE.parent / 'sft_new_loop_phase3/build_dataset.py', [
-                    '--data-root', data_root, '--collection-dir', collection_dir, '--output-dir', staging,
-                    '--val-ratio', '0', '--test-ratio', '0',
-                ])
-                # manifest 中的可见路径指向最终发布目录，避免保存即将清理的临时路径。
-                manifest_path = staging / 'manifest.json'
-                manifest = json.loads(manifest_path.read_text())
-                manifest['frame_index'] = str(candidate_dir / 'frame_index.jsonl')
-                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
-                _publish(staging, candidate_dir, validate_candidates,
-                         ('candidate_frames.jsonl', 'candidate_counts.json', 'frame_index.jsonl'))
+            run_builder(HERE.parent / 'sft_new_loop_phase3/build_dataset.py', [
+                '--data-root', data_root, '--collection-dir', collection_dir, '--output-dir', staging,
+                '--val-ratio', '0', '--test-ratio', '0',
+            ])
+            # 可见路径指向最终发布目录；恢复发布时不改写已校验的内容。
+            manifest_path = staging / 'manifest.json'
+            manifest = json.loads(manifest_path.read_text())
+            manifest['frame_index'] = str(candidate_dir / 'frame_index.jsonl')
+            atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+
+        _prepare_artifact(candidate_dir, validate_candidates,
+                          ('candidate_frames.jsonl', 'candidate_counts.json', 'frame_index.jsonl'),
+                          build_candidates)
         full_identity = dict(
             candidate=candidate_identity, candidate_sha256=file_hash(candidate_path),
             action_dataset_hashes=action_hashes,
@@ -130,15 +190,14 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
             if index.source.candidate_sha256 != full_identity['candidate_sha256']:
                 raise ValueError('full map candidate hash mismatch')
 
-        if not _reuse_or_quarantine(full_dir, validate_full):
+        def build_full(staging):
             print('[prepare] build full event mapping', file=sys.stderr, flush=True)
-            with tempfile.TemporaryDirectory(prefix='.full-', dir=cache_root) as temporary:
-                staging = Path(temporary) / 'index'
-                run_builder(HERE / 'build_event_balance_index.py', [
-                    '--collection-dir', collection_dir, '--candidate-index', candidate_path,
-                    '--action-data-dir', action_data_dir, '--output-dir', staging,
-                ])
-                _publish(staging, full_dir, validate_full, ('full_event_mapping.jsonl',))
+            run_builder(HERE / 'build_event_balance_index.py', [
+                '--collection-dir', collection_dir, '--candidate-index', candidate_path,
+                '--action-data-dir', action_data_dir, '--output-dir', staging,
+            ])
+
+        _prepare_artifact(full_dir, validate_full, ('full_event_mapping.jsonl',), build_full)
         return full_path
 
 

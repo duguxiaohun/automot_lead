@@ -9,13 +9,13 @@ import fcntl
 import json
 from pathlib import Path
 import sys
-import tempfile
 import time
 
 from qwen3vl_local.action_prior.action_input import ACTION_INPUT_VERSION, ACTION_FORMAT, HighLevelActionIndex, normalize_action, select_primary
 from qwen3vl_local.action_prior.contracts import digest, file_hash
+from qwen3vl_local.action_prior.filesystem import atomic_write_text
 from qwen3vl_local.action_prior.event_balance import EventBalanceIndex, SPECIAL_ELIGIBLE
-from qwen3vl_local.action_prior.prepare_event_balance import prepare, _publish, _reuse_or_quarantine, run_builder
+from qwen3vl_local.action_prior.prepare_event_balance import prepare, _prepare_artifact, run_builder
 from qwen3vl_local.action_prior.build_event_balance_index import CONTEXT_TO_BUCKET, _candidate_membership, _re2_scene_state
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS, CONTEXT_BY_ID
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import validate_action_rule
@@ -100,11 +100,7 @@ def prepare_actions(full_path, data_root, data_dir, cache_root):
             raise ValueError("automatic high-level action source mismatch")
         index.validate_action_dataset(data_dir)
 
-    with (cache_root / ".action_prepare.lock").open("a") as lock:
-        print("[action prepare] waiting for preparation lock", file=sys.stderr, flush=True)
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if _reuse_or_quarantine(destination, validate):
-            return destination / "high_level_actions.jsonl"
+    def build(staging):
         from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route, print_progress
 
         routes, counts, seen = {}, Counter(), set()
@@ -126,46 +122,49 @@ def prepare_actions(full_path, data_root, data_dir, cache_root):
             if number % 100 == 0 or number == len(routes):
                 print_progress(number, len(routes), started, prefix="action route filter", last="/".join(route))
         candidates = candidate_actions(candidate_path, full.source.mapping_contract_hash)
-        with tempfile.TemporaryDirectory(prefix=".actions-", dir=cache_root) as temporary:
-            staging = Path(temporary) / "index"
-            staging.mkdir()
-            output = staging / "high_level_actions.jsonl"
-            with output.open("w") as target:
-                for split in ("train", "val", "test"):
-                    with (Path(data_dir) / f"{split}.jsonl").open() as handle:
-                        for line in handle:
-                            if not line.strip():
-                                continue
-                            row = json.loads(line)
-                            if row.get("schema") != "action_prior_data_v1" or row.get("split") != split:
-                                raise ValueError("invalid action dataset split row")
-                            route = (row["scenario"], row["run_id"])
-                            if routes[route]:
-                                counts["abnormal_excluded"] += 1
-                                continue
-                            key = (*route, int(row["anchor"]))
-                            if key in seen:
-                                raise ValueError(f"duplicate action frame across splits: {key}")
-                            seen.add(key)
-                            record = full.records.get(key)
-                            evidence, contexts = candidate_frame(record, candidates.get(key, {}))
-                            action = select_primary(evidence)
-                            status = record["status"] if record else "unconfirmed"
-                            result = dict(
-                                schema=ACTION_INPUT_VERSION, source_kind="phase3_oracle", source_id=source_id,
-                                action_format=ACTION_FORMAT, candidate_actions=evidence["actions"],
-                                scenario=key[0], run_id=key[1], anchor=key[2], **action,
-                                event_status=status,
-                                event_buckets=list(record["eligible_buckets"]) if record else [],
-                                planning_contexts=contexts,
-                            )
-                            target.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
-                            counts[f"{split}/{status}/{action['status']}"] += 1
-            manifest = dict(source, source_id=source_id, index_sha256=file_hash(output),
-                            rows=len(seen), counts=dict(counts), privileged_action_conditioning=True,
-                            event_balance_index=str(Path(full_path).resolve()))
-            (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-            _publish(staging, destination, validate, (output.name,))
+        staging.mkdir()
+        output = staging / "high_level_actions.jsonl"
+        with output.open("w") as target:
+            for split in ("train", "val", "test"):
+                with (Path(data_dir) / f"{split}.jsonl").open() as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        row = json.loads(line)
+                        if row.get("schema") != "action_prior_data_v1" or row.get("split") != split:
+                            raise ValueError("invalid action dataset split row")
+                        route = (row["scenario"], row["run_id"])
+                        if routes[route]:
+                            counts["abnormal_excluded"] += 1
+                            continue
+                        key = (*route, int(row["anchor"]))
+                        if key in seen:
+                            raise ValueError(f"duplicate action frame across splits: {key}")
+                        seen.add(key)
+                        record = full.records.get(key)
+                        evidence, contexts = candidate_frame(record, candidates.get(key, {}))
+                        action = select_primary(evidence)
+                        status = record["status"] if record else "unconfirmed"
+                        result = dict(
+                            schema=ACTION_INPUT_VERSION, source_kind="phase3_oracle", source_id=source_id,
+                            action_format=ACTION_FORMAT, candidate_actions=evidence["actions"],
+                            scenario=key[0], run_id=key[1], anchor=key[2], **action,
+                            event_status=status,
+                            event_buckets=list(record["eligible_buckets"]) if record else [],
+                            planning_contexts=contexts,
+                        )
+                        target.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
+                        counts[f"{split}/{status}/{action['status']}"] += 1
+        manifest = dict(source, source_id=source_id, index_sha256=file_hash(output),
+                        rows=len(seen), counts=dict(counts), privileged_action_conditioning=True,
+                        event_balance_index=str(Path(full_path).resolve()))
+        atomic_write_text(staging / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+    with (cache_root / ".action_prepare.lock").open("a") as lock:
+        print("[action prepare] waiting for preparation lock", file=sys.stderr, flush=True)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _prepare_artifact(destination, validate, ("high_level_actions.jsonl",), build)
+
     return destination / "high_level_actions.jsonl"
 
 

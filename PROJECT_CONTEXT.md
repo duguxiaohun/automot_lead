@@ -1,5 +1,26 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-26 Action / Phase3 数据产物发布 ESTALE
+
+训练机日志定位：BEV-only全流程在Phase3扫描完成、写出15180行索引后，候选目录rename返回Errno116。
+真实shell回归确认bev_only/qwen_simple的event/action两模式均调用共享prepare_event_balance。
+不能仅凭日志确认具体挂载类型/服务端原因，也不能保证原始数据读取和模型保存永不遇到ESTALE。
+新增action_prior/filesystem.py：0.5/1/2/4秒有限退避、发布前SHA256快照、已提交rename结果复核，
+元信息写独立临时文件后原子发布；权限、空间、EIO等其它错误仍失败。
+接线覆盖Action三split/full map/prior labels与Phase3候选、训练池、frame index、并行扫描及相关元信息。
+prepare_event_balance和prepare_action_priors共用完成产物保留机制：.pending-<最终缓存名>/index，
+ready.json绑定目标及payload/manifest哈希，同版本持锁重跑验证后续发，不再扫描完整缓存。
+未完成、损坏或来源变化不能盲目续发；子构建器非零退出也保留残留用于诊断，下次隔离重建。
+独立Phase3构建的文件发布是当次重试，不新增跨进程全扫描恢复；原始流式读写、checkpoint和模型IO
+仍可能因挂载故障失败，不对这些非幂等操作包住整轮重试。恢复挂载后按原有效合同重跑。
+标签阈值/采样规则不变，但build_dataset/source_mapping/helper源码进入mapping哈希；新索引/full map、新run，
+旧run须原源码。此次不能只同步prepare_event_balance.py，运行文件清单见action_prior/run.md。
+203项CPU回归通过：文件与目录短暂/持续ESTALE、已提交rename、核验再遇ESTALE、其它errno拒绝、
+损坏恢复状态、来源变化、真实flock、Phase3真实写入流程及两个消融真实shell传参（重型Python入口用stub）。
+此前7项event_balance扩展检查和本轮training_pool_audit模块收集因当前Python缺torch受阻；未绕过生产校验。
+未在报错机器真实挂载/GPU验收；findmnt -T checkpoints/action_prior_prepared 可定位挂载交存储管理员检查。
+旧版可能清理临时产物，且新hash不能复用旧身份待发布缓存，首次升级不能保证免扫描。
+
 ### 2026-09-26 Phase3 v24 连续RGB与训练结果复核
 
 四份20260923包对最近v21总分表观提高，但测试逐题交集为0；STOP/RESUME进步，RIGHT/KEEP退化，
