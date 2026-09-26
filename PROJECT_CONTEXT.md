@@ -1,5 +1,34 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-26 Phase3 binary 根据服务器实际池进行 INVALID 来源内容量回流
+
+用户补充真实报告：DYNAMIC_CUTIN/true-R4/prompt-R3的七个asked-context细分组共用3帧，
+目标54而cap8容量24，缺30；固定人工题52，总呈现12288。来源总配额容量上界可行，但此前未保覆盖。
+用户要求各服务器数据略有差异也应兼容，继续保留正例每类1024与全局cap8，不缩轮。
+
+新增训练专用invalid_capacity.py。压缩图把INVALID细分组接到来源父节点，来源预算保持；
+原非空细分组通过硬下限边各保留至少一次。正例context预算不变，人工题固定且占用物理帧容量。
+图考虑正例/自动/人工共享帧，整数费用先最少细分配额偏差，再原正例动作偏差、重复和历史公平性。
+只返回调整后的细分配额；实际选帧/路线队列/游标和历史仍由原hierarchical sampler负责。
+不固定服务器路径、帧数、配额数字或缺额；同来源容量可重分配则继续，否则保留明确容量错误。
+不会跨INVALID来源借额、丢掉原非空细分覆盖、修改标签或屏蔽坏索引校验。
+
+train只在binary非cycle_even且原配额容量失败后调用。正常成功路径不变；
+重试恢复选样前随机状态，失败不提交游标/历史。rank0的phase3-capacity-reallocated与epoch
+审计记原/新配额、转移次数、来源总额、覆盖下限；不可行报告标明coverage_preserving_reallocation。
+sampling_config保存回流版本和独立源码SHA256，进run/adapter/epoch配置。
+未更改sampling/build/source_mapping及其哈希输入，本补丁不要求重建当前匹配索引；
+先前版本不匹配仍严格拒绝。新训练使用本源码，已有run原源码。
+
+113项相关CPU回归通过（已有pvi Python/torch环境）：
+合成七组共享2/3/4/8帧，分别配52/52/53/0条人工题，四种数据差异各7轮；
+每轮正例各1024、总12288、cap8、INVALID各来源总額与人工具体集合不变，
+需要回流时分别转移38/30/22次，8帧时保留原成功路径；
+另含45个随机小池穷举最小偏差、输入顺序不变性、正例与人工共占负例帧、跨来源借额拒绝、
+覆盖下限不足拒绝、训练配置合同及原binary/INVALID/构建/validation/support回归。
+未访问训练机完整候选或跑GPU；实际服务器须对本机匹配索引sampling-only预检，
+通过后可复用原四组pipeline，已有完整匹配索引用SKIP_BUILD=1。
+
 ### 2026-09-26 Phase3 binary 固定配额容量失败诊断
 
 用户提供四卡CPU采样预检失败：joint请求12236、feasible12206、repeat_cap8；前置same-RS零路线

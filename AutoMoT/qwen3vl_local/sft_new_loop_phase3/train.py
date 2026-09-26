@@ -403,10 +403,14 @@ def _choice_filter_report(rows: Sequence[FrameRow], *, seed: int) -> Dict[str, i
 
 def sampling_config(args):
     """保存实际训练策略；验证仍使用固定的历史选择口径。"""
+    from qwen3vl_local.sft_new_loop_phase3.invalid_capacity import contract as invalid_capacity_contract
     return dict(policy=getattr(args, "sampling_policy", "smooth_cap"),
                 repeat_cap=int(getattr(args, "sampling_repeat_cap", 8)),
                 smooth_power=float(getattr(args, "sampling_smooth_power", 0.5)),
                 master_seed=int(args.seed), queue="fixed_canonical_route_ring_v1",
+                invalid_capacity_reallocation=(invalid_capacity_contract() if
+                    getattr(args, 'action_output_mode', 'binary') == 'binary' and
+                    getattr(args, 'sampling_policy', 'smooth_cap') != 'cycle_even' else None),
                 training_pool_identity=getattr(args, "training_pool_identity", None),
                 training_pool="all_train_candidates" if getattr(args, "sampling_policy", "smooth_cap") != "cycle_even" else "frame_index")
 
@@ -436,8 +440,8 @@ def _balanced_work(
         raise ValueError(f"unknown sampling policy: {mode}")
 
     def joint(groups, rng, target, invalid=(), invalid_candidates=()):
-        # 保留原 INVALID 分层/覆盖/人工题配额；自动负例只在相同签名和错误前提内
-        # 替换具体帧，并与正例一起求解，避免先随机占帧误拒可行训练预算。
+        # 先按原 INVALID 细分配额与正例联合选帧；失败才尝试同来源容量回流，
+        # 保留来源总额、原非空细分覆盖和固定人工题，并共同遵守全局帧上限。
         targets = {key: target for key in groups}
         groups = dict(groups)
         def invalid_key(item):
@@ -453,27 +457,44 @@ def _balanced_work(
             if item.row.invalid_reason != "same_rs_wrong_event":
                 targets[invalid_key(item)] += 1
         reserved = Counter(_item_identity(item) for item in fixed)
-        try:
-            work, audit = hierarchical_event_action_epoch_sample(
-                groups, targets, repeat_cap=repeat_cap,
+        def sample_with_targets(requested):
+            return hierarchical_event_action_epoch_sample(
+                groups, requested, repeat_cap=repeat_cap,
                 smooth_power=smooth_power, cursor_state=cursor_state, master_seed=master_seed,
                 rng=rng, route_diverse=route_diverse, initial_frame_usage=reserved, pool_history=pool_history,
                 action_fn=lambda item: ("INVALID" if item.row.invalid_source else
                                         sampling_action(item.row.answers, item.row.context_id)),
             )
+        rng_state = rng.getstate()
+        try:
+            work, audit = sample_with_targets(targets)
         except ValueError as exc:
             if not str(exc).startswith(('insufficient shared frame capacity:', 'smooth_cap quota infeasible:')):
                 raise
-            from qwen3vl_local.sft_new_loop_phase3.capacity_diagnostic import (
-                SharedFrameCapacityError, diagnose_joint_capacity,
-            )
-            report = diagnose_joint_capacity(groups, targets, repeat_cap=repeat_cap, initial_frame_usage=reserved)
-            report.update(seed=seed, target_per_bin=target, action_output_mode=output_mode)
-            if sampling_audit is not None:
-                sampling_audit['capacity_failure'] = report
+            from qwen3vl_local.sft_new_loop_phase3.invalid_capacity import reallocate_invalid_targets
+            repaired = reallocate_invalid_targets(
+                groups, targets, repeat_cap=repeat_cap, reserved=reserved,
+                smooth_power=smooth_power, cursor_state=cursor_state, pool_history=pool_history,
+            ) if output_mode == 'binary' else None
+            if repaired is None:
+                from qwen3vl_local.sft_new_loop_phase3.capacity_diagnostic import (
+                    SharedFrameCapacityError, diagnose_joint_capacity,
+                )
+                report = diagnose_joint_capacity(groups, targets, repeat_cap=repeat_cap, initial_frame_usage=reserved)
+                report.update(seed=seed, target_per_bin=target, action_output_mode=output_mode,
+                              coverage_preserving_reallocation=(
+                                  'infeasible' if output_mode == 'binary' else 'not_applicable'))
+                if sampling_audit is not None:
+                    sampling_audit['capacity_failure'] = report
+                if int(os.environ.get('RANK', '0')) == 0:
+                    print('[phase3-capacity] ' + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+                raise SharedFrameCapacityError(report) from exc
+            adjusted, reallocation = repaired
+            rng.setstate(rng_state)
+            work, audit = sample_with_targets(adjusted)
+            audit['invalid_capacity_reallocation'] = reallocation
             if int(os.environ.get('RANK', '0')) == 0:
-                print('[phase3-capacity] ' + json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
-            raise SharedFrameCapacityError(report) from exc
+                print('[phase3-capacity-reallocated] ' + json.dumps(reallocation, ensure_ascii=False, sort_keys=True), flush=True)
         work.extend(fixed)
         rng.shuffle(work)
         audit.pop("selected_cells")

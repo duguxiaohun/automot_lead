@@ -1,26 +1,44 @@
 # SFT New Loop Phase3 当前运行入口（2026-09-26，v24）
 
-## 2026-09-26 保持1024/cap8的容量诊断
+## 2026-09-26 保持1024/cap8的 INVALID 来源内容量回流
 
 `insufficient shared frame capacity: target=12236, feasible=12206, repeat_cap=8` 表示当前
 候选和固定细分配额的联合分配缺30次；`same-RS ... insufficient_support. Training allowed`不是此错误原因。
-用户要求不缩预算、不放大cap。共享求解器已有反向重分配能力，因此先用最小割定位具体受限分组。
-同步本次 `train.py` 与新增 `capacity_diagnostic.py` 后，可在AutoMoT目录运行（原任务自定义参数需保持一致）：
+训练机报告已定位：DYNAMIC_CUTIN 来源的七个自动 INVALID 细分组共用3帧，原目标54次，
+cap8只允许24次。这是细分配额之间的容量冲突；报告中的18是原配额所需的cap，不是修改建议。
+
+训练先尝试原配额，失败才由 `invalid_capacity.py` 根据本机实际候选和本轮人工题预留容量，
+联合正例规划同一 INVALID 来源内的最少配额转移，再交回原采样器选帧和推进游标。
+每个正例 context 的1024次、INVALID各来源总额、全局cap8、人工题的具体集合均保留；
+每个原本有配额的自动细分组（来源/真实RS/asked-context/错误RS/原因）至少保留一次。
+细分次数可以变化，目标与实际差额写入审计；不能跨来源借预算或丢弃原有细分覆盖。
+正例动作仍按原smooth_cap规则处理。两图/四图共用此采样路径，choice与cycle_even保留原路径。
+
+没有写死服务器、候选帧数或30次缺额。数据差异导致容量不足时自动重新计算；如果保留上述
+约束仍不可行，则明确失败。不存在的来源、损坏数据或不匹配的mapping仍须按原校验修复。
+同步本次 `train.py`、`invalid_capacity.py` 和先前的 `capacity_diagnostic.py` 后，
+可在AutoMoT目录运行（原任务自定义参数需保持一致）：
 
 ```bash
 python qwen3vl_local/sft_new_loop_phase3/train.py \
   --index checkpoints/sft_new_loop_phase3_data_v24/frame_index.jsonl \
-  --action-output-mode binary --focus-balance-count 1024 \
+  --action-output-mode binary --history-rgb-mode 4rgb --focus-balance-count 1024 \
   --sampling-policy smooth_cap --sampling-repeat-cap 8 \
   --seed 20260904 --invalid-focus-multiplier 2 --sampling-only
 ```
 
-只执行CPU采样预检，不加载模型权重、不初始化NCCL或写训练run。容量失败仍以非零退出，
-但rank0先打印 `[phase3-capacity]` JSON：最小割分组、不同物理帧、配额/可用次数、预留人工题。
+只执行CPU采样预检，不加载模型权重、不初始化NCCL或写训练run。成功回流时rank0打印
+`[phase3-capacity-reallocated]`，记录版本、实际转移次数、原/新配额、来源总额和覆盖下限。
+仍不可行时以非零退出，先打印 `[phase3-capacity]` JSON：最小割分组、不同物理帧、
+配额/可用次数、预留人工题及 `coverage_preserving_reallocation=infeasible`。
 `invalid_source_only_upper_bound`只是未保证细签名/错误RS覆盖的乐观上界，不能当作可执行重分配。
-`minimum_repeat_cap`仅供解释瓶颈，不会修改实际cap8。请根据真实报告再判断能否在原覆盖约束内重分配。
-该补丁未改采样器/构建/mapping/prompt，匹配现有源码的索引无需因此重建；旧哈希仍严格拒绝。
-66项相关CPU回归通过；同日志数值的测试是合成池，未复现远端实际候选，尚无“原预算与cap已可行”的结论。
+`minimum_repeat_cap`仅供解释瓶颈，不会修改实际cap8。
+本补丁未改共享采样器/构建/mapping/prompt，匹配现有源码的索引无需因此重建；旧哈希仍严格拒绝。
+新训练config/adapter/epoch采样配置绑定回流版本和源码SHA256，已有训练run使用原源码。
+CPU预检通过后可重跑原四组命令；已完成且匹配的索引可用 `SKIP_BUILD=1` 复用。
+113项相关CPU回归通过（已有pvi环境）。合成池覆盖2/3/4/8帧、0/52/53条人工题的四种差异，
+各跑七轮，每轮12288次、cap8和来源/正例总额均保持；另有随机小池穷举与正负例共帧检查。
+这些结果不是训练机完整池或GPU验收；须在每台训练机对实际索引重跑上述预检。
 
 ## 2026-09-26 数据文件发布 ESTALE 恢复
 

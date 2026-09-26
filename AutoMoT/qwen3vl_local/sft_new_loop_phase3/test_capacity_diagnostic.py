@@ -97,13 +97,14 @@ def test_phase3_failure_reports_and_preserves_parameters_state_and_reviewed_case
 
 
 def test_successful_sampling_never_calls_failure_diagnostics(monkeypatch):
-    from qwen3vl_local.sft_new_loop_phase3 import capacity_diagnostic, train
+    from qwen3vl_local.sft_new_loop_phase3 import capacity_diagnostic, invalid_capacity, train
     from qwen3vl_local.sft_new_loop_phase3.test_validation_balance import candidate_rows
 
     def forbidden(*args, **kwargs):
         raise AssertionError('successful plan must not use diagnostics')
 
     monkeypatch.setattr(capacity_diagnostic, 'diagnose_joint_capacity', forbidden)
+    monkeypatch.setattr(invalid_capacity, 'reallocate_invalid_targets', forbidden)
     work = train._balanced_work(candidate_rows(0), target_per_bin=1, invalid_multiplier=1,
                                 require_invalid_coverage=False, seed=4, mode='smooth_cap', repeat_cap=8)
     assert len(work) == 11
