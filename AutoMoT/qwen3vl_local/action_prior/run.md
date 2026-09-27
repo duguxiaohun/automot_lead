@@ -1,5 +1,32 @@
 # Action prior 使用说明
 
+## 2026-09-27 probe结束后父launcher找不到qwen3vl_local
+
+根因是直接运行 `python qwen3vl_local/action_prior/launch.py` 时，Python把脚本所在目录放到
+`sys.path[0]`，不保证AutoMoT根目录可导入。launcher运行中设置 `os.environ["PYTHONPATH"]`
+只让后续子进程得到包路径，不会更新已经启动的父进程。因此评测/绘图子进程可成功，
+最后父进程 `from qwen3vl_local.action_prior.audit_bundle import pack` 才失败。
+已有PYTHONPATH或从pytest导入会掩盖缺陷，换机器/干净shell就可能再次出现。
+
+修复：launcher按自身 `__file__` 同时初始化父进程sys.path及子进程PYTHONPATH；
+不需要pip安装qwen3vl_local或更换语义版本。检查的Phase3及消融CLI已自行初始化路径，
+不能仅凭相同异常名断言所有历史报错都来自同一行。独立进程回归覆盖父/子进程和12个实际CLI。
+本轮118项CPU回归通过，1项缺只读runner的合同测试排除；未跑模型/GPU。
+稳定语义仍v23、工程快照仍v23_io1，未修改mapping身份；既有源码合同校验不能关闭。
+
+这份日志显示probe评测已返回且audit.zip已写出，不必因最后打包import失败而重训。
+如需重新打包已有结果，可在AutoMoT目录执行（不运行模型）：
+
+```bash
+python -m qwen3vl_local.action_prior.audit_bundle \
+  --root checkpoints/action_prior/run_20260926_225228/probe
+```
+
+`dataset_label_missing: 9`另表示9次样本没有对应的先验标签记录，代码将其保持未知，
+并非把它们当作NO。`domain_inapplicable`表示该条件不适用于当前道路域；都不是ModuleNotFoundError的原因。
+是否覆盖不足需结合对应cases、逐帧身份和标签索引单独核验，不能靠修复import就认为这些计数已消失。
+
+
 2026-09-27补充：当前为 **v23语义基线＋ESTALE工程修订（v23_io1）**。
 纯工程bug修复经故障回归和输出等价复核可保留；提示词、标定、标签及采样等效果改动仍须验证后晋升。
 已补回Phase3内部文件发布恢复，Action完成缓存续发继续保留。详见 [工程维护记录](V23_IO_MAINTENANCE_20260927.md)。

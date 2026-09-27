@@ -1,5 +1,10 @@
 # SFT New Loop Phase3 当前运行入口（2026-09-27，恢复 v23）
 
+2026-09-27入口排查：Action probe完成后父launcher的 `qwen3vl_local` 导入错误已补sys.path初始化，
+详见 [Action运行说明](../action_prior/run.md)。Phase3构建/预检/审计等实际CLI在无PYTHONPATH、
+仓库外cwd下的启动检查通过；不据此声称所有历史导入错误均已复现。此次不改Phase3语义或源码合同。
+
+
 2026-09-27补充：当前为 **v23语义基线＋ESTALE工程修订（v23_io1）**。
 纯工程bug修复经故障回归和输出等价复核可保留；提示词、标定、标签及采样等效果改动仍须验证后晋升。
 已补回Phase3内部文件发布恢复，Action完成缓存续发继续保留。详见 [工程维护记录](../action_prior/V23_IO_MAINTENANCE_20260927.md)。

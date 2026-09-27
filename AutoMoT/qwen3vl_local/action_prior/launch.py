@@ -146,6 +146,10 @@ def main():
     p.add_argument("mode", choices=["train", "eval", "probe", "preflight"])
     known, extra = p.parse_known_args()
     root = Path(__file__).resolve().parents[2]
+    # PYTHONPATH 只在新 Python 进程启动时读取；当前 launcher 的延迟 import
+    # 还需独立初始化 sys.path，否则子评测成功后父进程打包审计会失败。
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
     os.environ["PYTHONUNBUFFERED"] = "1"
     os.environ["PYTHONPATH"] = str(root) + os.pathsep + os.environ.get("PYTHONPATH", "")
     module = "qwen3vl_local.action_prior." + (

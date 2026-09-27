@@ -1,5 +1,17 @@
 # AGENTS.md
 
+### 2026-09-27 Action launcher父进程导入路径修复
+
+`python path/launch.py` 原只设置子进程PYTHONPATH，当前进程sys.path仍缺AutoMoT，
+导致probe子评测和audit.zip已完成后，父进程延迟import audit_bundle仍报找不到qwen3vl_local。
+现启动时同时按__file__初始化当前sys.path和子进程环境；不依赖调用cwd、用户export或pytest路径。
+独立进程在AutoMoT内/外均复现旧失败，修复后父进程真实打包通过；另覆盖12个实际CLI入口--help。
+118项相关CPU回归通过，1项因缺只读runner的既有合同检查排除；未GPU/训练机验收。
+这是工程修复，不改v23_io1快照、提示词、标签、采样或mapping合同；旧run源码合同仍严格校验。
+`dataset_label_missing`是独立的逐帧先验缺失计数，不是本次Python导入异常。
+详见action_prior/run.md同日条目；新增测试在Action已授权目录。
+
+
 ### 2026-09-27 区分工程修复与效果版本（覆盖同日逐文件回退约定）
 
 用户明确：ESTALE、缓存续发、异常恢复等不改变模型语义的工程bug修复可保留/回移到稳定版，
