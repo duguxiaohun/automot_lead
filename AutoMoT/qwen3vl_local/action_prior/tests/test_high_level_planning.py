@@ -7,8 +7,8 @@ import pytest
 from qwen3vl_local.action_prior import prompts
 from qwen3vl_local.action_prior.action_input import action_sentence, gate_action
 from qwen3vl_local.action_prior.config import parser, validate_args
-from qwen3vl_local.sft_new_loop_phase3.choice_semantics import action_description
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_CONTEXTS
+from qwen3vl_local.action_prior.phase3_stable.choice_semantics import action_description
+from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import ACTION_CONTEXTS
 from test_action_gating import conditions
 from test_action_input import record, write_index
 
@@ -81,7 +81,7 @@ def test_removed_cli_and_old_planning_checkpoint_are_rejected():
         validate_args(args)
 
 
-def test_action_contract_binds_live_phase3_choice_wording(tmp_path, monkeypatch):
+def test_action_contract_binds_stable_phase3_choice_wording(tmp_path, monkeypatch):
     """动作索引内容相同但 choice 文字改动时，也必须拒绝沿用旧 decoder 条件。"""
     from test_dataset_priors import dataset_args
     from qwen3vl_local.action_prior import provenance
@@ -92,7 +92,8 @@ def test_action_contract_binds_live_phase3_choice_wording(tmp_path, monkeypatch)
     args.high_level_action_prior = True
     args.high_level_action_index = str(write_index(tmp_path / "actions.jsonl", [record()]))
     before = build_contract(args)
-    source = Path(__file__).parents[2] / "sft_new_loop_phase3/choice_semantics.py"
+    from qwen3vl_local.action_prior.phase3_release import source_path
+    source = source_path("choice_semantics.py")
     original_read = Path.read_bytes
 
     def changed_wording(path):

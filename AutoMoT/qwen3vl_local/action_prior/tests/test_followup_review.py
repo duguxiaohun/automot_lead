@@ -56,7 +56,8 @@ def test_navigation_and_events_change_fallback_only_not_generation_answer():
 
 
 def test_unrelated_phase3_mutation_does_not_invalidate(tmp_path):
-    for name in provenance.EXECUTION_SEEDS:
+    from qwen3vl_local.action_prior.phase3_release import contract_source_paths
+    for name in (*provenance.EXECUTION_SEEDS, *contract_source_paths()):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("# dependency\n")
@@ -74,8 +75,8 @@ def test_unrelated_phase3_mutation_does_not_invalidate(tmp_path):
     helper.write_text("VALUE=2\n")
     assert provenance.execution_fingerprint(tmp_path) != a
     real = provenance.execution_fingerprint()
-    assert "qwen3vl_local/sft_new_loop_phase3/history_rgb.py" in real["code"]
-    assert "qwen3vl_local/sft_new_loop_phase3/split_coverage.py" in real["code"]
+    assert "qwen3vl_local/action_prior/phase3_releases/v23_io1/history_rgb.py" in real["code"]
+    assert "qwen3vl_local/action_prior/phase3_releases/v23_io1/split_coverage.py" in real["code"]
     assert "qwen3vl_local/sft_new_loop_phase3/train.py" not in real["code"]
     assert "qwen3vl_local/sft_loop_phase2_augment/prompts.py" in real["code"]
 

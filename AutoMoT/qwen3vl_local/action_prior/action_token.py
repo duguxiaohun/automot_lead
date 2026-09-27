@@ -1,4 +1,6 @@
 """三条 Action 路径共用的离线 Phase3 动作 token；不改文字先验或采样权重。"""
+from qwen3vl_local.action_prior.phase3_release import source_path as phase3_source_path
+
 from collections import Counter, defaultdict
 import json
 import os
@@ -45,7 +47,7 @@ def ensure_token_inputs(args):
 def project_token(record, candidates):
     """只用完整且可用的域内证据；普通/隔离帧不伪造 KEEP。"""
     from qwen3vl_local.action_prior.event_balance import SPECIAL_ELIGIBLE
-    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import primary_choice
+    from qwen3vl_local.action_prior.phase3_stable.choice_semantics import primary_choice
     if record is None:
         # full map 可以明确没有收录某些 action 背景路线，不借邻帧标签。
         return dict(name="UNCOND", reason="outside_phase3_mapping")
@@ -69,9 +71,9 @@ class ActionTokenSource:
     def __init__(self, args):
         from qwen3vl_local.action_prior.event_balance import EventBalanceIndex
         from qwen3vl_local.action_prior.build_event_balance_index import _candidate_membership, CONTEXT_TO_BUCKET
-        from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
-        from qwen3vl_local.sft_new_loop_phase3.choice_semantics import choice_annotation
-        from qwen3vl_local.sft_new_loop_phase3.trajectory_action import validate_action_rule
+        from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import CONTEXT_BY_ID
+        from qwen3vl_local.action_prior.phase3_stable.choice_semantics import choice_annotation
+        from qwen3vl_local.action_prior.phase3_stable.trajectory_action import validate_action_rule
 
         self.full = EventBalanceIndex(args.event_balance_index)
         self.full.validate_action_dataset(args.data_dir)
@@ -112,7 +114,7 @@ class ActionTokenSource:
             full_map=self.full.source.identity_dict(),
             projection="embedding_then_sequence_concat_after_bev", keep_scope="merged",
             source_sha256=file_hash(__file__),
-            projection_sources={name: file_hash(Path(__file__).parents[1] / "sft_new_loop_phase3" / name)
+            projection_sources={name: file_hash(phase3_source_path(name))
                                 for name in ("choice_semantics.py", "primary_action.py", "context_taxonomy.py", "history_rgb.py")},
         )
 
@@ -204,8 +206,7 @@ def embedding_diagnostics(weight):
 
 
 def annotate_tokens(args, rows):
-    if (getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced"
-            or getattr(args, "sampling_policy", "") == "smooth_cap"):
+    if getattr(args, "high_level_action_token", False) or getattr(args, "sampling_mode", "uniform") == "action_balanced":
         token_source(args).annotate(rows)
 
 

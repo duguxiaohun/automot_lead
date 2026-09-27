@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""Phase3 高层动作标定：只用 LEAD meta 的真实自车轨迹与地图车道身份。
+
+设计口径来自 2026-09-04 对 AccidentTwoWays / HardBreakRoute / EnterActorFlow /
+HighwayExit / InvadingTurn 等 route 的逐帧 meta + RGB 复核：
+
+* 纵向动作看真实速度曲线；近零速起步另要求锚点控制明确释放，不看场景名或事件标签；
+* 横向动作绝不用航向角或 steer 判定。弯道会让 steer/yaw 长期非零，但不换车道。
+  因此变道必须由 OpenDRIVE 车道身份 (``road_id`` + ``lane_id``) 的真实切换触发，
+  需要相邻两帧确认新车道，遇到 road 身份切换则停止跨 road 比较；
+  planned route 可能本身含绕行，只作为审计辅助，不冒充原车道中心线。
+* 借对向车道绕障 (U-E2) 与回原车道 (R-E2) 在 meta 中都表现为同一 ``road_id``
+  上的 ``lane_id`` 跨中心线切换，方向由 OpenDRIVE 的 lane id 排序 + 行驶方向决定。
+"""
+
+from __future__ import annotations
+
+import lzma
+import hashlib
+import math
+import pathlib
+import pickle
+from dataclasses import dataclass
+from functools import lru_cache
+from numbers import Real
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+import numpy as np
+from qwen3vl_local.action_prior.phase3_stable.lateral_rgb_audit import lateral_uncertainty
+
+
+FRAME_DT_SECONDS = 0.25
+ACTION_RULE_VERSION = "current_wait_first_crossing_v9_confirmed_pullaway"
+
+
+@lru_cache(maxsize=1)
+def action_rule_sha256() -> str:
+    """规则源码指纹，阻止同一开发版本内修改算法后继续复用旧标签缓存。"""
+    from qwen3vl_local.action_prior.phase3_release import active_release
+    return active_release()[1]['original_files']['trajectory_action.py']
+
+
+def validate_action_rule(row: Mapping[str, Any]) -> None:
+    """训练/eval 拒绝旧规则索引，防止只换 prompt 却继续学习旧动作标签。"""
+    version = (row.get("action_evidence") or {}).get("rule_version")
+    if version != ACTION_RULE_VERSION:
+        raise ValueError(f"action rule mismatch: {version!r}; rebuild index from raw meta")
+    if (row.get("action_evidence") or {}).get("rule_code_sha256") != action_rule_sha256():
+        raise ValueError("action rule source mismatch; rebuild index from raw meta")
+
+# 纵向 horizon：当前确认等待优先；未来释放不能回写为已经开始起步。
+IMMEDIATE_HORIZON_FRAMES = 6
+LONGITUDINAL_HORIZON_FRAMES = 8
+LATERAL_HORIZON_FRAMES = 12
+
+STOP_SPEED_MPS = 0.5
+LONGITUDINAL_MIN_DELTA_MPS = 1.2
+LONGITUDINAL_RELATIVE_DELTA = 0.20
+PULLAWAY_MIN_THROTTLE = 0.1
+PULLAWAY_MIN_FINAL_SPEED_MPS = 2.0
+LATERAL_MIN_SHIFT_M = 1.0
+
+DIRECTION_LEFT = "LEFT"
+DIRECTION_RIGHT = "RIGHT"
+
+
+def recorded_controls(meta: Mapping[str, Any]) -> Dict[str, Any]:
+    """严格读取控制；缺失/字符串/非法数值不补成已释放。"""
+    brake, throttle = meta.get("brake"), meta.get("throttle")
+    return {
+        "brake": bool(brake) if isinstance(brake, (bool, np.bool_)) else None,
+        "throttle": float(throttle) if isinstance(throttle, Real)
+            and not isinstance(throttle, (bool, np.bool_)) and math.isfinite(throttle)
+            and 0 <= throttle <= 1 else None,
+    }
+
+# 2026-09-04 的 probe_ego_frame_sign.py 用左/右转 scenario 的 route 折线取证：
+# LEAD ego frame 是 CARLA 左手系，x 正为正前方，y 负为左、y 正为右。
+EGO_FRAME_LEFT_SIGN = -1.0
+
+
+def _travel_sign(entry_lane_id: int) -> int:
+    """返回自车在该 road 上的行驶方向相对 OpenDRIVE s 轴的符号。
+
+    OpenDRIVE 同一 road 上 lane id 自右向左递增，负 id 车道沿 +s 行驶。这里必须用
+    自车“首次合法进入该 road 时”的车道，而不是当前车道：借对向车道绕障时当前
+    lane id 会翻到正值，但自车航向没变，用当前 lane id 会把回原车道判成左变道。
+    """
+
+    return 1 if int(entry_lane_id) < 0 else -1
+
+
+def lane_change_direction_from_ids(from_lane: int, to_lane: int, entry_lane: int) -> Optional[str]:
+    """由同一 road 上的 lane id 切换推出自车视角的横向方向。"""
+
+    if int(from_lane) == int(to_lane):
+        return None
+    signed = (int(to_lane) - int(from_lane)) * _travel_sign(entry_lane)
+    if signed == 0:
+        return None
+    return DIRECTION_LEFT if signed > 0 else DIRECTION_RIGHT
+
+
+def _load_meta(path: pathlib.Path) -> Optional[Dict[str, Any]]:
+    """读取 xz 压缩的 LEAD meta；坏文件返回 None 而不是抛错。"""
+
+    try:
+        with lzma.open(path, "rb") as handle:
+            meta = pickle.load(handle)
+    except Exception:
+        try:
+            with path.open("rb") as handle:
+                meta = pickle.load(handle)
+        except Exception:
+            return None
+    return meta if isinstance(meta, dict) else None
+
+
+def _scalar(value: Any, default: float = 0.0) -> float:
+    """把 numpy/None/inf 统一成有限 float。"""
+
+    try:
+        out = float(np.asarray(value).reshape(-1)[0])
+    except Exception:
+        return float(default)
+    return out if math.isfinite(out) else float(default)
+
+
+def _int_field(value: Any, default: int = 0) -> int:
+    """读取整型 meta 字段。"""
+
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _ego_frame_xy(point: Sequence[float], origin: Sequence[float], theta: float) -> Tuple[float, float]:
+    """把 world 点转到 ego frame，与 sft_base/v3/v4 的 final_goal 公式同源。"""
+
+    dx = float(point[0]) - float(origin[0])
+    dy = float(point[1]) - float(origin[1])
+    c = math.cos(-float(theta))
+    s = math.sin(-float(theta))
+    return (c * dx - s * dy, s * dx + c * dy)
+
+
+def _signed_lateral_offset_from_polyline(polyline: np.ndarray, point: Sequence[float]) -> Optional[float]:
+    """点相对折线的带符号横向偏移；与折线同一坐标系，正号与折线 y 轴同向。"""
+
+    if polyline.ndim != 2 or polyline.shape[0] < 2:
+        return None
+    px, py = float(point[0]), float(point[1])
+    best: Optional[Tuple[float, float]] = None
+    for idx in range(polyline.shape[0] - 1):
+        a = polyline[idx]
+        b = polyline[idx + 1]
+        d = b - a
+        norm = float(math.hypot(d[0], d[1]))
+        if norm < 1e-6:
+            continue
+        t = ((px - a[0]) * d[0] + (py - a[1]) * d[1]) / (norm * norm)
+        t = min(1.0, max(0.0, t))
+        proj = a + t * d
+        dist = float(math.hypot(px - proj[0], py - proj[1]))
+        cross = (d[0] * (py - a[1]) - d[1] * (px - a[0])) / norm
+        if best is None or dist < best[0]:
+            best = (dist, float(cross))
+    return None if best is None else best[1]
+
+
+@dataclass
+class RouteTrajectory:
+    """一条 run 的逐帧 meta 轨迹缓存。"""
+
+    run_dir: pathlib.Path
+    frames: Tuple[int, ...]
+    metas: Dict[int, Dict[str, Any]]
+    road_entry_lane: Dict[int, int]
+
+    def lateral_window_issue(self, frame_id: int, horizon: int = LATERAL_HORIZON_FRAMES) -> Optional[str]:
+        """Any waypoint 可落到路肩；缺失/非 Driving/跨 road 窗口不能监督横向 NO。
+
+        ego_lane_id 来自另一次 Driving 查询，但没有配套 road_id，不能与 Any 的
+        road_id 拼接成虚构身份。原始 xodr 未核验时保守排除这些窗口。
+        """
+        base = self.metas.get(int(frame_id), {})
+        for offset in range(int(horizon) + 2):
+            meta = self.metas.get(int(frame_id) + offset)
+            if meta is None:
+                return "missing_meta"
+            if meta.get("lane_type_str") != "Driving":
+                return "non_driving_or_unknown_waypoint"
+            if meta.get("road_id") != base.get("road_id"):
+                return "road_transition"
+            # 同 road 的 section 更换可能重新编号；无连接关系时不把它当横向真值。
+            if meta.get("section_id") != base.get("section_id"):
+                return "lane_section_transition"
+            if meta.get("lane_id") in (None, 0):
+                return "missing_lane_identity"
+            if offset:
+                previous_lane = int(self.metas[int(frame_id) + offset - 1]["lane_id"])
+                current_lane = int(meta["lane_id"])
+                # 同侧一次跳过车道编号：可能是 section 重编号/漏采样，无法确认第一次跨线。
+                # -1 <-> +1 是相邻的中心线两侧，不能误伤正常借道与回归。
+                if previous_lane * current_lane > 0 and abs(current_lane - previous_lane) > 1:
+                    return "nonadjacent_lane_identity_jump"
+        return None
+
+    def has(self, frame_id: int) -> bool:
+        """当前帧是否可用。"""
+
+        return int(frame_id) in self.metas
+
+    def _future_speeds(self, frame_id: int, horizon: int) -> List[float]:
+        """返回 [t, t+1, ..., t+horizon] 的真实速度序列。"""
+
+        out: List[float] = []
+        for offset in range(0, int(horizon) + 1):
+            meta = self.metas.get(int(frame_id) + offset)
+            if meta is None:
+                break
+            speed = _scalar(meta.get("speed"), float("nan"))
+            # 静止 meta 实测有 -0.00022 m/s 等数值抖动，不是缺帧或真实倒车。
+            if not math.isfinite(speed) or speed < -0.05:
+                break
+            out.append(max(0.0, speed))
+        return out
+
+    def _future_ego_positions(self, frame_id: int, horizon: int) -> List[Tuple[float, float]]:
+        """返回未来位置在当前帧 ego frame 下的坐标。"""
+
+        base = self.metas.get(int(frame_id))
+        if base is None:
+            return []
+        origin = list(base.get("pos_global") or [0.0, 0.0])[:2]
+        theta = _scalar(base.get("theta"))
+        out: List[Tuple[float, float]] = []
+        for offset in range(0, int(horizon) + 1):
+            meta = self.metas.get(int(frame_id) + offset)
+            if meta is None:
+                break
+            pos = list(meta.get("pos_global") or [])[:2]
+            if len(pos) < 2:
+                break
+            out.append(_ego_frame_xy(pos, origin, theta))
+        return out
+
+    def lateral_shift(self, frame_id: int, horizon: int = LATERAL_HORIZON_FRAMES) -> float:
+        """自车未来位置相对当前帧 planned route 折线的最大带符号横向位移。
+
+        planned route 可能已经包含绕行；该偏移仅供审计，不能证明跨越车道线。
+        """
+
+        base = self.metas.get(int(frame_id))
+        if base is None:
+            return 0.0
+        route = np.asarray(base.get("route", []), dtype=np.float64)
+        if route.ndim != 2 or route.shape[0] < 2:
+            return 0.0
+        best = 0.0
+        for point in self._future_ego_positions(frame_id, horizon)[1:]:
+            offset = _signed_lateral_offset_from_polyline(route, point)
+            if offset is None:
+                continue
+            if abs(offset) > abs(best):
+                best = float(offset)
+        return best
+
+    def lane_change(self, frame_id: int, horizon: int = LATERAL_HORIZON_FRAMES) -> Optional[str]:
+        """在 horizon 内检测真实车道身份切换，返回自车视角方向。"""
+
+        if lateral_uncertainty(self.run_dir.parent.name, self.run_dir.name, frame_id, horizon):
+            return None
+        if self.lateral_window_issue(frame_id, horizon):
+            return None
+        base = self.metas.get(int(frame_id))
+        if base is None:
+            return None
+        from_lane = _int_field(base.get("lane_id"), 0)
+        from_road = _int_field(base.get("road_id"), -10_000)
+        # 同一路段再次进入时可能方向相反；只回溯本次连续 road visit。
+        entry_lane = from_lane
+        for previous in range(int(frame_id) - 1, -1, -1):
+            old = self.metas.get(previous)
+            if old is None or old.get("road_id") != from_road:
+                break
+            if old.get("lane_type_str") == "Driving":
+                entry_lane = _int_field(old.get("lane_id"), entry_lane)
+        if not from_lane or not entry_lane:
+            return None
+        for offset in range(1, int(horizon) + 1):
+            meta = self.metas.get(int(frame_id) + offset)
+            if meta is None:
+                break
+            if _int_field(meta.get("road_id"), -10_001) != from_road:
+                break
+            to_lane = _int_field(meta.get("lane_id"), 0)
+            following = self.metas.get(int(frame_id) + offset + 1, {})
+            if (not to_lane or following.get("road_id") != from_road
+                    or following.get("lane_id") != to_lane):
+                continue
+            direction = lane_change_direction_from_ids(from_lane, to_lane, entry_lane)
+            if direction is not None:
+                return direction
+        return None
+
+    def goal_ego_xy(self, frame_id: int) -> Optional[Tuple[float, float]]:
+        """当前帧目的地相对坐标；缺字段返回 None，让该帧被跳过。"""
+
+        meta = self.metas.get(int(frame_id))
+        if meta is None:
+            return None
+        points = meta.get("next_target_points") or []
+        if not points:
+            return None
+        origin = list(meta.get("pos_global") or [])[:2]
+        if len(origin) < 2:
+            return None
+        return _ego_frame_xy(list(points[-1])[:2], origin, _scalar(meta.get("theta")))
+
+    def signals(self, frame_id: int) -> Optional[Dict[str, Any]]:
+        """返回该帧用于动作标定与审计的全部原始信号。"""
+
+        meta = self.metas.get(int(frame_id))
+        if meta is None:
+            return None
+        speeds = self._future_speeds(frame_id, LONGITUDINAL_HORIZON_FRAMES)
+        immediate = self._future_speeds(frame_id, IMMEDIATE_HORIZON_FRAMES)
+        goal = self.goal_ego_xy(frame_id)
+        lateral_review = lateral_uncertainty(self.run_dir.parent.name, self.run_dir.name, frame_id)
+        return {
+            "frame_id": int(frame_id),
+            "speed": float(speeds[0]) if speeds else 0.0,
+            "speed_min": float(min(speeds)) if speeds else 0.0,
+            "speed_max": float(max(speeds)) if speeds else 0.0,
+            "immediate_speed_min": float(min(immediate)) if immediate else 0.0,
+            "immediate_speed_max": float(max(immediate)) if immediate else 0.0,
+            "future_speed_count": len(speeds),
+            "future_speeds": speeds,
+            "lateral_rgb_uncertainty": lateral_review,
+            "lateral_window_issue": self.lateral_window_issue(frame_id),
+            "lane_type_str": meta.get("lane_type_str"),
+            "lateral_observation_complete": not lateral_review and self.lateral_window_issue(frame_id) is None,
+            **recorded_controls(meta),
+            "speed_limit": _scalar(meta.get("speed_limit"), 8.33),
+            "lane_id": _int_field(meta.get("lane_id"), 0),
+            "road_id": _int_field(meta.get("road_id"), 0),
+            "lane_width": _scalar(meta.get("ego_lane_width"), 3.5),
+            "is_junction": bool(meta.get("is_junction")),
+            "distance_to_next_junction": _scalar(meta.get("distance_to_next_junction"), float("inf")),
+            "changed_route": bool(meta.get("changed_route")),
+            "lateral_shift": None,  # 按需审计才算；planned route 不是原车道中心线。
+            "lane_change_direction": self.lane_change(frame_id),
+            "goal_x": float(goal[0]) if goal else 0.0,
+            "goal_y": float(goal[1]) if goal else 0.0,
+            "goal_available": goal is not None,
+        }
+
+
+def longitudinal_decision(speeds: Sequence[float], *, sample_count: Optional[int] = None,
+                          brake=None, throttle=None) -> Dict[str, Any]:
+    """固定当前至 +2s 的九个采样，返回标签与离线判定轨迹。
+
+    窗外速度不能触发动作或撤回窗内标签；缺帧/无效值不写成 NONE。
+    所有速度变化相对最新帧，增速两次确认都须在窗内；阈值沿用原规则。
+    """
+    required = LONGITUDINAL_HORIZON_FRAMES + 1
+    trace: Dict[str, Any] = dict(eligible=False, action=None, reason="incomplete_speed_window",
+        window_end_s=LONGITUDINAL_HORIZON_FRAMES * FRAME_DT_SECONDS,
+        samples_used=min(len(speeds), required), ignored_tail_samples=max(0, len(speeds)-required))
+    if len(speeds) < required or (sample_count is not None and sample_count < required):
+        return trace
+    try:
+        values = [float(v) for v in speeds[:required]]
+    except (TypeError, ValueError, OverflowError):
+        return dict(trace, reason="invalid_speed_sample")
+    if not all(math.isfinite(v) and v >= 0 for v in values):
+        return dict(trace, reason="invalid_speed_sample")
+    speed = values[0]
+    threshold = max(LONGITUDINAL_MIN_DELTA_MPS, LONGITUDINAL_RELATIVE_DELTA * max(speed, 1.0))
+    drop = next((i for i in range(1, required) if speed-values[i] >= threshold), None)
+    gain = next((i for i in range(1, required-1)
+                 if min(values[i:i+2])-speed >= threshold), None)
+    pairs = [i for i in range(required-1) if max(values[i:i+2]) <= STOP_SPEED_MPS]
+    immediate_pairs = [i for i in pairs if i+1 <= IMMEDIATE_HORIZON_FRAMES]
+    seconds = lambda i: None if i is None else i * FRAME_DT_SECONDS
+    first_pair = pairs[0] if pairs else None
+    trace.update(baseline_speed_mps=speed, delta_threshold_mps=threshold,
+        first_drop_s=seconds(drop), gain_start_s=seconds(gain),
+        gain_confirmed_s=seconds(None if gain is None else gain+1),
+        stop_start_s=seconds(first_pair), stop_confirmed_s=seconds(None if first_pair is None else first_pair+1),
+        stop_qualifies=bool(immediate_pairs), reversal_s=None,
+        stop_pair_crosses_1_5s_boundary=IMMEDIATE_HORIZON_FRAMES in pairs and not immediate_pairs,
+        isolated_near_stop_in_1_5s=any(v <= STOP_SPEED_MPS for v in values[:IMMEDIATE_HORIZON_FRAMES+1])
+            and not immediate_pairs,
+        subthreshold_drop_present=0 < speed-min(values[1:]) < threshold,
+        first_drop_single_sample=drop is not None and drop < required-1 and speed-values[drop+1] < threshold,
+        isolated_gain_present=any(values[i]-speed >= threshold
+            and (i == 1 or values[i-1]-speed < threshold)
+            and (i == required-1 or values[i+1]-speed < threshold) for i in range(1, required)),
+        gain_unconfirmed_at_2s_boundary=values[-1]-speed >= threshold and values[-2]-speed < threshold)
+    # 保守起步例外：控制已经释放，最迟+0.5s开始增速，至两点增速确认严格非递减，
+    # 确认后保留显著净增速（允许起步后调速），窗尾达到明确运动速度。不能把仅油门、
+    # 稍后释放或缓慢蠕行当起步；不使用四舍五入或0.001容差。
+    controls = recorded_controls({"brake": brake, "throttle": throttle})
+    released = controls["brake"] is False and controls["throttle"] is not None \
+        and controls["throttle"] > PULLAWAY_MIN_THROTTLE
+    current_pair = bool(immediate_pairs and immediate_pairs[0] == 0)
+    pullaway = (current_pair and released and values[2] > speed
+                and values[-1] >= PULLAWAY_MIN_FINAL_SPEED_MPS and gain is not None
+                and all(values[k+1] >= values[k] for k in range(gain+1))
+                and all(v-speed >= threshold for v in values[gain+1:]))
+    trace.update(anchor_controls=controls, anchor_control_released=released,
+                 current_near_stop_pair=current_pair, confirmed_pullaway=pullaway,
+                 whole_window_nondecreasing=all(values[k+1] >= values[k] for k in range(required-1)))
+    if pullaway:
+        return dict(trace, eligible=True, action="RESUME", reason="current_confirmed_pullaway",
+                    stop_qualifies=False)
+    # 未满足起步证据的当前等待优先；随后释放不会回写当前动作。
+    if immediate_pairs and immediate_pairs[0] == 0:
+        return dict(trace, eligible=True, action="STOP", reason="current_confirmed_wait")
+    # 保持既有混合窗隔离：先增速、随后明显回落且不再保留显著净增速。
+    if gain is not None and (drop is None or gain < drop):
+        peak = speed
+        for i in range(gain, required):
+            peak = max(peak, values[i])
+            if peak-values[i] >= threshold and values[i]-speed < threshold:
+                return dict(trace, reason="mixed_longitudinal_phase", reversal_s=seconds(i))
+        if immediate_pairs and gain < immediate_pairs[0]:
+            return dict(trace, reason="mixed_longitudinal_phase")
+    if immediate_pairs:
+        return dict(trace, eligible=True, action="STOP", reason="near_stop_confirmed_in_immediate_window")
+    if drop is not None and (gain is None or drop < gain):
+        return dict(trace, eligible=True, action="DECELERATE", reason="first_qualifying_drop")
+    if gain is not None and (drop is None or gain < drop):
+        return dict(trace, eligible=True, action="RESUME", reason="first_confirmed_gain")
+    return dict(trace, eligible=True, action="NONE", reason="no_qualifying_speed_change")
+
+
+def longitudinal_from_signals(signals: Mapping[str, Any]) -> Dict[str, Any]:
+    """标定、证据和审计共用完整输入，防止某条路径漏掉控制字段。"""
+    return longitudinal_decision(signals.get("future_speeds", []),
+        sample_count=int(signals.get("future_speed_count", 0)),
+        brake=signals.get("brake"), throttle=signals.get("throttle"))
+
+
+def label_actions(signals: Mapping[str, Any]) -> Optional[Dict[str, bool]]:
+    """由同一判定轨迹生成标签；缺证据或混合阶段返回 None，不伪造全 NO。"""
+    decision = longitudinal_from_signals(signals)
+    if not decision["eligible"]:
+        return None
+    direction = signals.get("lane_change_direction")
+    return {
+        "DECELERATE": decision["action"] == "DECELERATE",
+        "STOP": decision["action"] == "STOP",
+        "RESUME": decision["action"] == "RESUME",
+        "LANE_CHANGE_LEFT": direction == DIRECTION_LEFT,
+        "LANE_CHANGE_RIGHT": direction == DIRECTION_RIGHT,
+    }
+
+
+def action_evidence(signals: Mapping[str, Any]) -> Dict[str, Any]:
+    """写入索引供后续 RGB/轨迹复核的原始判据。"""
+
+    speed = float(signals["speed"])
+    return {
+        "speed_mps": round(speed, 3),
+        "future_speeds_mps": [round(float(v), 3) for v in signals.get("future_speeds", [])],
+        "future_speeds_exact_mps": [float(v) for v in signals.get("future_speeds", [])],
+        "lateral_observation_complete": bool(signals.get("lateral_observation_complete")),
+        "lateral_rgb_uncertainty": signals.get("lateral_rgb_uncertainty"),
+        "rule_version": ACTION_RULE_VERSION,
+        "rule_code_sha256": action_rule_sha256(),
+        "temporal_semantics": "confirmed_pullaway_before_near_stop_pair; otherwise_current_wait_precedes_future_release; first_confirmed_lane_crossing",
+        "resume_confirmation_samples": 2,
+        "longitudinal_decision": longitudinal_from_signals(signals),
+        "pullaway_contract": {"min_throttle_exclusive": PULLAWAY_MIN_THROTTLE,
+            "min_final_speed_mps": PULLAWAY_MIN_FINAL_SPEED_MPS,
+            "onset_by_frame": 2, "monotonic_start_k": 0, "monotonic_end": "gain_confirmation",
+            "post_confirmation": "retain_gain_above_anchor_threshold", "monotonic_tolerance_mps": 0.0,
+            "requires_existing_gain_confirmation": True},
+        "lane_type_str": signals.get("lane_type_str"),
+        "lateral_window_issue": signals.get("lateral_window_issue"),
+        "future_speed_min_mps": round(float(signals["speed_min"]), 3),
+        "future_speed_max_mps": round(float(signals["speed_max"]), 3),
+        "immediate_speed_min_mps": round(float(signals["immediate_speed_min"]), 3),
+        "immediate_speed_max_mps": round(float(signals["immediate_speed_max"]), 3),
+        "longitudinal_threshold_mps": round(
+            max(LONGITUDINAL_MIN_DELTA_MPS, LONGITUDINAL_RELATIVE_DELTA * max(speed, 1.0)), 3
+        ),
+        "lane_change_direction": signals.get("lane_change_direction") or "",
+        "lane_id": int(signals["lane_id"]),
+        "road_id": int(signals["road_id"]),
+        "route_relative_lateral_shift_m": (
+            round(float(signals["lateral_shift"]), 3) if signals.get("lateral_shift") is not None else None),
+        **recorded_controls(signals),
+        "is_junction": bool(signals["is_junction"]),
+        "horizon_frames": {
+            "immediate": IMMEDIATE_HORIZON_FRAMES,
+            "longitudinal": LONGITUDINAL_HORIZON_FRAMES,
+            "lateral": LATERAL_HORIZON_FRAMES,
+            "frame_dt_seconds": FRAME_DT_SECONDS,
+        },
+    }
+
+
+def load_route_trajectory(run_dir: pathlib.Path, max_frames: int = 0) -> Optional[RouteTrajectory]:
+    """读取一条 run 的全部 meta；缺 metas 目录时返回 None。"""
+
+    metas_dir = pathlib.Path(run_dir) / "metas"
+    if not metas_dir.is_dir():
+        return None
+    metas: Dict[int, Dict[str, Any]] = {}
+    frames: List[int] = []
+    for path in sorted(metas_dir.glob("*.pkl")):
+        try:
+            frame_id = int(path.stem)
+        except ValueError:
+            continue
+        meta = _load_meta(path)
+        if meta is None:
+            continue
+        metas[frame_id] = meta
+        frames.append(frame_id)
+        if max_frames > 0 and len(frames) >= max_frames:
+            break
+    if not metas:
+        return None
+    road_entry_lane: Dict[int, int] = {}
+    for frame_id in frames:
+        road_id = _int_field(metas[frame_id].get("road_id"), 0)
+        if road_id not in road_entry_lane:
+            road_entry_lane[road_id] = _int_field(metas[frame_id].get("lane_id"), 0)
+    return RouteTrajectory(
+        run_dir=pathlib.Path(run_dir),
+        frames=tuple(frames),
+        metas=metas,
+        road_entry_lane=road_entry_lane,
+    )

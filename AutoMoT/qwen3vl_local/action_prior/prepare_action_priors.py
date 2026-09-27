@@ -17,8 +17,8 @@ from qwen3vl_local.action_prior.filesystem import atomic_write_text
 from qwen3vl_local.action_prior.event_balance import EventBalanceIndex, SPECIAL_ELIGIBLE
 from qwen3vl_local.action_prior.prepare_event_balance import prepare, _prepare_artifact, run_builder
 from qwen3vl_local.action_prior.build_event_balance_index import CONTEXT_TO_BUCKET, _candidate_membership, _re2_scene_state
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS, CONTEXT_BY_ID
-from qwen3vl_local.sft_new_loop_phase3.trajectory_action import validate_action_rule
+from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import ACTION_KEYS, CONTEXT_BY_ID
+from qwen3vl_local.action_prior.phase3_stable.trajectory_action import validate_action_rule
 
 
 def candidate_actions(path, mapping_hash):

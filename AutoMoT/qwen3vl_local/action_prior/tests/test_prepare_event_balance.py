@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from qwen3vl_local.action_prior import prepare_event_balance as preparation
 from qwen3vl_local.action_prior import event_balance as balance
 from qwen3vl_local.action_prior.contracts import file_hash
-from qwen3vl_local.sft_new_loop_phase3 import source_mapping
-from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT
+from qwen3vl_local.action_prior.phase3_stable import source_mapping
+from qwen3vl_local.action_prior.phase3_stable.build_dataset import FRAME_INDEX_FORMAT
 
 
 @pytest.fixture
@@ -92,16 +92,16 @@ def test_prepare_builds_reuses_and_rebuilds_for_changed_sources(prepared_sources
     assert '[prepare] published:' in captured.err and '[prepare] reuse cache:' in captured.err
 
 
-@pytest.mark.parametrize('stale_target', [None, 'frame_index.jsonl', 'train_sampling_pool.jsonl',
+@pytest.mark.parametrize('stale_target', [None, 'frame_index.jsonl',
                                        'candidate_frames.jsonl', 'candidate_counts.json',
                                        'split_coverage.json', 'same_rs_invalid_candidates.jsonl', 'manifest.json'])
 @pytest.mark.parametrize('committed', [False, True])
 def test_real_phase3_writer_passes_action_publication_and_reuse(prepared_sources, monkeypatch,
                                                               stale_target, committed):
     """只替换原始数据读取；真实Phase3均衡、manifest写入与Action发布必须相容。"""
-    from qwen3vl_local.sft_new_loop_phase3 import build_dataset as phase3, same_rs_invalid
+    from qwen3vl_local.action_prior.phase3_stable import build_dataset as phase3, same_rs_invalid
     from qwen3vl_local.sft_new_loop_phase3.test_build_invalid_quota import candidates
-    from qwen3vl_local.sft_new_loop_phase3.trajectory_action import longitudinal_decision
+    from qwen3vl_local.action_prior.phase3_stable.trajectory_action import longitudinal_decision
     data, collection, cache, state = prepared_sources
     from qwen3vl_local.action_prior import filesystem
     monkeypatch.setattr(filesystem, 'ESTALE_DELAYS', (0, 0, 0, 0))

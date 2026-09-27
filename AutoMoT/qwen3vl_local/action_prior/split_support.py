@@ -7,8 +7,8 @@ this same plan. The original dataset files remain immutable.
 from pathlib import Path
 import json
 
-from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason
-from qwen3vl_local.sft_new_loop_phase3.split_coverage import complete_context_splits
+from qwen3vl_local.action_prior.phase3_stable.history_rgb import history_exclusion_reason
+from qwen3vl_local.action_prior.phase3_stable.split_coverage import complete_context_splits
 from qwen3vl_local.action_prior.build_dataset import route_group
 
 VERSION = "action_unexposed_route_support_v1"

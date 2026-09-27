@@ -8,8 +8,8 @@ from qwen3vl_local.action_prior.build_dataset import route_group
 
 
 # 真实 action 入口及已核对的延迟调用；不递归扫描所有实验目录。
-# 可选 Phase3 数据准备由动作索引 source_contract 的规则/构建器哈希绑定，
-# 不把该离线依赖加入关闭动作开关时的默认执行指纹。
+# Phase3数据准备/标签/共享规则统一绑定稳定快照；不依赖实验目录。
+# release manifest与实际文件进入执行指纹，动作索引另绑定数据来源。
 EXECUTION_SEEDS = (
     *[
         "qwen3vl_local/action_prior/" + name + ".py"
@@ -48,7 +48,6 @@ EXECUTION_SEEDS = (
     "qwen3vl_local/leadmot/decoder.py",
     "qwen3vl_local/sft_new_loop_phase1/prompts.py",
     "qwen3vl_local/sft_new_loop_phase2/prompts.py",
-    "qwen3vl_local/sft_new_loop_phase3/history_rgb.py",
     "lead_video_tools/abnormal_duration_filter.py",
     "leaderboard/team_code/mot_lead_offline_runner.py",
     "Automot/mot/modeling/bev_encoder/bev_encoder_utils.py",
@@ -90,7 +89,8 @@ def execution_sources(root):
             else:
                 yield from module_imports(ast.iter_child_nodes(node))
 
-    pending = [root / name for name in EXECUTION_SEEDS]
+    from qwen3vl_local.action_prior.phase3_release import contract_source_paths
+    pending = [root / name for name in (*EXECUTION_SEEDS, *contract_source_paths())]
     paths = set()
     while pending:
         path = pending.pop()
@@ -107,6 +107,8 @@ def execution_sources(root):
                 pending.append(initializer)
         relative = path.relative_to(root).with_suffix("")
         package = list(relative.parts[:-1])
+        if path.suffix != ".py":
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in module_imports(tree.body):
             if isinstance(node, ast.Import):

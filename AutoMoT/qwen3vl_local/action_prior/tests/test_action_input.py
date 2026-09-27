@@ -70,7 +70,7 @@ def test_bad_index_is_rejected_before_model_loading(tmp_path, rows):
 
 def test_prompt_supports_all_phase3_actions_and_combined_binary_output():
     """固定释义覆盖五动作，关闭不泄漏；生成/复核/fallback 均保留具体动作。"""
-    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
+    from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import ACTION_KEYS
     assert set(ACTION_TEXT) == set(ACTION_KEYS)
     for actions in [[key] for key in ACTION_KEYS] + [["LANE_CHANGE_LEFT", "DECELERATE"]]:
         prior = dict(conditions={"ROAD_STRUCTURE": "R1"},

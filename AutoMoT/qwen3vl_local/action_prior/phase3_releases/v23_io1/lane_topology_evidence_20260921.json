@@ -1,0 +1,86 @@
+[
+  {
+    "case_index": 34,
+    "scenario": "InterurbanActorFlow",
+    "route_id": "Town13_Rep0_1304_2_route0_01_10_10_53_07",
+    "transition_frame": 30,
+    "map_file": "lead/3rd_party/fail2drive/toolbox/carla_xodr/Town13.xodr",
+    "map_sha256": "5354326f2fe4d26f0dcb5c82acf462257e638278363ab7adecb97ec3aa1f426f",
+    "road_id": "720",
+    "section_boundary_s_m": 80.4,
+    "lane_link": "section above boundary lane +1 has predecessor +2 in section below boundary; ego travels decreasing s",
+    "frames": [
+      {
+        "frame": 29,
+        "road_id": 720,
+        "lane_id": 1,
+        "section_id": null,
+        "projected_s_m": 80.44425213070653,
+        "pos_global": [
+          -894.1689453125,
+          4815.77685546875,
+          146.0829315185547
+        ],
+        "theta": -2.8488236864341996,
+        "meta_sha256": "426031dec350fd381e750abf6d1307582673b05233e76d23fccabad0c9c4e684"
+      },
+      {
+        "frame": 30,
+        "road_id": 720,
+        "lane_id": 2,
+        "section_id": null,
+        "projected_s_m": 77.74633286507073,
+        "pos_global": [
+          -896.669921875,
+          4814.7529296875,
+          146.08726501464844
+        ],
+        "theta": -2.7051774461998246,
+        "meta_sha256": "3abd2e717ee064581f79f2cdfe64a9f217719217dc89c750f3ac1544d229857c"
+      }
+    ],
+    "interpretation": "RGB and linked lane sections support lane continuation, not a new lateral crossing; quarantine exact reviewed transition windows"
+  },
+  {
+    "case_index": 144,
+    "scenario": "MergerIntoSlowTraffic",
+    "route_id": "Town12_Rep0_route_002661_route0_01_09_02_51_11",
+    "transition_frame": 23,
+    "map_file": "lead/3rd_party/fail2drive/toolbox/carla_xodr/Town12.xodr",
+    "map_sha256": "26fa53d4902ac3397d35f948969f0c77c1bf023755ede2c67edf00bef817151f",
+    "road_id": "20228",
+    "section_boundary_s_m": 74.99148530175037,
+    "lane_link": "section above boundary lane +1 has predecessor +2 in section below boundary; ego travels decreasing s",
+    "frames": [
+      {
+        "frame": 22,
+        "road_id": 20228,
+        "lane_id": 1,
+        "section_id": null,
+        "projected_s_m": 76.8950104236027,
+        "pos_global": [
+          3943.602294921875,
+          2776.085205078125,
+          369.6166687011719
+        ],
+        "theta": 1.5688130100581308,
+        "meta_sha256": "8405ccc8645a6e54be2cc006ad0db596529dabc37d8baad4d6746d311125d8cd"
+      },
+      {
+        "frame": 23,
+        "road_id": 20228,
+        "lane_id": 2,
+        "section_id": null,
+        "projected_s_m": 74.77269241411997,
+        "pos_global": [
+          3943.606201171875,
+          2778.20751953125,
+          369.6155090332031
+        ],
+        "theta": 1.5691768368098398,
+        "meta_sha256": "f2b34c722b4cb8bedaea118384ebb8e6faf572ae951eb477fa775d54e363efad"
+      }
+    ],
+    "interpretation": "RGB and linked lane sections support lane continuation, not a new lateral crossing; quarantine exact reviewed transition windows"
+  }
+]

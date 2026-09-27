@@ -11,10 +11,10 @@ from qwen3vl_local.action_prior import event_balance as balance, prompts
 from qwen3vl_local.action_prior.action_input import HighLevelActionIndex
 from qwen3vl_local.action_prior.config import parser
 from qwen3vl_local.action_prior.contracts import file_hash
-from qwen3vl_local.sft_new_loop_phase3 import source_mapping
-from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT
-from qwen3vl_local.sft_new_loop_phase3.trajectory_action import ACTION_RULE_VERSION, action_rule_sha256
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_KEYS
+from qwen3vl_local.action_prior.phase3_stable import source_mapping
+from qwen3vl_local.action_prior.phase3_stable.build_dataset import FRAME_INDEX_FORMAT
+from qwen3vl_local.action_prior.phase3_stable.trajectory_action import ACTION_RULE_VERSION, action_rule_sha256
+from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import ACTION_KEYS
 
 
 @pytest.fixture

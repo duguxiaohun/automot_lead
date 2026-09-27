@@ -257,7 +257,8 @@ def test_shared_source_changes_execution_identity(tmp_path):
         "leaderboard/team_code/mot_lead_offline_runner.py",
         "Automot/mot/modeling/bev_encoder/bev_encoder_utils.py",
     ]
-    for name in set(names) | set(provenance.EXECUTION_SEEDS):
+    from qwen3vl_local.action_prior.phase3_release import contract_source_paths
+    for name in set(names) | set(provenance.EXECUTION_SEEDS) | set(contract_source_paths()):
         p = tmp_path / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("# first\n")

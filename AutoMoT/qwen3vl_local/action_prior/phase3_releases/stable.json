@@ -1,0 +1,26 @@
+{
+  "schema": "action_phase3_stable_v1",
+  "release": "v23_io1",
+  "manifest_sha256": "0263aad8aff5f2648a395c2b3498b90d6ff97761dd5a2f9e6836701fc1f0abb9",
+  "review": {
+    "decision": "engineering_fix",
+    "fix_kind": "estale_publication",
+    "release": "v23_io1",
+    "baseline_release": "v23",
+    "manifest_sha256": "0263aad8aff5f2648a395c2b3498b90d6ff97761dd5a2f9e6836701fc1f0abb9",
+    "semantic_outputs_unchanged": true,
+    "regressions_reviewed": true,
+    "approved_for_action": true,
+    "reviewer": "2026-09-27 user-authorized engineering backport; local source and paired-output review",
+    "regression_runs": [
+      "test_phase3_io_backport.py: 15 passed"
+    ],
+    "changed_files": [
+      "build_dataset.py",
+      "parallel_scan.py",
+      "source_mapping.py"
+    ],
+    "report_path": "qwen3vl_local/action_prior/V23_IO_MAINTENANCE_20260927.md",
+    "report_sha256": "4229625de45110fb77ac932ee05a3a86a537e8e1da11af88a71d8e08dea97fe5"
+  }
+}

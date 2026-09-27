@@ -1,17 +1,36 @@
 # Action prior 使用说明
 
+2026-09-27补充：当前为 **v23语义基线＋ESTALE工程修订（v23_io1）**。
+纯工程bug修复经故障回归和输出等价复核可保留；提示词、标定、标签及采样等效果改动仍须验证后晋升。
+已补回Phase3内部文件发布恢复，Action完成缓存续发继续保留。详见 [工程维护记录](V23_IO_MAINTENANCE_20260927.md)。
+
+
+## 2026-09-27 当前默认：已验证 v23，实验版本不得自动进入 Action
+
+主线、qwen_simple、bev_only 共用 `action_prior/phase3_releases/stable.json`，当前为 v23。
+数据构建、有效帧、动作标签/文字/token、共享采样函数、来源哈希均来自独立稳定快照；
+修改 Phase3 实验目录或增加 v24/v25 不会改变这里。晋升有测试证据的新最优版本后，三个入口的新进程自动同步。
+规则和命令见 [稳定版本约定](PHASE3_STABLE_RELEASES.md)。
+
+Action 采样已恢复 v23：默认事件1:…:1:2，`--action-balanced` 为事件内主要动作容量回流；
+不再使用后续实验的 `smooth_cap`/`global_action`，不支持其 `--sampling-policy` 参数。
+独立的固定预算要求保留：新训默认116256次/轮、cap11；显式预算0按当前池求可行预算，容量不足报错。
+优化器、7轮计划、token/单图独立开关仍保留。旧run必须用原源码，不能沿用旧checkpoint强换合同。
+下方折叠部分为历史实验，其他较早默认说明以本节为准；本次未宣称Action GPU指标已提高。
+
+
 ## 2026-09-23 固定每轮116256次（覆盖此前自动预算默认值）
 
 Action 主线、qwen_simple、bev_only 新训练统一默认每轮 **116256次呈现**，event/action两种模式相同；
 全epoch单帧重复上限统一 **11**。历史标签按当前过滤/划分回放时UE3有958帧，事件配额9688次，
 上限8不足，至少需要11；这是允许上限，不要求每帧重复11次，也不是新增独立数据。
-默认event仍为smooth_cap（十事件各9688、背景19376，事件内动作开方分配）；
-action仍为全局六动作各16146或16147、背景19376，小事件权重最多2倍。
+当前event恢复v23事件均衡（十事件各9688、背景19376）；
+action恢复为事件内主要动作配额与容量回流，事件总配额不变；后续全局六动作方案已撤回。
 
 4卡、梯度累积16时为1817次优化器更新/轮，默认7轮共12719次；其它卡数/累积按实际计划换算。
 这只对齐旧run的呈现/更新预算，当前过滤、标签、重复分布与旧数据不必相同。
 两模式分别预检容量，不足会报错，不静默缩轮或自动提高上限。
-显式 `--event-balanced-epoch-samples 0` 恢复同池event容量自动预算；显式cap=2/8在固定预算下可能报错，
+显式 `--event-balanced-epoch-samples 0` 按所选模式的当前池容量计算可行预算；显式cap=2/8在固定预算下可能报错，
 若要重现旧自动预算需同时指定预算0和对应cap。
 CLI/环境变量仍可覆盖；续训保留保存的预算和上限，历史缺字段按0/8解释，旧run须使用原源码。
 新默认需新run；采样源码合同变化按入口校验重建full map，Phase3采样默认值与标签规则不变。
@@ -20,6 +39,9 @@ CLI/环境变量仍可覆盖；续训保留保存的预算和上限，历史缺�
 843913帧历史标签池上event/action各回放7轮，均为116256次/轮；event每轮74347个不同帧、最多重复11次，
 action每轮103300–103302个不同帧、最多重复3次。另按当前过滤/划分处理历史标签的817258帧池，
 1/4rank的event容量检查均接受116256/cap11。这些是历史标签CPU回放，未重建当前生产标签或跑真实GPU训练。
+
+<details>
+<summary>历史实验，已于2026-09-27撤回：2026-09-23 默认事件内平滑采样与跨轮恢复（覆盖下方历史默认说明）</summary>
 
 ## 2026-09-23 默认事件内平滑采样与跨轮恢复（覆盖下方历史默认说明）
 
@@ -40,6 +62,9 @@ action每轮103300–103302个不同帧、最多重复3次。另按当前过滤/
 详见 [联合采样方案](../sft_new_loop_phase3/HIERARCHICAL_SAMPLING_PLAN_20260923.md)。
 
 
+
+</details>
+
 ## 2026-09-23 RGB输入和稀少组合审计同步
 
 三条Action入口共用v23输入质量过滤：anchor<4排除；单图/四图/BEV-only用同一有效帧范围。
@@ -49,6 +74,9 @@ action每轮103300–103302个不同帧、最多重复3次。另按当前过滤/
 文字动作先验自动复用更新后的Phase3因果句，token/文字开关仍独立；默认event-balanced不变。
 需按新hash准备候选/full map并新开run，旧run使用原源码。
 详细RGB判断、容量回放与限制见 [v23审计](../sft_new_loop_phase3/V23_RGB_SUPPORT_20260923.md)。
+
+<details>
+<summary>历史实验，已于2026-09-27撤回：2026-09-23 全局动作均衡与小事件温和加权</summary>
 
 ## 2026-09-23 全局动作均衡与小事件温和加权
 
@@ -84,6 +112,9 @@ bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors
 bash qwen3vl_local/action_prior/run_full_pipeline.sh --dataset-priors --action-balanced --high-level-action-token --rgb-frame-count 1
 # 可在两组追加同一个通过容量预检的 --event-balanced-epoch-samples N
 ```
+
+
+</details>
 
 ## 2026-09-22 动作 token 弱分离正则
 

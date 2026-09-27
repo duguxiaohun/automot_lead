@@ -21,7 +21,7 @@ def test_external_input_rejects_compound_and_oracle_evidence(tmp_path):
 
 def test_automatic_index_roundtrip_keeps_raw_evidence_and_reuses_cache(tmp_path, monkeypatch):
     """真实索引发布/读取/复用，合成上游产物替代全数据扫描。"""
-    from qwen3vl_local.sft_new_loop_phase3 import source_mapping
+    from qwen3vl_local.action_prior.phase3_stable import source_mapping
     from lead_video_tools import abnormal_duration_filter
     data, raw, cache = (tmp_path / key for key in ("data", "raw", "cache"))
     data.mkdir()

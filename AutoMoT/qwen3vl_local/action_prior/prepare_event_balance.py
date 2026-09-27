@@ -17,7 +17,9 @@ from qwen3vl_local.action_prior.contracts import digest, file_hash
 from qwen3vl_local.action_prior.filesystem import retry_estale, atomic_write_text
 from qwen3vl_local.action_prior.event_balance import EventBalanceIndex
 from qwen3vl_local.action_prior.build_event_balance_index import _candidate_membership
-from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash
+from qwen3vl_local.action_prior.phase3_stable.source_mapping import mapping_contract_hash
+
+from qwen3vl_local.action_prior.phase3_release import source_path as phase3_source_path, identity as phase3_identity
 
 HERE = Path(__file__).resolve().parent
 ESTALE_DELAYS = (0.5, 1.0, 2.0, 4.0)
@@ -34,7 +36,9 @@ def _payload_hashes(directory, payloads):
 
 def run_builder(script, arguments):
     """继承离线构建日志到 stderr；禁止混入 stdout 的路径结果。"""
-    subprocess.run([sys.executable, str(script), *map(str, arguments)], check=True, stdout=sys.stderr)
+    from qwen3vl_local.action_prior.phase3_release import builder_environment
+    subprocess.run([sys.executable, str(script), *map(str, arguments)], check=True,
+                   stdout=sys.stderr, env=builder_environment())
 
 
 def _reuse_or_quarantine(directory, validate):
@@ -140,7 +144,7 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
     candidate_identity = dict(
         preparation_schema='action_prior_auto_prepare_v2_independent_splits', data_root=str(data_root),
         candidate_split_policy='all_train_pool_action_uses_own_physical_splits',
-        mapping_contract_hash=mapping_hash,
+        mapping_contract_hash=mapping_hash, phase3_release=phase3_identity(),
         collection={p.name: file_hash(p) for p in source_files},
     )
     candidate_dir = cache_root / ('phase3_' + digest(candidate_identity))
@@ -161,7 +165,7 @@ def prepare(data_root, action_data_dir, collection_dir, cache_root):
 
         def build_candidates(staging):
             print('[prepare] build current Phase3 candidates (data only, no Phase3 training)', file=sys.stderr, flush=True)
-            run_builder(HERE.parent / 'sft_new_loop_phase3/build_dataset.py', [
+            run_builder(phase3_source_path('build_dataset.py'), [
                 '--data-root', data_root, '--collection-dir', collection_dir, '--output-dir', staging,
                 '--val-ratio', '0', '--test-ratio', '0',
             ])

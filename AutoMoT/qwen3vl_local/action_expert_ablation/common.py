@@ -131,7 +131,7 @@ def parser(variant: str) -> argparse.ArgumentParser:
         )
         p.add_argument("--" + key.replace("_", "-"), default=value, **kwargs)
     p.set_defaults(**{key: defaults[key] for key in ignored if key in defaults})
-    p.set_defaults(event_balance_max_frame_repeats=None, sampling_policy=None)
+    p.set_defaults(event_balance_max_frame_repeats=None)
     add_sampling_aliases(p)
     p.add_argument("--preflight", action="store_true")
     return p
@@ -186,8 +186,6 @@ def parse_train_args(variant: str, argv: list[str] | None = None) -> argparse.Na
         saved = json.load(f)
     if saved.get("sampling_mode", "uniform") not in ("event_balanced", "action_balanced"):
         raise ValueError("uniform runs require their original source; start a new balanced run")
-    saved.setdefault("sampling_policy", "global_action" if saved["sampling_mode"] == "action_balanced" else "cycle_even")
-    # 历史缺字段配置保留自动预算/上限8，不注入新训练116256/11。
     saved.setdefault("event_balanced_epoch_samples", 0)
     saved.setdefault("event_balance_max_frame_repeats", 8)
     legacy_optimization_defaults(saved)
@@ -340,7 +338,8 @@ def _execution_fingerprint(root: Path, seed_paths: list[str]) -> dict:
 def contract_source_paths(variant: str) -> list[str]:
     """List source files that define the ablation execution contract."""
 
-    sources = [
+    from qwen3vl_local.action_prior.phase3_release import contract_source_paths as phase3_sources
+    sources = [*phase3_sources(),
         "qwen3vl_local/action_expert_ablation/__init__.py",
         "qwen3vl_local/action_expert_ablation/common.py",
         "qwen3vl_local/action_expert_ablation/launch.py",
@@ -355,14 +354,11 @@ def contract_source_paths(variant: str) -> list[str]:
         "qwen3vl_local/action_prior/flow_matching.py",
         "qwen3vl_local/action_prior/action_token.py",
         "qwen3vl_local/action_prior/action_balance.py",
-        "qwen3vl_local/sft_new_loop_phase3/sampling.py",
         "qwen3vl_local/action_prior/image_condition.py",
         "qwen3vl_local/action_prior/precision.py",
         "qwen3vl_local/action_prior/config.py",
         "qwen3vl_local/action_prior/event_balance.py",
         "qwen3vl_local/action_prior/split_support.py",
-        "qwen3vl_local/sft_new_loop_phase3/split_coverage.py",
-        "qwen3vl_local/sft_new_loop_phase3/history_rgb.py",
         "qwen3vl_local/action_prior/event_balance_common.sh",
         "qwen3vl_local/action_prior/prepare_event_balance.py",
         "qwen3vl_local/action_prior/build_event_balance_index.py",

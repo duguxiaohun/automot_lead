@@ -1,0 +1,11 @@
+[
+  {
+    "scenario": "HighwayCutIn",
+    "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+    "start_frame": 44,
+    "end_frame": 56,
+    "road_structure": "R3",
+    "decision": "rgb_confirmed_mainline_not_signalized_junction",
+    "evidence": "EVAL_REVIEW_20260910.md: 原始 RGB f41–68 连续多车道高速，警车切入；无局部信号路口。只覆盖实际审核的 f44–56，不泛化整条路线。"
+  }
+]

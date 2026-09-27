@@ -9,18 +9,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
 from qwen3vl_local.sft_new_loop_phase3.trajectory_action import load_route_trajectory, label_actions, recorded_controls, longitudinal_from_signals
 from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
-from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, audit_input_rows
+from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import mismatched_road_contexts
 
 
-def audit(index, data_root, action_output_mode="binary", *, include_training_pool=None):
+def audit(index, data_root, action_output_mode="binary"):
     result = check_index(index, action_output_mode=action_output_mode)
     groups = defaultdict(list)
-    coverage = {}
-    for row, _source in audit_input_rows(index, coverage, include_training_pool=include_training_pool):
+    for line in Path(index).open():
+        row = json.loads(line)
         groups[(row["scenario"], row["route_id"])].append(row)
     checked = 0
-    frames_checked = 0
     for i, ((scenario, run), rows) in enumerate(sorted(groups.items()), 1):
         directory = Path(data_root) / scenario / run
         if is_abnormal_lead_route(directory, scenario)[0]:
@@ -28,13 +27,8 @@ def audit(index, data_root, action_output_mode="binary", *, include_training_poo
         trajectory = load_route_trajectory(directory)
         if trajectory is None:
             raise ValueError(f"missing trajectory: {directory}")
-        signals_by_frame = {}
         for row in rows:
-            frame_id = int(row["frame_id"])
-            if frame_id not in signals_by_frame:
-                signals_by_frame[frame_id] = trajectory.signals(frame_id)
-                frames_checked += 1
-            signals = signals_by_frame[frame_id]
+            signals = trajectory.signals(row["frame_id"])
             if signals is None:
                 raise ValueError(f"missing signals: {run}/{row['frame_id']}")
             speeds = signals["future_speeds"]
@@ -61,8 +55,7 @@ def audit(index, data_root, action_output_mode="binary", *, include_training_poo
             checked += 1
         if i % 200 == 0:
             print(f"[raw-index-audit] routes={i}/{len(groups)} rows={checked}", flush=True)
-    result.update(input_coverage=coverage, raw_frames_verified=frames_checked,
-                  raw_rows_verified=checked, raw_routes_verified=len(groups),
+    result.update(raw_rows_verified=checked, raw_routes_verified=len(groups),
                   raw_speed_mismatches=0, raw_action_mismatches=0,
                   manual_rgb_confirmation_by_this_program=False)
     return result
@@ -74,10 +67,8 @@ def main():
     p.add_argument("--data-root", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
     p.add_argument('--action-output-mode', choices=('binary', 'choice'), default='binary')
-    p.add_argument("--include-training-pool", action="store_true", default=None,
-                   help="require hashed full training pool and audit it plus original val/test")
     args = p.parse_args()
-    result = audit(args.index, args.data_root, args.action_output_mode, include_training_pool=args.include_training_pool)
+    result = audit(args.index, args.data_root, args.action_output_mode)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n")
     print(json.dumps({k:v for k,v in result.items() if k != "counts"}))

@@ -1,4 +1,26 @@
-# SFT New Loop Phase3 当前运行入口（2026-09-26，v24）
+# SFT New Loop Phase3 当前运行入口（2026-09-27，恢复 v23）
+
+2026-09-27补充：当前为 **v23语义基线＋ESTALE工程修订（v23_io1）**。
+纯工程bug修复经故障回归和输出等价复核可保留；提示词、标定、标签及采样等效果改动仍须验证后晋升。
+已补回Phase3内部文件发布恢复，Action完成缓存续发继续保留。详见 [工程维护记录](../action_prior/V23_IO_MAINTENANCE_20260927.md)。
+
+
+当前稳定基线已恢复为 `b433aa605` 的 v23：默认 `4rgb + choice`、
+`checkpoints/sft_new_loop_phase3_data_v23`、`v23_grounded_stage`，包括该版构建与采样实现。
+v24 四包审计未证明提升，已记录并退出默认；下方折叠内容仅用于解释历史 v24 run。
+这不是只回退提示词，也不保留 v24 的 smooth_cap/full-train-pool/INVALID 回流实现。
+旧 run 用其原源码；v24 索引不能改名当 v23 使用，按合同复核或重建后新开 run。
+
+Action 三入口独立读取已验证稳定快照，目前 v23；修改本目录实验源码不会自动传入 Action。
+效果/语义版本只有在同题配对评估、分组回归复核并正式晋升后才统一切换；
+纯工程修订通过故障回归与输出等价复核后可同步，不要求模型分数提高。
+规则、版本登记、晋升命令、回退范围和验证边界见
+[稳定版本约定](../action_prior/PHASE3_STABLE_RELEASES.md)，
+[本轮审计](AUDIT_COMPARISON_20260927.md)。
+
+<details>
+<summary>历史运行记录（效果实验已撤回；其中ESTALE工程修复已单独保留）</summary>
+
 
 ## 2026-09-26 保持1024/cap8的 INVALID 来源内容量回流
 
@@ -87,6 +109,9 @@ bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh
 必须重建当前v23索引（不要SKIP_BUILD复用旧hash产物）并新训，旧run使用原源码。
 详见 [实现、约束与验证范围](HIERARCHICAL_SAMPLING_PLAN_20260923.md)。
 
+
+
+</details>
 
 ## 2026-09-23 当前默认：有效历史、主要动作额度、物理路线支持
 

@@ -1,12 +1,17 @@
 # Qwen Simple Action Expert
 
+2026-09-27补充：当前为 **v23语义基线＋ESTALE工程修订（v23_io1）**。
+纯工程bug修复经故障回归和输出等价复核可保留；提示词、标定、标签及采样等效果改动仍须验证后晋升。
+已补回Phase3内部文件发布恢复，Action完成缓存续发继续保留。详见 [工程维护记录](../../action_prior/V23_IO_MAINTENANCE_20260927.md)。
+
+
 2026-09-23：已同步v23的anchor≥4有效历史与Action物理路线支持补齐；需新full map、新run，详见 [共享说明](../run.md)。
 
-当前 action-balanced 按全局六种语义动作等量、背景1/6采样，小事件权重最多2倍，重复上限11；与event默认同为116256次/轮，详见 [共享说明](../run.md)。
+2026-09-27：当前共用已验证的 Phase3 v23 稳定快照；未经验证的 v24/v25 不进入本入口。只有正式晋升的新最优版本才自动同步。详见 [稳定版本规则](../../action_prior/PHASE3_STABLE_RELEASES.md)。
 
-## action-balanced 全局动作均衡（2026-09-23）
+## action-balanced 事件内动作容量回流（恢复 v23，2026-09-27）
 
-`--action-balanced` 全局均衡主要动作（含 KEEP），小事件温和加权，不再要求事件等量；普通背景 UNCOND 保留1/6。
+`--action-balanced` 恢复v23事件内主要动作配额与容量回流，事件权重1:…:1:2；普通背景 UNCOND 保留1/6。默认116256次/轮、cap11。
 与 `--event-balanced` 二选一，不自动开启 token；完整预算/重复上限/恢复说明见 [共用说明](../run.md)。
 
 ```bash

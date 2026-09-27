@@ -25,12 +25,12 @@ from qwen3vl_local.action_prior.event_balance import (
     CONFIRMED_REGULAR, EVENT_BALANCE_MAPPING_POLICY, FULL_INDEX_SCHEMA, FULL_MANIFEST_SCHEMA, SPECIAL_ELIGIBLE,
     SPECIAL_FILTERED, SPECIAL_BUCKETS, UNCONFIRMED,
 )
-from qwen3vl_local.sft_new_loop_phase3.annotation_repair import repair_annotation
-from qwen3vl_local.sft_new_loop_phase3.build_dataset import FRAME_INDEX_FORMAT, _event_codes, _last_bypass_frame, _rs_label
-from qwen3vl_local.sft_new_loop_phase3.collection_reader import iter_routes
-from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID
-from qwen3vl_local.sft_new_loop_phase3.source_mapping import context_detail, mapped_contexts, mapping_contract_hash
-from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason, HISTORY_QUALITY_VERSION
+from qwen3vl_local.action_prior.phase3_stable.annotation_repair import repair_annotation
+from qwen3vl_local.action_prior.phase3_stable.build_dataset import FRAME_INDEX_FORMAT, _event_codes, _last_bypass_frame, _rs_label
+from qwen3vl_local.action_prior.phase3_stable.collection_reader import iter_routes
+from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import CONTEXT_BY_ID
+from qwen3vl_local.action_prior.phase3_stable.source_mapping import context_detail, mapped_contexts, mapping_contract_hash
+from qwen3vl_local.action_prior.phase3_stable.history_rgb import history_exclusion_reason, HISTORY_QUALITY_VERSION
 
 CONTEXT_TO_BUCKET = {
     "LEAD_BRAKE": "UE1", "STATIC_BLOCKAGE": "UE2", "DYNAMIC_CUTIN": "UE3",

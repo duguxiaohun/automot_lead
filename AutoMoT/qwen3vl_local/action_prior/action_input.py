@@ -7,6 +7,7 @@
 from collections import Counter
 import json
 from pathlib import Path
+from qwen3vl_local.action_prior.phase3_release import source_path as phase3_source_path
 
 ACTION_INPUT_VERSION = "scoped_phase3_primary_action_v4"
 ACTION_FORMAT = "primary_choice_v1"
@@ -42,7 +43,7 @@ def normalize_action(value):
 
 def select_primary(value):
     """将有效动作证据归并为一个主要动作；空状态原样保留。"""
-    from qwen3vl_local.sft_new_loop_phase3.primary_action import primary_action
+    from qwen3vl_local.action_prior.phase3_stable.primary_action import primary_action
     value = normalize_action(value)
     if value["status"] != "selected":
         return value
@@ -64,7 +65,7 @@ def choice_action_input(text):
 
 def action_description_context(action, accepted_contexts):
     """只在已通过门控且支持该动作的场景中按 taxonomy 固定顺序选一句，避免并发堆叠。"""
-    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_CONTEXTS
+    from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import ACTION_CONTEXTS
     buckets = {"RE2" if c.startswith("RE2_") else c for c in accepted_contexts}
     return next((spec.context_id for spec in ACTION_CONTEXTS
                  if spec.source_event.replace("-", "") in buckets and action in spec.action_keys), None)
@@ -75,7 +76,7 @@ def action_sentence(value, accepted_contexts=()):
     value = select_primary(value)
     if value["status"] != "selected":
         return ""
-    from qwen3vl_local.sft_new_loop_phase3.choice_semantics import action_description
+    from qwen3vl_local.action_prior.phase3_stable.choice_semantics import action_description
     context = action_description_context(value["actions"][0], accepted_contexts)
     if context is None:
         raise ValueError("selected action needs a confirmed compatible context for its causal description")
@@ -87,8 +88,8 @@ def gate_action(value, conditions, action_contexts=(), scene_contexts=()):
     value = normalize_action(value)
     if value["status"] != "selected":
         return value, {"reason": value["status"], "accepted_contexts": [], "dropped_actions": []}
-    from qwen3vl_local.sft_new_loop_phase3.primary_action import PRIMARY_ACTION_VERSION
-    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import ACTION_CONTEXTS
+    from qwen3vl_local.action_prior.phase3_stable.primary_action import PRIMARY_ACTION_VERSION
+    from qwen3vl_local.action_prior.phase3_stable.context_taxonomy import ACTION_CONTEXTS
     from qwen3vl_local.action_prior.prompts import _CONTEXT_DUPLICATES
     from qwen3vl_local.sft_new_loop_phase2 import prompts as p2
 
@@ -131,7 +132,7 @@ class HighLevelActionIndex:
 
     def __init__(self, path):
         """一次读取并核验来源；不访问 RGB、meta、Phase3 权重或未来轨迹。"""
-        from qwen3vl_local.sft_new_loop_phase3.primary_action import PRIMARY_ACTION_VERSION
+        from qwen3vl_local.action_prior.phase3_stable.primary_action import PRIMARY_ACTION_VERSION
         self.path = str(Path(path).resolve())
         self.records = {}
         self.evidence = {}
@@ -203,17 +204,17 @@ class HighLevelActionIndex:
                          "sha256": hashlib.sha256(raw).hexdigest(), "rows": len(self.records),
                          "action_format": ACTION_FORMAT, "conditioning_version": ACTION_CONDITIONING_VERSION,
                          "choice_semantics_sha256": hashlib.sha256(
-                             Path(__file__).parents[1].joinpath("sft_new_loop_phase3/choice_semantics.py").read_bytes()
+                             phase3_source_path("choice_semantics.py").read_bytes()
                          ).hexdigest(),
                          "primary_action_version": PRIMARY_ACTION_VERSION,
                          "primary_action_sha256": hashlib.sha256(
-                             Path(__file__).parents[1].joinpath("sft_new_loop_phase3/primary_action.py").read_bytes()).hexdigest(),
+                             phase3_source_path("primary_action.py").read_bytes()).hexdigest(),
                          "context_taxonomy_sha256": hashlib.sha256(
-                             Path(__file__).parents[1].joinpath("sft_new_loop_phase3/context_taxonomy.py").read_bytes()
+                             phase3_source_path("context_taxonomy.py").read_bytes()
                          ).hexdigest()}
         if self.source["source_kind"] == "phase3_oracle":
             from qwen3vl_local.action_prior.contracts import digest
-            from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash
+            from qwen3vl_local.action_prior.phase3_stable.source_mapping import mapping_contract_hash
             manifest = json.loads(Path(path).with_name("manifest.json").read_text())
             if (manifest.get("schema") != ACTION_INPUT_VERSION
                     or manifest.get("action_format") != ACTION_FORMAT

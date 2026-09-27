@@ -1,0 +1,2439 @@
+{
+  "reason": "20260921 noise audit used for v21 rule/prompt development: numerical replay of 242 routes plus all separately reviewed RGB routes. Train-only in new indices; numerical exposure is not a claim of full RGB review.",
+  "numeric_routes": 242,
+  "total_routes": 242,
+  "new_groups": 155,
+  "previous_groups": 1454,
+  "groups": [
+    "Accident/Town03_route_001783",
+    "Accident/Town04_route_001798",
+    "Accident/Town05_route_001761",
+    "Accident/Town05_route_001762",
+    "Accident/Town06_route_001823",
+    "Accident/Town06_route_001824",
+    "Accident/Town10HD_route_001816",
+    "Accident/Town10HD_route_001818",
+    "Accident/Town12_1054_0",
+    "Accident/Town12_1054_1",
+    "Accident/Town12_10_0",
+    "Accident/Town13_1044_0",
+    "Accident/Town13_1044_1",
+    "Accident/Town13_1044_2",
+    "AccidentTwoWays/Town01_route_001543",
+    "AccidentTwoWays/Town02_route_001607",
+    "AccidentTwoWays/Town05_route_001580",
+    "AccidentTwoWays/Town07_route_001450",
+    "AccidentTwoWays/Town12_1152_0",
+    "AccidentTwoWays/Town12_1214_0",
+    "AccidentTwoWays/Town12_1218_0",
+    "AccidentTwoWays/Town12_1573_0",
+    "AccidentTwoWays/Town12_1809_0",
+    "AccidentTwoWays/Town13_1153_0",
+    "AccidentTwoWays/Town13_1153_1",
+    "AccidentTwoWays/Town13_1157_0",
+    "AccidentTwoWays/Town15_route_001342",
+    "AccidentTwoWays/Town15_route_001343",
+    "BlockedIntersection/Town12_1207_0",
+    "BlockedIntersection/Town12_1509_0",
+    "BlockedIntersection/Town12_346_0",
+    "BlockedIntersection/Town13_1016_0",
+    "BlockedIntersection/Town13_1016_1",
+    "BlockedIntersection/Town13_1074_0",
+    "BlockedIntersection/Town13_1169_0",
+    "BlockedIntersection/Town13_1530_0",
+    "BlockedIntersection/Town13_1650_0",
+    "ConstructionObstacle/Town03_route_001977",
+    "ConstructionObstacle/Town03_route_001986",
+    "ConstructionObstacle/Town04_route_001990",
+    "ConstructionObstacle/Town05_route_001955",
+    "ConstructionObstacle/Town05_route_001956",
+    "ConstructionObstacle/Town06_route_002017",
+    "ConstructionObstacle/Town06_route_002018",
+    "ConstructionObstacle/Town10HD_route_002010",
+    "ConstructionObstacle/Town10HD_route_002011",
+    "ConstructionObstacle/Town12_1256_0",
+    "ConstructionObstacle/Town12_1264_0",
+    "ConstructionObstacle/Town12_1264_1",
+    "ConstructionObstacle/Town13_1043_0",
+    "ConstructionObstacle/Town13_1043_1",
+    "ConstructionObstacle/Town13_1043_2",
+    "ConstructionObstacleTwoWays/Town01_route_001275",
+    "ConstructionObstacleTwoWays/Town02_route_001339",
+    "ConstructionObstacleTwoWays/Town05_route_001312",
+    "ConstructionObstacleTwoWays/Town07_route_001177",
+    "ConstructionObstacleTwoWays/Town07_route_001178",
+    "ConstructionObstacleTwoWays/Town12_1113_0",
+    "ConstructionObstacleTwoWays/Town12_1145_0",
+    "ConstructionObstacleTwoWays/Town13_1143_0",
+    "ConstructionObstacleTwoWays/Town13_1143_1",
+    "ConstructionObstacleTwoWays/Town13_1143_2",
+    "ConstructionObstacleTwoWays/Town15_route_001074",
+    "ConstructionObstacleTwoWays/Town15_route_001075",
+    "ConstructionObstacleTwoWays/Town15_route_001079",
+    "ControlLoss/Town03_Town03_Scenario1_12",
+    "ControlLoss/Town04_Town04_Scenario1_50",
+    "ControlLoss/Town05_Town05_Scenario1_12",
+    "ControlLoss/Town05_Town05_Scenario1_13",
+    "ControlLoss/Town06_Town06_Scenario1_30",
+    "ControlLoss/Town07_Town07_Scenario1_1",
+    "ControlLoss/Town07_Town07_Scenario1_11",
+    "CrossJunctionDefectTrafficLight/Town03_route_002130",
+    "CrossJunctionDefectTrafficLight/Town03_route_002131",
+    "CrossJunctionDefectTrafficLight/Town03_route_002132",
+    "CrossJunctionDefectTrafficLight/Town03_route_002133",
+    "CrossJunctionDefectTrafficLight/Town04_route_002162",
+    "CrossJunctionDefectTrafficLight/Town04_route_002163",
+    "CrossJunctionDefectTrafficLight/Town04_route_002165",
+    "CrossJunctionDefectTrafficLight/Town04_route_002166",
+    "CrossJunctionDefectTrafficLight/Town04_route_002167",
+    "CrossJunctionDefectTrafficLight/Town04_route_002168",
+    "CrossJunctionDefectTrafficLight/Town05_route_002052",
+    "CrossJunctionDefectTrafficLight/Town05_route_002053",
+    "CrossJunctionDefectTrafficLight/Town05_route_002054",
+    "CrossJunctionDefectTrafficLight/Town07_route_002117",
+    "CrossJunctionDefectTrafficLight/Town07_route_002118",
+    "CrossJunctionDefectTrafficLight/Town10HD_route_002192",
+    "CrossJunctionDefectTrafficLight/Town10HD_route_002195",
+    "CrossJunctionDefectTrafficLight/Town10HD_route_002196",
+    "CrossJunctionDefectTrafficLight/Town12_route_002103",
+    "CrossJunctionDefectTrafficLight/Town12_route_002104",
+    "CrossJunctionDefectTrafficLight/Town12_route_002105",
+    "CrossJunctionDefectTrafficLight/Town12_route_002106",
+    "CrossJunctionDefectTrafficLight/Town12_route_002107",
+    "CrossJunctionDefectTrafficLight/Town12_route_002108",
+    "CrossJunctionDefectTrafficLight/Town13_route_002180",
+    "CrossJunctionDefectTrafficLight/Town13_route_002181",
+    "CrossJunctionDefectTrafficLight/Town13_route_002182",
+    "CrossJunctionDefectTrafficLight/Town15_route_002091",
+    "CrossJunctionDefectTrafficLight/Town15_route_002092",
+    "CrossJunctionDefectTrafficLight/Town15_route_002093",
+    "CrossingBicycleFlow/Town12_136_0",
+    "CrossingBicycleFlow/Town12_136_1",
+    "CrossingBicycleFlow/Town12_136_2",
+    "DynamicObjectCrossing/Town01_Town01_Scenario3_0",
+    "DynamicObjectCrossing/Town01_Town01_Scenario3_2",
+    "DynamicObjectCrossing/Town02_Town02_Scenario3_0",
+    "DynamicObjectCrossing/Town02_Town02_Scenario3_3",
+    "DynamicObjectCrossing/Town03_Town03_Scenario3_0",
+    "DynamicObjectCrossing/Town03_Town03_Scenario3_10",
+    "DynamicObjectCrossing/Town03_Town03_Scenario3_11",
+    "DynamicObjectCrossing/Town03_Town03_Scenario3_12",
+    "DynamicObjectCrossing/Town03_Town03_Scenario3_15",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_10",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_11",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_17",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_53",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_0",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_10",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_11",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_12",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_13",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_14",
+    "DynamicObjectCrossing/Town06_Town06_Scenario3_12",
+    "DynamicObjectCrossing/Town06_Town06_Scenario3_13",
+    "DynamicObjectCrossing/Town06_Town06_Scenario3_14",
+    "DynamicObjectCrossing/Town06_Town06_Scenario3_30",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_0",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_10",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_11",
+    "DynamicObjectCrossing/Town10HD_Town10HD_Scenario3_0",
+    "DynamicObjectCrossing/Town10HD_Town10HD_Scenario3_13",
+    "DynamicObjectCrossing/Town12_1528_0",
+    "DynamicObjectCrossing/Town12_1808_0",
+    "DynamicObjectCrossing/Town12_1810_0",
+    "DynamicObjectCrossing/Town12_2732_0",
+    "DynamicObjectCrossing/Town12_2994_0",
+    "DynamicObjectCrossing/Town12_3380_0",
+    "DynamicObjectCrossing/Town13_1126_0",
+    "DynamicObjectCrossing/Town13_1130_0",
+    "DynamicObjectCrossing/Town13_1137_0",
+    "DynamicObjectCrossing/Town13_1424_0",
+    "DynamicObjectCrossing/Town13_1563_0",
+    "DynamicObjectCrossing/Town13_1758_0",
+    "EnterActorFlow/Town12_1388_0",
+    "EnterActorFlow/Town12_1388_1",
+    "EnterActorFlow/Town12_1388_2",
+    "EnterActorFlow/Town13_1250_0",
+    "EnterActorFlow/Town13_1250_10",
+    "EnterActorFlow/Town13_1250_11",
+    "EnterActorFlowV2/Town12_2448_0",
+    "EnterActorFlowV2/Town12_2448_10",
+    "EnterActorFlowV2/Town12_2448_11",
+    "HardBreakRoute/Town12_1254_0",
+    "HardBreakRoute/Town12_1511_0",
+    "HardBreakRoute/Town12_1601_0",
+    "HardBreakRoute/Town13_1030_0",
+    "HardBreakRoute/Town13_1032_0",
+    "HardBreakRoute/Town13_1049_0",
+    "HazardAtSideLane/Town12_1092_0",
+    "HazardAtSideLane/Town12_1092_1",
+    "HazardAtSideLane/Town12_1092_2",
+    "HazardAtSideLane/Town13_1619_0",
+    "HazardAtSideLane/Town13_1619_10",
+    "HazardAtSideLane/Town13_1619_11",
+    "HazardAtSideLaneTwoWays/Town13_1227_0",
+    "HazardAtSideLaneTwoWays/Town13_1227_1",
+    "HazardAtSideLaneTwoWays/Town13_1227_2",
+    "HighwayCutIn/Town12_2954_1",
+    "HighwayCutIn/Town13_1283_10",
+    "HighwayCutIn/Town13_1586_11",
+    "HighwayCutIn/Town13_1586_9",
+    "HighwayExit/Town12_4081_0",
+    "HighwayExit/Town12_4081_10",
+    "HighwayExit/Town12_4081_12",
+    "HighwayExit/Town13_1396_0",
+    "HighwayExit/Town13_1396_10",
+    "HighwayExit/Town13_1396_11",
+    "InvadingTurn/Town12_1150_0",
+    "InvadingTurn/Town12_1229_0",
+    "InvadingTurn/Town12_1450_0",
+    "InvadingTurn/Town13_1148_0",
+    "InvadingTurn/Town13_1148_1",
+    "InvadingTurn/Town13_1158_0",
+    "MergerIntoSlowTraffic/Town13_1230_0",
+    "MergerIntoSlowTraffic/Town13_1230_10",
+    "MergerIntoSlowTraffic/Town13_1230_11",
+    "MergerIntoSlowTrafficV2/Town06_route_000832",
+    "MergerIntoSlowTrafficV2/Town06_route_000834",
+    "NonSignalizedJunctionLeftTurn/Town04_route_000930",
+    "NonSignalizedJunctionLeftTurn/Town05_route_000845",
+    "NonSignalizedJunctionLeftTurn/Town05_route_000846",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town10HD_route_001073",
+    "OppositeVehicleRunningRedLight/Town01_Town01_Scenario8_10",
+    "OppositeVehicleRunningRedLight/Town01_Town01_Scenario8_11",
+    "OppositeVehicleRunningRedLight/Town02_Town02_Scenario8_15",
+    "OppositeVehicleRunningRedLight/Town03_Town03_Scenario8_101",
+    "OppositeVehicleRunningRedLight/Town03_Town03_Scenario8_107",
+    "OppositeVehicleRunningRedLight/Town04_Town04_Scenario8_102",
+    "OppositeVehicleRunningRedLight/Town04_Town04_Scenario8_105",
+    "OppositeVehicleRunningRedLight/Town04_Town04_Scenario8_107",
+    "OppositeVehicleRunningRedLight/Town05_Town05_Scenario8_0",
+    "OppositeVehicleRunningRedLight/Town05_Town05_Scenario8_100",
+    "OppositeVehicleRunningRedLight/Town05_Town05_Scenario8_102",
+    "OppositeVehicleRunningRedLight/Town06_Town06_Scenario8_63",
+    "OppositeVehicleRunningRedLight/Town07_Town07_Scenario8_0",
+    "OppositeVehicleRunningRedLight/Town10HD_Town10HD_Scenario8_15",
+    "OppositeVehicleRunningRedLight/Town10HD_Town10HD_Scenario8_16",
+    "OppositeVehicleRunningRedLight/Town12_1130_0",
+    "OppositeVehicleRunningRedLight/Town12_128_0",
+    "OppositeVehicleRunningRedLight/Town12_1579_0",
+    "OppositeVehicleRunningRedLight/Town13_1047_0",
+    "OppositeVehicleRunningRedLight/Town13_1047_1",
+    "OppositeVehicleRunningRedLight/Town13_1047_2",
+    "ParkedObstacle/Town03_route_001880",
+    "ParkedObstacle/Town04_route_001895",
+    "ParkedObstacle/Town06_route_001920",
+    "ParkedObstacle/Town06_route_001921",
+    "ParkedObstacle/Town10HD_route_001913",
+    "ParkedObstacle/Town10HD_route_001914",
+    "ParkingCutIn/Town12_113_0",
+    "ParkingCutIn/Town12_1681_0",
+    "ParkingCutIn/Town12_1681_1",
+    "ParkingCutIn/Town13_1008_0",
+    "ParkingCutIn/Town13_1008_1",
+    "ParkingCutIn/Town13_1009_0",
+    "StaticCutIn/Town12_1001_0",
+    "StaticCutIn/Town12_1003_0",
+    "T_Junction/Town10HD_Town10HD_Scenario7_28",
+    "VehicleTurningRoute/Town01_Town01_Scenario4_0",
+    "VehicleTurningRoute/Town02_Town02_Scenario4_0",
+    "VehicleTurningRoute/Town03_Town03_Scenario4_0",
+    "VehicleTurningRoute/Town03_Town03_Scenario4_100",
+    "VehicleTurningRoute/Town04_Town04_Scenario4_100",
+    "VehicleTurningRoute/Town04_Town04_Scenario4_101",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_0",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_100",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_101",
+    "VehicleTurningRoute/Town06_Town06_Scenario4_16",
+    "VehicleTurningRoute/Town07_Town07_Scenario4_0",
+    "VehicleTurningRoute/Town10HD_Town10HD_Scenario4_15"
+  ],
+  "routes": [
+    {
+      "scenario": "Accident",
+      "route_id": "Town03_Rep0_route_001783_route0_01_11_02_37_46"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town04_Rep0_route_001798_route0_01_09_06_48_12"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town05_Rep0_route_001761_route0_01_10_06_00_02"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town05_Rep0_route_001762_route0_01_09_03_37_10"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town06_Rep0_route_001823_route0_01_09_04_47_40"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town06_Rep0_route_001824_route0_01_10_01_44_23"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town10HD_Rep0_route_001816_route0_01_10_14_36_51"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town10HD_Rep0_route_001818_route0_01_09_04_05_55"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town12_Rep0_1054_0_route0_01_09_17_12_50"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town12_Rep0_1054_1_route0_01_09_05_47_16"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town12_Rep0_10_0_route0_01_08_10_13_55"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town13_Rep0_1044_0_route0_01_08_22_08_42"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town13_Rep0_1044_1_route0_01_09_08_34_30"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town13_Rep0_1044_2_route0_01_10_10_33_56"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town01_Rep0_route_001543_route0_01_08_23_18_47"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town02_Rep0_route_001607_route0_01_09_20_17_48"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town05_Rep0_route_001580_route0_01_08_14_20_06"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town07_Rep0_route_001450_route0_01_08_21_10_03"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_1152_0_route0_01_08_19_34_07"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_1214_0_route0_01_08_23_59_12"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_1218_0_route0_01_09_02_09_18"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_1573_0_route0_01_10_07_00_13"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_1809_0_route0_01_08_05_56_13"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town13_Rep0_1153_0_route0_01_10_10_03_19"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town13_Rep0_1153_1_route0_01_09_11_08_38"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town13_Rep0_1157_0_route0_01_10_11_07_30"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town15_Rep0_route_001342_route0_01_10_04_33_06"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town15_Rep0_route_001343_route0_01_08_05_24_37"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_1207_0_route0_01_08_09_07_54"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_1509_0_route0_01_10_17_31_08"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_346_0_route0_01_08_04_09_24"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1016_0_route0_01_09_07_27_18"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1016_1_route0_01_07_23_26_17"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1074_0_route0_01_09_17_53_31"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1169_0_route0_01_09_09_33_13"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1530_0_route0_01_11_09_53_48"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1650_0_route0_01_11_00_47_55"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town03_Rep0_route_001977_route0_01_10_05_03_33"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town03_Rep0_route_001986_route0_01_08_21_09_41"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_001990_route0_01_08_10_50_48"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town05_Rep0_route_001955_route0_01_09_03_01_19"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town05_Rep0_route_001956_route0_01_09_17_15_50"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town06_Rep0_route_002017_route0_01_09_04_05_22"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town06_Rep0_route_002018_route0_01_09_15_27_03"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town10HD_Rep0_route_002010_route0_01_10_05_12_24"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town10HD_Rep0_route_002011_route0_01_07_21_41_31"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_1256_0_route0_01_09_07_30_45"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_1264_0_route0_01_11_02_12_30"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_1264_1_route0_01_09_06_28_18"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town13_Rep0_1043_0_route0_01_09_11_35_54"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town13_Rep0_1043_1_route0_01_08_23_58_12"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town13_Rep0_1043_2_route0_01_08_17_18_25"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town01_Rep0_route_001275_route0_01_09_16_43_40"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town02_Rep0_route_001339_route0_01_08_14_19_04"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town05_Rep0_route_001312_route0_01_09_14_25_48"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town07_Rep0_route_001177_route0_01_08_12_52_43"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town07_Rep0_route_001178_route0_01_11_02_50_17"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town12_Rep0_1113_0_route0_01_08_23_39_11"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town12_Rep0_1145_0_route0_01_08_15_52_13"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town13_Rep0_1143_0_route0_01_10_21_32_31"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town13_Rep0_1143_1_route0_01_10_18_24_38"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town13_Rep0_1143_2_route0_01_09_12_08_18"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town15_Rep0_route_001074_route0_01_08_16_28_11"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town15_Rep0_route_001075_route0_01_08_00_44_13"
+    },
+    {
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town15_Rep0_route_001079_route0_01_09_05_23_12"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town03_Rep0_Town03_Scenario1_12_route0_01_11_01_24_33"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town04_Rep0_Town04_Scenario1_50_route0_01_08_11_32_24"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town05_Rep0_Town05_Scenario1_12_route0_01_09_23_38_02"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town05_Rep0_Town05_Scenario1_13_route0_01_09_20_03_20"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town06_Rep0_Town06_Scenario1_30_route0_01_08_16_51_17"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town07_Rep0_Town07_Scenario1_11_route0_01_09_13_28_38"
+    },
+    {
+      "scenario": "ControlLoss",
+      "route_id": "Town07_Rep0_Town07_Scenario1_1_route0_01_09_10_58_47"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002130_route0_01_11_13_52_37"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002131_route0_01_08_16_08_17"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002132_route0_01_10_03_42_04"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002133_route0_01_11_02_05_57"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002162_route0_01_10_04_20_32"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002163_route0_01_11_03_37_58"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002165_route0_01_10_23_08_10"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002166_route0_01_09_09_37_44"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002167_route0_01_09_07_11_41"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002168_route0_01_09_13_40_40"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002052_route0_01_08_08_46_16"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002053_route0_01_09_09_02_15"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002054_route0_01_10_18_24_37"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town07_Rep0_route_002117_route0_01_10_00_51_30"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town07_Rep0_route_002118_route0_01_09_06_00_56"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town10HD_Rep0_route_002192_route0_01_09_23_54_55"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town10HD_Rep0_route_002195_route0_01_10_01_29_56"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town10HD_Rep0_route_002196_route0_01_09_17_44_26"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002103_route0_01_11_01_15_31"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002104_route0_01_08_13_19_10"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002105_route0_01_10_09_52_46"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002106_route0_01_08_14_14_14"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002107_route0_01_10_15_02_22"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002108_route0_01_09_10_57_39"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town13_Rep0_route_002180_route0_01_08_13_54_39"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town13_Rep0_route_002181_route0_01_11_03_32_36"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town13_Rep0_route_002182_route0_01_08_12_45_46"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town15_Rep0_route_002091_route0_01_10_10_09_37"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town15_Rep0_route_002092_route0_01_09_10_09_15"
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town15_Rep0_route_002093_route0_01_09_02_54_09"
+    },
+    {
+      "scenario": "CrossingBicycleFlow",
+      "route_id": "Town12_Rep0_136_0_route0_01_08_23_03_51"
+    },
+    {
+      "scenario": "CrossingBicycleFlow",
+      "route_id": "Town12_Rep0_136_1_route0_01_10_21_53_51"
+    },
+    {
+      "scenario": "CrossingBicycleFlow",
+      "route_id": "Town12_Rep0_136_2_route0_01_10_07_45_12"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town01_Rep0_Town01_Scenario3_2_route0_01_08_08_41_45"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town02_Rep0_Town02_Scenario3_0_route0_01_10_05_05_30"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_0_route0_01_08_19_50_37"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_10_route0_01_07_21_27_45"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_11_route0_01_09_14_07_22"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_12_route0_01_11_08_48_57"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_15_route0_01_09_04_40_12"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_11_route0_01_09_05_04_40"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_17_route0_01_10_04_24_04"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_53_route0_01_10_22_49_35"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_0_route0_01_08_11_56_12"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_10_route0_01_10_03_52_41"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_11_route0_01_09_03_07_32"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_12_route0_01_10_02_14_03"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_13_route0_01_09_20_54_50"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_14_route0_01_10_15_07_07"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town06_Rep0_Town06_Scenario3_12_route0_01_10_13_49_08"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town06_Rep0_Town06_Scenario3_13_route0_01_10_18_04_06"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town06_Rep0_Town06_Scenario3_14_route0_01_10_10_46_01"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town06_Rep0_Town06_Scenario3_30_route0_01_10_05_08_33"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_0_route0_01_11_03_15_40"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_10_route0_01_10_14_59_03"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_11_route0_01_09_11_48_12"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario3_0_route0_01_09_05_52_48"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario3_13_route0_01_09_00_05_43"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_1528_0_route0_01_09_18_36_47"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_1808_0_route0_01_08_13_10_06"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_1810_0_route0_01_08_04_54_52"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2732_0_route0_01_08_08_59_45"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2994_0_route0_01_10_09_28_37"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_3380_0_route0_01_10_03_31_54"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town13_Rep0_1126_0_route0_01_09_02_41_33"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town13_Rep0_1130_0_route0_01_09_16_35_08"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town13_Rep0_1137_0_route0_01_10_19_35_14"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town13_Rep0_1424_0_route0_01_09_01_33_54"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town13_Rep0_1563_0_route0_01_10_06_21_13"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town13_Rep0_1758_0_route0_01_07_22_22_11"
+    },
+    {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_1388_0_route0_01_10_05_04_45"
+    },
+    {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_1388_1_route0_01_10_23_16_12"
+    },
+    {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_1388_2_route0_01_09_08_11_44"
+    },
+    {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town13_Rep0_1250_0_route0_01_09_00_26_11"
+    },
+    {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town13_Rep0_1250_10_route0_01_09_05_32_02"
+    },
+    {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town13_Rep0_1250_11_route0_01_09_11_53_31"
+    },
+    {
+      "scenario": "EnterActorFlowV2",
+      "route_id": "Town12_Rep0_2448_0_route0_01_08_19_45_15"
+    },
+    {
+      "scenario": "EnterActorFlowV2",
+      "route_id": "Town12_Rep0_2448_10_route0_01_08_22_01_37"
+    },
+    {
+      "scenario": "EnterActorFlowV2",
+      "route_id": "Town12_Rep0_2448_11_route0_01_08_10_12_54"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1254_0_route0_01_09_07_52_53"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1511_0_route0_01_09_13_10_16"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1601_0_route0_01_08_00_12_38"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1032_0_route0_01_10_06_51_49"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1049_0_route0_01_08_23_16_01"
+    },
+    {
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town12_Rep0_1092_0_route0_01_11_00_38_57"
+    },
+    {
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town12_Rep0_1092_1_route0_01_09_12_31_54"
+    },
+    {
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town12_Rep0_1092_2_route0_01_10_02_39_05"
+    },
+    {
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town13_Rep0_1619_0_route0_01_08_20_40_19"
+    },
+    {
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town13_Rep0_1619_10_route0_01_09_02_56_46"
+    },
+    {
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town13_Rep0_1619_11_route0_01_10_07_50_15"
+    },
+    {
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12"
+    },
+    {
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_1_route0_01_10_10_25_59"
+    },
+    {
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_2_route0_01_10_22_21_06"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town12_Rep0_2954_1_route0_01_08_00_18_48"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1283_10_route0_01_08_20_13_30"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town12_Rep0_4081_0_route0_01_08_20_49_10"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town12_Rep0_4081_10_route0_01_09_09_48_45"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town12_Rep0_4081_12_route0_01_08_23_43_23"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_1396_0_route0_01_08_10_04_30"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_1396_10_route0_01_10_16_30_11"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_1396_11_route0_01_09_23_28_37"
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1150_0_route0_01_09_20_35_02"
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1229_0_route0_01_08_21_43_40"
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1450_0_route0_01_09_22_58_43"
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1148_0_route0_01_08_19_01_21"
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1148_1_route0_01_10_08_43_12"
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1158_0_route0_01_09_11_16_32"
+    },
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_0_route0_01_09_19_05_12"
+    },
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_10_route0_01_08_13_13_38"
+    },
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_11_route0_01_10_20_33_38"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town06_Rep0_route_000832_route0_01_10_07_43_29"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town06_Rep0_route_000834_route0_01_10_10_34_36"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town04_Rep0_route_000930_route0_01_10_01_26_01"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town05_Rep0_route_000845_route0_01_10_00_42_03"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town05_Rep0_route_000846_route0_01_08_13_56_37"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town10HD_Rep0_route_001073_route0_01_10_16_21_02"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town01_Rep0_Town01_Scenario8_11_route0_01_10_04_44_00"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town02_Rep0_Town02_Scenario8_15_route0_01_08_12_51_42"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town04_Rep0_Town04_Scenario8_105_route0_01_08_13_12_26"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town04_Rep0_Town04_Scenario8_107_route0_01_08_15_58_37"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town05_Rep0_Town05_Scenario8_100_route0_01_10_21_17_06"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town05_Rep0_Town05_Scenario8_102_route0_01_10_15_09_22"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town06_Rep0_Town06_Scenario8_63_route0_01_08_08_24_19"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario8_16_route0_01_09_04_07_14"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town12_Rep0_1130_0_route0_01_10_00_15_07"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town12_Rep0_128_0_route0_01_08_12_40_57"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town12_Rep0_1579_0_route0_01_09_00_13_44"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town13_Rep0_1047_0_route0_01_10_16_28_42"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town13_Rep0_1047_1_route0_01_08_00_48_12"
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town13_Rep0_1047_2_route0_01_08_17_02_17"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town03_Rep0_route_001880_route0_01_10_07_48_34"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town04_Rep0_route_001895_route0_01_09_03_47_39"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001920_route0_01_09_10_49_27"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001921_route0_01_10_21_18_51"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town10HD_Rep0_route_001913_route0_01_09_16_27_23"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town10HD_Rep0_route_001914_route0_01_10_11_09_12"
+    },
+    {
+      "scenario": "ParkingCutIn",
+      "route_id": "Town12_Rep0_113_0_route0_01_08_13_30_35"
+    },
+    {
+      "scenario": "ParkingCutIn",
+      "route_id": "Town12_Rep0_1681_0_route0_01_09_14_15_55"
+    },
+    {
+      "scenario": "ParkingCutIn",
+      "route_id": "Town12_Rep0_1681_1_route0_01_09_03_48_22"
+    },
+    {
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_1008_0_route0_01_08_19_33_44"
+    },
+    {
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_1008_1_route0_01_10_06_33_34"
+    },
+    {
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_1009_0_route0_01_09_19_35_55"
+    },
+    {
+      "scenario": "StaticCutIn",
+      "route_id": "Town12_Rep0_1001_0_route0_01_11_02_35_31"
+    },
+    {
+      "scenario": "StaticCutIn",
+      "route_id": "Town12_Rep0_1003_0_route0_01_10_22_02_55"
+    },
+    {
+      "scenario": "T_Junction",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town02_Rep0_Town02_Scenario4_0_route0_01_10_17_53_34"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town03_Rep0_Town03_Scenario4_0_route0_01_08_12_13_41"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town03_Rep0_Town03_Scenario4_100_route0_01_09_03_00_41"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town04_Rep0_Town04_Scenario4_100_route0_01_08_20_42_35"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town04_Rep0_Town04_Scenario4_101_route0_01_08_05_47_59"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town05_Rep0_Town05_Scenario4_0_route0_01_09_15_09_27"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town05_Rep0_Town05_Scenario4_100_route0_01_09_18_38_20"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town05_Rep0_Town05_Scenario4_101_route0_01_09_11_15_14"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town06_Rep0_Town06_Scenario4_16_route0_01_09_16_43_49"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town07_Rep0_Town07_Scenario4_0_route0_01_10_04_15_01"
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario4_15_route0_01_08_12_45_08"
+    }
+  ],
+  "source_cache_sha256": [
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town02_Rep0_route_001607_route0_01_09_20_17_48.json",
+      "sha256": "9e591f00463a2644022dc863697d1db2c3a3e48bee06537e163b78a9b29376eb"
+    },
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town05_Rep0_route_001580_route0_01_08_14_20_06.json",
+      "sha256": "099e8d84e171b1392f5953c6022485e7950e3e79561e75af60451b337ba084e1"
+    },
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town07_Rep0_route_001450_route0_01_08_21_10_03.json",
+      "sha256": "e1503919afb0cd478675f7881551b40fcf73db04ebc9469ed7be1e64bde88895"
+    },
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town12_Rep0_1152_0_route0_01_08_19_34_07.json",
+      "sha256": "57b92692ee8a158629fb0f11ca0ac750e24db45f4d275a5e326cebbc8091d342"
+    },
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town12_Rep0_1573_0_route0_01_10_07_00_13.json",
+      "sha256": "dd863bc6a4fcb8d622ad5df2274ac6e913a0171664172ea8fa67946c750077a6"
+    },
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town13_Rep0_1153_0_route0_01_10_10_03_19.json",
+      "sha256": "a26b91675e34575dc9543be9f45e7d1a42f599cd429f1f6185076947624c461e"
+    },
+    {
+      "file": "/tmp/p3audit/cases/AccidentTwoWays__Town15_Rep0_route_001342_route0_01_10_04_33_06.json",
+      "sha256": "7a7ec927b436291cf227c3c15c70d1207ecab46de0501bb5a5baa0ceab3b5b03"
+    },
+    {
+      "file": "/tmp/p3audit/cases/Accident__Town05_Rep0_route_001761_route0_01_10_06_00_02.json",
+      "sha256": "c3f9b6744006b4135e2c504456b98d46509c010c4abfafb3c06514551f198766"
+    },
+    {
+      "file": "/tmp/p3audit/cases/Accident__Town06_Rep0_route_001823_route0_01_09_04_47_40.json",
+      "sha256": "c9caaa7913928df6554c51d9c22027c09f7e8af9a2015e0f271d2cf0ec87a3a4"
+    },
+    {
+      "file": "/tmp/p3audit/cases/Accident__Town10HD_Rep0_route_001816_route0_01_10_14_36_51.json",
+      "sha256": "adb333471585a919d497ab24c4589aa457733cd72f8ef57e20c5003f8ce2e903"
+    },
+    {
+      "file": "/tmp/p3audit/cases/Accident__Town12_Rep0_1054_0_route0_01_09_17_12_50.json",
+      "sha256": "1445d3731e81fd0fb40217d3d95ceb7be04d1d97184fc449f9f85f623c8930c8"
+    },
+    {
+      "file": "/tmp/p3audit/cases/Accident__Town13_Rep0_1044_0_route0_01_08_22_08_42.json",
+      "sha256": "859cac551ae0ec3cff63a94ec3edae36373737a8e5dd6d0d1068e37f63a21443"
+    },
+    {
+      "file": "/tmp/p3audit/cases/BlockedIntersection__Town12_Rep0_1207_0_route0_01_08_09_07_54.json",
+      "sha256": "b197aa85e41c92001e60c8d24319bee41a49b0a0fd96782860eabd452c5bec45"
+    },
+    {
+      "file": "/tmp/p3audit/cases/BlockedIntersection__Town12_Rep0_346_0_route0_01_08_04_09_24.json",
+      "sha256": "4880192086215bc918557daa1faf36adea67aba99ff3b33ef9f98a8f23194554"
+    },
+    {
+      "file": "/tmp/p3audit/cases/BlockedIntersection__Town13_Rep0_1016_0_route0_01_09_07_27_18.json",
+      "sha256": "f4cc4b538aff407007fd0787929e709211e5070a59edf5f5ec954c7ab9141bac"
+    },
+    {
+      "file": "/tmp/p3audit/cases/BlockedIntersection__Town13_Rep0_1169_0_route0_01_09_09_33_13.json",
+      "sha256": "cb4d4384a08ada4d73479997ae8176d39ac1cc8f64939ea9f0431106a5e5e8db"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacleTwoWays__Town02_Rep0_route_001339_route0_01_08_14_19_04.json",
+      "sha256": "f3c84e1dca9e0a92c014c6c0080e5d6783b9ec23c77be060227ee7c9d4e2ad36"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacleTwoWays__Town07_Rep0_route_001177_route0_01_08_12_52_43.json",
+      "sha256": "a4a24771f5c80d24efbe43bb8dfaa4ff12592e8a6241419a96460c7a7ad90dba"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacleTwoWays__Town12_Rep0_1113_0_route0_01_08_23_39_11.json",
+      "sha256": "f1d0f364a16e12bb322cdc44855aa71067e9a835c6d5832df4276dea1a13a5f8"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacleTwoWays__Town13_Rep0_1143_0_route0_01_10_21_32_31.json",
+      "sha256": "3b907bf6f000dc26df404b19f4999673664799e344bee486227bec6935be759a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacleTwoWays__Town15_Rep0_route_001074_route0_01_08_16_28_11.json",
+      "sha256": "bcee3b50099bc89b9a9a5d84a19a9876d11c36d6c64ce80bfa8cc98fc5045e59"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacleTwoWays__Town15_Rep0_route_001079_route0_01_09_05_23_12.json",
+      "sha256": "8bac358464732fdb476da8f8377a3fc8d26c158167e95451d92e0041a31172dd"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacle__Town05_Rep0_route_001955_route0_01_09_03_01_19.json",
+      "sha256": "e02ba44bb43c62737966fa94b4c10cd9e9e1d044be26b8ea81f596c3278f01bd"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacle__Town06_Rep0_route_002017_route0_01_09_04_05_22.json",
+      "sha256": "a238bf5df17b5d47b17c55818f94523f35850f11d46457655dca7e93c648668d"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacle__Town10HD_Rep0_route_002010_route0_01_10_05_12_24.json",
+      "sha256": "402ae640c3d989995a9725859cd05d7a9789bd071ff2ac9c8090d67ea2a08f01"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacle__Town12_Rep0_1256_0_route0_01_09_07_30_45.json",
+      "sha256": "dd9d4b63b9d2ee1e3dd48dd4373a62d875d6dc28a98608a225d794f2250f31e0"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ConstructionObstacle__Town13_Rep0_1043_0_route0_01_09_11_35_54.json",
+      "sha256": "f6c40442d6acb7bdc77c65e2d5f0dc5525748eb42171783bb001001ef970a8df"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ControlLoss__Town05_Rep0_Town05_Scenario1_12_route0_01_09_23_38_02.json",
+      "sha256": "6fa99cff7e526d1d69aeceb36a95729258d69cb88f99260dd5d4c82ba0d59b18"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ControlLoss__Town07_Rep0_Town07_Scenario1_11_route0_01_09_13_28_38.json",
+      "sha256": "bd93a9fdd7f43e28e5413a1fc2911e999f16c3986f1869f21e838848be9a1b5a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town03_Rep0_route_002130_route0_01_11_13_52_37.json",
+      "sha256": "31cef3184c684af29eeeca7adbec68021a4e44fa8ab159007927d578b41aa0ae"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town03_Rep0_route_002131_route0_01_08_16_08_17.json",
+      "sha256": "cdd1be94994350035ffccfe73d692760818da1578c482c3d40b5ece41a9294b6"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002162_route0_01_10_04_20_32.json",
+      "sha256": "02d42179e4b268692ffc9509a374190ef9339afb8ba06e11d7c528a8cfa01c1e"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002166_route0_01_09_09_37_44.json",
+      "sha256": "cd1c53afc95ebf9cfae5a8ff10f42ed6af1c763cbcfdd6505e8c0b66cf01af7f"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town05_Rep0_route_002052_route0_01_08_08_46_16.json",
+      "sha256": "25ad6d795b4326440b1d9eac14a24cd64d171e37acb496efd4873c7ec590319a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town10HD_Rep0_route_002192_route0_01_09_23_54_55.json",
+      "sha256": "4aa2eb43370cb7c2dab412ae4b1c0bba378680c41241e0fe93aa1e9eaccfec56"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002103_route0_01_11_01_15_31.json",
+      "sha256": "0ade8d334f46af9528644f5aaabd841c02c2b34e76e1b6a209a53a5d4daa4cf7"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002105_route0_01_10_09_52_46.json",
+      "sha256": "28badcc5dd6f7a1e7bc0d8475888bcad0bd6a63212eb4befb4267cdc643c43ba"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town13_Rep0_route_002180_route0_01_08_13_54_39.json",
+      "sha256": "e24088c55bbe6a32fa213d1120e20b5bb670c8ff61480f9c547f97e7152f5985"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossJunctionDefectTrafficLight__Town15_Rep0_route_002091_route0_01_10_10_09_37.json",
+      "sha256": "1facdff2d511a811270154fcbe04d1f01192ab6c1e0f888bdc2ab7def4027f8a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/CrossingBicycleFlow__Town12_Rep0_136_0_route0_01_08_23_03_51.json",
+      "sha256": "daac0e3103fd736e3f6056020c448dfb8475bbd4dbadb0e9c0927276c3bf8007"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town02_Rep0_Town02_Scenario3_0_route0_01_10_05_05_30.json",
+      "sha256": "5f7d9f9f05eeb1d7e802b15817579740efc42f0c3dfb675cf1d87652cfec60fd"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07.json",
+      "sha256": "db9ef9e8d2ab7e5fec43e787a72770e17453b3a720111d56a12e875e734142f2"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town03_Rep0_Town03_Scenario3_0_route0_01_08_19_50_37.json",
+      "sha256": "8d3e13849f2ee31b01aff5cec28002cf91ffc0298d81ad5385ae4026a867cc05"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36.json",
+      "sha256": "50b57782a7466cbdfac157b2665e3351127a64d6a5f37ea1f408c99ad8f096e6"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_0_route0_01_08_11_56_12.json",
+      "sha256": "7e8fe26cef99c73c8e168938fe944d096451131e875a82c12aaf6d7d4cfe7d9f"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_12_route0_01_10_02_14_03.json",
+      "sha256": "1cf787fe0dae94705ae8e1b7f214f39c9f031db29bff580200ddec79b55b474a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town06_Rep0_Town06_Scenario3_12_route0_01_10_13_49_08.json",
+      "sha256": "a5a912602e4aefba44ca34cd134b3b5323cf1e7f1a0eb518fb751e10dc3e0727"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town12_Rep0_1528_0_route0_01_09_18_36_47.json",
+      "sha256": "03829869cf03b12f6edb444671fbbfd0208e324ab4d31e6bf0b7b98ec129c8f1"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town12_Rep0_2732_0_route0_01_08_08_59_45.json",
+      "sha256": "4d98e66f4911eca5f65c41c934202a718f0a9327798cd0a9acf196796691ae63"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town13_Rep0_1126_0_route0_01_09_02_41_33.json",
+      "sha256": "9af361d24261f3e5ff4895b02d3a530afef501575c0daa81dc54c77ec9253a11"
+    },
+    {
+      "file": "/tmp/p3audit/cases/DynamicObjectCrossing__Town13_Rep0_1424_0_route0_01_09_01_33_54.json",
+      "sha256": "5177a0809e0618896040b3d13488c54b83f462c84a6a8cebdd6a7105079d6422"
+    },
+    {
+      "file": "/tmp/p3audit/cases/EnterActorFlowV2__Town12_Rep0_2448_0_route0_01_08_19_45_15.json",
+      "sha256": "8acf832a11b02fe1b2544962da839b5d434ca371c4f0caae3ba2d6610aef4437"
+    },
+    {
+      "file": "/tmp/p3audit/cases/EnterActorFlow__Town12_Rep0_1388_0_route0_01_10_05_04_45.json",
+      "sha256": "6ed3d7c47ee573bb8d4ce319b784719f81b40e10266e74bdde8651c756098c3d"
+    },
+    {
+      "file": "/tmp/p3audit/cases/EnterActorFlow__Town13_Rep0_1250_0_route0_01_09_00_26_11.json",
+      "sha256": "08e922650d56ab731b7d5574fa504ea60b873ed56687b26c35aa7dbc52e1dcb1"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HardBreakRoute__Town12_Rep0_1254_0_route0_01_09_07_52_53.json",
+      "sha256": "6d8747568071f0c7c89ce66b7df3021bf08aa1c2872a642baf2f545c32bfa683"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HardBreakRoute__Town13_Rep0_1030_0_route0_01_10_20_42_39.json",
+      "sha256": "33d068cc451d1eccea58a9c6a3092de606ba0895324ddf4e603f16cbb028e98b"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HazardAtSideLaneTwoWays__Town13_Rep0_1227_0_route0_01_10_21_55_12.json",
+      "sha256": "6669d23aa0401881df8ae7d64dd06e408799eb2b53472ceb0d71aac9c193b826"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HazardAtSideLane__Town12_Rep0_1092_0_route0_01_11_00_38_57.json",
+      "sha256": "a4d59cd3d60d9cf45ce79fd63df49f0f44a6663a59fe8cda8814da615610c2d9"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HazardAtSideLane__Town13_Rep0_1619_0_route0_01_08_20_40_19.json",
+      "sha256": "353c5089780e8df92bcaa49f6f9fdc737da13e73be643073893df0d150cb075f"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HighwayCutIn__Town12_Rep0_2954_1_route0_01_08_00_18_48.json",
+      "sha256": "0d76111bc7f258eed1f2759bf995a816adb63916bde577237b00634be7b829c7"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HighwayCutIn__Town13_Rep0_1283_10_route0_01_08_20_13_30.json",
+      "sha256": "52274fc4e8f95faf1dd39d1db8d6c8315fcff1b5b11889d608859d6e8243587b"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HighwayExit__Town12_Rep0_4081_0_route0_01_08_20_49_10.json",
+      "sha256": "a13e6ed954fbdd68319b5ccca5427c9696179dbb1fe5e12637c345d516a56ee1"
+    },
+    {
+      "file": "/tmp/p3audit/cases/HighwayExit__Town13_Rep0_1396_0_route0_01_08_10_04_30.json",
+      "sha256": "21661fa3bdc48ceaf036c1d51d5ff7dcbb057fd194c1c75e9af6062faa79ba8d"
+    },
+    {
+      "file": "/tmp/p3audit/cases/InvadingTurn__Town12_Rep0_1150_0_route0_01_09_20_35_02.json",
+      "sha256": "9e1b640940a9984d3154e303c20726000b40b3b97377b39b4e40aab0f00dab1d"
+    },
+    {
+      "file": "/tmp/p3audit/cases/InvadingTurn__Town13_Rep0_1148_0_route0_01_08_19_01_21.json",
+      "sha256": "126483bc55f5c0c540967abd9eb5451afb087a74863996ebcde3154f40fbf934"
+    },
+    {
+      "file": "/tmp/p3audit/cases/MergerIntoSlowTrafficV2__Town06_Rep0_route_000832_route0_01_10_07_43_29.json",
+      "sha256": "89ab4cc2461bedd694dd38412c5e822d80f6f1b4fd04aa5152faf62f2715de42"
+    },
+    {
+      "file": "/tmp/p3audit/cases/MergerIntoSlowTraffic__Town13_Rep0_1230_0_route0_01_09_19_05_12.json",
+      "sha256": "fb242530c41aa02919f90af7c2274fc30a4440c87c68cb4ddf77534d0fc92ba0"
+    },
+    {
+      "file": "/tmp/p3audit/cases/NonSignalizedJunctionLeftTurnEnterFlow__Town10HD_Rep0_route_001073_route0_01_10_16_21_02.json",
+      "sha256": "9cf952095f18414eeee323a53f0f11fbae678a365dcdf13cddec216e6c29c9cd"
+    },
+    {
+      "file": "/tmp/p3audit/cases/NonSignalizedJunctionLeftTurn__Town05_Rep0_route_000845_route0_01_10_00_42_03.json",
+      "sha256": "14e143fd24b4fd30456407feadbaa2de55ef5c4fe44d28ec39474fe0e2bee6c2"
+    },
+    {
+      "file": "/tmp/p3audit/cases/OppositeVehicleRunningRedLight__Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56.json",
+      "sha256": "d011749aa55c8a67195dfaf1b8d47a2f467b90053517efd5be46c0287b93636c"
+    },
+    {
+      "file": "/tmp/p3audit/cases/OppositeVehicleRunningRedLight__Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49.json",
+      "sha256": "b91401b0aafb4c6d86353c38a30988a7318e33b8dbf1b29835746959ee0baf07"
+    },
+    {
+      "file": "/tmp/p3audit/cases/OppositeVehicleRunningRedLight__Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38.json",
+      "sha256": "79edec9976c78812c43d232f126bf8e9b4a9c12bae6e7d6927fb7b975d77844a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/OppositeVehicleRunningRedLight__Town06_Rep0_Town06_Scenario8_63_route0_01_08_08_24_19.json",
+      "sha256": "26aaa02fb92e14253bd761e1266a6d5fbb816a86144eb130089af57bbf886b4b"
+    },
+    {
+      "file": "/tmp/p3audit/cases/OppositeVehicleRunningRedLight__Town12_Rep0_1130_0_route0_01_10_00_15_07.json",
+      "sha256": "aad8e4fecd65282304094169532850800f315707b2d50f344eea6d000b6eb588"
+    },
+    {
+      "file": "/tmp/p3audit/cases/OppositeVehicleRunningRedLight__Town13_Rep0_1047_0_route0_01_10_16_28_42.json",
+      "sha256": "569ebc7b6019c2d0d6a8431e0fbb2cb6053d67e7184ca81dfcc41789d5ae858b"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ParkedObstacle__Town06_Rep0_route_001920_route0_01_09_10_49_27.json",
+      "sha256": "589c89b1f2b55f948338448ad2379c74d19e8949636412dc752ebaa9be88fd87"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ParkedObstacle__Town10HD_Rep0_route_001913_route0_01_09_16_27_23.json",
+      "sha256": "1c60d8654f122078e2a4ecf7d1de736747b23d3af0573679ee50160027756756"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ParkingCutIn__Town12_Rep0_113_0_route0_01_08_13_30_35.json",
+      "sha256": "6305eb9916087e1e4d98926b74fdb2591d867413c11032c355f10ba8a10e666a"
+    },
+    {
+      "file": "/tmp/p3audit/cases/ParkingCutIn__Town13_Rep0_1008_0_route0_01_08_19_33_44.json",
+      "sha256": "0178e2d3d6f68b5e092d398c230be929fabf6a2236dbd5cac31898469b3a634c"
+    },
+    {
+      "file": "/tmp/p3audit/cases/T_Junction__Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04.json",
+      "sha256": "37dccc895e7b26a5ef3c6f9bdd6d7b7e1291a1e15ae3e31f11eab10d44dcdce2"
+    },
+    {
+      "file": "/tmp/p3audit/cases/VehicleTurningRoute__Town02_Rep0_Town02_Scenario4_0_route0_01_10_17_53_34.json",
+      "sha256": "b844d478f8d47987c6ae4e52484795cbcd881bf80ba2cc363e539fbde0ecd168"
+    },
+    {
+      "file": "/tmp/p3audit/cases/VehicleTurningRoute__Town03_Rep0_Town03_Scenario4_0_route0_01_08_12_13_41.json",
+      "sha256": "298e767be51640aad9315f305d1af1c9deff2ee75905a0487c592c655973200d"
+    },
+    {
+      "file": "/tmp/p3audit/cases/VehicleTurningRoute__Town04_Rep0_Town04_Scenario4_100_route0_01_08_20_42_35.json",
+      "sha256": "3b896d2fcc555a67896f11844e9af714f81e9250a022e729434d3652cb7edf09"
+    },
+    {
+      "file": "/tmp/p3audit/cases/VehicleTurningRoute__Town05_Rep0_Town05_Scenario4_0_route0_01_09_15_09_27.json",
+      "sha256": "8c5b82d1ef25e6bd15dea3ba8afb4f8893fc36003021dfbee4ced0bac00f6406"
+    },
+    {
+      "file": "/tmp/p3audit/cases/VehicleTurningRoute__Town10HD_Rep0_Town10HD_Scenario4_15_route0_01_08_12_45_08.json",
+      "sha256": "84240d2ea373bb5e0cb9af930173d35149bd93e2c0ab149dab74addec549c83f"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town01_Rep0_route_001543_route0_01_08_23_18_47.json",
+      "sha256": "51720e94eb380963625e5c3e4fd18ffb6c3411ad914a3df78bef12f98cdfa201"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town05_Rep0_route_001580_route0_01_08_14_20_06.json",
+      "sha256": "099e8d84e171b1392f5953c6022485e7950e3e79561e75af60451b337ba084e1"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town07_Rep0_route_001450_route0_01_08_21_10_03.json",
+      "sha256": "e1503919afb0cd478675f7881551b40fcf73db04ebc9469ed7be1e64bde88895"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town12_Rep0_1152_0_route0_01_08_19_34_07.json",
+      "sha256": "57b92692ee8a158629fb0f11ca0ac750e24db45f4d275a5e326cebbc8091d342"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town12_Rep0_1214_0_route0_01_08_23_59_12.json",
+      "sha256": "2a10d87492517a29cc6714f461e030e8fdee797b09eb6036497af6d2675877bf"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town12_Rep0_1573_0_route0_01_10_07_00_13.json",
+      "sha256": "dd863bc6a4fcb8d622ad5df2274ac6e913a0171664172ea8fa67946c750077a6"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town13_Rep0_1153_0_route0_01_10_10_03_19.json",
+      "sha256": "a26b91675e34575dc9543be9f45e7d1a42f599cd429f1f6185076947624c461e"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town13_Rep0_1153_1_route0_01_09_11_08_38.json",
+      "sha256": "d4aaeb973ece024c4d9ed22253722640213c2f6d4b8628b5e0026e78cc910181"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/AccidentTwoWays__Town15_Rep0_route_001342_route0_01_10_04_33_06.json",
+      "sha256": "7a7ec927b436291cf227c3c15c70d1207ecab46de0501bb5a5baa0ceab3b5b03"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town03_Rep0_route_001783_route0_01_11_02_37_46.json",
+      "sha256": "b96f161c4e354e3e1bfff5957a3bb21d787de4f500e9b00dc95a1fb98d37296e"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town04_Rep0_route_001798_route0_01_09_06_48_12.json",
+      "sha256": "bdb00926f4fe524bd6dbcfdc94ebd473d5844b0c5a7d6b3af3322fb72539cd3a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town05_Rep0_route_001761_route0_01_10_06_00_02.json",
+      "sha256": "c3f9b6744006b4135e2c504456b98d46509c010c4abfafb3c06514551f198766"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town06_Rep0_route_001823_route0_01_09_04_47_40.json",
+      "sha256": "c9caaa7913928df6554c51d9c22027c09f7e8af9a2015e0f271d2cf0ec87a3a4"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town10HD_Rep0_route_001816_route0_01_10_14_36_51.json",
+      "sha256": "adb333471585a919d497ab24c4589aa457733cd72f8ef57e20c5003f8ce2e903"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town12_Rep0_1054_0_route0_01_09_17_12_50.json",
+      "sha256": "1445d3731e81fd0fb40217d3d95ceb7be04d1d97184fc449f9f85f623c8930c8"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town12_Rep0_1054_1_route0_01_09_05_47_16.json",
+      "sha256": "eef46e32ab25dc2dc9ac108e9a32886a465c7ba014efa709a6a0cb4ef163cc96"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town13_Rep0_1044_0_route0_01_08_22_08_42.json",
+      "sha256": "859cac551ae0ec3cff63a94ec3edae36373737a8e5dd6d0d1068e37f63a21443"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/Accident__Town13_Rep0_1044_1_route0_01_09_08_34_30.json",
+      "sha256": "1291efef61c76b70cfac2c35f53766f34510fce998e6755e0e2e9cbd98ad35f0"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/BlockedIntersection__Town12_Rep0_1207_0_route0_01_08_09_07_54.json",
+      "sha256": "b197aa85e41c92001e60c8d24319bee41a49b0a0fd96782860eabd452c5bec45"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/BlockedIntersection__Town12_Rep0_346_0_route0_01_08_04_09_24.json",
+      "sha256": "4880192086215bc918557daa1faf36adea67aba99ff3b33ef9f98a8f23194554"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/BlockedIntersection__Town13_Rep0_1016_0_route0_01_09_07_27_18.json",
+      "sha256": "f4cc4b538aff407007fd0787929e709211e5070a59edf5f5ec954c7ab9141bac"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/BlockedIntersection__Town13_Rep0_1016_1_route0_01_07_23_26_17.json",
+      "sha256": "01445bcffa454dc36648d6e773a67f7bcb532d948f0d70c3f1637c931436cc85"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/BlockedIntersection__Town13_Rep0_1169_0_route0_01_09_09_33_13.json",
+      "sha256": "cb4d4384a08ada4d73479997ae8176d39ac1cc8f64939ea9f0431106a5e5e8db"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/BlockedIntersection__Town13_Rep0_1530_0_route0_01_11_09_53_48.json",
+      "sha256": "dc9288695fdbb1640d0957adf5f4a719f5fd03b69c12d5ad8231e7b604f95d42"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacleTwoWays__Town01_Rep0_route_001275_route0_01_09_16_43_40.json",
+      "sha256": "da45de0e5201c2e8e02496e410d9af02d9de02b20940b70aecfd27af6e2b6b0e"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacleTwoWays__Town07_Rep0_route_001177_route0_01_08_12_52_43.json",
+      "sha256": "a4a24771f5c80d24efbe43bb8dfaa4ff12592e8a6241419a96460c7a7ad90dba"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacleTwoWays__Town13_Rep0_1143_1_route0_01_10_18_24_38.json",
+      "sha256": "5f7f59eef208ca2551306344d662ca0720282c4210ce0b84c2e20bd54e18f8c4"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacleTwoWays__Town15_Rep0_route_001074_route0_01_08_16_28_11.json",
+      "sha256": "bcee3b50099bc89b9a9a5d84a19a9876d11c36d6c64ce80bfa8cc98fc5045e59"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacleTwoWays__Town15_Rep0_route_001079_route0_01_09_05_23_12.json",
+      "sha256": "8bac358464732fdb476da8f8377a3fc8d26c158167e95451d92e0041a31172dd"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town03_Rep0_route_001977_route0_01_10_05_03_33.json",
+      "sha256": "dbd68613d5dfb0a9677fc9f80d1a2251225f12e46faf15082aaa7f45cae4527c"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town03_Rep0_route_001986_route0_01_08_21_09_41.json",
+      "sha256": "d5291c5b93dbd739e244bd401eafc483e81a8a533ef696b2e31ab0c44dbbc5a5"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town04_Rep0_route_001990_route0_01_08_10_50_48.json",
+      "sha256": "f53c768bd3c3656760954350e148adf1f4bbdbb6aeaa3fbb1800bd9f2c9cae5c"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town06_Rep0_route_002017_route0_01_09_04_05_22.json",
+      "sha256": "a238bf5df17b5d47b17c55818f94523f35850f11d46457655dca7e93c648668d"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town10HD_Rep0_route_002010_route0_01_10_05_12_24.json",
+      "sha256": "402ae640c3d989995a9725859cd05d7a9789bd071ff2ac9c8090d67ea2a08f01"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town12_Rep0_1264_0_route0_01_11_02_12_30.json",
+      "sha256": "2ae2281d3129c7dbe397573d4d17d7c08c73c5c5c00072e88608143d464d6e52"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ConstructionObstacle__Town13_Rep0_1043_1_route0_01_08_23_58_12.json",
+      "sha256": "3184700e10a0a45471aa17c705bc01a8b4028469e82361a5d3e93b0b4489b0b8"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ControlLoss__Town03_Rep0_Town03_Scenario1_12_route0_01_11_01_24_33.json",
+      "sha256": "af25632a34b16ee5a997c98962155d9afcd4c77473a2507ef1b0a049dd9a1a29"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ControlLoss__Town04_Rep0_Town04_Scenario1_50_route0_01_08_11_32_24.json",
+      "sha256": "5da39507c001d39ed75bab72c61ff6190049930daab6a90758f5e3e4cb0857eb"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ControlLoss__Town05_Rep0_Town05_Scenario1_12_route0_01_09_23_38_02.json",
+      "sha256": "6fa99cff7e526d1d69aeceb36a95729258d69cb88f99260dd5d4c82ba0d59b18"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ControlLoss__Town06_Rep0_Town06_Scenario1_30_route0_01_08_16_51_17.json",
+      "sha256": "572ebe4adb3b98a4642d57cd49c2316f07a57b42666688ddf7bbf811952325fb"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town03_Rep0_route_002130_route0_01_11_13_52_37.json",
+      "sha256": "31cef3184c684af29eeeca7adbec68021a4e44fa8ab159007927d578b41aa0ae"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town03_Rep0_route_002131_route0_01_08_16_08_17.json",
+      "sha256": "cdd1be94994350035ffccfe73d692760818da1578c482c3d40b5ece41a9294b6"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town03_Rep0_route_002132_route0_01_10_03_42_04.json",
+      "sha256": "da4108575e6af99794fc04397118c8292d9ad697e95050cb27b080e52abbfc08"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002162_route0_01_10_04_20_32.json",
+      "sha256": "02d42179e4b268692ffc9509a374190ef9339afb8ba06e11d7c528a8cfa01c1e"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002163_route0_01_11_03_37_58.json",
+      "sha256": "1d5c055dd39c33b39f8671074e13020814d72ede0c0a97c2d9422f8e550306c3"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002166_route0_01_09_09_37_44.json",
+      "sha256": "cd1c53afc95ebf9cfae5a8ff10f42ed6af1c763cbcfdd6505e8c0b66cf01af7f"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002167_route0_01_09_07_11_41.json",
+      "sha256": "fe8336c211f45e71dc265affe6c68c1de235506d7e345e58fe75ee05166b7394"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town05_Rep0_route_002052_route0_01_08_08_46_16.json",
+      "sha256": "25ad6d795b4326440b1d9eac14a24cd64d171e37acb496efd4873c7ec590319a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town05_Rep0_route_002053_route0_01_09_09_02_15.json",
+      "sha256": "784a5d4d2a963dad60efc7244c518495b4ede8d6597ab6189ec7c1dc84eac651"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town07_Rep0_route_002117_route0_01_10_00_51_30.json",
+      "sha256": "4a88cc27bcf5131deea7d76b33c73fc3a831ca530978a8152106a38c6def89aa"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town10HD_Rep0_route_002192_route0_01_09_23_54_55.json",
+      "sha256": "4aa2eb43370cb7c2dab412ae4b1c0bba378680c41241e0fe93aa1e9eaccfec56"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town10HD_Rep0_route_002195_route0_01_10_01_29_56.json",
+      "sha256": "da1a365fd17c9455f9880356db029eff44fd6ca6a3556f502e7089ccb38ccbc0"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002103_route0_01_11_01_15_31.json",
+      "sha256": "0ade8d334f46af9528644f5aaabd841c02c2b34e76e1b6a209a53a5d4daa4cf7"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002104_route0_01_08_13_19_10.json",
+      "sha256": "4237bb2bbcdbd2d6aefb9966f973cb6c1c2649e693c355fd40bd8d0f0c513fcd"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002105_route0_01_10_09_52_46.json",
+      "sha256": "28badcc5dd6f7a1e7bc0d8475888bcad0bd6a63212eb4befb4267cdc643c43ba"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002106_route0_01_08_14_14_14.json",
+      "sha256": "341d3edab7db0dc65f33b8a1cc347e0bace9184029bbf336ab28802477087115"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town13_Rep0_route_002180_route0_01_08_13_54_39.json",
+      "sha256": "e24088c55bbe6a32fa213d1120e20b5bb670c8ff61480f9c547f97e7152f5985"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town13_Rep0_route_002181_route0_01_11_03_32_36.json",
+      "sha256": "086f1875cccfdaeb736eb97e53e10309de42c86d3776f00dad146407518ba51a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town15_Rep0_route_002091_route0_01_10_10_09_37.json",
+      "sha256": "1facdff2d511a811270154fcbe04d1f01192ab6c1e0f888bdc2ab7def4027f8a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossJunctionDefectTrafficLight__Town15_Rep0_route_002092_route0_01_09_10_09_15.json",
+      "sha256": "83cda45e93013e66f8d04d668bc2acf19d2cb910ce71595088ac223433ab39ef"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossingBicycleFlow__Town12_Rep0_136_0_route0_01_08_23_03_51.json",
+      "sha256": "daac0e3103fd736e3f6056020c448dfb8475bbd4dbadb0e9c0927276c3bf8007"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/CrossingBicycleFlow__Town12_Rep0_136_1_route0_01_10_21_53_51.json",
+      "sha256": "63f165f0cb10aedab779ac2f6a0c4496a52c2e5b0b4ce8be5121b5c6fba70f69"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20.json",
+      "sha256": "917440ab1f13c6546e12d969e5b7f3b69d3ef94e931a108214bbefb77aea5182"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07.json",
+      "sha256": "db9ef9e8d2ab7e5fec43e787a72770e17453b3a720111d56a12e875e734142f2"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town03_Rep0_Town03_Scenario3_0_route0_01_08_19_50_37.json",
+      "sha256": "8d3e13849f2ee31b01aff5cec28002cf91ffc0298d81ad5385ae4026a867cc05"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town03_Rep0_Town03_Scenario3_11_route0_01_09_14_07_22.json",
+      "sha256": "5325a930a785210eff47d565f0e947ef78a8f544c815cb72289fac117c2f0072"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town03_Rep0_Town03_Scenario3_12_route0_01_11_08_48_57.json",
+      "sha256": "2c27ac4549b0b00dbb5508ca8488e24f7fdb66f4e444cea49ddeb0d937073def"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36.json",
+      "sha256": "50b57782a7466cbdfac157b2665e3351127a64d6a5f37ea1f408c99ad8f096e6"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town04_Rep0_Town04_Scenario3_53_route0_01_10_22_49_35.json",
+      "sha256": "263a656f1017df3b6f0161a7713aa72bdab9bae2f88fe3c3e41977941c178a09"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_0_route0_01_08_11_56_12.json",
+      "sha256": "7e8fe26cef99c73c8e168938fe944d096451131e875a82c12aaf6d7d4cfe7d9f"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_10_route0_01_10_03_52_41.json",
+      "sha256": "3f32424632d92063c84566119411132ef705124814d7afedb0bcaf872f34422a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_12_route0_01_10_02_14_03.json",
+      "sha256": "1cf787fe0dae94705ae8e1b7f214f39c9f031db29bff580200ddec79b55b474a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_13_route0_01_09_20_54_50.json",
+      "sha256": "95c114b1eb382668827b20d1cf0a1f3607f3b3f8be6168286fad5c5d92d8ec8b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town06_Rep0_Town06_Scenario3_12_route0_01_10_13_49_08.json",
+      "sha256": "a5a912602e4aefba44ca34cd134b3b5323cf1e7f1a0eb518fb751e10dc3e0727"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town06_Rep0_Town06_Scenario3_13_route0_01_10_18_04_06.json",
+      "sha256": "2ca41e256c9b72b4db86fced4065d2d777b7fa1ac3b35549a9cfa2d98117f708"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town06_Rep0_Town06_Scenario3_30_route0_01_10_05_08_33.json",
+      "sha256": "1e34ff909715e8618b01952976e9a366697199b21da9c625b976f8d542885c8e"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town07_Rep0_Town07_Scenario3_0_route0_01_11_03_15_40.json",
+      "sha256": "7a303fbfc324b10484bf605f332c63779a973c8969af7f80022b9baca6311beb"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town07_Rep0_Town07_Scenario3_10_route0_01_10_14_59_03.json",
+      "sha256": "5a653f1bc4c3f416ea1c937f06226ff52918b7412f7783efb697c4736bcdb828"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town10HD_Rep0_Town10HD_Scenario3_0_route0_01_09_05_52_48.json",
+      "sha256": "bfac6682c3d7afceaa90eff91916e4b715661b9f30cc99b702f549f701f5fc50"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town12_Rep0_1528_0_route0_01_09_18_36_47.json",
+      "sha256": "03829869cf03b12f6edb444671fbbfd0208e324ab4d31e6bf0b7b98ec129c8f1"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town12_Rep0_1808_0_route0_01_08_13_10_06.json",
+      "sha256": "b6486fc7fcae2b4f22de904c7f17264ace085cf85e4c18e4d317eb14a17f9188"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town12_Rep0_2732_0_route0_01_08_08_59_45.json",
+      "sha256": "4d98e66f4911eca5f65c41c934202a718f0a9327798cd0a9acf196796691ae63"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town12_Rep0_2994_0_route0_01_10_09_28_37.json",
+      "sha256": "b09acc6f01843cb4472198f7d814ac9740398db94b004c9fc49ccec39766d604"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town13_Rep0_1126_0_route0_01_09_02_41_33.json",
+      "sha256": "9af361d24261f3e5ff4895b02d3a530afef501575c0daa81dc54c77ec9253a11"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town13_Rep0_1130_0_route0_01_09_16_35_08.json",
+      "sha256": "566774c5ca9054116fa598437a1411f059ddfc28df8c746d432bf095092db609"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town13_Rep0_1424_0_route0_01_09_01_33_54.json",
+      "sha256": "5177a0809e0618896040b3d13488c54b83f462c84a6a8cebdd6a7105079d6422"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/DynamicObjectCrossing__Town13_Rep0_1563_0_route0_01_10_06_21_13.json",
+      "sha256": "4839651ebc58dbfb50aa1df78438262540f4987513d1178d0ab9c486ace69ff9"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/EnterActorFlowV2__Town12_Rep0_2448_0_route0_01_08_19_45_15.json",
+      "sha256": "8acf832a11b02fe1b2544962da839b5d434ca371c4f0caae3ba2d6610aef4437"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/EnterActorFlowV2__Town12_Rep0_2448_10_route0_01_08_22_01_37.json",
+      "sha256": "8a5d7a9897fa2ffb746a0a0fc6c47b2d05897cc43b8381e6c83321b12089399d"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/EnterActorFlow__Town12_Rep0_1388_0_route0_01_10_05_04_45.json",
+      "sha256": "6ed3d7c47ee573bb8d4ce319b784719f81b40e10266e74bdde8651c756098c3d"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/EnterActorFlow__Town12_Rep0_1388_1_route0_01_10_23_16_12.json",
+      "sha256": "433adba7d5acf31e6937177c07f1415460dfa698080aea80eacbb1199df98fc4"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/EnterActorFlow__Town13_Rep0_1250_0_route0_01_09_00_26_11.json",
+      "sha256": "08e922650d56ab731b7d5574fa504ea60b873ed56687b26c35aa7dbc52e1dcb1"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/EnterActorFlow__Town13_Rep0_1250_10_route0_01_09_05_32_02.json",
+      "sha256": "3dffee5f04cb28d50b4962a25a31fe4fff1d16817a5c9ece1bc0bc42d6bf4cfc"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HardBreakRoute__Town12_Rep0_1254_0_route0_01_09_07_52_53.json",
+      "sha256": "6d8747568071f0c7c89ce66b7df3021bf08aa1c2872a642baf2f545c32bfa683"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HardBreakRoute__Town12_Rep0_1511_0_route0_01_09_13_10_16.json",
+      "sha256": "50f3ecf75ba5b2a402a5d9c5ae8a299a3a2d4375df1a69a3155f46426239d2f6"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HardBreakRoute__Town13_Rep0_1030_0_route0_01_10_20_42_39.json",
+      "sha256": "33d068cc451d1eccea58a9c6a3092de606ba0895324ddf4e603f16cbb028e98b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HardBreakRoute__Town13_Rep0_1032_0_route0_01_10_06_51_49.json",
+      "sha256": "3e56787e04c0590fcd6a6d173f3367b178d84f6f8ac1f092e039c4bb2f389007"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HazardAtSideLaneTwoWays__Town13_Rep0_1227_1_route0_01_10_10_25_59.json",
+      "sha256": "fc0b045d9a5350525b39e59a55dd9a5b123c14b85e0a5357e98bf3e7b3f14302"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HazardAtSideLane__Town12_Rep0_1092_1_route0_01_09_12_31_54.json",
+      "sha256": "c23abc5083f8664829d3595fff4634cc2db724d225d918079880b4af6c79b968"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HazardAtSideLane__Town13_Rep0_1619_0_route0_01_08_20_40_19.json",
+      "sha256": "353c5089780e8df92bcaa49f6f9fdc737da13e73be643073893df0d150cb075f"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HazardAtSideLane__Town13_Rep0_1619_10_route0_01_09_02_56_46.json",
+      "sha256": "15b712efdb8336719b01e1087ac9c4fcdd3510016386d6244bdef085c05955ca"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HighwayCutIn__Town12_Rep0_2954_1_route0_01_08_00_18_48.json",
+      "sha256": "0d76111bc7f258eed1f2759bf995a816adb63916bde577237b00634be7b829c7"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HighwayCutIn__Town13_Rep0_1283_10_route0_01_08_20_13_30.json",
+      "sha256": "52274fc4e8f95faf1dd39d1db8d6c8315fcff1b5b11889d608859d6e8243587b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HighwayCutIn__Town13_Rep0_1586_11_route0_01_09_19_15_55.json",
+      "sha256": "11cc89fea8620fd32ecfcaae00ea16c7803648d2338424fa81e69f1ce4c87d96"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HighwayExit__Town12_Rep0_4081_10_route0_01_09_09_48_45.json",
+      "sha256": "a6e235f1553c8e3505c3cbd1c540bf8c425e7dc34ddb902c49cb855993063588"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HighwayExit__Town13_Rep0_1396_0_route0_01_08_10_04_30.json",
+      "sha256": "21661fa3bdc48ceaf036c1d51d5ff7dcbb057fd194c1c75e9af6062faa79ba8d"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/HighwayExit__Town13_Rep0_1396_10_route0_01_10_16_30_11.json",
+      "sha256": "77daf445dba6047c82cc74f0317088da930bb1c6e7d4e140ced05f17ebf9163b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/InvadingTurn__Town12_Rep0_1150_0_route0_01_09_20_35_02.json",
+      "sha256": "9e1b640940a9984d3154e303c20726000b40b3b97377b39b4e40aab0f00dab1d"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/InvadingTurn__Town12_Rep0_1229_0_route0_01_08_21_43_40.json",
+      "sha256": "b8729ba97ca34c43c30e48ebf49bca94b52100b877a8b3426ac241271a7a9c51"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/InvadingTurn__Town13_Rep0_1148_0_route0_01_08_19_01_21.json",
+      "sha256": "126483bc55f5c0c540967abd9eb5451afb087a74863996ebcde3154f40fbf934"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/InvadingTurn__Town13_Rep0_1148_1_route0_01_10_08_43_12.json",
+      "sha256": "0e7c00523d576e8e393be9977948fe440aa19a0b788084e842de07d37d984444"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/MergerIntoSlowTrafficV2__Town06_Rep0_route_000832_route0_01_10_07_43_29.json",
+      "sha256": "89ab4cc2461bedd694dd38412c5e822d80f6f1b4fd04aa5152faf62f2715de42"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/MergerIntoSlowTrafficV2__Town06_Rep0_route_000834_route0_01_10_10_34_36.json",
+      "sha256": "97665ba202cc1aa0666f6e0d0104b3646c6e48cee67352316d08f89d13b441a5"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/MergerIntoSlowTraffic__Town13_Rep0_1230_10_route0_01_08_13_13_38.json",
+      "sha256": "a0a574f795218724405a74db6a459fdddbff4994099a65790651220273cfe9bb"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/NonSignalizedJunctionLeftTurn__Town04_Rep0_route_000930_route0_01_10_01_26_01.json",
+      "sha256": "44b30cdc4e1d9fbbb79c68c48af1e16360d68073fcfac8cf5e4c1b491138b71a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37.json",
+      "sha256": "f9cd44615cfcae9ffa471744bb0626dd71ef2d3fbee883898aceb9fb0c8f8b0e"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town02_Rep0_Town02_Scenario8_15_route0_01_08_12_51_42.json",
+      "sha256": "f1e60d9d423c5d58f89f12119e04c7e9e625ba3c7c55549a169eb519acdf52eb"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town03_Rep0_Town03_Scenario8_101_route0_01_09_13_15_56.json",
+      "sha256": "d011749aa55c8a67195dfaf1b8d47a2f467b90053517efd5be46c0287b93636c"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49.json",
+      "sha256": "b91401b0aafb4c6d86353c38a30988a7318e33b8dbf1b29835746959ee0baf07"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town04_Rep0_Town04_Scenario8_105_route0_01_08_13_12_26.json",
+      "sha256": "3c1d5436e8a0245215e57999b921c4c035db28114dc83350eea920d6c158111b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38.json",
+      "sha256": "79edec9976c78812c43d232f126bf8e9b4a9c12bae6e7d6927fb7b975d77844a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town05_Rep0_Town05_Scenario8_100_route0_01_10_21_17_06.json",
+      "sha256": "fd411b29ffd0d62ede07cecaf5b15f7d98b5259b8a635bf01141fd9bb7a11a8b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town07_Rep0_Town07_Scenario8_0_route0_01_11_01_14_03.json",
+      "sha256": "f161fa0adae3cb5dd5efcbf28ee44f38839f3959765e3520e87c2408348ccd2a"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town10HD_Rep0_Town10HD_Scenario8_15_route0_01_08_19_36_13.json",
+      "sha256": "596f908ef3404c464e5c027fd3d43eda3029f9089b09c48b27478c0dcccc4335"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town12_Rep0_1130_0_route0_01_10_00_15_07.json",
+      "sha256": "aad8e4fecd65282304094169532850800f315707b2d50f344eea6d000b6eb588"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town12_Rep0_128_0_route0_01_08_12_40_57.json",
+      "sha256": "120141a3d21f907e7bb7db2d666de4122cda61885f1c7912e2f858d5cef32e3f"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town13_Rep0_1047_0_route0_01_10_16_28_42.json",
+      "sha256": "569ebc7b6019c2d0d6a8431e0fbb2cb6053d67e7184ca81dfcc41789d5ae858b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/OppositeVehicleRunningRedLight__Town13_Rep0_1047_1_route0_01_08_00_48_12.json",
+      "sha256": "c2a4f6fab548f811f70ca28c6d9a8d3b5182e9e3f7fee07bffb558d81e6ab55b"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ParkedObstacle__Town03_Rep0_route_001880_route0_01_10_07_48_34.json",
+      "sha256": "b3796263f2a6ce836d59e3f18c0e72c31fb27433e70532c777956657deaa7c39"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ParkedObstacle__Town04_Rep0_route_001895_route0_01_09_03_47_39.json",
+      "sha256": "1fd4d3756131850b5f69a5c75152e83cdebf208b332b192ded052b9c65e5b066"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ParkingCutIn__Town12_Rep0_1681_0_route0_01_09_14_15_55.json",
+      "sha256": "e0982b27727c164100e71ef26c61f1118a8d29dfc7d3c6b7627e3496713bd5e9"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/ParkingCutIn__Town13_Rep0_1008_1_route0_01_10_06_33_34.json",
+      "sha256": "8271a1e6e48b3ae0f404b53bf80c77d5165e85b02c01f72907b793bbc97808d6"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/StaticCutIn__Town12_Rep0_1001_0_route0_01_11_02_35_31.json",
+      "sha256": "cea809b7fe0ff78db90e057184e6d0fc3923291cd5569d10ab7d11c4786b8506"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03.json",
+      "sha256": "e9951ce3e068cfc29dc6d38a9239e041dde96063b3263aab09f1021d1bc93d3c"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town03_Rep0_Town03_Scenario4_0_route0_01_08_12_13_41.json",
+      "sha256": "298e767be51640aad9315f305d1af1c9deff2ee75905a0487c592c655973200d"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town04_Rep0_Town04_Scenario4_100_route0_01_08_20_42_35.json",
+      "sha256": "3b896d2fcc555a67896f11844e9af714f81e9250a022e729434d3652cb7edf09"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town05_Rep0_Town05_Scenario4_0_route0_01_09_15_09_27.json",
+      "sha256": "8c5b82d1ef25e6bd15dea3ba8afb4f8893fc36003021dfbee4ced0bac00f6406"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town05_Rep0_Town05_Scenario4_100_route0_01_09_18_38_20.json",
+      "sha256": "c738ac284aae224639034830a8197a146cd2be9d17adf59baa3581f784c350e1"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town06_Rep0_Town06_Scenario4_16_route0_01_09_16_43_49.json",
+      "sha256": "a13aa3fe1ab1afaaf6fbeea199a56e9ddc0bfb4527770bf14665a043a148c717"
+    },
+    {
+      "file": "/tmp/p3audit/cases2/VehicleTurningRoute__Town07_Rep0_Town07_Scenario4_0_route0_01_10_04_15_01.json",
+      "sha256": "9d535a8f9f5a994454ab0ab3e190e67db463a7a0a0879a468c7a16fb1ed1c512"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/AccidentTwoWays__Town12_Rep0_1218_0_route0_01_09_02_09_18.json",
+      "sha256": "156574ba7effd56af184c3be98937ca79389583c56051e9f4ee09e439f3024e0"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/AccidentTwoWays__Town12_Rep0_1809_0_route0_01_08_05_56_13.json",
+      "sha256": "570f3529c8199c80c92fc18f09f130a138e3fcddf9d2471113024f04cbdede54"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/AccidentTwoWays__Town13_Rep0_1157_0_route0_01_10_11_07_30.json",
+      "sha256": "ceab8fce0aa57ffb5345af5027380dbb9ce0c8453b3d5dfa099902e0e3f3f961"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/AccidentTwoWays__Town15_Rep0_route_001343_route0_01_08_05_24_37.json",
+      "sha256": "8d01d67286acfd6f39ac477a50dfa8216e47cf8d0ee9db8954762a726f91f164"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/Accident__Town05_Rep0_route_001762_route0_01_09_03_37_10.json",
+      "sha256": "60de10add6f753b4c205b0466017feda7a875e712b586fc364d2f1c3c8693643"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/Accident__Town06_Rep0_route_001824_route0_01_10_01_44_23.json",
+      "sha256": "af1ec42bb58416c0731d42c15e8b65fc5624b514d9be14c90d63759dca10a021"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/Accident__Town10HD_Rep0_route_001818_route0_01_09_04_05_55.json",
+      "sha256": "d7dbe64b40dc06551bbd1f2b41aea08ce0c80976811c8abc770fb059c294a3a8"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/Accident__Town12_Rep0_10_0_route0_01_08_10_13_55.json",
+      "sha256": "11986c2cc2ea23fc91a1313ff0f63dc836ae9d0a0783277610fa1df9e281ed59"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/Accident__Town13_Rep0_1044_2_route0_01_10_10_33_56.json",
+      "sha256": "f59cfb11b1ec2dac3c1531751ae1c1931512aedd6cbd336cb72d80f1ec7f1d5a"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/BlockedIntersection__Town12_Rep0_1509_0_route0_01_10_17_31_08.json",
+      "sha256": "5d9bc993e03c58f9cba0ed489e001338293209fc2c9a50afd4457833d9c6d1b1"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/BlockedIntersection__Town13_Rep0_1074_0_route0_01_09_17_53_31.json",
+      "sha256": "7d2377d305128323313892b92d5c96694c0c3d51ea9cffad977685cea0b6f699"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/BlockedIntersection__Town13_Rep0_1650_0_route0_01_11_00_47_55.json",
+      "sha256": "fd4e5aa87ee2d5a2efff9e01aa4d5cf180b94164767109624693deb3256c2e6c"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacleTwoWays__Town05_Rep0_route_001312_route0_01_09_14_25_48.json",
+      "sha256": "061c465a173f7e97936187a98101dce2828032124e99c2ed8ccbc9886e95ff75"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacleTwoWays__Town07_Rep0_route_001178_route0_01_11_02_50_17.json",
+      "sha256": "595a5678e8d46dcc06e1ec3477ee32a761527511d33d6e9020cffb07085fbf74"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacleTwoWays__Town12_Rep0_1145_0_route0_01_08_15_52_13.json",
+      "sha256": "1b4347b92f93fc0cd3fa89d3f6c2ac52847676d14f095c13b4ec5f30eb414d80"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacleTwoWays__Town13_Rep0_1143_2_route0_01_09_12_08_18.json",
+      "sha256": "39edfe7a6fd8967b08d806b67c734b91f96ea44b543b562499e59c91eb7fb2ab"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacleTwoWays__Town15_Rep0_route_001075_route0_01_08_00_44_13.json",
+      "sha256": "1f10ec8cdb2e5cc589ed9b9203f4564a20b886ea53c381ff05fd92f8a56da99b"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacle__Town05_Rep0_route_001956_route0_01_09_17_15_50.json",
+      "sha256": "de909d9aff96f6edd9f556cebe4b624ca8eab4293cb3eaf60e3899c2d6d1293a"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacle__Town06_Rep0_route_002018_route0_01_09_15_27_03.json",
+      "sha256": "d5543b37bead9086264a8efd95d0e4fe11585fbcb66dd075a5f2deb1eea97042"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacle__Town10HD_Rep0_route_002011_route0_01_07_21_41_31.json",
+      "sha256": "2e780eb7585238c6124fd5b18d52f22e0b337add9669c37bc5681dfe87ed40a7"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacle__Town12_Rep0_1264_1_route0_01_09_06_28_18.json",
+      "sha256": "fdaab10a1ff0c34add2d07f89ca9c3083003ee789cf6a01bc564f1c61091d6da"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ConstructionObstacle__Town13_Rep0_1043_2_route0_01_08_17_18_25.json",
+      "sha256": "2cb33b635d5fe68c6914197b9a38913d839c9f9c32c754f95c05a6593d588ee0"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ControlLoss__Town05_Rep0_Town05_Scenario1_13_route0_01_09_20_03_20.json",
+      "sha256": "d943af0a27b18a4752b4359a4c894a06366696d1d472893b8ff48a3307a3f5ed"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ControlLoss__Town07_Rep0_Town07_Scenario1_1_route0_01_09_10_58_47.json",
+      "sha256": "0d1a24eb878cf0fff96250408565e48aeafcaf223d638f7c4ef1c9ded4c0df9f"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town03_Rep0_route_002133_route0_01_11_02_05_57.json",
+      "sha256": "a7833989b2e65f9ff6320a47ff8ba89a54e9d63d99e79cbbb486f23c78b4ca07"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002165_route0_01_10_23_08_10.json",
+      "sha256": "8c83841741b0caea7fe26814cdff131de975b230f4fc369d3098e31a90fd2956"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town04_Rep0_route_002168_route0_01_09_13_40_40.json",
+      "sha256": "99bb8733a272cceb41b2e86a687055cda74ed40a0e36f482fb382c1139abb1ba"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town05_Rep0_route_002054_route0_01_10_18_24_37.json",
+      "sha256": "5c09aa4eeed8e4511ab71aae48b96fd4d3c731acf7e13e3adfe2775978a1fd62"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town07_Rep0_route_002118_route0_01_09_06_00_56.json",
+      "sha256": "1d05cde6d7c122248afbd2b17f3b990b17c014ba2ffd7602aef1e9cdaac6b751"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town10HD_Rep0_route_002196_route0_01_09_17_44_26.json",
+      "sha256": "c19388fc7fb8aa0b1618a4f7a012adcf9618d1d06e18f51fe90d5ea9b96e8fd8"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002107_route0_01_10_15_02_22.json",
+      "sha256": "bf05a8892faa27745a7ab313ea598287900bf502a20842d6a00f1d2bef8e6251"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town12_Rep0_route_002108_route0_01_09_10_57_39.json",
+      "sha256": "71d4c442ffd8d454161cb26ca1aed9d2cfbf0243f244a23d4c4573d7afbc6704"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town13_Rep0_route_002182_route0_01_08_12_45_46.json",
+      "sha256": "30fb788502dcb9bf9e573937c7fdb0851ddd6d3918392e7d832e0a2f827b2c86"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossJunctionDefectTrafficLight__Town15_Rep0_route_002093_route0_01_09_02_54_09.json",
+      "sha256": "e4f0f4ad438e1b61801a9f70498520172c96df8de8d89190d1e33b8c8249a1df"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/CrossingBicycleFlow__Town12_Rep0_136_2_route0_01_10_07_45_12.json",
+      "sha256": "633755b6ef35e7ee70e9d839ccd0e4a86aa347a1458dc82f6beddd18b7e6b64f"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town01_Rep0_Town01_Scenario3_2_route0_01_08_08_41_45.json",
+      "sha256": "c2aa2a8d9657bcae8daec325ac16b9b25cce4ff4a6f950e91e635f01ddf54f14"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town03_Rep0_Town03_Scenario3_10_route0_01_07_21_27_45.json",
+      "sha256": "bfc807e72785c6e59e45643ce82911b14a4be8bcb76daa3c7d01b8abb0e29961"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town03_Rep0_Town03_Scenario3_15_route0_01_09_04_40_12.json",
+      "sha256": "de60cd7f6c007cfee5e466b427540da0ef27be33bfaaccbedcfc509993f7b0ed"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town04_Rep0_Town04_Scenario3_11_route0_01_09_05_04_40.json",
+      "sha256": "42329def04f832c766f532effb1da51e3a862463744dd5f1ca3525f6a2548138"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town04_Rep0_Town04_Scenario3_17_route0_01_10_04_24_04.json",
+      "sha256": "2c71cf6cbe56a71c820d06976bfe0f77f1d48be78cd42b0a7f9777f27e58c09f"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_11_route0_01_09_03_07_32.json",
+      "sha256": "d4f7d9b5aba5beac04ee6f1aa6b9656256978f2081afd98cc95ea6278ce9aca0"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town05_Rep0_Town05_Scenario3_14_route0_01_10_15_07_07.json",
+      "sha256": "7996488ce7fab1bb4ecf863b95aee21f702d7184ce8adea655138e9e5e0a1faa"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town06_Rep0_Town06_Scenario3_14_route0_01_10_10_46_01.json",
+      "sha256": "e92f5ae9a00c049c6764c5288f8f44b2bc017ba15d15d491932c6cb44b319900"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town07_Rep0_Town07_Scenario3_11_route0_01_09_11_48_12.json",
+      "sha256": "1eef841ea7577c7232fba218c0729192e265e2675392b5bd685aed6587446692"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town10HD_Rep0_Town10HD_Scenario3_13_route0_01_09_00_05_43.json",
+      "sha256": "ed0dca8e6a95f5ac5c25654f6a030710ec7b429596d2bcdd1632958bd65388c6"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town12_Rep0_1810_0_route0_01_08_04_54_52.json",
+      "sha256": "a7b5594d47779d43bd3bd4d2e14d78c8b01404e5ffed92d15405adb9c458054c"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town12_Rep0_3380_0_route0_01_10_03_31_54.json",
+      "sha256": "b9015f9e089e5e8103293d86e1fd08c645730657dc922f4f948a99045afc0dda"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town13_Rep0_1137_0_route0_01_10_19_35_14.json",
+      "sha256": "2dd44eeae6449b378581cca452afec8adb674c2dd8235f4e9702ca9292a41561"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/DynamicObjectCrossing__Town13_Rep0_1758_0_route0_01_07_22_22_11.json",
+      "sha256": "d5a635dcfe9be514f99b456395d3212a3fcd3503db117e501cfa2124d21e3c18"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/EnterActorFlowV2__Town12_Rep0_2448_11_route0_01_08_10_12_54.json",
+      "sha256": "309c76d184837858c43fdb951055c96b02081665a787742b8ee740ce36e2b19f"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/EnterActorFlow__Town12_Rep0_1388_2_route0_01_09_08_11_44.json",
+      "sha256": "c50e97b240f842fb5ccef3599f880a8ce6de7104462be1efc603a30f8d3af7a5"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/EnterActorFlow__Town13_Rep0_1250_11_route0_01_09_11_53_31.json",
+      "sha256": "a5df63e9a312a22acce99b918b1b7f418858e7c0eb297acd95b45fdf44c340b6"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HardBreakRoute__Town12_Rep0_1601_0_route0_01_08_00_12_38.json",
+      "sha256": "84a8553c2adc756912e74b2769ab8a136694979c67c2b852c40a46428131a713"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HardBreakRoute__Town13_Rep0_1049_0_route0_01_08_23_16_01.json",
+      "sha256": "a216693f39b9bb29719f14c4059ecacb8a3b11305b91c137f00e0b8d74acbbb5"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HazardAtSideLaneTwoWays__Town13_Rep0_1227_2_route0_01_10_22_21_06.json",
+      "sha256": "f0f2802460f53c8d5e4f33c432d86ea7d3d6bc3f527123cdd71dfc6bf7cafe49"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HazardAtSideLane__Town12_Rep0_1092_2_route0_01_10_02_39_05.json",
+      "sha256": "7ca6ef32945ab825c02e9008dbb30fe615af5f79947509590f34537d6fad33c2"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HazardAtSideLane__Town13_Rep0_1619_11_route0_01_10_07_50_15.json",
+      "sha256": "ed0a09564dc70f97b29f7bfb76efef9572acae9c7d2f52de236b11266d013d44"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HighwayCutIn__Town13_Rep0_1586_9_route0_01_08_19_01_08.json",
+      "sha256": "067789ec138d570bf3a2819fa7dc6a1bdb055b1f372059c5f6bd8cd95f6cfca7"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HighwayExit__Town12_Rep0_4081_12_route0_01_08_23_43_23.json",
+      "sha256": "a88a4543f47c272ee342cccdf9840cc9f40c23c06c1c31d0649c7f4f7ad6e51c"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/HighwayExit__Town13_Rep0_1396_11_route0_01_09_23_28_37.json",
+      "sha256": "22f8c5284f651c0ac99fd767159777180670ddc887370cacb02998e71504bce0"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/InvadingTurn__Town12_Rep0_1450_0_route0_01_09_22_58_43.json",
+      "sha256": "c64f125ad00c090f1c0424a0bf86ae6ac3a0016cf7ad0c32f71f158ddc7ad9d9"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/InvadingTurn__Town13_Rep0_1158_0_route0_01_09_11_16_32.json",
+      "sha256": "b46273c13c671ea5cf7c27bb7433007c946c1ef9b7ac97c92d478ef5c0d06124"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/MergerIntoSlowTraffic__Town13_Rep0_1230_11_route0_01_10_20_33_38.json",
+      "sha256": "802a6bd97ddb740bbf9cd23a3089a0ab1c7e3f6a86dd0ac237098175e5449a67"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/NonSignalizedJunctionLeftTurn__Town05_Rep0_route_000846_route0_01_08_13_56_37.json",
+      "sha256": "74810734233299f58722d6dee74a975af72196a37dc95c3b88ec2590cd915e47"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town01_Rep0_Town01_Scenario8_11_route0_01_10_04_44_00.json",
+      "sha256": "341e3905f523201d126d9a8c0b1f76a8c5a2c31f95a79543d82475042dfed97d"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34.json",
+      "sha256": "6e762839686b0604db67b7c88403d810fa5b153308c71a035f5dbe33bb689101"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town04_Rep0_Town04_Scenario8_107_route0_01_08_15_58_37.json",
+      "sha256": "81e4926ec9dd8d6fa23180fa6757f807ab6bba184ff4dd259d44cc213ad2d42a"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town05_Rep0_Town05_Scenario8_102_route0_01_10_15_09_22.json",
+      "sha256": "7f29577becbfc5cd8bdb4f895667c908da9603073c5d8384fb9edf5acf442554"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town10HD_Rep0_Town10HD_Scenario8_16_route0_01_09_04_07_14.json",
+      "sha256": "6ae59c755defaf607b15c9a913cdbf2596840ad724c7fb89619ee407c075b097"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town12_Rep0_1579_0_route0_01_09_00_13_44.json",
+      "sha256": "8774e58dcf884f0c4f8141ff37a17a200bddcf0740f95324923bb1cfed4156da"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/OppositeVehicleRunningRedLight__Town13_Rep0_1047_2_route0_01_08_17_02_17.json",
+      "sha256": "860a706ba7e1fc23d40ded12e9f078a9a4969c60fd759fd35374d4472959b799"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ParkedObstacle__Town06_Rep0_route_001921_route0_01_10_21_18_51.json",
+      "sha256": "46fd976276d4ed71a189ee621135ddb991d8c6906c1f29941957f79f3428e1d3"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ParkedObstacle__Town10HD_Rep0_route_001914_route0_01_10_11_09_12.json",
+      "sha256": "f7e3e76dba673de06371964e2789521159f53e2b3a5b137cfddfb8f5657b385e"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ParkingCutIn__Town12_Rep0_1681_1_route0_01_09_03_48_22.json",
+      "sha256": "7a9e796271b4223aaaea9c25860653a977489f2921a4706643072d63839dc44b"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/ParkingCutIn__Town13_Rep0_1009_0_route0_01_09_19_35_55.json",
+      "sha256": "a4cdb1e7a17dfcd2a947ecfed89a636791c450e6ce0e7c8569d11994bfc20726"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/StaticCutIn__Town12_Rep0_1003_0_route0_01_10_22_02_55.json",
+      "sha256": "bdca63deb329e9aee473d839c2eeef7e0a4a8bb492a7e5d60c3ae8ea279be0f0"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/VehicleTurningRoute__Town03_Rep0_Town03_Scenario4_100_route0_01_09_03_00_41.json",
+      "sha256": "9fb62e555643c62f951d706aeb46e01309f8cafb9594f7d058f827c371604c93"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/VehicleTurningRoute__Town04_Rep0_Town04_Scenario4_101_route0_01_08_05_47_59.json",
+      "sha256": "bc68ff70388471dbb1b1eb8f6cf3521599af690e096a19d53631b58a669475be"
+    },
+    {
+      "file": "/tmp/p3audit/cases3/VehicleTurningRoute__Town05_Rep0_Town05_Scenario4_101_route0_01_09_11_15_14.json",
+      "sha256": "b7f85f7c6065f602dd1e26c0f7d9b11b3df924cd74e3781a050aa3e055a67f96"
+    }
+  ]
+}

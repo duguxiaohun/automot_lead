@@ -1,0 +1,3 @@
+# Runtime publication lock/temp file; do not remove an active writer's lock.
+stable.lock
+stable.tmp

@@ -105,7 +105,7 @@ def test_atomic_metadata_restarts_partial_write_without_truncating_target(tmp_pa
 @pytest.mark.parametrize('committed', [False, True])
 def test_phase3_parallel_scan_publication(tmp_path, monkeypatch, committed):
     from collections import Counter
-    from qwen3vl_local.sft_new_loop_phase3 import build_dataset, parallel_scan
+    from qwen3vl_local.action_prior.phase3_stable import build_dataset, parallel_scan
     rows = [{'scenario': 'S', 'frame_id': i} for i in range(3)]
     scans = Counter()
 

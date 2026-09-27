@@ -1,5 +1,40 @@
 # AGENTS.md
 
+### 2026-09-27 区分工程修复与效果版本（覆盖同日逐文件回退约定）
+
+用户明确：ESTALE、缓存续发、异常恢复等不改变模型语义的工程bug修复可保留/回移到稳定版，
+不能因修复最早出现在v24就随效果实验一起撤回。工程修复需故障回归、正常路径输出等价及代码复核，
+不要求先证明GPU分数提高；提示词、标定、标签、阈值/窗口、过滤/split、采样分布、优化/模型条件等
+会改变数据或学习行为的改动仍需效果验证才能替换默认，不能仅以“bug修复”名义绕过。
+当前语义基线仍v23；Action稳定发布为v23_io1（v23＋ESTALE工程修订），三入口同步。
+补回Phase3候选/索引/元信息和并行扫描的有限重试与已提交rename核验；Action外层ready/哈希续发保留。
+旧v23快照不改，新工程revision也绑定源码/manifest/hash；不掺入v24 prompt/标定/smooth_cap/完整训练池。
+工程发布走独立engineering_fix审查分支，保护提示词/轨迹规则/采样/标注文件；改动构建器还必须审查输出等价。
+本轮908项相关CPU回归通过（含15项原v23/工程修订产物等价与故障注入检查）；未真实挂载/GPU验收。
+mapping身份因源码及filesystem依赖绑定变化而更新；旧索引不可改hash硬复用，旧run须原源码。
+详见 [稳定版本约定](AutoMoT/qwen3vl_local/action_prior/PHASE3_STABLE_RELEASES.md) 与
+[工程维护记录](AutoMoT/qwen3vl_local/action_prior/V23_IO_MAINTENANCE_20260927.md)。
+
+
+### 2026-09-27 初次回退记录（工程部分已由上方同日修订覆盖）
+
+用户明确指定v23为当前稳定基线。v24四包审计与回退前源码已留档；Phase3 Python/shell恢复
+b433aa605的prompt/构建/训练/评估/采样，默认data_v23、v23_grounded_stage。
+Action主线/qwen_simple/bev_only统一经phase3_stable读取phase3_releases/stable.json，目前v23；
+禁止直接跟随Phase3实验目录、最新版本号或仅通过CPU审计的v24/v25。快照及外部依赖验SHA，
+缺失/不匹配拒绝，不回退实验源码；缓存/训练合同记录稳定release，新旧run继续严格隔离。
+只有真实同题评估相对当前稳定版改善、关键分组及Action影响复核并正式晋升后，三入口新进程才自动同步；
+运行中进程及builder子进程固定原版。旧checkpoint用原源码，不因晋升热换条件。
+Action采样回到v23事件/事件内动作容量回流；独立指定116256/cap11保留，容量不足拒绝。
+不得把跨题集历史差值当因果改善，不得把曝光路线重称盲测；本轮未GPU效果验收。
+细节、归档位置与晋升流程见
+[稳定版本约定](AutoMoT/qwen3vl_local/action_prior/PHASE3_STABLE_RELEASES.md)及PROJECT_CONTEXT同日记录。
+新增release加载器、稳定快照/manifest、测试和说明均属于已授权Action目录；冻结内容禁止随实验修改。
+本轮相关1064项CPU回归通过；Phase3的80个Python/shell文件与v23逐字节一致。
+更广检查剩余37项未通过，涉及缺只读runner/peft/matplotlib及4项已在回退前归档源码复现的既有测试问题；
+未绕过生产校验，日志与restore_record.json保存在本机源码归档目录。
+
+
 ### 2026-09-26 Phase3 binary 跨机器容量差异与来源内回流
 
 训练机诊断为七个DYNAMIC_CUTIN自动负例细分组共用3帧：54次需求、cap8容量24，缺30。

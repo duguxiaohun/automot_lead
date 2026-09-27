@@ -1,0 +1,24 @@
+[
+  {
+    "scenario": "VehicleTurningRoute",
+    "route_id": "Town04_Rep0_Town04_Scenario4_116_route0_01_07_21_40_02",
+    "start_frame": 5,
+    "end_frame": 20,
+    "road_structure": "UNKNOWN",
+    "decision": "quarantine_rgb_disproved_local_junction",
+    "evidence": "EVAL_RGB_REVIEW_20260914.jsonl",
+    "case_index": 40,
+    "reason": "补查f0–28及原图，连续弯路尚未到局部路口。源vehicle_turning_junction_space由trigger/静态图提示激活，静态map road33与实际road44不一致且junction_id=-1。隔离已连续复核f5–20的路口前提。"
+  },
+  {
+    "scenario": "PedestrianCrossing",
+    "route_id": "Town13_Rep0_105_0_route0_01_10_09_18_37",
+    "start_frame": 11,
+    "end_frame": 26,
+    "road_structure": "UNKNOWN",
+    "decision": "quarantine_rgb_disproved_local_junction",
+    "evidence": "EVAL_RGB_REVIEW_20260914.jsonl",
+    "case_index": 459,
+    "reason": "补查f0–36：双向城市直路、连续人行道，当前及未来无局部路口。源pedestrian_crossing_junction_space将场景窗口当道路几何，隔离连续复核f11–26路口前提。"
+  }
+]
