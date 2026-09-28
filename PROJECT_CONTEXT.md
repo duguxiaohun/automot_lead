@@ -1,5 +1,14 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-28 Action pending mkdir EEXIST 恢复
+
+准备器先检查.pending再mkdir，创建阶段EEXIST原未进入缓存恢复，导致训练前退出。
+新增锁内有限重试，每次重新核验ready/合同/hash；完整结果续发，残缺结果隔离，保留原锁。
+日志不足以确认训练机底层是可见性延迟还是外部写入；未连接训练机或执行GPU验收。
+124项相关CPU回归通过（新增18项），覆盖两阶段冲突、mkdir ESTALE、持久失败及产物字节等价。
+仅改外层prepare_event_balance.py；v23_io1快照、语义、mapping及缓存身份不变，旧run合同仍严格。
+部署范围、恢复操作与验证边界见action_prior/run.md同日条目。
+
 ### 2026-09-27 Action launcher父进程导入路径修复
 
 `python path/launch.py` 原只设置子进程PYTHONPATH，当前进程sys.path仍缺AutoMoT，

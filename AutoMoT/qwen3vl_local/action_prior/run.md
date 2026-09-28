@@ -1,5 +1,29 @@
 # Action prior 使用说明
 
+## 2026-09-28 待发布目录 mkdir 冲突恢复
+
+训练机报错停在 `prepare_event_balance.py` 的 `pending.mkdir()`：前面的缓存检查返回不可复用，
+创建 `.pending-phase3_<identity>` 时却收到 EEXIST。原恢复逻辑覆盖了已可见的残留目录、
+ready/哈希复核和发布 rename 的 ESTALE，但 mkdir 位于恢复分支之外，EEXIST 会直接终止准备。
+这是创建阶段的工程恢复遗漏；`missing_window` / `abnormal_duration` 是此前筛选统计，
+不是这次异常原因。日志本身不能区分共享文件系统可见性延迟、隔离后目录视图滞后或外部写入。
+正常使用同一个有效 flock 的准备进程会串行，不能仅凭 EEXIST 断言训练入口必然并发。
+
+现 `_resume_or_create_pending` 在原缓存锁内对 mkdir 的 EEXIST/ESTALE 最多退避重试4次
+（0.5/1/2/4秒）。每次重新执行完整恢复检查：ready/合同/文件哈希均通过才续发；
+残缺或损坏目录隔离保留后重建。不会使用 `exist_ok=True` 覆盖已有输出，也不删除锁文件。
+持续冲突仍停止并提示检查外部写入和挂载可见性/锁；权限、空间等错误仍直接上报。
+
+本轮124项相关CPU回归通过，新增18项覆盖候选/full map目录暂不可见后EEXIST、
+完整缓存免扫描续发、残缺/损坏/错误文件隔离、mkdir未提交/已提交ESTALE和持续错误有限退出。
+故障恢复后的候选/full map产物与无故障输出逐字节相同；已有真实flock竞争及真实Phase3小样本发布测试通过。
+这是本地故障注入验证，未连接训练机验证真实挂载，也未执行GPU训练。
+
+本次运行时代码仅改 `qwen3vl_local/action_prior/prepare_event_balance.py`，三条Action入口共享。
+如果训练机其余代码已与本机v23_io1一致，同步该文件即可处理这次创建阶段异常，再运行原启动命令。
+不要手工删除 `.pending-*` 或 `.prepare.lock`：完整待发布结果可校验续发，未完成结果会自动隔离。
+v23_io1快照、提示词、标签、采样、mapping及缓存身份均未改；既有checkpoint的源码合同继续严格校验。
+
 ## 2026-09-27 probe结束后父launcher找不到qwen3vl_local
 
 根因是直接运行 `python qwen3vl_local/action_prior/launch.py` 时，Python把脚本所在目录放到

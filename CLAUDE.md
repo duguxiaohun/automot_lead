@@ -1,5 +1,12 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-28 Action pending mkdir EEXIST 恢复
+
+准备器补齐mkdir EEXIST/ESTALE的锁内有限重试，每次重查ready/合同/hash；完整续发、残缺隔离。
+124项相关CPU回归通过（新增18项），未训练机真实挂载/GPU验收；底层触发原因不能仅凭日志确定。
+仅改外层prepare_event_balance.py，v23_io1快照/语义/mapping/缓存身份不变；不删除锁、不放宽旧run合同。
+详见PROJECT_CONTEXT及action_prior/run.md的2026-09-28条目。
+
 ### 2026-09-27 Action launcher父进程导入路径修复
 
 `python path/launch.py` 原只设置子进程PYTHONPATH，当前进程sys.path仍缺AutoMoT，

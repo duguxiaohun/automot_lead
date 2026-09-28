@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -89,6 +90,31 @@ def _publish(staging, destination, validate, payloads):
     _retry_estale(publish_once, f'publish {staging} -> {destination}')
 
 
+def _resume_or_create_pending(pending, validate):
+    """持锁复核待发布目录；检查与 mkdir 间的 EEXIST/ESTALE 重新进入恢复流程。"""
+    for attempt in range(len(ESTALE_DELAYS) + 1):
+        if _retry_estale(lambda: _reuse_or_quarantine(pending, validate), f'pending {pending}'):
+            return True
+        try:
+            pending.mkdir()
+            return False
+        except OSError as exc:
+            if exc.errno not in (errno.EEXIST, errno.ESTALE):
+                raise
+            # 不能 exist_ok=True：已有目录可能包含待续发结果或残缺数据。
+            # mkdir 也可能已经提交却返回 ESTALE，下一轮须重新检查实际状态。
+            if attempt == len(ESTALE_DELAYS):
+                print(f'[prepare] pending creation retries exhausted: {pending}; '
+                      'check external writers and shared filesystem visibility/locking; '
+                      'do not remove .prepare.lock', file=sys.stderr, flush=True)
+                raise
+            delay = ESTALE_DELAYS[attempt]
+            print(f'[prepare] {errno.errorcode[exc.errno]} creating {pending}; '
+                  f'recheck pending {attempt + 1}/{len(ESTALE_DELAYS)} in {delay}s',
+                  file=sys.stderr, flush=True)
+            time.sleep(delay)
+
+
 def _prepare_artifact(destination, validate, payloads, build):
     """同一缓存锁内保存已完成产物；发布失败后下次直接复核并继续发布。"""
     if _retry_estale(lambda: _reuse_or_quarantine(destination, validate), f'cache {destination}'):
@@ -105,9 +131,8 @@ def _prepare_artifact(destination, validate, payloads, build):
             raise ValueError('pending publication identity/content mismatch')
         validate(directory / 'index')
 
-    resumed = _retry_estale(lambda: _reuse_or_quarantine(pending, validate_pending), f'pending {pending}')
+    resumed = _resume_or_create_pending(pending, validate_pending)
     if not resumed:
-        pending.mkdir()
         try:
             build(staging)
             _retry_estale(lambda: validate(staging), f'validate {staging}')

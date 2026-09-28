@@ -415,6 +415,103 @@ def test_pending_candidate_from_changed_source_is_not_resumed(prepared_sources, 
     assert pending.is_dir()
 
 
+@pytest.mark.parametrize('prefix', ['phase3_', 'full_'])
+@pytest.mark.parametrize('damage', [None, 'partial', 'payload', 'marker', 'file'])
+def test_pending_mkdir_collision_revalidates_before_building(
+        prepared_sources, monkeypatch, capsys, prefix, damage):
+    """已存在目录短暂不可见：mkdir EEXIST 后须复核、续发或隔离，不能直接覆盖。"""
+    data, collection, cache, state = prepared_sources
+    rename = Path.rename
+
+    def fail(source, target):
+        if Path(target).name.startswith(prefix):
+            raise OSError(errno.ESTALE, 'leave completed pending output')
+        return rename(source, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'rename', fail)
+        with pytest.raises(OSError):
+            preparation.prepare('raw', data, collection, cache)
+    pending, = cache.glob('.pending-*')
+    expected = {p.name: p.read_bytes() for p in (pending / 'index').iterdir()}
+    if damage == 'partial':
+        (pending / 'ready.json').unlink()
+    elif damage == 'payload':
+        with (pending / 'index' / 'manifest.json').open('a') as stream:
+            stream.write('\n')
+    elif damage == 'marker':
+        (pending / 'ready.json').write_text('null')
+    elif damage == 'file':
+        shutil.rmtree(pending)
+        pending.write_text('unexpected file')
+    exists, is_symlink = Path.exists, Path.is_symlink
+    hidden = []
+
+    def hidden_exists(path):
+        if path == pending and not hidden:
+            hidden.append(path)
+            return False
+        return exists(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'exists', hidden_exists)
+        patch.setattr(Path, 'is_symlink', lambda path: False if path == pending else is_symlink(path))
+        assert preparation.prepare('raw', data, collection, cache).is_file()
+    assert len(hidden) == 1
+    script = 'build_dataset.py' if prefix == 'phase3_' else 'build_event_balance_index.py'
+    assert state['calls'].count(script) == (2 if damage else 1)
+    assert len(list(cache.glob('.invalid-*'))) == bool(damage)
+    assert not list(cache.glob('.pending-*'))
+    destination, = cache.glob(prefix + '*')
+    assert {p.name: p.read_bytes() for p in destination.iterdir()} == expected
+    captured = capsys.readouterr()
+    assert captured.out == ''
+    assert 'recheck pending' in captured.err
+
+
+@pytest.mark.parametrize('prefix', ['.pending-phase3_', '.pending-full_'])
+@pytest.mark.parametrize('committed', [False, True])
+def test_pending_mkdir_estale_rechecks_state(prepared_sources, monkeypatch, prefix, committed):
+    """mkdir 的 ESTALE 可能已提交；不得盲重试或把已有目录直接当新目录。"""
+    data, collection, cache, state = prepared_sources
+    mkdir, faults = Path.mkdir, []
+
+    def fail(path, *args, **kwargs):
+        if path.name.startswith(prefix) and not faults:
+            faults.append(path)
+            if committed:
+                mkdir(path, *args, **kwargs)
+            raise OSError(errno.ESTALE, 'injected pending mkdir failure')
+        return mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'mkdir', fail)
+    assert preparation.prepare('raw', data, collection, cache).is_file()
+    assert len(faults) == 1
+    assert state['calls'] == ['build_dataset.py', 'build_event_balance_index.py']
+    assert len(list(cache.glob('.invalid-*'))) == int(committed)
+
+
+@pytest.mark.parametrize('error_number', [errno.EEXIST, errno.ESTALE, errno.EACCES, errno.ENOSPC])
+def test_pending_mkdir_persistent_failure_is_bounded(prepared_sources, monkeypatch, error_number):
+    """持续冲突有限退出；权限/空间错误不重试，也不启动构建器。"""
+    data, collection, cache, state = prepared_sources
+    mkdir, attempts = Path.mkdir, []
+
+    def fail(path, *args, **kwargs):
+        if path.name.startswith('.pending-'):
+            attempts.append(path)
+            raise OSError(error_number, 'persistent pending mkdir failure', str(path))
+        return mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'mkdir', fail)
+    with pytest.raises(OSError) as error:
+        preparation.prepare('raw', data, collection, cache)
+    assert error.value.errno == error_number
+    retryable = error_number in (errno.EEXIST, errno.ESTALE)
+    assert len(attempts) == (len(preparation.ESTALE_DELAYS) + 1 if retryable else 1)
+    assert not state['calls']
+
+
 def test_full_map_must_match_current_candidate(prepared_sources):
     """合法格式但绑定其它候选的 full map 也必须保留并重建。"""
     data, collection, cache, state = prepared_sources
