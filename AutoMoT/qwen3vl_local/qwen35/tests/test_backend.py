@@ -409,3 +409,37 @@ def test_goalgen_segment_mode_contract(mode):
             require_kv_segment_mode(payload, other, 'wrong mode')
     with pytest.raises(ValueError, match='missing/invalid'):
         require_kv_segment_mode({}, mode, 'missing mode')
+
+
+def test_local_load_without_optional_generation_config(model, tmp_path, monkeypatch):
+    import socket
+    def no_network(*args, **kwargs):
+        raise AssertionError('attempted network for missing optional generation config')
+    model.save_pretrained(tmp_path)
+    (tmp_path/'generation_config.json').unlink()
+    monkeypatch.setattr(socket.socket, 'connect', no_network)
+    restored = LocalModel.from_pretrained(tmp_path)
+    assert restored.generation_config.eos_token_id == model.config.text_config.eos_token_id
+    assert not (tmp_path/'generation_config.json').exists()
+    ids = torch.tensor([[10,11,12]])
+    with torch.no_grad():
+        generated = restored.generate(input_ids=ids, attention_mask=torch.ones_like(ids),
+                                      max_new_tokens=2, do_sample=False)
+    assert generated.shape[1] > ids.shape[1]
+
+
+def test_preflight_generation_config_optional_but_processor_required(tmp_path):
+    from qwen3vl_local.qwen35.preflight import check
+    (tmp_path/'config.json').write_text(json.dumps(dict(model_type='qwen3_5', text_config=dict(
+        hidden_size=2560, num_hidden_layers=32, num_key_value_heads=4, head_dim=256))))
+    # Presence-only preflight fixture, not a complete real model.
+    for name in ('tokenizer.json', 'tokenizer_config.json', 'preprocessor_config.json',
+                 'video_preprocessor_config.json', 'chat_template.jinja'):
+        (tmp_path/name).write_text('{}')
+    (tmp_path/'model.safetensors').write_bytes(b'fixture')
+    result = check(tmp_path)
+    assert result['ready'], result['errors']
+    (tmp_path/'preprocessor_config.json').unlink()
+    result = check(tmp_path)
+    assert not result['ready']
+    assert result['errors'] == ['Missing local model asset: preprocessor_config.json']

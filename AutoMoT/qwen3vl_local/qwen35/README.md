@@ -34,8 +34,8 @@ python -m qwen3vl_local.qwen35.preflight --action
 
 这三个命令不下载模型。完整模型文件必须提前放在默认目录，或传入本地 `--model-dir`。
 目录应包含 `config.json`、完整 safetensors 权重及索引（若分片）、tokenizer 文件、
-`chat_template.jinja`、`preprocessor_config.json`、`video_preprocessor_config.json`
-和 `generation_config.json`。预检缺文件时失败，不联网补文件。
+`chat_template.jinja`、`preprocessor_config.json`、`video_preprocessor_config.json`。`generation_config.json` 为可选文件；官方仓库未提供时，Transformers 从本地
+`config.json` 推导默认生成配置，无需自行造文件。必需资产缺失时预检失败，不联网补文件。
 运行时强制 HF/Transformers/Datasets offline、关闭 telemetry，拒绝远程图片/视频 URL。
 不使用 GGUF、纯文本导出或旧 Qwen3-VL adapter 代替此多模态基座。
 

@@ -1,5 +1,15 @@
 # AGENTS.md
 
+### 2026-09-28 修正 Qwen3.5 官方资产预检
+
+训练机报告 transformers 4.57.3 与缺 generation_config.json。核对官方 Qwen/Qwen3.5-4B
+仓库确认未提供该文件；此前将其列为必需资产是本地预检错误。现改为可选，沿用固定
+Transformers 5.3.0 从本地 config.json 构建默认生成配置，不伪造模型文件、不联网补取。
+版本要求仍严格 5.3.0，训练机需安装 qwen35/requirements.txt；其报告已找到两片权重，
+但尚不代表完整权重内容、实际模型或GPU验收。新增无 generation_config 的真实小模型
+离线加载/生成、预检可选资产与缺必需处理器拒绝测试；专项52项通过，diff检查通过。
+此修复在956b55c4c之后新增；训练机需同步本次预检修正及固定依赖。
+
 ### 2026-09-28 Qwen3.5 复核补齐：system 缓存、选优与 K/V 模式
 
 system-prefix 纯文本复用走 inference_mode；增量 helper 返回本条缓存传入的 rope_deltas，

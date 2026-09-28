@@ -35,8 +35,10 @@ def check(model_dir, *, action=False):
         for key, value in expected.items():
             if text.get(key) != value:
                 errors.append(f"Expected Qwen3.5-4B {key}={value}, got {text.get(key)}")
+        # generation_config.json is optional: Transformers derives defaults
+        # from the local model config when the official repository omits it.
         for name in ("tokenizer.json", "tokenizer_config.json", "preprocessor_config.json",
-                     "video_preprocessor_config.json", "chat_template.jinja", "generation_config.json"):
+                     "video_preprocessor_config.json", "chat_template.jinja"):
             if not (root / name).is_file():
                 errors.append(f"Missing local model asset: {name}")
         index = root / "model.safetensors.index.json"
