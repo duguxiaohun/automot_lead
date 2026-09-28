@@ -2373,7 +2373,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--with-model", action="store_true")
     p.add_argument("--with-teacher", action="store_true", help="compat flag: v5 always dumps teacher prompt/target")
     p.add_argument("--with-teacher-model", action="store_true", help="load base Qwen without LoRA to generate privileged teacher outputs")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--teacher-model-dir", type=str, default=None, help="optional base Qwen dir for teacher generation; defaults to --model-dir")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--merge-lora", action=argparse.BooleanOptionalAction, default=True)

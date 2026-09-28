@@ -1366,7 +1366,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train SFT v3 sequence LoRA")
     parser.add_argument("--train-jsonl", type=str, required=True)
     parser.add_argument("--val-jsonl", type=str, default=None)
-    parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument("--num-epochs", type=int, default=1)
     parser.add_argument("--per-device-batch-size", type=int, default=1)
@@ -1977,7 +1977,8 @@ def main() -> None:
             if fuse_stopped and not fuse_stop_saved:
                 emergency = output_dir / f"fuse_stop_step_{max(synced_all_rank_steps, global_step)}"
                 emergency.mkdir(parents=True, exist_ok=True)
-                bundle.unwrap().save_pretrained(str(emergency))
+                from qwen3vl_local.qwen35.adapters import save_adapter
+                save_adapter(bundle.unwrap(), str(emergency))
                 _save_adapter_config(emergency, bundle, args)
                 (emergency / "fuse_reason.txt").write_text(
                     (
@@ -2000,7 +2001,8 @@ def main() -> None:
                 and synced_all_rank_steps // args.save_steps > last_saved_step // args.save_steps
             ):
                 ckpt = output_dir / f"checkpoint-{synced_all_rank_steps}"
-                bundle.unwrap().save_pretrained(str(ckpt))
+                from qwen3vl_local.qwen35.adapters import save_adapter
+                save_adapter(bundle.unwrap(), str(ckpt))
                 _save_adapter_config(ckpt, bundle, args)
                 saved.append(ckpt)
                 last_saved_step = synced_all_rank_steps
@@ -2232,7 +2234,8 @@ def main() -> None:
     # allreduce 平均回同一份，rank0 保存的就是 averaged adapter。
     if is_rank0(rank) and not args.check and not fuse_stopped:
         final_dir = output_dir / "final"
-        bundle.unwrap().save_pretrained(str(final_dir))
+        from qwen3vl_local.qwen35.adapters import save_adapter
+        save_adapter(bundle.unwrap(), str(final_dir))
         _save_adapter_config(final_dir, bundle, args)
         try:
             bundle.processor.save_pretrained(str(final_dir))

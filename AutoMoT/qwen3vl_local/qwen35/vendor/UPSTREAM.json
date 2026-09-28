@@ -1,0 +1,54 @@
+{
+  "source": "https://github.com/huggingface/transformers/tree/v5.3.0",
+  "distribution": "transformers==5.3.0",
+  "wheel_sha256": "50ac8c89c3c7033444fb3f9f53138096b997ebb70d4b5e50a2e810bf12d3d29a",
+  "files": {
+    "configuration_qwen3_5.py": {
+      "upstream_path": "src/transformers/models/qwen3_5/configuration_qwen3_5.py",
+      "upstream_sha256": "2ec132e5ec5610d3c8110c65ed71cb4f49c98c49f1b79ead0ec973cdb949dd61",
+      "local_sha256": "8b36d9f1bc6202e1020925945b1b230725ebf8dbf79887b6a2080c8327945565"
+    },
+    "modeling_qwen3_5.py": {
+      "upstream_path": "src/transformers/models/qwen3_5/modeling_qwen3_5.py",
+      "upstream_sha256": "0e7410f5251e5c324a5628c5340ee3551f7a6a505ce398569fcc3b5f3ac07f7a",
+      "local_sha256": "42ca953d720d311f44e3c970661f08b5a168a8e244044b214eab5f41d98b0957"
+    },
+    "tokenization_qwen3_5.py": {
+      "upstream_path": "src/transformers/models/qwen3_5/tokenization_qwen3_5.py",
+      "upstream_sha256": "3d2f98abc1c6eec61e4548171286b88f5e8173ac6d63954b8fd225b7e24cf25a",
+      "local_sha256": "3970e3bc01dbaffa74bf61956c14234615698f72639c435efcb774cd942faa20"
+    },
+    "processing_qwen3_vl.py": {
+      "upstream_path": "src/transformers/models/qwen3_vl/processing_qwen3_vl.py",
+      "upstream_sha256": "e5abbaf1d035fe49cd8354f1e92fd3f92ab1103a39173c147471f30ff1908b6a",
+      "local_sha256": "1a5d6e3738d46113bd7750dfdd8a455206f62731142910b0238b3b998eaec86c"
+    },
+    "video_processing_qwen3_vl.py": {
+      "upstream_path": "src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py",
+      "upstream_sha256": "a32f21d59a4f363dcf24516a5b5fc3b6763c8ff93b03afce435faea558623e10",
+      "local_sha256": "416d86d904352d6e18d8b226807949de2ba589ff17d8f868e600c3d9eda80dfb"
+    },
+    "image_processing_qwen2_vl.py": {
+      "upstream_path": "src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py",
+      "upstream_sha256": "218ff9374af6f9c3c3b0e0ca89d2c21308bd1043bf65c8386d658902caf88457",
+      "local_sha256": "c1da13189e2c873690ebb175d0a0aac7dedd121c3dff4667fe1056d83e341189"
+    },
+    "image_processing_qwen2_vl_fast.py": {
+      "upstream_path": "src/transformers/models/qwen2_vl/image_processing_qwen2_vl_fast.py",
+      "upstream_sha256": "78c451e9ce15613491928979e1b78df02dbc68aba377f2e2bb464d7ac2f71aa0",
+      "local_sha256": "84a5b2053146696a24fb96f57f84d6bd77e3287959145b266daca44e528d374e"
+    },
+    "official_chat_template.jinja": {
+      "source": "https://huggingface.co/Qwen/Qwen3.5-4B/raw/main/chat_template.jinja",
+      "retrieved": "2026-09-28",
+      "local_sha256": "d2cb9a5730cdd5f44bce3ada2dc1b0e00c6c59788b6d1c4d8d49c40a274dffb0",
+      "note": "Text snapshot from official model repository; runtime uses the local weight directory template."
+    }
+  },
+  "local_changes": [
+    "Relative shared-framework imports redirected to transformers; model-family code stays local.",
+    "Preserve convolution/recurrent state across multi-token cached suffixes; avoid in-place cached convolution under autograd.",
+    "Reset rotary deltas on fresh text-only prefills; derive modality IDs when legacy caller omits them.",
+    "Compact masked DeltaNet tokens on prefill and cached suffixes; preserve recurrent/convolution state and scatter outputs with autograd."
+  ]
+}

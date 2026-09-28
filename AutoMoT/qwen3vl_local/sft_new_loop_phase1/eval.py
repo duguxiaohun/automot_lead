@@ -335,30 +335,24 @@ def _resolve_history_rgb_mode(
 def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path], device: torch.device, *, merge_lora: bool) -> EvalBundle:
     """加载 base Qwen 和可选 fused-loop LoRA。"""
 
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
-    try:
-        from transformers import AutoModelForImageTextToText as ModelClass
-    except ImportError:
-        try:
-            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-        except ImportError:
-            from transformers import AutoModelForVision2Seq as ModelClass
+    from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
-    kwargs = {"local_files_only": True, "trust_remote_code": True}
+    kwargs = {"local_files_only": True, "trust_remote_code": False}
     try:
         model = ModelClass.from_pretrained(str(model_dir), dtype=torch.bfloat16, **kwargs)
     except TypeError:
         model = ModelClass.from_pretrained(str(model_dir), torch_dtype=torch.bfloat16, **kwargs)
     if adapter_dir is not None:
         _validate_phase1_adapter(pathlib.Path(adapter_dir), pathlib.Path(model_dir))
-        from peft import PeftModel
+        from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
 
         model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
         if merge_lora and hasattr(model, "merge_and_unload"):
             model = model.merge_and_unload()
     model = model.to(device).eval()
-    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=False)
     return EvalBundle(model=model, processor=processor, tokenizer=processor.tokenizer, device=device)
 
 
@@ -889,7 +883,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate base Qwen or fused Phase1+Phase2 LoRA on balanced eight-question cases")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase1_data/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"), help="root used to resolve relative RGB paths or remap old absolute lead_data paths")
-    p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
+    p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3.5-4B"))
     p.add_argument("--adapter-dir", default="")
     p.add_argument(
         "--output-dir",

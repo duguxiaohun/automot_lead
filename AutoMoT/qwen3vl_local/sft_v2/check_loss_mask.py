@@ -41,12 +41,12 @@ def _check_token_weights(model_dir: pathlib.Path, scene_text: str, status_text: 
 
     if not model_dir.exists():
         return {"skipped": True, "reason": f"model_dir not found: {model_dir}"}
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
     processor = AutoProcessor.from_pretrained(
         str(model_dir),
         local_files_only=True,
-        trust_remote_code=True,
+        trust_remote_code=False,
     )
     bundle = _TokenizerBundle(processor.tokenizer)
     checks = {}
@@ -74,7 +74,7 @@ def main() -> None:
     """命令行入口：打印 JSON 检查结果，失败时返回非零退出码。"""
 
     parser = argparse.ArgumentParser(description="Check SFT v2 loss mask spans")
-    parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     args = parser.parse_args()
 
     scene_text = format_scene_assistant("Accident")

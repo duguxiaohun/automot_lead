@@ -38,6 +38,16 @@ def summarize_kv_cache(cache: Any) -> Dict[str, Any]:
 
     summary: Dict[str, Any] = {"type": type(cache).__name__, "layers": []}
 
+    if hasattr(cache, "layer_types"):
+        summary["num_layers"] = len(cache.layer_types)
+        summary["full_attention_layers"] = [i for i, t in enumerate(cache.layer_types) if t == "full_attention"]
+        for i, kind in enumerate(cache.layer_types):
+            entry = {"layer": i, "type": kind}
+            for name in ("key_cache", "value_cache", "conv_states", "recurrent_states"):
+                entry[name] = _tensor_summary(getattr(cache, name)[i])
+            summary["layers"].append(entry)
+        return summary
+
     # DynamicCache -> tuple 只是结构视图转换，不会把大张量复制进 JSON。
     legacy = cache
     if hasattr(cache, "to_legacy_cache"):
@@ -81,8 +91,11 @@ def save_kv_cache(cache: Any, path: pathlib.Path) -> str:
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = cache
-    if hasattr(cache, "to_legacy_cache"):
+    if hasattr(cache, "layer_types"):
+        payload = {"format": "qwen35_hybrid_cache_v1", "layer_types": list(cache.layer_types)}
+        for name in ("key_cache", "value_cache", "conv_states", "recurrent_states"):
+            payload[name] = [x.detach().cpu() if x is not None else None for x in getattr(cache, name)]
+    elif hasattr(cache, "to_legacy_cache"):
         payload = cache.to_legacy_cache()
     torch.save(payload, str(path))
     return str(path)
-

@@ -1,3 +1,5 @@
+> 2026-09-28：当前新训基座默认已迁移为本地 `checkpoints/Qwen3.5-4B`。本文历史记录/旧命令中的 Qwen3-VL 路径不适用于新模型；旧 adapter 需重训。依赖、本地源码、预检与兼容边界见 [Qwen3.5 迁移说明](../qwen35/README.md)。
+
 # LeadMoT 训练运行说明
 
 本手册默认当前目录就是远端 `AutoMoT/`。下面命令都写相对 `AutoMoT/` 的路径，

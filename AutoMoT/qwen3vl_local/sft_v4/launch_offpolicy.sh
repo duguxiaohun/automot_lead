@@ -13,7 +13,7 @@ set -euo pipefail
 
 ulimit -S -c 0 2>/dev/null || true
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v4_data/train.jsonl}"
 OUTPUT_DIR_BASE="${OUTPUT_DIR:-checkpoints/sft_v4_lora}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"

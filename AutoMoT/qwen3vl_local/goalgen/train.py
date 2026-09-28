@@ -1,7 +1,7 @@
 """使用 build_dataset.py 生成的 jsonl 训练 GoalGen v1/v2 共用 DiT-MoT。
 
 这个训练入口刻意保持小而直白：
-- Qwen3-VL-Instruct 全程冻结，只用于 teacher-forced 预填充。
+- Qwen3.5-4B 全程冻结，只用于 teacher-forced 预填充。
 - VAE 全程冻结，只用于历史帧 / 目标帧潜变量编码。
 - DiT-MoT 是唯一可训练模块。
 """
@@ -235,8 +235,8 @@ def build_dit(args: argparse.Namespace) -> DiTMoT:
     """构造 DiT-MoT（当前 v1/v2 共享架构）。
 
     当前 DiT 的 (n_heads, head_dim) 必须严格等于 Qwen 的 (num_key_value_heads, head_dim)，
-    所以**不再需要 language_kv_input_dim 这一字段**。默认 hidden_dim=1024 / n_heads=8 /
-    head_dim=128 已经对齐 Qwen3-VL-4B-Instruct；想接其它 Qwen 时调 --hidden-dim /
+    所以**不再需要 language_kv_input_dim 这一字段**。默认 hidden_dim=1024 / n_heads=4 /
+    head_dim=256 已经对齐 Qwen3.5-4B；想接其它 Qwen 时调 --hidden-dim /
     --n-heads 保持二者乘积等于 Qwen K/V 总维度即可。
 
     实际 K/V 形状是否真匹配在 DiTMoT.forward 第一个 step 内做严格断言（pooled_kv[0] 形状），
@@ -842,6 +842,8 @@ def save_checkpoint(
             "ema_decay": ema.decay,
             "latent_stats": latent_stats,
             "args": vars(args),
+            "qwen_backbone": args.qwen_backbone_contract,
+            "qwen_kv_segment_mode": args.qwen_kv_segment_mode,
         },
         full_ckpt_path,
     )
@@ -857,6 +859,8 @@ def save_checkpoint(
             "patch_unpatch": module.patch_unpatch_metadata(str(latest)),
             "latent_stats": latent_stats,
             "args": vars(args),
+            "qwen_backbone": args.qwen_backbone_contract,
+            "qwen_kv_segment_mode": args.qwen_kv_segment_mode,
         },
         latest,
     )
@@ -1141,6 +1145,8 @@ def train(args: argparse.Namespace) -> None:
         save_cache=False,
         cache_system_prompt=False,
     )
+    from qwen3vl_local.leadmot.config import build_qwen_backbone_contract
+    args.qwen_backbone_contract = build_qwen_backbone_contract(args.checkpoint_dir, args.qwen_adapter_dir)
     engine.load()
     # 可选：挂上 SFT v1 训出来的 LoRA 适配器，让 GoalGen 预填充用"微调后的语言编码"。
     # merge=True 把 LoRA 权重合并进基础矩阵；之后 self.model 上无 PEFT 包装，KV 提取
@@ -1210,6 +1216,11 @@ def train(args: argparse.Namespace) -> None:
         # map_location="cpu"：先放 CPU，再 load_state_dict 时 PyTorch 自动 copy_ 到
         # dit 当前 device + dtype；避免 ckpt 的 device 与本进程 device 不一致导致额外搬运。
         warm_ckpt_payload = torch.load(warm_ckpt_path, map_location="cpu", weights_only=False)
+        from qwen3vl_local.leadmot.config import require_qwen_backbone_match
+        require_qwen_backbone_match(warm_ckpt_payload.get("qwen_backbone"),
+                                   args.qwen_backbone_contract, warm_ckpt_path)
+        from qwen3vl_local.goalgen.qwen_kv import require_kv_segment_mode
+        require_kv_segment_mode(warm_ckpt_payload, args.qwen_kv_segment_mode, warm_ckpt_path)
         if "dit_state_dict" not in warm_ckpt_payload:
             raise KeyError(
                 f"--init-from-ckpt {warm_ckpt_path} 缺少 dit_state_dict 字段；"
@@ -1301,7 +1312,7 @@ def train(args: argparse.Namespace) -> None:
 
     # 可选 torch.compile(dit)：当前默认开启（patch=4 后 token 数较少，
     # compile 的固定 overhead 更容易摊平）。`--no-compile` 关掉作为退路。
-    # - 只 compile DiT；Qwen3-VL 走 HF DynamicCache + Python 控制流不友好。
+    # - 只 compile DiT；Qwen3.5 走 hybrid cache + Python 控制流不友好。
     # - mode="default" 用 Inductor 优化 attention/linear；fullgraph=False 容忍少量
     #   Python 分支（如 force_uncond），不强求一次性 graph 化。
     # - dynamic=True：pooled_kv 的 seq_len 跨 sample 会变，避免反复重 trace。
@@ -1413,7 +1424,7 @@ def train(args: argparse.Namespace) -> None:
                 will_step = micro_pos == micro_group_size
 
                 # Qwen prefill：把 history 图像 + teacher-forced STATUS/SUBGOAL 真值塞进 Qwen，
-                # 拿出 36 层 past_key_values 切 12 段。num_segments 必须 = DiT 层数，否则
+                # 抽出 8 个 full-attention 层的 K/V 对应 8 段。num_segments 必须 = DiT 层数，否则
                 # DiT.forward 会在 zip(blocks, pooled_kv) 时静默错位（旧版会沉默，新版会抛错）。
                 prefill = teacher_forced_prefill(
                     engine=engine,
@@ -1670,7 +1681,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--train-jsonl", default="checkpoints/goalgen_v1_data/train.jsonl")
     p.add_argument("--artifact-version", choices=["v1", "v2"], default=os.environ.get("VERSION", "v1"),
                    help="Version label used for full checkpoint filenames: goalgen_v1.pt / goalgen_v2.pt.")
-    p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3.5-4B")
     p.add_argument("--output-dir", default="checkpoints/goalgen_v1_dit")
     p.add_argument("--qwen-dtype", choices=["bfloat16", "float16", "float32", "auto"], default="bfloat16")
     p.add_argument("--vae-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
@@ -1684,8 +1695,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false",
                    help="保留 PeftModel 包装不合并（调试 LoRA 自身行为用）。")
 
-    # 当前共享架构：patch=4 / hidden=1024 / n_heads=8 / head_dim=128
-    # 与 Qwen3-VL-4B-Instruct 的 (num_key_value_heads=8, head_dim=128) 严格对齐，
+    # 当前共享架构：patch=4 / hidden=1024 / n_heads=4 / head_dim=256
+    # 与 Qwen3.5-4B 的 (num_key_value_heads=4, head_dim=256) 严格对齐，
     # 这样语言 K/V 直接接入 DiT attention，省掉 lang_k_proj/v_proj 跨维线性。
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
@@ -1711,9 +1722,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="可选 latest.pt / best.pt 路径；非空时只加载 dit_state_dict + "
                         "ema_state_dict 做 warm start（不接 optimizer/scheduler/step）。"
                         "strict=True 校验，架构不匹配立即抛错。")
-    p.add_argument("--n-heads", type=int, default=8)
+    p.add_argument("--n-heads", type=int, default=4)
     p.add_argument("--mlp-ratio", type=float, default=4.0)
-    p.add_argument("--num-layers", type=int, default=12)
+    p.add_argument("--num-layers", type=int, default=8)
     p.add_argument("--cond-dim", type=int, default=256)
     p.add_argument("--max-history-frames", type=int, default=8,
                    help="DiT 可接收的最大历史潜变量帧数；数据构建器默认 4 帧。")

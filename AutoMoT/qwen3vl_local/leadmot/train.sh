@@ -43,7 +43,7 @@ if [[ "${NO_RUN_SUBDIR:-0}" != "1" ]]; then
   echo "[run] OUTPUT_DIR=${OUTPUT_DIR}  (latest -> run_${RUN_TAG})"
 fi
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 QWEN_ADAPTER_DIR="${QWEN_ADAPTER_DIR:-}"
 LEAD_BEV_CKPT="${LEAD_BEV_CKPT:-checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth}"
 RESUME="${RESUME:-}"

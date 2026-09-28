@@ -191,26 +191,20 @@ def load_eval_bundle(
 ) -> EvalBundle:
     """加载 base Qwen 和可选 LoRA adapter。"""
 
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
     adapter_cfg: Optional[Dict[str, Any]] = None
     if adapter_dir is not None:
         adapter_cfg = _validate_adapter_config(adapter_dir, model_dir, prompt_memory_mode=prompt_memory_mode)
-    try:
-        from transformers import AutoModelForImageTextToText as ModelClass
-    except ImportError:
-        try:
-            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-        except ImportError:
-            from transformers import AutoModelForVision2Seq as ModelClass
+    from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
-    kwargs = {"local_files_only": True, "trust_remote_code": True}
+    kwargs = {"local_files_only": True, "trust_remote_code": False}
     try:
         model = ModelClass.from_pretrained(str(model_dir), dtype=torch.bfloat16, **kwargs)
     except TypeError:
         model = ModelClass.from_pretrained(str(model_dir), torch_dtype=torch.bfloat16, **kwargs)
     if adapter_dir is not None:
-        from peft import PeftModel
+        from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
 
         cfg = adapter_cfg or _validate_adapter_config(adapter_dir, model_dir, prompt_memory_mode=prompt_memory_mode)
         print(f"[adapter] validated sft_baseline adapter scope={cfg.get('lora_vision_scope')}")
@@ -218,7 +212,7 @@ def load_eval_bundle(
         if merge_lora and hasattr(model, "merge_and_unload"):
             model = model.merge_and_unload()
     model = model.to(device).eval()
-    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=False)
     return EvalBundle(model=model, processor=processor, tokenizer=processor.tokenizer, device=device)
 
 
@@ -930,7 +924,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Evaluate SFT baseline highway/RE-UE adapter")
     p.add_argument("--index", type=str, default="checkpoints/sft_baseline_data/val_sequence_index.jsonl")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--output-dir", type=str, default=None)
     p.add_argument("--output-json", type=str, default=None)

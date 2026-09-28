@@ -111,23 +111,17 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     ``cache_position``。返回模型固定在 eval 模式，不会修改 base checkpoint。
     """
 
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
-    try:
-        from transformers import AutoModelForImageTextToText as ModelClass
-    except ImportError:
-        try:
-            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-        except ImportError:
-            from transformers import AutoModelForVision2Seq as ModelClass
+    from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
-    kwargs = {"local_files_only": True, "trust_remote_code": True}
+    kwargs = {"local_files_only": True, "trust_remote_code": False}
     try:
         model = ModelClass.from_pretrained(str(model_dir), dtype=torch.bfloat16, **kwargs)
     except TypeError:
         model = ModelClass.from_pretrained(str(model_dir), torch_dtype=torch.bfloat16, **kwargs)
     if adapter_dir is not None:
-        from peft import PeftModel
+        from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
 
         # eval/probe 路径默认 merge LoRA，后续 KV decode 直接走普通模型 forward，
         # 避免 PEFT wrapper 在 Qwen3-VL incremental decode 中吞掉 cache_position。
@@ -135,7 +129,7 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
         if merge_lora and hasattr(model, "merge_and_unload"):
             model = model.merge_and_unload()
     model = model.to(device).eval()
-    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=False)
     return EvalBundle(model=model, processor=processor, tokenizer=processor.tokenizer, device=device)
 
 
@@ -804,7 +798,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Evaluate SFT v5 adapter")
     p.add_argument("--index", type=str, required=True)
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--output-json", type=str, default=None)
     p.add_argument("--output-jsonl", type=str, default=None, help="可选逐帧完整 prompt/output/解析记录，便于回查 FP/FN")

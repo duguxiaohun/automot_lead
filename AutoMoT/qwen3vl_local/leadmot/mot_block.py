@@ -41,6 +41,8 @@ def apply_mrope(
     position_ids_3d: torch.Tensor,
     rope_theta: float,
     mrope_section: Tuple[int, int, int],
+    partial_rotary_factor: float = 1.0,
+    interleaved: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """给 generated Q/K 应用 Qwen 风格 M-RoPE。
 
@@ -51,7 +53,10 @@ def apply_mrope(
         raise ValueError(f"q/k must have the same shape, got {tuple(q.shape)} vs {tuple(k.shape)}")
     if q.ndim != 4:
         raise ValueError(f"q must be (B,H,L,D), got {tuple(q.shape)}")
-    head_dim = q.shape[-1]
+    full_head_dim = q.shape[-1]
+    head_dim = int(full_head_dim * partial_rotary_factor)
+    if head_dim <= 0 or head_dim % 2 or head_dim > full_head_dim:
+        raise ValueError("invalid partial rotary dimension")
     half = head_dim // 2
     if sum(mrope_section) != half:
         raise ValueError(f"M-RoPE section sum {sum(mrope_section)} != head_dim//2={half}")
@@ -61,13 +66,21 @@ def apply_mrope(
 
     # 切开最后一个 frequency 维度，并按 t/h/w 轴循环取值；
     # 这和 Qwen3-VL M-RoPE 的 section packing 一致。
-    freq_parts = freqs.split(list(mrope_section), dim=-1)
-    freq_combined = torch.cat([m[i % 3] for i, m in enumerate(freq_parts)], dim=-1)
+    if interleaved:
+        freq_combined = freqs[0].clone()
+        for axis in (1, 2):
+            slots = slice(axis, mrope_section[axis] * 3, 3)
+            freq_combined[..., slots] = freqs[axis, ..., slots]
+    else:
+        freq_parts = freqs.split(list(mrope_section), dim=-1)
+        freq_combined = torch.cat([m[i % 3] for i, m in enumerate(freq_parts)], dim=-1)
 
     emb = torch.cat([freq_combined, freq_combined], dim=-1)
     cos = emb.cos().unsqueeze(1).to(q.dtype)
     sin = emb.sin().unsqueeze(1).to(q.dtype)
-    return (q * cos) + (rotate_half(q) * sin), (k * cos) + (rotate_half(k) * sin)
+    q_rot, k_rot = q[..., :head_dim], k[..., :head_dim]
+    return (torch.cat((q_rot * cos + rotate_half(q_rot) * sin, q[..., head_dim:]), dim=-1),
+            torch.cat((k_rot * cos + rotate_half(k_rot) * sin, k[..., head_dim:]), dim=-1))
 
 
 def apply_mhrope(
@@ -194,6 +207,8 @@ class PrefixKVAttention(nn.Module):
         rope_theta: float = 5000000.0,
         rope_type: str = "mrope",
         mrope_section: Tuple[int, int, int] = (16, 24, 24),
+        partial_rotary_factor: float = 1.0,
+        mrope_interleaved: bool = False,
     ):
         super().__init__()
         if hidden_size % num_heads != 0:
@@ -207,6 +222,8 @@ class PrefixKVAttention(nn.Module):
         self.rope_theta = float(rope_theta)
         self.rope_type = rope_type
         self.mrope_section = tuple(mrope_section)
+        self.partial_rotary_factor = partial_rotary_factor
+        self.mrope_interleaved = mrope_interleaved
 
         self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
@@ -258,7 +275,8 @@ class PrefixKVAttention(nn.Module):
             device=q.device,
         )
         if self.rope_type == "mrope":
-            return apply_mrope(q, k_g, position_ids_3d, self.rope_theta, self.mrope_section)
+            return apply_mrope(q, k_g, position_ids_3d, self.rope_theta, self.mrope_section,
+                               self.partial_rotary_factor, self.mrope_interleaved)
         return apply_mhrope(q, k_g, position_ids_3d, self.rope_theta, self.mrope_section, self.num_heads)
 
     def forward(
@@ -307,6 +325,8 @@ class MoTDecoderBlock(nn.Module):
         rope_theta: float = 5000000.0,
         rope_type: str = "mrope",
         mrope_section: Tuple[int, int, int] = (16, 24, 24),
+        partial_rotary_factor: float = 1.0,
+        mrope_interleaved: bool = False,
     ):
         super().__init__()
         self.norm_attn = RMSNorm(hidden_size, eps=1e-6, elementwise_affine=True)
@@ -317,6 +337,8 @@ class MoTDecoderBlock(nn.Module):
             rope_theta=rope_theta,
             rope_type=rope_type,
             mrope_section=mrope_section,
+            partial_rotary_factor=partial_rotary_factor,
+            mrope_interleaved=mrope_interleaved,
         )
         self.norm_ffn = RMSNorm(hidden_size, eps=1e-6, elementwise_affine=True)
         self.ffn = SwiGLU(hidden_size, ffn_hidden_size)

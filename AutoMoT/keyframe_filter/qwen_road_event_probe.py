@@ -43,7 +43,7 @@ GPU 规则：
 
    python keyframe_filter/qwen_road_event_probe.py --gpu-ids 1 --video-file lead_video/Accident/<run_id>/input.mp4 --scenario Accident --whole-video --every 8 --num-frames 4 --run-tag accident_whole_video
 
-默认只读本地 ``checkpoints/Qwen3-VL-4B-Instruct``，并通过
+默认只读本地 ``checkpoints/Qwen3.5-4B``，并通过
 ``qwen3vl_local.engine.LocalQwen3VLInstructEngine`` 做图文生成。
 """
 
@@ -65,7 +65,7 @@ _THIS_FILE = pathlib.Path(__file__).resolve()
 _KEYFRAME_DIR = _THIS_FILE.parent
 _AUTOMOT_ROOT = _THIS_FILE.parents[1]
 _PROJECT_ROOT = _THIS_FILE.parents[2]
-_DEFAULT_MODEL_DIR = _AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"
+_DEFAULT_MODEL_DIR = _AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"
 _DEFAULT_MAPPING_MD = _KEYFRAME_DIR / "ROAD_EVENT_CANDIDATE_MAPPING.md"
 _DEFAULT_SAVE_ROOT = _AUTOMOT_ROOT / "eval_json" / "qwen_road_event_probe"
 
@@ -973,7 +973,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=demo,
     )
-    p.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", default="checkpoints/Qwen3.5-4B")
     p.add_argument("--mapping-md", default=str(_DEFAULT_MAPPING_MD))
     p.add_argument("--save-root", default=str(_DEFAULT_SAVE_ROOT))
     p.add_argument("--run-tag", default="")

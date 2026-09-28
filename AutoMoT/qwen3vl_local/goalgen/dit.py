@@ -2,8 +2,8 @@
 
 当前共享架构相对早期历史架构的核心改动（详见 PROJECT_CONTEXT.md §15）：
 
-- **维度直接对齐 Qwen K/V 子空间**：hidden_dim=1024、n_heads=8、head_dim=128，
-  全部跟 Qwen3-VL-4B-Instruct 的 (num_key_value_heads, head_dim) 完全相同。
+- **维度直接对齐 Qwen K/V 子空间**：hidden_dim=1024、n_heads=4、head_dim=256，
+  全部跟 Qwen3.5-4B 的 (num_key_value_heads, head_dim) 完全相同。
   作用是**彻底删掉早期架构里的 `lang_k_proj` / `lang_v_proj` 两条 1024→768 跨维线性投影**，
   Qwen 的 K/V 直接当 DiT 的语言 K/V 用，零信息损失。
 - **patch_size=4**：视觉 token 数缩到早期 patch=2 架构的 1/4（24×72→12×36），attention FLOPs 大约
@@ -28,7 +28,7 @@
 - VAE 潜变量: [B, 4, 48, 144]
 - patch_size = 4  -> 图块网格 (12, 36) -> 每个潜变量 432 个 token
 - 视觉 token = 432 (z_t) + F * 432 (z_history)，数据构建器默认 F=4 -> 2160 个 token
-- hidden_dim = 1024, n_heads = 8, head_dim = 128
+- hidden_dim = 1024, n_heads = 4, head_dim = 256
 - language token = Qwen prefill seq_len, 例如 ~2300
 """
 
@@ -354,7 +354,7 @@ class JointAttention(nn.Module):
     ) -> torch.Tensor:
         """Joint attention：vision Q 同时看 vision K/V 与 language K/V。
 
-        - lang_kv：``(K, V)``，形状 ``[B 或 1, n_heads=8, S, head_dim=128]``；
+        - lang_kv：``(K, V)``，形状 ``[B 或 1, n_heads=4, S, head_dim=256]``；
           与 DiT (n_heads, head_dim) 已经天然同形，无需投影。
         - lang_kv_is_projected：当前共享架构下这个参数**总是 True 语义**——language KV 永远
           在 DiT 自己的 (n_heads, head_dim) 子空间。保留这个参数名只是为了让外层
@@ -488,7 +488,7 @@ class DiTMoTConfig:
     """DiT-MoT 默认配置；变更默认值时同时更新 PROJECT_CONTEXT.md §15。
 
     当前共享架构默认值（2026-06 切换后）：
-    - hidden_dim=1024, n_heads=8, head_dim=128 -> 直接对齐 Qwen K/V (8, 128)
+    - hidden_dim=1024, n_heads=4, head_dim=256 -> 直接对齐 Qwen K/V (4, 256)
     - patch_size=4：视觉 token 数相对早期 patch=2 架构缩到 1/4
     - MLP 走 SwiGLU、所有 norm 走 RMSNorm（不再有 language_kv_input_dim 字段）
     """
@@ -496,9 +496,9 @@ class DiTMoTConfig:
     latent_channels: int = 4
     patch_size: int = 4
     hidden_dim: int = 1024
-    n_heads: int = 8
+    n_heads: int = 4
     mlp_ratio: float = 4.0
-    num_layers: int = 12
+    num_layers: int = 8
     cond_dim: int = 256
     max_grid_h: int = 32
     max_grid_w: int = 96
@@ -780,7 +780,7 @@ class DiTMoT(nn.Module):
           最后一帧就是当前 anchor；DiT 会直接看历史视觉 latent。
         - t：[B]，flow matching 时间步 ∈ [0,1]。
         - pooled_kv：长度必须 == num_layers；每段是 (K, V)，形状
-          ``[B 或 1, n_heads=8, S, head_dim=128]``，dtype 通常和 DiT 自身一致。
+          ``[B 或 1, n_heads=4, S, head_dim=256]``，dtype 通常和 DiT 自身一致。
           **当前共享架构要求严格 (n_heads, head_dim) 匹配**，否则在 JointAttention 内会抛错。
         - force_uncond：True 表示用 DiT 自身的 null_lang_k/v 代替 pooled_kv
           走 uncond 路径（CFG 训练 / 引导推理用）。pooled_kv 此时仍需传入，

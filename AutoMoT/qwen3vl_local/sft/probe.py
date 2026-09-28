@@ -649,7 +649,7 @@ def main() -> None:
     parser.add_argument("--val-jsonl", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_data_pending" / "val.jsonl"))
     parser.add_argument("--model-dir", type=str,
-                        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"))
+                        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"))
     parser.add_argument("--lora-dir", type=str,
                         default="",
                         help="可选 LoRA adapter；默认空串跑 base 模型且不会导入 peft。")

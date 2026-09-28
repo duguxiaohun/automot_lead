@@ -22,7 +22,7 @@ AUDIT_PY="qwen3vl_local/sft_new_loop_phase3/audit_eval_cases.py"
 VISUAL_AUDIT_PY="qwen3vl_local/sft_new_loop_phase3/visual_audit.py"
 ADAPTER_CONFIG_NAME="sft_new_loop_phase3_adapter_config.json"
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v23/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 SPLIT="${SPLIT:-test}"

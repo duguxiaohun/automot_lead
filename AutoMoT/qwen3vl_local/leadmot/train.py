@@ -38,11 +38,13 @@ if str(TEAM_CODE_DIR) not in sys.path:
 from mot_lead_offline_runner import (  # noqa: E402
     LEAD_BEV_CKPT_PATH,
     LeadOfflineMoTRunner,
-    _segment_qwen_cache_for_leadmot,
     build_cleaned_prompt_and_modes,
     build_clip_from_real_lead_route,
 )
 import mot_lead_offline_runner as mot_runner  # noqa: E402
+from qwen3vl_local.qwen35.integration import segment_for_decoder as _segment_qwen_cache_for_leadmot
+from qwen3vl_local.qwen35.integration import install_runner_bridge
+install_runner_bridge(mot_runner)
 from qwen3vl_local.leadmot import LeadMoTPlanningDecoder, LeadMoTPlanningDecoderConfig  # noqa: E402
 from qwen3vl_local.leadmot.config import (  # noqa: E402
     build_qwen_backbone_contract,
@@ -1337,7 +1339,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-jsonl", default="checkpoints/leadmot_v1_data/train.jsonl")
     parser.add_argument("--val-jsonl", default="checkpoints/leadmot_v1_data/val.jsonl")
     parser.add_argument("--output-dir", default="checkpoints/leadmot_v1_decoder")
-    parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--model-dir", default="checkpoints/Qwen3.5-4B")
     parser.add_argument(
         "--qwen-adapter-dir",
         default="",

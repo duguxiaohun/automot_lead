@@ -48,7 +48,7 @@ fi
 RUN_AUDIT_CASES="${RUN_AUDIT_CASES:-1}"
 RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-1}"
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 DATA_OUTPUT_DIR="${DATA_OUTPUT_DIR:-checkpoints/sft_new_loop_phase2_data}"
 INDEX="${INDEX:-${DATA_OUTPUT_DIR}/frame_index.jsonl}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"

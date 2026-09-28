@@ -1,5 +1,74 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-28 Qwen3.5 复核补齐：system 缓存、选优与 K/V 模式
+
+system-prefix 纯文本复用走 inference_mode；增量 helper 返回本条缓存传入的 rope_deltas，
+避免模型对象上其它图像分支的 delta 污染后续 decode。真实小模型覆盖先图像 delta=-2、
+后同 system 文本缓存 delta=0、连续三步 decode 与完整重算 logits 一致，未靠重算清除旧值。
+Action available/strict 两种选择均在打分前比较当前本地基座资产；validate_adapter 即使
+只检查目录也拒绝缺资产合同/权重身份。一次扫描只哈希一次基座，显式路径及最终加载仍核对。
+新增 Phase1/2 高分不兼容候选、缺合同/缺权重哈希拒绝回归；原跨机器来源警告同步准确表述。
+GoalGen 完整/latest 保存 qwen_kv_segment_mode，评估及 init-from-ckpt 共用严格校验；
+兼容读取已保存 args 中的模式，缺失/冲突/不同模式拒绝，8 段默认同样遵守合同。
+
+专项与相关扩展回归 753 passed、4 failed、5 deselected；四项打包失败均明确为缺少外部
+mot_lead_offline_runner.py，未关闭来源检查。五个排除项为已记录的 runner、缺数据及 shell
+fixture 问题。Qwen3.5 专项现 50 项通过；另 v5 KV helper、GoalGen 两个 CLI 与12文件语法通过。
+测试日志 /tmp/qwen35-followup-final.log；git diff --check 通过。无真实4B/GPU/吞吐验收，
+完整模型与外部 runner 仍缺失，preflight ready=false；未 commit/push，冻结 release 未改。
+
+### 2026-09-28 Qwen3.5 复核修复：padding 与内容身份
+
+针对复核的三个问题补齐修复。DeltaNet 保留 cached suffix mask，仅有效 token 推进卷积/
+循环状态，scatter 保留 v5 右 padding 打分位置；整行空 suffix 不改变状态或 next logits。
+基座身份增加实际 safetensors/全部分片的流式 SHA256，同时绑定 tokenizer、模板及处理参数；
+backend 更新 qwen35_local_v2，拒绝缺权重身份的 adapter，旧 v1 不自动迁移。
+LeadMoT/GoalGen 共用 v2 backbone 合同；GoalGen 完整与 latest checkpoint 保存合同，
+评估及 init-from-ckpt 在载入 DiT 参数前核对；同路径替换拒绝，同内容搬迁允许，旧 mismatch
+开关不能跳过校验。权重哈希增加启动读取，ragged DeltaNet 分支按样本处理，未验证 CUDA 吞吐。
+新增代码/回归仍在已有白名单，vendor 来源清单同步本地补丁 SHA；冻结数据 release 不改。
+最终相关 CPU 回归 732 项通过（Qwen3.5 专项 46 项），另 v5 KV helper 与 GoalGen train/eval
+CLI 检查通过；覆盖 v5 真实小网络 Q1→Q2 状态/logits/梯度、同结构换基座、
+分片替换/缺失、规划模板/adapter 内容替换与搬迁、GoalGen 实际保存/评估路径；无真实4B/GPU验收。
+完整权重和外部 runner 仍缺失，preflight ready=false；临时日志 /tmp/qwen35-review-final.log。
+离线运行与兼容边界见 qwen35/README.md；本轮未 commit/push。
+
+### 2026-09-28 Qwen3.5-4B 本地源码迁移
+
+按用户明确要求，当前 SFT/Phase1–3、Action/qwen_simple、GoalGen、LeadMoT 和道路事件探测
+默认基座改为 `AutoMoT/checkpoints/Qwen3.5-4B`。包名与 engine 旧导入别名保留兼容；
+bev_only 仍无 Qwen。冻结 Phase3 release、历史审计和旧 checkpoint 不改写，数据语义仍 v23_io1。
+
+新增 `qwen3vl_local/qwen35/`：复制官方 Transformers 5.3.0 的模型/配置/tokenizer/视觉处理器
+共七个源码文件，保留 Apache 许可证、上游 wheel/源码与本地 SHA256 清单；修改只在项目副本。
+运行时显式导入本地类，强制 offline/local_files_only、禁用 remote-code/远程媒体/Hub kernels。
+固定通用框架依赖，在独立临时环境验证，未修改原 pvi 或全局 site-packages。
+
+适配 32 层 hybrid cache（8 个 full-attention 层，K/V 4×256）、线性层卷积/循环状态、
+单/多 token 续写及分支复制、partial interleaved M-RoPE、左 padding、多图 processor、
+非思考模板与答案 loss 边界；保留历史空 think 使模板与缓存前缀一致。
+修复固定上游版本的多 token 缓存状态重置及新纯文本 prefill 沿用旧视觉 rope delta。
+LoRA 加入 DeltaNet 投影；GoalGen/LeadMoT 默认 8 段/8 block/4 heads，宽度仍 1024。
+Action 新增本地 runner bridge，外部 runner 源码仍缺失，不能据桥接单测宣称其端到端兼容。
+新 adapter 保存 backend/基础资产合同，选择/复制/打包携带合同，执行指纹包括本地副本。
+旧 Qwen3-VL LoRA 和规划 checkpoint 不兼容新基座，须原源码恢复；本次升级须新 run。
+
+验证：联合 CPU 回归 768 passed、4 deselected；随后新增真实 Phase3 binary/choice
+小模型 LoRA backward 两项均通过，本地 Qwen3.5 专项共 32 passed（已含于累计 770 项）。
+覆盖小型随机真实网络、多图非零 RoPE delta、缓存续写/梯度、padding/分支、原生 generate
+对照、官方模板/processor、2/4 图 loss-mask、禁止 socket 联网的本地 save/load；并覆盖
+Phase3、Action 训练恢复、稳定 release 等现有回归。15 个 CLI 在仓库外 cwd 的 --help 通过。
+早期扩展回归 5 项失败：3 项缺外部 mot_lead_offline_runner.py；1 项 preflight 测试触发
+数据准备但缺 lead_data；1 项 shell fixture 未复制 prepare_event_balance.py。最终联合检查
+排除前四个 available_adapters 用例且未包含 test_lora_bundle；没有绕过生产合同或伪称全绿。
+日志位于本机 `/tmp/automot-qwen35-source/`（临时诊断，不作为持久产物合同）。
+
+本机无完整 Qwen3.5-4B 权重，亦缺外部 runner；只读 preflight 明确 ready=false。
+未执行真实 4B/GPU 训练、CUDA 加速核验收、真实数据效果对比或完整 Action/闭环验收。
+训练机需完整本地模型资产、固定依赖及原 runner 后再验证；不声称模型效果或速度已提高。
+源码来源、离线安装/预检命令、迁移差异详见
+[Qwen3.5 本地运行说明](AutoMoT/qwen3vl_local/qwen35/README.md)。
+
 ### 2026-09-28 Action pending mkdir EEXIST 恢复
 
 准备器先检查.pending再mkdir，创建阶段EEXIST原未进入缓存恢复，导致训练前退出。

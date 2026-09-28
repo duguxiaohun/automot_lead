@@ -1,3 +1,5 @@
+> 2026-09-28：当前新训基座默认已迁移为本地 `checkpoints/Qwen3.5-4B`。本文历史记录/旧命令中的 Qwen3-VL 路径不适用于新模型；旧 adapter 需重训。依赖、本地源码、预检与兼容边界见 [Qwen3.5 迁移说明](../qwen35/README.md)。
+
 # SFT New Loop Phase3 当前运行入口（2026-09-27，恢复 v23）
 
 2026-09-27入口排查：Action probe完成后父launcher的 `qwen3vl_local` 导入错误已补sys.path初始化，

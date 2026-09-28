@@ -577,7 +577,8 @@ def publish_snapshot(bundle: Any, args: argparse.Namespace, *, step: int) -> pat
     tmp = latest / f".tmp_v_{step_int}_{os.getpid()}"
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)
-    bundle.unwrap().save_pretrained(str(tmp))
+    from qwen3vl_local.qwen35.adapters import save_adapter
+    save_adapter(bundle.unwrap(), str(tmp))
     _write_adapter_metadata(tmp, bundle, args, step=step, kind="snapshot")
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
@@ -668,7 +669,8 @@ def save_checkpoint(bundle: Any, optimizer: torch.optim.Optimizer, scheduler: An
     tmp = pathlib.Path(args.output_dir) / f".tmp_checkpoint_{int(step)}_{os.getpid()}"
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)
-    bundle.unwrap().save_pretrained(str(tmp))
+    from qwen3vl_local.qwen35.adapters import save_adapter
+    save_adapter(bundle.unwrap(), str(tmp))
     _write_adapter_metadata(tmp, bundle, args, step=step, kind="checkpoint")
     torch.save({"optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(), "step": int(step)}, tmp / "trainer_state.pt")
     if ckpt.exists():
@@ -692,7 +694,7 @@ def parse_args() -> argparse.Namespace:
     """
 
     p = argparse.ArgumentParser(description="Train SFT v4 learner from off-policy replay")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--replay-dir", type=str, default="checkpoints/sft_v4_lora/latest/replay")
     p.add_argument("--output-dir", type=str, default="checkpoints/sft_v4_lora/latest")
     p.add_argument("--max-steps", type=int, default=10000)
@@ -891,7 +893,8 @@ def main() -> None:
             emergency = output_dir / f"fuse_stop_after_step_{global_step}"
             if emergency.exists():
                 shutil.rmtree(emergency, ignore_errors=True)
-            bundle.unwrap().save_pretrained(str(emergency))
+            from qwen3vl_local.qwen35.adapters import save_adapter
+            save_adapter(bundle.unwrap(), str(emergency))
             _write_adapter_metadata(emergency, bundle, args, step=global_step, kind="fuse_stop")
             (emergency / "fuse_reason.txt").write_text(reason + "\n", encoding="utf-8")
             (output_dir / "STOP").write_text("vision_fuse\n", encoding="utf-8")
@@ -983,7 +986,8 @@ def main() -> None:
         final_dir = output_dir / "final"
         if final_dir.exists():
             shutil.rmtree(final_dir, ignore_errors=True)
-        bundle.unwrap().save_pretrained(str(final_dir))
+        from qwen3vl_local.qwen35.adapters import save_adapter
+        save_adapter(bundle.unwrap(), str(final_dir))
         _write_adapter_metadata(final_dir, bundle, args, step=global_step, kind="final")
         publish_snapshot(bundle, args, step=global_step)
         (output_dir / "STOP").write_text("done\n", encoding="utf-8")

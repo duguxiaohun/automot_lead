@@ -1302,7 +1302,7 @@ def main() -> None:
     parser.add_argument("--val-jsonl", default="checkpoints/goalgen_v1_data/val.jsonl")
     parser.add_argument("--dit-checkpoint", default="",
                         help="DiT ckpt 路径；空 = 按 --save-root 自动解析 latest/best.pt。")
-    parser.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--checkpoint-dir", default="checkpoints/Qwen3.5-4B")
     parser.add_argument("--save-root", default="checkpoints/goalgen_v1_dit",
                         help="case dump 落到 <save-root>/eval_cases/<scenario>__<run>__<anchor>/")
     parser.add_argument("--case-suffix", default="",
@@ -1348,9 +1348,9 @@ def main() -> None:
     parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--patch-size", type=int, default=4)
     parser.add_argument("--hidden-dim", type=int, default=1024)
-    parser.add_argument("--n-heads", type=int, default=8)
+    parser.add_argument("--n-heads", type=int, default=4)
     parser.add_argument("--mlp-ratio", type=float, default=4.0)
-    parser.add_argument("--num-layers", type=int, default=12)
+    parser.add_argument("--num-layers", type=int, default=8)
     parser.add_argument("--cond-dim", type=int, default=256)
     parser.add_argument("--max-history-frames", type=int, default=8)
     parser.add_argument("--qwen-kv-segment-mode",

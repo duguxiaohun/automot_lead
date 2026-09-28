@@ -48,6 +48,14 @@ def fixture_adapter(root, phase=1, slot="best_generation", score=0.8, mode="4rgb
         json.dumps({"peft_type": "LORA", "bias": "none"})
     )
     (path / "adapter_model.safetensors").write_bytes(b"weights")
+    from qwen3vl_local.qwen35.backend import backend_contract
+    (path / "qwen35_backend.json").write_text(json.dumps(backend_contract()))
+    base = root.parent / "base"
+    base.mkdir(exist_ok=True)
+    if not (base / "model.safetensors").exists():
+        (base / "model.safetensors").write_bytes(b"base fixture")
+    from qwen3vl_local.qwen35.identity import base_asset_hashes
+    (path / "qwen35_base_assets.json").write_text(json.dumps(base_asset_hashes(base)))
     (root / "train_eval_metrics.jsonl").write_text(
         json.dumps(
             dict(

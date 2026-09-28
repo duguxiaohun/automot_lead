@@ -6,7 +6,7 @@
 
 老师路径与 collector 完全一致：``load_model_with_lora`` 拿到 PEFT bundle 后，全程
 ``model.disable_adapter()`` 绕开 LoRA delta，等价于纯 frozen base
-Qwen3-VL-4B-Instruct，再叠加 ``torch.no_grad()`` 与 train.py 同款 KV cache 生成路径
+Qwen3.5-4B，再叠加 ``torch.no_grad()`` 与 train.py 同款 KV cache 生成路径
 不启用强制最少生成长度。
 
 每帧默认覆盖 4 种常规 memory 起点；``scene_change_cross_rs`` 保留为显式 stress 模式：
@@ -28,7 +28,7 @@ Qwen3-VL-4B-Instruct，再叠加 ``torch.no_grad()`` 与 train.py 同款 KV cach
 
     python qwen3vl_local/sft_v4/inspect_teacher.py \
         --train-jsonl checkpoints/sft_v4_data/train.jsonl \
-        --model-dir checkpoints/Qwen3-VL-4B-Instruct \
+        --model-dir checkpoints/Qwen3.5-4B \
         --out-dir checkpoints/sft_v4_inspect/run_$(date +%Y%m%d_%H%M%S) \
         --num-episodes 3 --frames-per-episode 4
 
@@ -971,12 +971,12 @@ def parse_args() -> argparse.Namespace:
 
     所有路径默认贴合白名单内训练入口的产物布局：episode jsonl 在
     ``checkpoints/sft_v4_data/train.jsonl``，base 模型在
-    ``checkpoints/Qwen3-VL-4B-Instruct``。
+    ``checkpoints/Qwen3.5-4B``。
     """
 
     p = argparse.ArgumentParser(description="SFT v4 teacher prompt/response inspection")
     p.add_argument("--train-jsonl", type=str, default="checkpoints/sft_v4_data/train.jsonl")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--out-dir", type=str, default="checkpoints/sft_v4_inspect/latest")
     p.add_argument("--num-episodes", type=int, default=3, help="随机抽样的 episode 数")
     p.add_argument("--frames-per-episode", type=int, default=4, help="每条 episode 内抽样的帧数")

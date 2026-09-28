@@ -23,7 +23,7 @@ class LeadMoTPlanningDecoder(nn.Module):
     """接在 frozen Qwen 和 frozen BEV 上训练的快推理 planning decoder。
 
     Forward 输入：
-    - ``pooled_kv``：frozen Qwen K/V 的 12 个 segment，每层 block 用一个；
+    - ``pooled_kv``：frozen Qwen K/V 的 8 个 full-attention segment，每层 block 用一个；
     - ``bev``：LEAD BEV feature map，形状 ``(B, 512, 10, 12)``；
     - ``speed``、``target_point``、``target_point_next``：ego 状态输入；
     - ``rope_position_offset``：来自 Qwen prefill 的 next-token 位置 offset。
@@ -64,6 +64,8 @@ class LeadMoTPlanningDecoder(nn.Module):
                     rope_theta=cfg.rope_theta,
                     rope_type=cfg.rope_type,
                     mrope_section=active_section,
+                    partial_rotary_factor=cfg.partial_rotary_factor,
+                    mrope_interleaved=cfg.mrope_interleaved,
                 )
                 for _ in range(cfg.num_layers)
             ]

@@ -33,9 +33,14 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def inspect_adapter(path, phase, model_dir):
+def inspect_adapter(path, phase, model_dir, *, base_assets=None):
     """硬校验模型、提示词和 RGB 合同；显式选择也不能绕过。"""
     path = Path(path).expanduser().resolve()
+    from qwen3vl_local.qwen35.adapters import validate_adapter
+    from qwen3vl_local.qwen35.identity import base_asset_hashes
+    if base_assets is None:
+        base_assets = base_asset_hashes(model_dir)
+    validate_adapter(path, base_assets=base_assets)
     cfg_name = f"sft_new_loop_phase{phase}_adapter_config.json"
     cfg = read_json(path / cfg_name)
     peft = read_json(path / "adapter_config.json")
@@ -81,7 +86,8 @@ def inspect_adapter(path, phase, model_dir):
         raise ValueError(f"{path}: expected exactly one adapter weight file")
     files = {
         p.name: file_hash(p)
-        for p in [path / cfg_name, path / "adapter_config.json", *weights]
+        for p in [path / cfg_name, path / "adapter_config.json", path / "qwen35_backend.json", *weights,
+                  *([path / "qwen35_base_assets.json"] if (path / "qwen35_base_assets.json").is_file() else [])]
     }
     return dict(
         path=str(path),
@@ -137,10 +143,12 @@ def select_adapter(root, phase, model_dir, explicit=""):
         for p in root.rglob(f"sft_new_loop_phase{phase}_adapter_config.json")
         if p.parent.name == "best_generation"
     }
+    from qwen3vl_local.qwen35.identity import base_asset_hashes
+    base_assets = base_asset_hashes(model_dir)
     eligible, rejected = [], []
     for path in sorted(paths):
         try:
-            item = inspect_adapter(path, phase, model_dir)
+            item = inspect_adapter(path, phase, model_dir, base_assets=base_assets)
             item["generation_exact"] = selection_score(path, item["metadata"], phase)
             eligible.append(item)
         except (ValueError, KeyError, OSError, TypeError) as exc:

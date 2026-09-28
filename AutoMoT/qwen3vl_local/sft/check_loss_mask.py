@@ -158,7 +158,7 @@ def main() -> None:
     parser.add_argument(
         "--tokenizer-dir",
         type=str,
-        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"),
+        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"),
     )
     args = parser.parse_args()
 
@@ -186,7 +186,7 @@ def main() -> None:
             print(f"[range] {name:8s} chars [{s},{e}) -> {assistant[s:e]!r}")
 
     try:
-        from transformers import AutoTokenizer  # type: ignore
+        from qwen3vl_local.qwen35.vendor.tokenization_qwen3_5 import Qwen3_5Tokenizer as AutoTokenizer
     except ImportError:
         print("[err] 缺少 transformers，请先安装", file=sys.stderr)
         sys.exit(3)
@@ -199,7 +199,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(
         str(tokenizer_dir),
         local_files_only=True,
-        trust_remote_code=True,
+        trust_remote_code=False,
     )
     # return_offsets_mapping=True 是 Fast tokenizer 独占功能。
     # train.py 也加了同样 assert，这里再守一遍，避免静态自检跑下来误以为通过。

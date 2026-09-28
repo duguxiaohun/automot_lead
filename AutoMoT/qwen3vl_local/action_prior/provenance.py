@@ -91,6 +91,9 @@ def execution_sources(root):
 
     from qwen3vl_local.action_prior.phase3_release import contract_source_paths
     pending = [root / name for name in (*EXECUTION_SEEDS, *contract_source_paths())]
+    pending.extend(p for p in (root / "qwen3vl_local/qwen35").rglob("*")
+                   if p.suffix in {".py", ".json", ".txt", ".jinja"}
+                   and "tests" not in p.parts and "__pycache__" not in p.parts)
     paths = set()
     while pending:
         path = pending.pop()

@@ -61,12 +61,12 @@ def _load_tokenizer(model_dir: pathlib.Path) -> Any | None:
 
     if not model_dir.exists():
         return None
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
     processor = AutoProcessor.from_pretrained(
         str(model_dir),
         local_files_only=True,
-        trust_remote_code=True,
+        trust_remote_code=False,
     )
     return processor.tokenizer
 
@@ -158,7 +158,7 @@ def main() -> None:
     """枚举 7 项 loss 的 mask 检查并返回结构化报告。"""
 
     parser = argparse.ArgumentParser(description="Check SFT v4 loss mask (7 loss terms)")
-    parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     args = parser.parse_args()
 
     tok = _load_tokenizer(pathlib.Path(args.model_dir))

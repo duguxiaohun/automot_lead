@@ -24,7 +24,7 @@ def pair(tmp_path):
     one = fixture_adapter(source / "p1", 1)
     two = event_adapter(source / "p2")
     base = source / "base"
-    base.mkdir()
+    base.mkdir(exist_ok=True)
     (base / "model.safetensors").write_bytes(b"base fixture")
     bev = tmp_path / "bev.pt"
     bev.write_bytes(b"BEV fixture")

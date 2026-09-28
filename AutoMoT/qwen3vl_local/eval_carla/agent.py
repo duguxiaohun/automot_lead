@@ -85,6 +85,8 @@ from filterpy.kalman import UnscentedKalmanFilter as UKF
 # 推理引擎（含 Qwen prefill + LeadBEVEncoder + LeadMoT decoder）
 from team_code.mot_lead_offline_runner import LeadOfflineMoTRunner
 from team_code import mot_lead_offline_runner as _mot_lead_runner
+from qwen3vl_local.qwen35.integration import install_runner_bridge
+install_runner_bridge(_mot_lead_runner)
 from qwen3vl_local.leadmot.config import (
     build_qwen_backbone_contract,
     require_qwen_backbone_match,
@@ -447,6 +449,8 @@ class MOTLeadAgent(SafetyMixin, autonomous_agent.AutonomousAgent):
 
     def _create_runner(self, device, rope_type):
         """构建旧 LeadMoT 引擎；action_prior 子类覆盖此入口以恢复独立合同。"""
+        _mot_lead_runner._QWEN_INSTRUCT_CHECKPOINT_DIR = pathlib.Path(
+            os.environ.get("MODEL_DIR", str(_AUTOMOT_ROOT / "checkpoints/Qwen3.5-4B"))).expanduser().resolve()
         self.runner = LeadOfflineMoTRunner(
             device=device,
             leadmot_ckpt_path=str(self.leadmot_ckpt_path),

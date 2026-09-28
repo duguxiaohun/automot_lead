@@ -67,7 +67,7 @@ if [[ -n "$resume_checkpoint" ]]; then
 fi
 args=(--data-root "${DATA_ROOT:-lead_data}" --data-dir "${DATA_DIR:-checkpoints/action_prior_data}"
  --checkpoint-root "${CHECKPOINT_ROOT:-checkpoints}" --selection-policy "${SELECTION_POLICY:-available}"
- --model-dir "${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+ --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
  --lead-bev-ckpt "${LEAD_BEV_CKPT:-checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth}"
  --num-epochs "${NUM_EPOCHS:-7}" --learning-rate "${LR:-0.0002}"
  --grad-accum-steps "${GRAD_ACCUM:-16}" --val-steps "${VAL_STEPS:-250}"

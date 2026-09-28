@@ -4,7 +4,7 @@ set -euo pipefail
 # Lightweight triage launcher for sft_base_simple. Run from AutoMoT/.
 
 CKPT="${CKPT:-checkpoints/sft_base_simple_runs/latest/final}"
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 INDEX="${INDEX:-checkpoints/sft_base_simple_data/val_sequence_index.jsonl}"
 OUT_ROOT="${OUT_ROOT:-$(dirname "${CKPT}")/eval_results/triage_$(date +%Y%m%d_%H%M%S)}"
 BALANCED_CASES_PER_BIN="${BALANCED_CASES_PER_BIN:-64}"

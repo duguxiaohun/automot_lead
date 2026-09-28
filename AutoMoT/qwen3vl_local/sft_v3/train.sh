@@ -14,7 +14,7 @@ ulimit -S -c 0 2>/dev/null || true
 MODE="${1:-ddp}"
 
 # 路径默认都以远端 AutoMoT/ 为当前目录；不要在这里加 AutoMoT/ 前缀。
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_v3_data/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/sft_v3_data/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v3_lora}"

@@ -1202,7 +1202,7 @@ def main():
     parser.add_argument("--val-jsonl", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_data_pending" / "val.jsonl"))
     parser.add_argument("--model-dir", type=str,
-                        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"))
+                        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"))
     parser.add_argument("--lora-dir", type=str,
                         default=str(_AUTOMOT_ROOT / "checkpoints" / "sft_lora" / "latest" / "final"),
                         help="LoRA adapter 目录。默认指向 train.sh 写出的 latest run 的 final/ 子目录。"

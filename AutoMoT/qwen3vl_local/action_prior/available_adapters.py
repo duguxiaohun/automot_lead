@@ -5,6 +5,7 @@ import math
 import json
 from pathlib import Path
 
+from qwen3vl_local.qwen35.identity import base_asset_hashes
 from qwen3vl_local.action_prior.contracts import digest, file_hash, read_json, selection_score
 from qwen3vl_local.action_prior.lora_audit import ERRORS, discover
 from qwen3vl_local.action_prior.prompt_versions import prompt_module
@@ -13,9 +14,13 @@ from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 POLICY = "available_new_phase_best_then_fallback_v1"
 
 
-def inspect_available(path, phase, model_dir, *, hash_files=True):
+def inspect_available(path, phase, model_dir, *, hash_files=True, base_assets=None):
     """保留 RGB/提示词/PEFT 硬校验；跨服务器基座路径和空 Git 作为显式来源警告。"""
     path = Path(path).expanduser().resolve()
+    from qwen3vl_local.qwen35.adapters import validate_adapter
+    if base_assets is None:
+        base_assets = base_asset_hashes(model_dir)
+    validate_adapter(path, base_assets=base_assets)
     # 默认递归搜索到迁移包或 action 副本时也验清单，不能只在 --lora-bundle 时才防损坏。
     for parent in path.parents:
         if (parent / "bundle_manifest.json").is_file():
@@ -49,9 +54,9 @@ def inspect_available(path, phase, model_dir, *, hash_files=True):
     if original.resolve() != target:
         # 共享服务器目录迁移不应拒绝同名基座；不能把普通 Qwen 或其它尺寸当作同一基座。
         expected_name = Path(model_dir).expanduser().name
-        if original.name != expected_name or expected_name != "Qwen3-VL-4B-Instruct":
-            raise ValueError("base model family mismatch; expected Qwen3-VL-4B-Instruct for path remap")
-        warnings.append("base_path_remapped: 同名 Qwen3-VL-4B-Instruct 按共享基座使用；原服务器权重字节一致性未验证")
+        if original.name != expected_name or expected_name != "Qwen3.5-4B":
+            raise ValueError("base model family mismatch; expected Qwen3.5-4B for path remap")
+        warnings.append("base_path_remapped: 已按保存的权重及输入资产 SHA256 核验共享基座")
     if phase == 2 and module.__name__.endswith("phase2_v3_prompts"):
         warnings.append("historical_event_v3: 使用冻结的新 Phase2 v3 提示词；不冒充 v5 高速 UE3 协议")
     item = dict(path=str(path), phase=phase, metadata=cfg, warnings=warnings,
@@ -60,7 +65,8 @@ def inspect_available(path, phase, model_dir, *, hash_files=True):
                 base_path_remapped=original.resolve() != target,
                 original_base_model_dir=recorded_base, effective_base_model_dir=str(target))
     if hash_files:
-        files = {p.name: file_hash(p) for p in (path / filename, path / "adapter_config.json", *weights)}
+        files = {p.name: file_hash(p) for p in (path / filename, path / "adapter_config.json", path / "qwen35_backend.json", *weights,
+                 *([path / "qwen35_base_assets.json"] if (path / "qwen35_base_assets.json").is_file() else []))}
         item.update(file_sha256=files, fingerprint=digest(files))
     return item
 
@@ -124,9 +130,9 @@ def saved_score(path, cfg, phase):
                 metric_source=str(record_path), warnings=warnings)
 
 
-def candidate(path, phase, model_dir, *, hash_files=True):
+def candidate(path, phase, model_dir, *, hash_files=True, base_assets=None):
     """将运行兼容检查与真实保存步指标组合成一个候选。"""
-    item = inspect_available(path, phase, model_dir, hash_files=hash_files)
+    item = inspect_available(path, phase, model_dir, hash_files=hash_files, base_assets=base_assets)
     score = saved_score(Path(item["path"]), item["metadata"], phase)
     warnings = item["warnings"] + score.pop("warnings")
     return {**item, **score, "warnings": warnings}
@@ -144,10 +150,11 @@ def scan_available(roots, phase, model_dir):
         for row in found["slots"]:
             if row["slot"] in ("best_generation", "fallback_generation"):
                 paths.add(row["path"])
+    base_assets = base_asset_hashes(model_dir)
     rows = []
     for path in sorted(paths):
         try:
-            item = candidate(path, phase, model_dir, hash_files=False)
+            item = candidate(path, phase, model_dir, hash_files=False, base_assets=base_assets)
             rows.append(dict(item, eligible=True))
         except ERRORS as exc:
             rows.append(dict(path=path, phase=phase, eligible=False, rejection=str(exc)))

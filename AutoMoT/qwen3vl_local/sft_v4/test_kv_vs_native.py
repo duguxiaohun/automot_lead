@@ -1,6 +1,6 @@
 """验证本地化后的"自定义 KV 增量解码"与"原生 Qwen"是否一致。
 
-回答两个问题（都需要本地 Qwen3-VL 权重；无权重时 skipped）：
+回答两个问题（都需要本地 Qwen3.5-4B 权重；无权重时 skipped）：
 
 A. **逐 token 漂移测试**：sft_v4/train 的 ``_append_token_ids`` 增量路径，每步算出的
    next-token logits，是否与"从头全量无 cache forward"的金标准在 bf16 噪声内一致。
@@ -31,7 +31,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
-MODEL_DIR = pathlib.Path("checkpoints/Qwen3-VL-4B-Instruct")
+MODEL_DIR = pathlib.Path("checkpoints/Qwen3.5-4B")
 RGB_DIR = pathlib.Path(
     "lead_data/InterurbanAdvancedActorFlow/Town12_Rep0_1289_7_route0_01_07_23_36_37/rgb"
 )

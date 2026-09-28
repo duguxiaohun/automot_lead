@@ -351,7 +351,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Evaluate SFT v2 serial choice LoRA")
     p.add_argument("--jsonl", type=str, default="checkpoints/sft_v2_data/val.jsonl")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--lora-dir", type=str, default="checkpoints/sft_v2_lora/latest/final")
     p.add_argument("--save-root", type=str, default="checkpoints/sft_v2_lora/latest")
     p.add_argument("--device", type=str, default="auto")

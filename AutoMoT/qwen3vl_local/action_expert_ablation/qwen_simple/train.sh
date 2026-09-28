@@ -43,7 +43,7 @@ add_default_arg() {
 
 add_default_arg DATA_ROOT --data-root lead_data
 add_default_arg DATA_DIR --data-dir checkpoints/action_prior_data
-add_default_arg MODEL_DIR --model-dir checkpoints/Qwen3-VL-4B-Instruct
+add_default_arg MODEL_DIR --model-dir checkpoints/Qwen3.5-4B
 add_default_arg LEAD_BEV_CKPT --lead-bev-ckpt checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth
 add_default_arg NUM_EPOCHS --num-epochs 7
 add_default_arg LR --learning-rate 0.0002

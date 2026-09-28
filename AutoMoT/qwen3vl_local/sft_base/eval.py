@@ -236,7 +236,7 @@ def _validate_adapter_config(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
 def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path], device: torch.device, *, merge_lora: bool) -> EvalBundle:
     """加载 base Qwen 和可选 LoRA adapter。"""
 
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
     # 先校验 adapter 再加载大模型。这样用户误传旧 ABC/direct-choice checkpoint 时，
     # 多卡评测不会先把 4 份 Qwen 都加载到显存里才报错，失败会更快也更清楚。
@@ -244,21 +244,15 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     if adapter_dir is not None:
         adapter_cfg = _validate_adapter_config(adapter_dir, model_dir)
 
-    try:
-        from transformers import AutoModelForImageTextToText as ModelClass
-    except ImportError:
-        try:
-            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-        except ImportError:
-            from transformers import AutoModelForVision2Seq as ModelClass
+    from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
-    kwargs = {"local_files_only": True, "trust_remote_code": True}
+    kwargs = {"local_files_only": True, "trust_remote_code": False}
     try:
         model = ModelClass.from_pretrained(str(model_dir), dtype=torch.bfloat16, **kwargs)
     except TypeError:
         model = ModelClass.from_pretrained(str(model_dir), torch_dtype=torch.bfloat16, **kwargs)
     if adapter_dir is not None:
-        from peft import PeftModel
+        from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
 
         cfg = adapter_cfg or _validate_adapter_config(adapter_dir, model_dir)
         print(f"[adapter] validated sft_base adapter scope={cfg.get('lora_vision_scope')}")
@@ -266,7 +260,7 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
         if merge_lora and hasattr(model, "merge_and_unload"):
             model = model.merge_and_unload()
     model = model.to(device).eval()
-    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True, trust_remote_code=False)
     return EvalBundle(model=model, processor=processor, tokenizer=processor.tokenizer, device=device)
 
 
@@ -1889,7 +1883,7 @@ def evaluate(args: argparse.Namespace) -> Optional[Dict[str, Any]]:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate SFT base token-choice adapter")
     p.add_argument("--index", type=str, default="checkpoints/sft_base_data/val_sequence_index.jsonl")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--output-dir", type=str, default=None)
     p.add_argument("--output-json", type=str, default=None)

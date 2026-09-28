@@ -163,7 +163,7 @@ def create_bundle(selected, destination, policy="available", extra_provenance=No
             "    bash qwen3vl_local/action_prior/run_full_pipeline.sh --lora-bundle checkpoints/" + destination.name + "\n\n"
             "仅包含所选 Phase1/2 LoRA；不含 Qwen 基座、BEV、数据集或 action decoder。\n"
             "目标服务器需使用包含 lora_bundle 功能及对应 prompt 协议的项目代码，准备本地 "
-            "Qwen3-VL-4B-Instruct 和 BEV；可用 --model-dir / --lead-bev-ckpt 指定。\n"
+            "Qwen3.5-4B 和 BEV；可用 --model-dir / --lead-bev-ckpt 指定。\n"
             "原始 Git/配置保持不变，缺失 Git 不补造。source_provenance.json 记录来源；"
             "prompt_sources 只用于审计，不自动执行。bundle_manifest.json 校验所有包内文件。\n"
             "这是完整权重迁移包，不适用 30 MB 指标审计包限制。\n", encoding="utf-8")
@@ -171,7 +171,7 @@ def create_bundle(selected, destination, policy="available", extra_provenance=No
         manifest = dict(schema=SCHEMA, selection_policy=policy, phases=phases, files=files,
                         exporter_git_commit=exporter_git, extra_provenance=extra_provenance or {},
                         exporter_git_dirty=bool(exporter_status), exporter_tracked_changes=exporter_status.splitlines(),
-                        requirements={"base_model": "Qwen3-VL-4B-Instruct", "BEV": "external local checkpoint",
+                        requirements={"base_model": "Qwen3.5-4B", "BEV": "external local checkpoint",
                                       "project_feature": "action_prior/lora_bundle.py"})
         _json(staging / "bundle_manifest.json", manifest)
         verify_bundle(staging, selected)

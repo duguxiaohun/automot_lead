@@ -580,7 +580,7 @@ def main() -> None:
     parser.add_argument(
         "--model-dir",
         type=str,
-        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"),
+        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"),
         help="仅 --live 时使用",
     )
     parser.add_argument("--device", type=str, default="auto")

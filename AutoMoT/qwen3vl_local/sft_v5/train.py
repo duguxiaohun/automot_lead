@@ -1288,7 +1288,8 @@ def _append_token_ids_with_logits_padded_scoring(
         attention_mask=attention_mask,
         past_key_values=outputs.past_key_values,
         rope_deltas=state.rope_deltas,
-        next_logits=outputs.logits[:, -1, :],
+        next_logits=torch.where(suffix_mask.any(dim=1, keepdim=True),
+            _last_valid_next_logits(outputs.logits, suffix_mask), state.next_logits),
     )
     return new_state, pred_logits
 
@@ -1349,7 +1350,8 @@ def _append_token_ids_padded_no_logits(
         attention_mask=attention_mask,
         past_key_values=outputs.past_key_values,
         rope_deltas=state.rope_deltas,
-        next_logits=_last_valid_next_logits(outputs.logits, suffix_mask.to(outputs.logits.device)),
+        next_logits=torch.where(suffix_mask.any(dim=1, keepdim=True),
+            _last_valid_next_logits(outputs.logits, suffix_mask), state.next_logits),
     )
 
 
@@ -3053,7 +3055,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
     output_dir.mkdir(parents=True, exist_ok=True)
     model = bundle.unwrap() if hasattr(bundle, "unwrap") else bundle.model
     if hasattr(model, "save_pretrained"):
-        model.save_pretrained(str(output_dir))
+        from qwen3vl_local.qwen35.adapters import save_adapter
+        save_adapter(model, str(output_dir))
     meta = {
         "dataset_version": DATASET_VERSION,
         "prompt_contract_version": PROMPT_CONTRACT_VERSION,
@@ -3694,7 +3697,7 @@ def parse_args() -> argparse.Namespace:
     # 数据、base model 与输出位置。train index 是 route-level JSONL，不是平铺帧表。
     p.add_argument("--train-index", type=str, required=True)
     p.add_argument("--val-index", type=str, default=None)
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--output-dir", type=str, required=True)
     # 基础优化器与 LoRA 容量；视觉 LoRA 默认关闭，开启时使用独立低 LR/clip norm。
     p.add_argument("--num-epochs", type=int, default=1)

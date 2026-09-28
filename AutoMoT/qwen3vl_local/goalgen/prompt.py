@@ -9,7 +9,7 @@
 复用 prompt_pipeline.DrivingMemory + EVENT_DESCRIPTIONS，不再单独搭一套场景表。
 
 注意：本文件所有进模型的字符串都是英文。中文只允许出现在 docstring/注释里。
-理由见 memory:feedback-prompts-english-only：base 模型 Qwen3-VL-4B-Instruct 在
+理由见 memory:feedback-prompts-english-only：base 模型 Qwen3.5-4B 在
 英文上训练分布更稠密；SFT v1 + 范式 A prompt 全英文，GoalGen teacher-forced
 也保持英文，避免 KV 分布割裂导致下游 DiT 跟不上。
 """

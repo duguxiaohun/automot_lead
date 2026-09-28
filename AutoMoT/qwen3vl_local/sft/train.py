@@ -1,4 +1,4 @@
-"""SFT 训练入口 — 直接把 LoRA 挂到 Qwen3-VL-4B-Instruct 上，手写 DDP loop。
+"""SFT 训练入口 — 直接把 LoRA 挂到 Qwen3.5-4B 上，手写 DDP loop。
 
 设计目标见 qwen3vl_local/sft/SFT_PLAN.md；运行命令见 qwen3vl_local/sft/SFT_RUN.md。
 
@@ -333,28 +333,22 @@ def load_model_with_lora(
     “不用外部 LoRA 插件 / 不走 ms-swift”的核心入口。
     """
 
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
-    try:
-        from transformers import AutoModelForImageTextToText as ModelClass
-    except ImportError:
-        try:
-            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-        except ImportError:
-            from transformers import AutoModelForVision2Seq as ModelClass
+    from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
     print(f"[load] base model from {model_dir}")
     model = ModelClass.from_pretrained(
         str(model_dir),
         torch_dtype=torch.bfloat16,
         local_files_only=True,
-        trust_remote_code=True,
+        trust_remote_code=False,
     ).to(device)
 
     processor = AutoProcessor.from_pretrained(
         str(model_dir),
         local_files_only=True,
-        trust_remote_code=True,
+        trust_remote_code=False,
     )
     tokenizer = processor.tokenizer
     # 训练 / loss-mask sanity 都依赖 return_offsets_mapping=True，
@@ -394,7 +388,7 @@ def load_model_with_lora(
         bias="none",
         task_type="CAUSAL_LM",
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
+                        "gate_proj", "up_proj", "down_proj", "in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj"],
     )
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
@@ -958,7 +952,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="SFT train (LoRA inject + on-the-fly teacher)")
     p.add_argument("--train-jsonl", type=str, required=True)
     p.add_argument("--val-jsonl", type=str, default=None)
-    p.add_argument("--model-dir", type=str, default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"))
+    p.add_argument("--model-dir", type=str, default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"))
     p.add_argument("--output-dir", type=str, required=True)
     p.add_argument("--num-epochs", type=int, default=2)
     p.add_argument("--per-device-batch-size", type=int, default=1,
@@ -1202,7 +1196,8 @@ def main() -> None:
         if (not args.check) and args.save_steps > 0 \
                 and global_step % args.save_steps == 0 and is_rank0(rank):
             ckpt_dir = output_dir / f"checkpoint-{global_step}"
-            bundle.unwrap().save_pretrained(str(ckpt_dir))
+            from qwen3vl_local.qwen35.adapters import save_adapter
+            save_adapter(bundle.unwrap(), str(ckpt_dir))
             saved_ckpts.append(ckpt_dir)
             # 保留最近 save_total_limit 个 checkpoint。
             if args.save_total_limit > 0 and len(saved_ckpts) > args.save_total_limit:
@@ -1272,7 +1267,8 @@ def main() -> None:
     # ---- 最终保存 ----
     if is_rank0(rank) and not args.check:
         final_dir = output_dir / "final"
-        bundle.unwrap().save_pretrained(str(final_dir))
+        from qwen3vl_local.qwen35.adapters import save_adapter
+        save_adapter(bundle.unwrap(), str(final_dir))
         # 同时存一份 processor 配置，避免下游 eval/probe 误用别处 tokenizer
         # 而 silent 漂移（保存量很小，几十 KB）。
         try:

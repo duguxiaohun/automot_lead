@@ -18,7 +18,7 @@
 #      链路是否通畅。初始 loss 应在 3-8 区间。）
 #
 # 常用 override：
-#   MODEL_DIR=/path/to/Qwen3-VL-4B-Instruct \
+#   MODEL_DIR=/path/to/Qwen3.5-4B \
 #   TRAIN_JSONL=/path/to/train.jsonl \
 #   VAL_JSONL=/path/to/val.jsonl \
 #   OUTPUT_DIR=/path/to/sft_lora \
@@ -41,7 +41,7 @@ MODE="${1:-ddp}"
 # ---------------------------------------------------------------------------
 # 路径默认值
 # ---------------------------------------------------------------------------
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 TRAIN_JSONL="${TRAIN_JSONL:-checkpoints/sft_data_pending/train.jsonl}"
 VAL_JSONL="${VAL_JSONL:-checkpoints/sft_data_pending/val.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_lora}"

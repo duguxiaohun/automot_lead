@@ -41,13 +41,15 @@ def test_union_of_two_servers_selects_each_phase_without_run_name_rules(tmp_path
     for server in servers:
         for file in server.rglob("sft_new_loop_phase*_adapter_config.json"):
             cfg = json.loads(file.read_text())
-            cfg.update(base_model_dir="/old/server/Qwen3-VL-4B-Instruct", git={"commit": None})
+            cfg.update(base_model_dir="/old/server/Qwen3.5-4B", git={"commit": None})
             file.write_text(json.dumps(cfg))
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "a").symlink_to(servers[0], target_is_directory=True)
     (shared / "b").symlink_to(servers[1], target_is_directory=True)
-    model = tmp_path / "Qwen3-VL-4B-Instruct"
+    model = tmp_path / "Qwen3.5-4B"
+    model.mkdir()
+    (model / "model.safetensors").write_bytes(b"base fixture")
     assert select_available([shared], 1, model)["path"] == str(a)
     selected = select_available(servers, 2, model)
     assert selected["path"] == str(b) and not selected["is_best_generation"]
@@ -122,7 +124,7 @@ def test_selection_manifest_keeps_original_pair_and_rejects_changed_weights(tmp_
     p1 = fixture_adapter(tmp_path / "p1", 1)
     p2 = event_adapter(tmp_path / "p2")
     base = tmp_path / "base"
-    base.mkdir()
+    base.mkdir(exist_ok=True)
     (base / "model.safetensors").write_bytes(b"base fixture")
     bev = tmp_path / "bev.pt"
     bev.write_bytes(b"BEV fixture")
@@ -162,7 +164,7 @@ def test_real_models_only_preflight_writes_pinned_manifest_without_gpu(tmp_path)
     fixture_adapter(tmp_path / "p1", 1)
     event_adapter(tmp_path / "p2")
     base = tmp_path / "base"
-    base.mkdir()
+    base.mkdir(exist_ok=True)
     (base / "model.safetensors").write_bytes(b"base fixture")
     bev = tmp_path / "bev.pt"
     bev.write_bytes(b"bev fixture")
@@ -231,3 +233,36 @@ if stage == "train":
     assert "server a" in calls[0][2] and "server b" in calls[1][2]
     assert "--selection-output" in calls[0][2] and "--selection-manifest" in calls[1][2]
     assert "--split" in calls[2][2] and "test" in calls[2][2]
+
+
+@pytest.mark.parametrize('phase', [1, 2])
+@pytest.mark.parametrize('damage', ['weights', 'missing', 'no_weights'])
+def test_scan_filters_base_identity_before_ranking(tmp_path, monkeypatch, phase, damage):
+    from qwen3vl_local.action_prior import available_adapters as selection
+    make = (lambda root, score: fixture_adapter(root, score=score)) if phase == 1 else (
+        lambda root, score: event_adapter(root, score=score, slot='best_generation'))
+    good = make(tmp_path/'good', .8)
+    bad = make(tmp_path/'bad', .9)
+    marker = bad/'qwen35_base_assets.json'
+    if damage == 'missing':
+        marker.unlink()
+    else:
+        assets = json.loads(marker.read_text())
+        if damage == 'weights':
+            assets['model.safetensors'] = '0'*64
+        else:
+            assets.pop('model.safetensors')
+        marker.write_text(json.dumps(assets))
+    calls = []
+    real_hash = selection.base_asset_hashes
+    def counted(path):
+        calls.append(str(path))
+        return real_hash(path)
+    monkeypatch.setattr(selection, 'base_asset_hashes', counted)
+    result = selection.scan_available([tmp_path], phase, tmp_path/'base')
+    assert result['recommended'] == str(good)
+    assert len(calls) == 1  # hash once per scan, not once per candidate
+    rejected = [row for row in result['candidates'] if not row['eligible']]
+    assert len(rejected) == 1 and rejected[0]['path'] == str(bad)
+    with pytest.raises(ValueError):
+        selection.select_available([tmp_path], phase, tmp_path/'base', explicit=str(bad))

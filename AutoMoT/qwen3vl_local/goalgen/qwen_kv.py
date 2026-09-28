@@ -22,9 +22,9 @@ class PrefillResult:
     """供 DiT 消费的 teacher-forced 预填充结果。
 
     ``pooled_kv`` 保留历史字段名只是为了兼容旧调用方。默认 ``select_last`` 模式下，
-    每个 DiT 段拿到的是对应 3 层 Qwen 小组里的**最后一层** token-level K/V，
+    Qwen3.5 默认每个 DiT 段拿到一个 full-attention 层的 token-level K/V，
     形状为 ``[B, n_kv, S, head_dim]``；``concat_layers`` 是更重的变体，会把
-    3 层沿 token 维拼接，只用于消融实验。
+    同一分组的 full-attention 层沿 token 维拼接，只用于消融实验。
     """
 
     pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]]
@@ -41,6 +41,18 @@ def _to_layer_list(past_key_values: Any) -> List[Tuple[torch.Tensor, torch.Tenso
 
     # transformers 4.42+ 默认返回 DynamicCache 对象（不是 tuple）；用 to_legacy_cache()
     # 把它一致转成老式 [(K, V), ...] 结构，下游切分代码不用再对两种 cache 类型各写一套。
+    if hasattr(past_key_values, "layer_types"):
+        # Linear DeltaNet states are recurrent summaries, not token-level K/V.
+        indices = [i for i, kind in enumerate(past_key_values.layer_types) if kind == "full_attention"]
+        layers = []
+        for i in indices:
+            k, v = past_key_values.key_cache[i], past_key_values.value_cache[i]
+            if k is None or v is None or k.ndim != 4 or k.shape != v.shape:
+                raise ValueError(f"missing/invalid full-attention K/V at Qwen3.5 layer {i}")
+            layers.append((k.detach(), v.detach()))
+        if not layers:
+            raise ValueError("Qwen3.5 cache contains no full-attention layers")
+        return layers
     if hasattr(past_key_values, "to_legacy_cache"):
         past_key_values = past_key_values.to_legacy_cache()
     if not isinstance(past_key_values, (list, tuple)):
@@ -60,17 +72,17 @@ def _to_layer_list(past_key_values: Any) -> List[Tuple[torch.Tensor, torch.Tenso
 
 def segment_kv_for_dit(
     past_key_values: Any,
-    num_segments: int = 12,
+    num_segments: int = 8,
     mode: str = "select_last",
 ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
     """把 Qwen KV cache 切成按 DiT 层使用的语言记忆。
 
-    默认 ``select_last`` 只保留每个小组的最后一层 Qwen，直接作为 token-level K/V：
-    对 36 层 Qwen 与 12 层 DiT 来说，第 i 个 DiT 层拿到 Qwen 的第 ``3i + 2``
-    层，形状是 ``[B, n_kv, S, D]``。
+    默认 Qwen3.5 的 8 个 full-attention 层一一对应 8 个 DiT block。
+    其它 num_segments 按 full-attention 层分组，取最后一层 token-level K/V；
+    不把 linear-attention 的 recurrent state 当逐 token memory。
 
-    ``concat_layers`` 是更重的变体：保留组内全部 3 层，并沿 token 轴拼成
-    ``[B, n_kv, 3*S, D]``。它只用于消融实验；默认应使用更省显存的
+    ``concat_layers`` 是更重的变体：保留组内全部层，并沿 token 轴拼接。
+    它只用于消融实验；默认应使用更省显存的
     ``select_last``。``mean`` 保留旧版层平均行为，方便对照。
     """
 
@@ -86,10 +98,8 @@ def segment_kv_for_dit(
         raise ValueError(f"不支持的 Qwen KV 分段模式：{mode}")
 
     segments: List[Tuple[torch.Tensor, torch.Tensor]] = []
-    # 36 / 12 = 3，base=3，extra=0 是常规情况；如果总层数不整除（例如 37 层 / 12 段），
-    # 余数 extra 全塞给最后一段，让前 11 段都是 base，最后一段吃残余。
-    # 不平均分配是为了保持"前段对前层 Qwen"的语义稳定——浅层 → DiT 浅 block；
-    # 余数堆在末段对生成头尾的 KV 影响较小。
+    # Qwen3.5-4B 默认将 8 个 full-attention 层一一对应到 8 段。
+    # 显式指定其它段数时沿用连续分组，余数放在最后一段。
     base = total // num_segments
     extra = total - base * num_segments
     cursor = 0
@@ -102,15 +112,13 @@ def segment_kv_for_dit(
             # 显存最省；最后一层通常承载语义最丰富的 hidden，比第一层更适合喂下游。
             segments.append(seg_layers[-1])
         elif mode == "mean":
-            # 旧版层平均：把 3 层的 K/V 在 layer 维 stack 后求均值。
+            # 把当前组各层的 K/V 在 layer 维 stack 后求均值。
             # 缺点是把不同层语义混在一起，方向性会被冲淡，留作消融对照。
             ks = torch.stack([kv[0] for kv in seg_layers], dim=0)
             vs = torch.stack([kv[1] for kv in seg_layers], dim=0)
             segments.append((ks.mean(dim=0), vs.mean(dim=0)))
         else:
-            # concat_layers：3 层 K/V 沿 token 轴 (dim=2) 拼接，单段 token 数 = 3*S。
-            # 信息保留最完整但语言侧每个 DiT block 的 attention 成本翻 3 倍，
-            # 在 96GB H20 + bf16 上 4 帧历史 + 12 层 DiT 接近显存溢出临界。
+            # concat_layers 沿 token 轴拼接，单段 token 数 = 组内层数 * S。
             k_cat = torch.cat([kv[0] for kv in seg_layers], dim=2)
             v_cat = torch.cat([kv[1] for kv in seg_layers], dim=2)
             segments.append((k_cat, v_cat))
@@ -121,7 +129,7 @@ def segment_kv_for_dit(
 
 def pool_kv_for_dit(
     past_key_values: Any,
-    num_segments: int = 12,
+    num_segments: int = 8,
     mode: str = "select_last",
 ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
     """向后兼容别名；默认行为已经不再做层平均。"""
@@ -137,7 +145,7 @@ def teacher_forced_prefill(
     engine: LocalQwen3VLInstructEngine,
     memory: DrivingMemory,
     images: List[Any],
-    num_segments: int = 12,
+    num_segments: int = 8,
     kv_segment_mode: str = "select_last",
 ) -> PrefillResult:
     """运行 teacher-forced Qwen 预填充，并返回 DiT 可直接使用的 K/V 记忆。"""
@@ -170,27 +178,19 @@ def teacher_forced_prefill(
         mode=kv_segment_mode,
     )
     # 从第 0 段读形状元信息：所有段的 (B, n_kv_heads, S, head_dim) 一致（除 concat_layers
-    # 模式下 S 维三倍以外）。当前共享架构下 DiT 直接以 (n_heads=8, head_dim=128) 接 Qwen K/V，
+    # 模式下 S 随组内层数变化以外）。当前共享架构下 DiT 直接以 (n_heads=4, head_dim=256) 接 Qwen K/V，
     # 不再需要 language_kv_input_dim probe；这些字段保留只是给 runner/eval 做形状摘要。
     k0, _ = segmented[0]
 
-    # -> seq_len: 2255
-    # -> n_kv_heads: 8
-    # -> head_dim: 128
-    # -> num_qwen_layers (原始 KV Cache 层数): 36
-    # -> kv_segment_mode: 'select_last'
-    # -> chat_text (length: 2701): '<|im_start|>system\nYou are an autonomous driving a...'
-    # -> pooled_kv (共 12 段):
-    #     段 00 | K shape: torch.Size([1, 8, 2255, 128]), V shape: torch.Size([1, 8, 2255, 128])
+    # 默认形状为每段 [B, 4, S, 256]，共 8 段；模型原始层数为 32。
 
     return PrefillResult(
         pooled_kv=segmented,
         seq_len=int(k0.shape[2]),
         n_kv_heads=int(k0.shape[1]),
         head_dim=int(k0.shape[3]),
-        # 这里再调一次 _to_layer_list 不会重新 detach（已经 detach 过），只是为了拿到层数；
-        # 比缓存 len(layers) 多一次 O(layers) 遍历，但代码更线性、不依赖局部状态。
-        num_qwen_layers=len(_to_layer_list(outputs.past_key_values)),
+        # Hybrid cache 的原始层数包含 DeltaNet 层，不能用抽出的 K/V 层数代替。
+        num_qwen_layers=len(outputs.past_key_values.layer_types) if hasattr(outputs.past_key_values, "layer_types") else len(_to_layer_list(outputs.past_key_values)),
         chat_text=chat_text,
         kv_segment_mode=kv_segment_mode,
     )
@@ -209,3 +209,16 @@ def summarize_pooled_kv(pooled: List[Tuple[torch.Tensor, torch.Tensor]]) -> Dict
         "v_dtype": str(v0.dtype),
         "device": str(k0.device),
     }
+
+
+def require_kv_segment_mode(payload, mode: str, source) -> None:
+    """Bind conditioning even when several segmentation modes share a shape."""
+    modes = {"select_last", "mean", "concat_layers"}
+    saved_args = payload.get("args") or {}
+    saved = payload.get("qwen_kv_segment_mode", saved_args.get("qwen_kv_segment_mode"))
+    if saved not in modes or mode not in modes:
+        raise ValueError(f"{source}: missing/invalid Qwen K/V segment mode contract")
+    if saved_args.get("qwen_kv_segment_mode", saved) != saved:
+        raise ValueError(f"{source}: conflicting Qwen K/V segment mode metadata")
+    if saved != mode:
+        raise ValueError(f"{source}: Qwen K/V segment mode mismatch: trained={saved}, current={mode}")

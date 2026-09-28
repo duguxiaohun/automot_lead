@@ -27,7 +27,7 @@ from qwen3vl_local.action_prior.prompts import (
 
 DEFAULTS = dict(
     **OPTIMIZATION_DEFAULTS,
-    model_dir="checkpoints/Qwen3-VL-4B-Instruct",
+    model_dir="checkpoints/Qwen3.5-4B",
     data_root="lead_data",
     data_dir="checkpoints/action_prior_data",
     output_dir="checkpoints/action_prior",

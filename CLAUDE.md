@@ -1,5 +1,52 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-28 Qwen3.5 复核补齐：system 缓存、选优与 K/V 模式
+
+system-prefix 纯文本复用走 inference_mode；增量 helper 返回本条缓存传入的 rope_deltas，
+避免模型对象上其它图像分支的 delta 污染后续 decode。真实小模型覆盖先图像 delta=-2、
+后同 system 文本缓存 delta=0、连续三步 decode 与完整重算 logits 一致，未靠重算清除旧值。
+Action available/strict 两种选择均在打分前比较当前本地基座资产；validate_adapter 即使
+只检查目录也拒绝缺资产合同/权重身份。一次扫描只哈希一次基座，显式路径及最终加载仍核对。
+新增 Phase1/2 高分不兼容候选、缺合同/缺权重哈希拒绝回归；原跨机器来源警告同步准确表述。
+GoalGen 完整/latest 保存 qwen_kv_segment_mode，评估及 init-from-ckpt 共用严格校验；
+兼容读取已保存 args 中的模式，缺失/冲突/不同模式拒绝，8 段默认同样遵守合同。
+
+专项与相关扩展回归 753 passed、4 failed、5 deselected；四项打包失败均明确为缺少外部
+mot_lead_offline_runner.py，未关闭来源检查。五个排除项为已记录的 runner、缺数据及 shell
+fixture 问题。Qwen3.5 专项现 50 项通过；另 v5 KV helper、GoalGen 两个 CLI 与12文件语法通过。
+测试日志 /tmp/qwen35-followup-final.log；git diff --check 通过。无真实4B/GPU/吞吐验收，
+完整模型与外部 runner 仍缺失，preflight ready=false；未 commit/push，冻结 release 未改。
+
+### 2026-09-28 Qwen3.5 复核修复：padding 与内容身份
+
+针对复核的三个问题补齐修复。DeltaNet 保留 cached suffix mask，仅有效 token 推进卷积/
+循环状态，scatter 保留 v5 右 padding 打分位置；整行空 suffix 不改变状态或 next logits。
+基座身份增加实际 safetensors/全部分片的流式 SHA256，同时绑定 tokenizer、模板及处理参数；
+backend 更新 qwen35_local_v2，拒绝缺权重身份的 adapter，旧 v1 不自动迁移。
+LeadMoT/GoalGen 共用 v2 backbone 合同；GoalGen 完整与 latest checkpoint 保存合同，
+评估及 init-from-ckpt 在载入 DiT 参数前核对；同路径替换拒绝，同内容搬迁允许，旧 mismatch
+开关不能跳过校验。权重哈希增加启动读取，ragged DeltaNet 分支按样本处理，未验证 CUDA 吞吐。
+新增代码/回归仍在已有白名单，vendor 来源清单同步本地补丁 SHA；冻结数据 release 不改。
+最终相关 CPU 回归 732 项通过（Qwen3.5 专项 46 项），另 v5 KV helper 与 GoalGen train/eval
+CLI 检查通过；覆盖 v5 真实小网络 Q1→Q2 状态/logits/梯度、同结构换基座、
+分片替换/缺失、规划模板/adapter 内容替换与搬迁、GoalGen 实际保存/评估路径；无真实4B/GPU验收。
+完整权重和外部 runner 仍缺失，preflight ready=false；临时日志 /tmp/qwen35-review-final.log。
+离线运行与兼容边界见 qwen35/README.md；本轮未 commit/push。
+
+### 2026-09-28 Qwen3.5-4B 本地迁移（新训默认覆盖旧基座约定）
+
+用户明确授权当前 Qwen 使用链路整体迁移至 Qwen3.5-4B，并复制所需上游源码到本地修改。
+新增授权目录 `AutoMoT/qwen3vl_local/qwen35/`（代码、vendor/许可证/来源哈希、测试、说明）。
+当前运行入口默认本地 `checkpoints/Qwen3.5-4B`，模型/处理器用本地副本，禁止运行时下载、
+remote-code 或远程媒体；通用框架依赖固定并在独立环境验证，不改全局 site-packages。
+此模型升级为新 run，不是 v23 数据语义晋升；冻结 Phase3 releases 和旧审计/checkpoint 不改写。
+旧 LoRA/规划 checkpoint 须原源码与原基座；新 adapter 绑定 backend/模板/基础资产合同。
+Qwen3.5 hybrid cache、8 个 full-attention 层、4×256 K/V、partial interleaved RoPE、
+非思考答案边界和 DeltaNet LoRA 均须一起迁移，不得只替换模型目录。
+本机缺完整 Qwen3.5 权重及外部 mot_lead_offline_runner.py，未完整 GPU/runner 验收。
+详见 `AutoMoT/qwen3vl_local/qwen35/README.md` 与 PROJECT_CONTEXT 同日迁移条目。
+
+
 ### 2026-09-28 Action pending mkdir EEXIST 恢复
 
 准备器补齐mkdir EEXIST/ESTALE的锁内有限重试，每次重查ready/合同/hash；完整续发、残缺隔离。
@@ -806,6 +853,9 @@ git -c 'url.ssh://git@github.com/.insteadOf=https://github.com/' push origin mai
 - 正常 push 必须满足 `git merge-base --is-ancestor origin/main main`；
   该检查不能代替历史产物审核。发现分叉、旧历史合并或白名单外新增对象时先处理，
   不用强推或 `--allow-unrelated-histories` 绕过。
+- Qwen3.5 本地实现的 Git 白名单为 `AutoMoT/qwen3vl_local/qwen35/` 中上述源码与轻量配套文件，
+  包括新增且尚未追踪的文件；push 前须精确 add 并审核，不能只提交已追踪文件而漏掉此包。
+  模型权重目录 `AutoMoT/checkpoints/Qwen3.5-4B/` 不在 push 白名单内。
 - 继续精确 add 原白名单；目录白名单不包含其数据、权重、缓存、视频、RGB 证据和压缩包。
   `collection_output/` 只保留原先明确允许的 Phase1 标签 JSON/JSONL；
   已清理的旧审计产物、索引和 `AutoMoT-main.zip` / `lead.zip` / `lead_xml.zip` 不得重新入库。
@@ -836,6 +886,10 @@ git -c 'url.ssh://git@github.com/.insteadOf=https://github.com/' push origin mai
 本机健康日志与系统维护工具不入库。
 
 - `PROJECT_CONTEXT.md`
+- `AutoMoT/qwen3vl_local/qwen35/`（按用户要求本地化 Qwen3.5-4B 新增的目录白名单；
+  允许修改、追踪、commit 和在用户授权 push 后推送本地源码、`vendor/` 上游源码及许可证/来源哈希、
+  官方模板参考、测试、依赖清单、README 和 `.gitignore`。不包含模型权重、下载 wheel、
+  `__pycache__`、pytest 缓存、日志或训练/评估产物；`AutoMoT/checkpoints/Qwen3.5-4B/` 不入库。）
 - `CLAUDE.md`
 - `AGENTS.md`
 - `AutoMoT/qwen3vl_local/eval_carla/__init__.py`

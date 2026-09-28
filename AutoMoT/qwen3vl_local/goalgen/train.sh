@@ -61,7 +61,7 @@ else
     exit 1
 fi
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 # 可选 LoRA 适配器：默认空 = 用基础 Qwen；想接 SFT v1 微调后的语言编码，传
 # QWEN_ADAPTER_DIR=checkpoints/sft_v1_lora（适配器目录，不是合并后的模型目录）
 QWEN_ADAPTER_DIR="${QWEN_ADAPTER_DIR:-}"
@@ -77,7 +77,7 @@ IMAGE_LOG_EULER_STEPS="${IMAGE_LOG_EULER_STEPS:-32}"
 # val/loss 最小的一份额外拷贝为 best.pt（顶层独立保存，不受 keep 影响）。
 KEEP_RECENT_CHECKPOINTS="${KEEP_RECENT_CHECKPOINTS:-3}"
 
-# 当前共享架构（2026-06 切换）：patch=4 / hidden=1024 / n_heads=8 -> 直接对齐 Qwen K/V (8×128)
+# 当前共享架构（2026-06 切换）：patch=4 / hidden=1024 / n_heads=4 -> 直接对齐 Qwen K/V (4×256)
 PATCH_SIZE="${PATCH_SIZE:-4}"
 HIDDEN_DIM="${HIDDEN_DIM:-1024}"
 # patch/unpatch 权重来源。
@@ -94,8 +94,8 @@ PATCH_UNPATCH_UNFREEZE="${PATCH_UNPATCH_UNFREEZE:-0}"
 # warm start 继承外部 patch/unpatch 时，默认要求原 safetensors 仍存在。
 # 跨机器迁移且确认 ckpt 内自带权重可用时，显式设 1 才回退到 ckpt 内权重。
 PATCH_UNPATCH_CKPT_FALLBACK="${PATCH_UNPATCH_CKPT_FALLBACK:-0}"
-N_HEADS="${N_HEADS:-8}"
-NUM_LAYERS="${NUM_LAYERS:-12}"
+N_HEADS="${N_HEADS:-4}"
+NUM_LAYERS="${NUM_LAYERS:-8}"
 COND_DIM="${COND_DIM:-256}"
 MLP_RATIO="${MLP_RATIO:-4.0}"
 # 历史帧数上限：仅控制 DiT 的 frame_embed 容量，**不是**控制 Qwen 喂几张图。

@@ -130,7 +130,8 @@ class DirectEventContractTest(unittest.TestCase):
             adapter = root / "adapter"
             model.mkdir()
             adapter.mkdir()
-            (model / "config.json").write_text('{"model_type":"qwen3_vl"}', encoding="utf-8")
+            (model / "config.json").write_text('{"model_type":"qwen3_5"}', encoding="utf-8")
+            (model / "model.safetensors").write_bytes(b"base weights")
             (adapter / "adapter_config.json").write_text(
                 json.dumps({"target_modules": ["q_proj", "v_proj"]}), encoding="utf-8"
             )
@@ -157,7 +158,8 @@ class DirectEventContractTest(unittest.TestCase):
             require_qwen_backbone_match(lora_contract, lora_contract, "ckpt.pt")
             with self.assertRaises(ValueError):
                 require_qwen_backbone_match(lora_contract, base_contract, "ckpt.pt")
-            require_qwen_backbone_match(None, base_contract, "legacy.pt")
+            with self.assertRaises(ValueError):
+                require_qwen_backbone_match(None, base_contract, "legacy.pt")
             with self.assertRaises(ValueError):
                 require_qwen_backbone_match(None, lora_contract, "legacy.pt")
             old_hash = lora_contract["adapter_sha256"]

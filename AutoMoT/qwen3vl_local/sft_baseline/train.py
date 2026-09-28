@@ -519,7 +519,8 @@ def _build_inputs(
     weights = torch.zeros_like(input_ids, dtype=torch.float32)
     component_ids = torch.zeros_like(input_ids, dtype=torch.long)
     expanded_ids = [int(x) for x in input_ids.tolist()]
-    asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
+    from qwen3vl_local.qwen35.backend import assistant_header_text
+    asst_header_ids = list(bundle.tokenizer(assistant_header_text(bundle.processor), add_special_tokens=False)["input_ids"])
 
     assistant_specs = [
         (q1_target, target_spans_q1, q1_loss_weights or loss_weights_q1(), False),
@@ -1695,7 +1696,8 @@ def _save_adapter(path: pathlib.Path, bundle: Any, args: argparse.Namespace) -> 
     """保存 adapter 与 sft_baseline 自描述配置。"""
 
     path.mkdir(parents=True, exist_ok=True)
-    bundle.unwrap().save_pretrained(str(path))
+    from qwen3vl_local.qwen35.adapters import save_adapter
+    save_adapter(bundle.unwrap(), str(path))
     try:
         bundle.processor.save_pretrained(str(path))
     except Exception as exc:
@@ -2121,7 +2123,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train SFT baseline HIGHWAY/NON_HIGHWAY + RE/UE token LoRA")
     p.add_argument("--train-index", type=str, required=True)
     p.add_argument("--val-index", type=str, default=None)
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--output-dir", type=str, default=None)
     p.add_argument("--resume-from-checkpoint", type=str, default=None)
     p.add_argument("--resume-tb-trim", action=argparse.BooleanOptionalAction, default=True)

@@ -25,7 +25,7 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 INDEX="${INDEX:-checkpoints/sft_new_loop_phase1_data/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 SPLIT="${SPLIT:-test}"

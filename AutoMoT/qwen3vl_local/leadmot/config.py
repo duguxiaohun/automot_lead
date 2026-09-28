@@ -6,10 +6,10 @@
 默认值对齐 LEAD CARLA 设置：
 - route head 预测 10 个 ego-frame route 点；
 - waypoint head 预测 8 个未来 ego-frame waypoint；
-- hidden_size=1024，对齐 Qwen3-VL-4B K/V 的 8 heads * 128 dim。
+- hidden_size=1024，对齐 Qwen3.5-4B K/V 的 4 heads * 256 dim。
 
 RoPE 模式：
-- ``mrope``：给 LeadMoT 生成 token 使用 Qwen3-VL 风格 M-RoPE；
+- ``mrope``：给 LeadMoT 生成 token 使用 Qwen3.5 partial interleaved M-RoPE；
 - ``mhrope``：head-wise multi-axis RoPE，用于消融；
 - ``none``：生成 token 不加 RoPE。
 """
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Mapping, Tuple
 
 
-QWEN_BACKBONE_CONTRACT_SCHEMA = "leadmot_qwen_backbone_v1"
+QWEN_BACKBONE_CONTRACT_SCHEMA = "leadmot_qwen_backbone_v2"
 _ADAPTER_WEIGHT_NAMES = ("adapter_model.safetensors", "adapter_model.bin")
 _SFT_ADAPTER_CONFIG_NAMES = (
     "sft_new_loop_phase2_adapter_config.json",
@@ -76,8 +76,10 @@ def _adapter_fingerprint(adapter_dir: Path) -> tuple[str, dict[str, str], Path |
     weight = _find_adapter_weight(adapter_dir)
     sft_config = _find_sft_adapter_config(adapter_dir)
     files = [peft_config, weight]
+    files.extend(p for p in sorted(adapter_dir.glob("*.json")) if p not in files)
     if sft_config is not None:
-        files.append(sft_config)
+        if sft_config not in files:
+            files.append(sft_config)
     per_file = {path.name: _sha256_file(path) for path in files}
     digest = hashlib.sha256()
     for name, value in sorted(per_file.items()):
@@ -94,7 +96,7 @@ def build_qwen_backbone_contract(
 ) -> dict[str, Any]:
     """构建 LeadMoT checkpoint 绑定的 frozen Qwen/base+LoRA 合同。
 
-    合同使用 base ``config.json`` 与 adapter 实际权重指纹，不用绝对路径充当身份，
+    合同使用 base 权重/输入资产与 adapter 实际权重指纹，不用绝对路径充当身份，
     因而 checkpoint 搬到另一台机器后仍可通过显式新路径恢复同一组权重。
     """
 
@@ -114,6 +116,10 @@ def build_qwen_backbone_contract(
         "adapter_file_sha256": {},
         "adapter_metadata": {},
     }
+    from qwen3vl_local.qwen35.backend import backend_contract
+    contract["model_backend"] = backend_contract()
+    from qwen3vl_local.qwen35.identity import base_asset_hashes
+    contract["base_asset_sha256"] = base_asset_hashes(model_path)
     raw_adapter = "" if adapter_dir is None else str(adapter_dir).strip()
     if not raw_adapter or raw_adapter.lower() in {"none", "base"}:
         return contract
@@ -194,16 +200,21 @@ def require_qwen_backbone_match(
 
     actual_adapter = bool(actual_contract.get("adapter_enabled", False))
     if not expected_contract:
-        if actual_adapter:
+        if actual_adapter or actual_contract.get("model_backend"):
             raise ValueError(
                 f"{source} is a legacy checkpoint without qwen_backbone metadata; "
-                "refusing to attach a Qwen adapter because its prefix distribution is unknown"
+                "refusing to substitute Qwen3.5 or an adapter because its prefix distribution is unknown"
             )
         return
     if expected_contract.get("schema") != QWEN_BACKBONE_CONTRACT_SCHEMA:
         raise ValueError(f"{source} has unsupported qwen_backbone schema: {expected_contract.get('schema')!r}")
+    from qwen3vl_local.qwen35.identity import require_weight_identity
+    require_weight_identity(expected_contract.get("base_asset_sha256"))
+    require_weight_identity(actual_contract.get("base_asset_sha256"))
     checks = (
+        "model_backend",
         "base_config_sha256",
+        "base_asset_sha256",
         "adapter_enabled",
         "adapter_sha256",
     )
@@ -233,17 +244,20 @@ class LeadMoTPlanningDecoderConfig:
     point_dim: int = 2
 
     # Frozen Qwen prefix K/V 布局：(B, num_kv_heads, seq, head_dim)。
-    num_kv_heads: int = 8
-    head_dim: int = 128
-    num_qwen_layers: int = 36
+    num_kv_heads: int = 4
+    head_dim: int = 256
+    num_qwen_layers: int = 32
+    qwen_full_attention_layers: Tuple[int, ...] = (3, 7, 11, 15, 19, 23, 27, 31)
     kv_segment_mode: str = "select_last"
 
     # 只给生成 Q/K 用的 RoPE 配置。Qwen prefix K 已在 prefill 内带位置编码，
     # 这里绝不能重复旋转。
     rope_type: str = "mrope"
-    rope_theta: float = 5000000.0
-    mrope_section_dim: Tuple[int, int, int] = (16, 24, 24)
-    mrope_section_head: Tuple[int, int, int] = (3, 3, 2)
+    rope_theta: float = 10000000.0
+    mrope_section_dim: Tuple[int, int, int] = (11, 11, 10)
+    mrope_section_head: Tuple[int, int, int] = (2, 1, 1)
+    partial_rotary_factor: float = 0.25
+    mrope_interleaved: bool = True
 
     # LEAD BEV encoder 输出形状：(B, 512, 10, 12)。
     bev_channels: int = 512
@@ -267,7 +281,7 @@ class LeadMoTPlanningDecoderConfig:
     # **注意**：开启后 gen sequence 多 1 个 token，老 LeadMoT ckpt **不兼容**。
     use_final_goal: bool = True
 
-    # 是否在 frozen Qwen3-VL prefix 里追加一张 SUBGOAL 关键帧 RGB + 显式 STATUS/SUBGOAL
+    # 是否在 frozen Qwen3.5 prefix 里追加一张 SUBGOAL 关键帧 RGB + 显式 STATUS/SUBGOAL
     # 文本块。决定 prefix prompt 的语义，不改变 decoder 结构与 gen 序列长度，
     # 因此 state_dict 在 use_subgoal=True/False 之间**形状兼容**——但 prefix KV 分布
     # 差异巨大，cross-load 会让 attention 完全错配。
@@ -287,9 +301,9 @@ class LeadMoTPlanningDecoderConfig:
     num_waypoint_queries: int = 8
     waypoint_dt: float = 0.25
 
-    # Decoder 深度：把 36 层 Qwen 压到 12 个 pooled-prefix block。
-    num_layers: int = 12
-    num_heads: int = 8
+    # Decoder 深度：Qwen3.5 的 8 个 full-attention cache 各对应一个 block。
+    num_layers: int = 8
+    num_heads: int = 4
     mlp_ratio: float = 8.0 / 3.0
     dropout: float = 0.0
 
@@ -365,10 +379,10 @@ class LeadMoTPlanningDecoderConfig:
         if self.head_dim % 2 != 0:
             raise ValueError(f"RoPE requires an even head_dim, got {self.head_dim}")
         if self.rope_type == "mrope":
-            if sum(self.mrope_section_dim) != self.head_dim // 2:
+            if sum(self.mrope_section_dim) != int(self.head_dim * self.partial_rotary_factor) // 2:
                 raise ValueError(
                     f"M-RoPE section sum {sum(self.mrope_section_dim)} must equal "
-                    f"head_dim//2={self.head_dim // 2}"
+                    f"rotary_dim//2={int(self.head_dim * self.partial_rotary_factor) // 2}"
                 )
         else:
             if sum(self.mrope_section_head) > self.num_heads:

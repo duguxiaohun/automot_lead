@@ -647,7 +647,8 @@ def _build_inputs(
     target_ids, token_weights, token_components = _target_token_weights(
         bundle, target, spec=spec, format_loss_weight=float(format_loss_weight)
     )
-    asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
+    from qwen3vl_local.qwen35.backend import assistant_header_text
+    asst_header_ids = list(bundle.tokenizer(assistant_header_text(bundle.processor), add_special_tokens=False)["input_ids"])
     header_pos = _find_subsequence(expanded, asst_header_ids, 0, last=True)
     pos = _find_subsequence(expanded, target_ids, header_pos + len(asst_header_ids))
     _assert_inside_assistant_turn(expanded, pos, asst_header_ids, 0)
@@ -1158,7 +1159,8 @@ def _save_adapter(
 
     final_dir = output_dir / str(name)
     final_dir.mkdir(parents=True, exist_ok=True)
-    bundle.unwrap().save_pretrained(str(final_dir))
+    from qwen3vl_local.qwen35.adapters import save_adapter
+    save_adapter(bundle.unwrap(), str(final_dir))
     cfg = {
         "schema": "sft_new_loop_phase3_adapter_config",
         "route": "sft_new_loop_phase3_high_level_action",
@@ -2011,7 +2013,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
-    p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
+    p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3.5-4B"))
     p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_runs/manual"))
     p.add_argument("--split", default="train")
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)

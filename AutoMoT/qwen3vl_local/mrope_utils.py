@@ -145,12 +145,29 @@ def qwen3vl_incremental_forward(
     position_ids = qwen3vl_decode_position_ids(
         rope_deltas, prefix_len, feed_len, batch_size, device
     )
-    return model(
+    is_qwen35 = getattr(getattr(model, "config", None), "model_type", None) == "qwen3_5"
+    if is_qwen35:
+        # Qwen3.5's rope delta is relative to the VALID prefix length.
+        # cache_position remains the physical padded-cache index.
+        if rope_deltas is not None and torch.as_tensor(rope_deltas).numel() not in (1, batch_size):
+            raise ValueError("Qwen3.5 rope delta batch mismatch; refusing to slice another branch's state")
+        delta = torch.as_tensor(0 if rope_deltas is None else rope_deltas, device=device).reshape(-1, 1)
+        positions = ((attention_mask.long().cumsum(-1) - 1)[:, -feed_len:]
+                     if attention_mask is not None else cache_position.view(1, -1).expand(batch_size, -1))
+        position_ids = (positions + delta).unsqueeze(0).expand(3, -1, -1).contiguous()
+    outputs = model(
         input_ids=feed_ids,
         attention_mask=attention_mask,
         position_ids=position_ids,
         past_key_values=past_key_values,
         cache_position=cache_position,
         use_cache=True,
-        return_dict=return_dict,
+        return_dict=True if is_qwen35 else return_dict,
     )
+    if is_qwen35:
+        # Forward may expose the model object's last OTHER branch's delta.
+        # This suffix used explicit positions from the supplied cache state;
+        # propagate that same identity to subsequent decode steps.
+        outputs["rope_deltas"] = delta.expand(batch_size, 1).detach().clone()
+        return outputs if return_dict else outputs.to_tuple()
+    return outputs

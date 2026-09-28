@@ -259,7 +259,7 @@ def main():
                    help="默认导出本次推荐的真实 LoRA 权重包；只审计可 --no-export-bundle")
     p.add_argument(
         "--model-dir",
-        default=os.environ.get("MODEL_DIR", "checkpoints/Qwen3-VL-4B-Instruct"),
+        default=os.environ.get("MODEL_DIR", "checkpoints/Qwen3.5-4B"),
     )
     p.add_argument(
         "--output-dir",

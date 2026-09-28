@@ -411,49 +411,25 @@ def build_dit_from_ckpt(
     """读取 ckpt → 反建 DiTMoTConfig → 实例化 → strict load。
 
     当前共享架构的 num_layers 仍从 pooled_kv 推；不再有 language_kv_input_dim 字段，
-    pooled_kv 的 (n_heads=8, head_dim=128) 必须与 DiT cfg 严格一致，
+    pooled_kv 的 (n_heads=4, head_dim=256) 必须与 DiT cfg 严格一致，
     DiTMoT.forward 内部会做硬断言。
     """
 
     payload = torch.load(ckpt_path, map_location=device)
     saved_cfg_dict = payload.get("dit_config") if isinstance(payload, dict) else None
-    saved_args_dict = payload.get("args") if isinstance(payload, dict) else None
 
     runtime_kwargs = dict(
         num_layers=len(pooled_kv),
     )
 
-    # ---- Qwen 适配器一致性校验（与 runner 同口径）----
-    # 评测用错适配器会让 KV 分布偏移，指标完全不可比；形状一致时 strict load 不报错。
-    if saved_args_dict is not None:
-        def _resolve_adapter(s: str) -> str:
-            return str(pathlib.Path(s).resolve()) if s else ""
-
-        saved_adapter = _resolve_adapter(saved_args_dict.get("qwen_adapter_dir", "") or "")
-        current_adapter = _resolve_adapter(args.qwen_adapter_dir or "")
-        saved_merge = bool(saved_args_dict.get("qwen_adapter_merge", True))
-        current_merge = bool(args.qwen_adapter_merge)
-
-        if saved_adapter != current_adapter:
-            msg = (
-                f"DiT 训练时 qwen_adapter_dir='{saved_adapter or '<base>'}'，"
-                f"当前 eval qwen_adapter_dir='{current_adapter or '<base>'}'，不一致会让 KV 分布"
-                f"漂移，eval 指标不可比。"
-                f" 解决：把 --qwen-adapter-dir 改成训练时同款；"
-                f"故意做消融时传 --allow-qwen-adapter-mismatch。"
-            )
-            if not args.allow_qwen_adapter_mismatch:
-                raise RuntimeError(msg)
-            print(f"[dit] WARN: {msg}")
-        elif saved_adapter and saved_merge != current_merge:
-            print(
-                f"[dit] 提示：qwen_adapter_merge 训练={saved_merge} 评测={current_merge}（数学等价，仅浮点精度差异）"
-            )
-        else:
-            print(
-                f"[dit] qwen_adapter 一致性检查通过："
-                f"adapter='{current_adapter or '<base>'}' merge={current_merge}"
-            )
+    # Content identity is mandatory, including for base-only checkpoints.
+    # The legacy path-mismatch flag cannot bypass this check; relocation with
+    # identical files succeeds without an override.
+    from qwen3vl_local.leadmot.config import build_qwen_backbone_contract, require_qwen_backbone_match
+    actual = build_qwen_backbone_contract(args.checkpoint_dir, args.qwen_adapter_dir)
+    require_qwen_backbone_match(payload.get("qwen_backbone"), actual, ckpt_path)
+    from qwen3vl_local.goalgen.qwen_kv import require_kv_segment_mode
+    require_kv_segment_mode(payload, args.qwen_kv_segment_mode, ckpt_path)
 
     if saved_cfg_dict is not None:
         # 形状预检：训练时与运行时的 num_layers 不一致 → strict load 必炸 attention 投影。
@@ -498,7 +474,7 @@ def build_dit_from_ckpt(
             raise RuntimeError(
                 f"DiT cfg (n_heads={cfg.n_heads}, head_dim={cfg.hidden_dim // cfg.n_heads}) "
                 f"与运行时 Qwen K/V (n_kv_heads={kv_n_heads}, head_dim={kv_head_dim}) 不匹配；"
-                "当前共享架构要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 8×128）。"
+                "当前共享架构要求严格相同。请确认 Qwen 模型 / DiT cfg 一致（默认 4×256）。"
             )
 
     model = DiTMoT(cfg).to(device=device, dtype=dtype)
@@ -1465,7 +1441,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "其中 base 是 --save-root 推出来的训练根目录（v1/v2 自动跟随）。"
                         "训练若启用 val_jsonl + epoch save，best.pt = val/loss 最小的那次轻量权重。"
                         "想绑定具体历史 run 直接传 <base>/run_YYYYmmdd_HHMMSS/best.pt。")
-    p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--checkpoint-dir", default="checkpoints/Qwen3.5-4B")
     p.add_argument("--save-root", type=str, required=True,
                    help="统一保存根目录（必填，通常与 train.sh OUTPUT_DIR 相同）。"
                         "eval 产物落到 <root>/eval/，TB 落到 <root>/eval_tb/<run_tag>/。")
@@ -1494,16 +1470,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--qwen-adapter-merge", action="store_true", default=True)
     p.add_argument("--no-qwen-adapter-merge", dest="qwen_adapter_merge", action="store_false")
     p.add_argument("--allow-qwen-adapter-mismatch", action="store_true", default=False,
-                   help="允许 DiT ckpt 训练时的 qwen_adapter_dir 与当前 CLI 不一致；"
-                        " 仅消融实验使用；默认抛错，防止 KV 分布漂移导致指标不可比。")
+                   help="兼容旧命令行；不允许绕过 Qwen3.5 内容或 K/V 分段模式合同。")
 
     # DiT 几何参数：仅在 ckpt 没存 dit_config 时使用（旧 ckpt 兼容）。
-    # 当前共享默认与 train.py 同步：patch=4 / hidden=1024 / n_heads=8。
+    # 当前共享默认与 train.py 同步：patch=4 / hidden=1024 / n_heads=4。
     p.add_argument("--patch-size", type=int, default=4)
     p.add_argument("--hidden-dim", type=int, default=1024)
-    p.add_argument("--n-heads", type=int, default=8)
+    p.add_argument("--n-heads", type=int, default=4)
     p.add_argument("--mlp-ratio", type=float, default=4.0)
-    p.add_argument("--num-layers", type=int, default=12)
+    p.add_argument("--num-layers", type=int, default=8)
     p.add_argument("--cond-dim", type=int, default=256)
     p.add_argument("--max-history-frames", type=int, default=8)
     p.add_argument("--qwen-kv-segment-mode",

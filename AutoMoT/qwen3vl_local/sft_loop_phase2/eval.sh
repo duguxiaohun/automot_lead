@@ -19,7 +19,7 @@ EVAL_PY="qwen3vl_local/sft_loop_phase2/eval.py"
 VISUAL_AUDIT_PY="qwen3vl_local/sft_loop_phase2/visual_audit.py"
 ADAPTER_CONFIG_NAME="sft_loop_phase2_adapter_config.json"
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 INDEX="${INDEX:-checkpoints/sft_loop_phase2_data/frame_index.jsonl}"
 REQUESTED_HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-}"
 SPLIT="${SPLIT:-test}"

@@ -1,4 +1,4 @@
-"""SFT teacher 离线物化脚本（可选）——用冻结的 base Qwen3-VL-4B-Instruct 生成 ANALYSIS GT。
+"""SFT teacher 离线物化脚本（可选）——用冻结的 base Qwen3.5-4B 生成 ANALYSIS GT。
 
 **默认训练流程不会调用本脚本**。`train.py` 在每个训练 batch 内现场运行冻结的
 base（PEFT disable_adapter 上下文）即时生成 teacher ANALYSIS，不写任何缓存，
@@ -27,7 +27,7 @@ GPU_IDS=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 \\
     qwen3vl_local/sft/build_teacher.py \\
     --pending-dir checkpoints/sft_data_pending \\
     --output-dir checkpoints/sft_teacher_dump \\
-    --model-dir checkpoints/Qwen3-VL-4B-Instruct \\
+    --model-dir checkpoints/Qwen3.5-4B \\
     --seed 20260601
 
 # 单卡调试，前 32 条（自动挑 1 张空闲 GPU）
@@ -628,7 +628,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, required=True,
                         help="物化后 jsonl 落盘目录；teacher 跑完 train.jsonl/val.jsonl 在这里")
     parser.add_argument("--model-dir", type=str,
-                        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3-VL-4B-Instruct"),
+                        default=str(_AUTOMOT_ROOT / "checkpoints" / "Qwen3.5-4B"),
                         help="冻结 base Qwen 本地目录")
     parser.add_argument("--seed", type=int, default=20260601,
                         help="写入 teacher_meta.seed，供事后回放；temperature=0 时不影响采样")

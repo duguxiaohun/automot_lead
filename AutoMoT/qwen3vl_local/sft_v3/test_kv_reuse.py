@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     """解析 KV 复用测试参数。"""
 
     p = argparse.ArgumentParser(description="SFT v3 KV reuse smoke test")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     return p.parse_args()
 
 

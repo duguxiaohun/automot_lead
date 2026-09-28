@@ -27,7 +27,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 TRAIN_INDEX="${TRAIN_INDEX:-checkpoints/sft_baseline_data/train_sequence_index.jsonl}"
 VAL_INDEX="${VAL_INDEX:-checkpoints/sft_baseline_data/val_sequence_index.jsonl}"
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_baseline_runs}"
 OUTPUT_DIR_BASE="${OUTPUT_DIR}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"

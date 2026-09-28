@@ -567,7 +567,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Collect SFT v4 off-policy trajectories")
     p.add_argument("--train-jsonl", type=str, default="checkpoints/sft_v4_data/train.jsonl")
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--replay-dir", type=str, default="checkpoints/sft_v4_lora/latest/replay")
     p.add_argument("--latest-lora-dir", type=str, default="checkpoints/sft_v4_lora/latest/latest_lora")
     p.add_argument("--collector-id", type=str, default="collector0")

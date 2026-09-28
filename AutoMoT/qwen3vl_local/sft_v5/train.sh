@@ -33,7 +33,7 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:T
 
 TRAIN_INDEX="${TRAIN_INDEX:-checkpoints/sft_v5_data/train_sequence_index.jsonl}"
 VAL_INDEX="${VAL_INDEX:-checkpoints/sft_v5_data/val_sequence_index.jsonl}"
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_v5_runs}"
 OUTPUT_DIR_BASE="${OUTPUT_DIR}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"

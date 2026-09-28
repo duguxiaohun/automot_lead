@@ -320,6 +320,8 @@ def _clone_cache(cache: Any) -> Any:
         try:
             return copy.deepcopy(cache)
         except Exception:
+            if hasattr(cache, "layer_types"):
+                raise RuntimeError("Cannot clone Qwen3.5 hybrid cache; refusing to drop recurrent state")
             pass
 
     cache_cls: Any = None
@@ -349,8 +351,8 @@ def _clone_legacy_cache(cache: Any) -> Any:
     return cache
 
 
-class LocalQwen3VLInstructEngine:
-    """本地 Qwen3-VL-Instruct 的最小推理封装。
+class LocalQwen35Engine:
+    """本地 Qwen3.5-4B 的推理封装。
 
     这个类只关心“给一组图和一段 prompt，生成一段自由文本”。它不接 AutoMoT
     的 BEV、route head、waypoint head，也不碰 MoT 自定义 cache 格式。
@@ -368,7 +370,7 @@ class LocalQwen3VLInstructEngine:
         save_cache: bool = False,
         cache_system_prompt: bool = False,
     ):
-        # checkpoint_dir 必须是本地已经下载好的 Qwen3-VL-4B-Instruct 目录。
+        # checkpoint_dir 必须是本地已经下载好的 Qwen3.5-4B 目录。
         self.checkpoint_dir = pathlib.Path(checkpoint_dir).resolve()
 
         # requested_device 保留用户原始选择；load() 时再把 "auto" 解析成 cuda/cpu。
@@ -399,17 +401,10 @@ class LocalQwen3VLInstructEngine:
             raise FileNotFoundError(f"missing local checkpoint: {self.checkpoint_dir}")
 
         import torch
-        from transformers import AutoProcessor
+        from qwen3vl_local.qwen35.backend import AutoProcessor
 
-        # transformers 版本不同，Qwen3-VL 的模型类名称可能不同。
-        # 这里按“新通用类 -> Qwen 专用类 -> 旧 vision2seq 通用类”的顺序兜底。
-        try:
-            from transformers import AutoModelForImageTextToText as ModelClass
-        except ImportError:
-            try:
-                from transformers import Qwen3VLForConditionalGeneration as ModelClass
-            except ImportError:
-                from transformers import AutoModelForVision2Seq as ModelClass
+        # Explicit local model implementation; no AutoModel/remote-code fallback.
+        from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
         self.device = self.requested_device
         if self.device == "auto":
@@ -426,18 +421,18 @@ class LocalQwen3VLInstructEngine:
         print(f"[qwen3vl-local] load checkpoint={self.checkpoint_dir}")
         print(f"[qwen3vl-local] offline env HF_HUB_OFFLINE={os.environ.get('HF_HUB_OFFLINE')}")
 
-        # trust_remote_code=True 是为了使用 checkpoint 目录里的 Qwen3-VL 自定义代码；
-        # local_files_only=True 保证 transformers 只读本地文件。
+        # Model implementation is copied into qwen35/vendor; checkpoint files contain data only.
+        # local_files_only=True and trust_remote_code=False prohibit runtime downloads/code fetches.
         self.model = ModelClass.from_pretrained(
             str(self.checkpoint_dir),
             torch_dtype=dtype,
             local_files_only=True,
-            trust_remote_code=True,
+            trust_remote_code=False,
         ).to(self.device).eval()
         self.processor = AutoProcessor.from_pretrained(
             str(self.checkpoint_dir),
             local_files_only=True,
-            trust_remote_code=True,
+            trust_remote_code=False,
         )
 
     def attach_lora_adapter(self, adapter_dir: str, merge: bool = True) -> None:
@@ -466,7 +461,7 @@ class LocalQwen3VLInstructEngine:
             raise RuntimeError("attach_lora_adapter must be called after engine.load()")
 
         # 延迟导入：未用 LoRA 的 runner 不应被 peft 缺失绊倒。
-        from peft import PeftModel
+        from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
 
         adapter_path = pathlib.Path(adapter_dir).resolve()
         if not adapter_path.exists():
@@ -645,14 +640,15 @@ class LocalQwen3VLInstructEngine:
         attention_mask = full_inputs.get("attention_mask", None)
 
         try:
-            outputs = qwen3vl_incremental_forward(
-                self.model,
-                feed_ids=suffix_ids,
-                attention_mask=attention_mask,
-                past_key_values=_clone_cache(prefix_cache["past_key_values"]),
-                prefix_len=prefix_len,
-                rope_deltas=prefix_cache.get("rope_deltas"),
-            )
+            with torch.inference_mode():
+                outputs = qwen3vl_incremental_forward(
+                    self.model,
+                    feed_ids=suffix_ids,
+                    attention_mask=attention_mask,
+                    past_key_values=_clone_cache(prefix_cache["past_key_values"]),
+                    prefix_len=prefix_len,
+                    rope_deltas=prefix_cache.get("rope_deltas"),
+                )
         except Exception as e:
             trace.system_prompt_cache_note = f"fallback: suffix prefill failed: {repr(e)}"
             return self.prefill(full_inputs)
@@ -946,3 +942,7 @@ def dump_trace(trace: GenerationTrace, out_dir: pathlib.Path) -> None:
         json.dumps(trace.to_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+# Preserve the import API used by external runners; implementation is Qwen3.5 only.
+LocalQwen3VLInstructEngine = LocalQwen35Engine

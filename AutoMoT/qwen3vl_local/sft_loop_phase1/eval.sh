@@ -19,7 +19,7 @@ EVAL_PY="qwen3vl_local/sft_loop_phase1/eval.py"
 LABEL_AUDIT_PY="qwen3vl_local/sft_loop_phase1/audit_matrix.py"
 ADAPTER_CONFIG_NAME="sft_loop_phase1_adapter_config.json"
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 INDEX="${INDEX:-checkpoints/sft_loop_phase1_data/frame_index.jsonl}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"

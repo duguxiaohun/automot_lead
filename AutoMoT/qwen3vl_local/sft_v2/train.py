@@ -46,7 +46,7 @@ except Exception:
 from qwen3vl_local.sft_v2.prompts import extract_gt, target_spans
 
 
-_LANGUAGE_LORA_SUFFIXES = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+_LANGUAGE_LORA_SUFFIXES = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj", "in_proj_qkv", "in_proj_z", "in_proj_a", "in_proj_b", "out_proj")
 _VISION_NAME_MARKERS = ("visual", "vision", "vision_tower", "vision_model", "vit", "merger", "patch_embed")
 _VISION_BRIDGE_MARKERS = ("merger", "patch_embed")
 _VISION_SCOPE_CHOICES = ("off", "merger", "last4", "all")
@@ -292,20 +292,14 @@ def load_model_with_lora(
     offset_mapping 把字符级 value span 映射到 token 级 loss mask。
     """
 
-    from transformers import AutoProcessor
+    from qwen3vl_local.qwen35.backend import AutoProcessor
 
-    try:
-        from transformers import AutoModelForImageTextToText as ModelClass
-    except ImportError:
-        try:
-            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-        except ImportError:
-            from transformers import AutoModelForVision2Seq as ModelClass
+    from qwen3vl_local.qwen35.backend import LocalModel as ModelClass
 
     print(f"[load] base model from {model_dir}")
     model_kwargs = {
         "local_files_only": True,
-        "trust_remote_code": True,
+        "trust_remote_code": False,
     }
     try:
         model = ModelClass.from_pretrained(
@@ -323,7 +317,7 @@ def load_model_with_lora(
     processor = AutoProcessor.from_pretrained(
         str(model_dir),
         local_files_only=True,
-        trust_remote_code=True,
+        trust_remote_code=False,
     )
     tokenizer = processor.tokenizer
     if not getattr(tokenizer, "is_fast", False):
@@ -513,8 +507,9 @@ def build_student_inputs(
     # 权重初始全 0，只有 assistant 的值 token 会被置为 label_weight。
     weights = torch.zeros_like(input_ids, dtype=torch.float32)
     expanded_ids = [int(x) for x in input_ids.tolist()]
+    from qwen3vl_local.qwen35.backend import assistant_header_text
     asst_header_ids = list(bundle.tokenizer(
-        "<|im_start|>assistant\n",
+        assistant_header_text(bundle.processor),
         add_special_tokens=False,
     )["input_ids"])
     cursor = 0
@@ -792,7 +787,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train SFT v2 serial-choice LoRA")
     p.add_argument("--train-jsonl", type=str, required=True)
     p.add_argument("--val-jsonl", type=str, default=None)
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--output-dir", type=str, required=True)
     p.add_argument("--num-epochs", type=int, default=2)
     p.add_argument("--per-device-batch-size", type=int, default=1)
@@ -1153,7 +1148,8 @@ def main() -> None:
             if is_rank0(rank):
                 emergency_dir = output_dir / f"fuse_stop_step_{global_step + 1}"
                 emergency_dir.mkdir(parents=True, exist_ok=True)
-                bundle.unwrap().save_pretrained(str(emergency_dir))
+                from qwen3vl_local.qwen35.adapters import save_adapter
+                save_adapter(bundle.unwrap(), str(emergency_dir))
                 save_sft_v2_adapter_config(emergency_dir, bundle, args)
                 try:
                     bundle.processor.save_pretrained(str(emergency_dir))
@@ -1210,7 +1206,8 @@ def main() -> None:
                         tb.add_scalar(f"val/{k}", v, global_step)
         if (not args.check) and args.save_steps > 0 and global_step % args.save_steps == 0 and is_rank0(rank):
             ckpt = output_dir / f"checkpoint-{global_step}"
-            bundle.unwrap().save_pretrained(str(ckpt))
+            from qwen3vl_local.qwen35.adapters import save_adapter
+            save_adapter(bundle.unwrap(), str(ckpt))
             save_sft_v2_adapter_config(ckpt, bundle, args)
             saved.append(ckpt)
             if args.save_total_limit > 0 and len(saved) > args.save_total_limit:
@@ -1268,7 +1265,8 @@ def main() -> None:
     if is_rank0(rank) and not args.check and not fuse_stopped:
         # 训练完成后只保存 adapter/processor 到 final；base 模型仍然从本地 MODEL_DIR 读取。
         final_dir = output_dir / "final"
-        bundle.unwrap().save_pretrained(str(final_dir))
+        from qwen3vl_local.qwen35.adapters import save_adapter
+        save_adapter(bundle.unwrap(), str(final_dir))
         save_sft_v2_adapter_config(final_dir, bundle, args)
         try:
             bundle.processor.save_pretrained(str(final_dir))

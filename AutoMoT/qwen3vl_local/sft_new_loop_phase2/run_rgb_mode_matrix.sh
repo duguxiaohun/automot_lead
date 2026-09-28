@@ -89,7 +89,7 @@ echo "[matrix] AutoMoT root: ${AUTOMOT_ROOT}"
 echo "[matrix] GPU_IDS=${GPU_IDS}, processes=${NPROC}, source=${GPU_SELECTION_SOURCE} (DDP_GPU_COUNT only controls automatic selection)"
 echo "[matrix] 2rgb_endpoints always uses source frames [0,3] (first and fourth)."
 
-MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3-VL-4B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 INDEX="${INDEX:-checkpoints/sft_new_loop_phase2_data/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 EVAL_COMMON_ARGS=(--model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}")

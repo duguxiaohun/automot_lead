@@ -1,4 +1,4 @@
-"""SFT 数据集生成脚本 — 为 Qwen3-VL-4B-Instruct LoRA 微调准备 pending 样本。
+"""SFT 数据集生成脚本 — 为 Qwen3.5-4B LoRA 微调准备 pending 样本。
 
 设计目标见 qwen3vl_local/sft/SFT_PLAN.md；运行命令见 qwen3vl_local/sft/SFT_RUN.md。
 本脚本纯 CPU、不需要 GPU，可以在本地或远程跑。

@@ -500,7 +500,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Compare SFT v5 single Qwen rollout with batched Qwen rollout")
     p.add_argument("--index", type=str, required=True)
-    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3-VL-4B-Instruct")
+    p.add_argument("--model-dir", type=str, default="checkpoints/Qwen3.5-4B")
     p.add_argument("--adapter-dir", type=str, default=None)
     p.add_argument("--num-cases", type=int, default=2)
     p.add_argument("--candidate-pool", type=int, default=32)

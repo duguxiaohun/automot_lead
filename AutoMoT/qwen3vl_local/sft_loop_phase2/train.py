@@ -346,7 +346,8 @@ def _build_inputs(
         format_loss_weight=float(format_loss_weight),
     )
     pos = _find_subsequence(expanded, target_ids, 0)
-    asst_header_ids = list(bundle.tokenizer("<|im_start|>assistant\n", add_special_tokens=False)["input_ids"])
+    from qwen3vl_local.qwen35.backend import assistant_header_text
+    asst_header_ids = list(bundle.tokenizer(assistant_header_text(bundle.processor), add_special_tokens=False)["input_ids"])
     _assert_inside_assistant_turn(expanded, pos, asst_header_ids, 0)
     for j, weight in enumerate(token_weights):
         if weight > 0:
@@ -593,7 +594,8 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
 
     final_dir = output_dir / str(name)
     final_dir.mkdir(parents=True, exist_ok=True)
-    bundle.unwrap().save_pretrained(str(final_dir))
+    from qwen3vl_local.qwen35.adapters import save_adapter
+    save_adapter(bundle.unwrap(), str(final_dir))
     cfg = {
         "schema": "sft_loop_phase2_adapter_config",
         "route": "sft_loop_phase2_road_structure_four_binary",
@@ -908,7 +910,7 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(description="Train sft_loop_phase2 four-question LoRA")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_loop_phase2_data/frame_index.jsonl"))
-    p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3-VL-4B-Instruct"))
+    p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3.5-4B"))
     p.add_argument(
         "--output-dir",
         default="",

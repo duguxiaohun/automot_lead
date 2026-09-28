@@ -52,7 +52,7 @@ class PriorEngine:
                    prior_labels=labels.path, labeled_frames=labels.rows,
                    analysis_review=self.analysis_review)
             return
-        from peft import PeftModel
+        from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
         from qwen3vl_local.engine import _inspect_lora_adapter
 
         for key in ("phase1", "phase2"):
@@ -66,6 +66,8 @@ class PriorEngine:
             local_files_only=True,
         )
         report("setup/load_phase2_lora", announce=True, phase2_path=contract["phase2"]["path"])
+        from qwen3vl_local.qwen35.adapters import validate_adapter
+        validate_adapter(contract["phase2"]["path"], engine.model)
         self.adapters.load_adapter(
             contract["phase2"]["path"],
             adapter_name="phase2",

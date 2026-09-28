@@ -315,7 +315,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", default="", help="Default: <save-root>/best.pt -> latest.pt -> newest step/epoch checkpoint.")
     parser.add_argument("--save-root", default="", help="GoalGen-style root; eval artifacts go to <save-root>/eval when --output-dir is omitted.")
     parser.add_argument("--output-dir", default="")
-    parser.add_argument("--model-dir", default="checkpoints/Qwen3-VL-4B-Instruct")
+    parser.add_argument("--model-dir", default="checkpoints/Qwen3.5-4B")
     parser.add_argument(
         "--qwen-adapter-dir",
         default="auto",
