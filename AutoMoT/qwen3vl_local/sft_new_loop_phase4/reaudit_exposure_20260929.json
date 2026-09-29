@@ -1,0 +1,92 @@
+{
+  "scope": "Train-only exposure registration from user-supplied partial RGB audit, not new supervision or full audit acceptance",
+  "source": "/tmp/phase4_reaudit_20260929",
+  "source_sha256": {
+    "visual_notes.json": "2da2c6e6c31430ae16a69d85a34fc94be1e716fc76abf31b2cb3380cf3235396",
+    "new_exposure_train_only.json": "638169f819ec80c9dad108407f142584ea705c14185435781aea51681ab5e48b",
+    "coverage_progress.json": "8786efa3ad9f8c55e3890400d093d159f156cea903ff7e77278c90a6572885a1",
+    "AUDIT_PARTIAL.md": "e2505e10cabf8ad0c85dc59dc5a9803d6488dd09876f9fda75e6bdc4701fc52d"
+  },
+  "reported_coverage": {
+    "rounds": [
+      {
+        "folder": "/tmp/phase4_readonly_audit_20260929",
+        "sequences": 38,
+        "frames": 4290
+      },
+      {
+        "folder": "/tmp/phase4_reaudit_20260929",
+        "sequences": 85,
+        "frames": 6722
+      }
+    ],
+    "cumulative_sequences": 121,
+    "cumulative_frames": 10900,
+    "reviewed_cells": 86,
+    "meets_three_ids": 37,
+    "total_cells": 278,
+    "shortfall_cells": 18,
+    "events": [
+      "R-E2",
+      "R-E3",
+      "R-E5",
+      "U-E1",
+      "U-E2",
+      "U-E3",
+      "U-E4",
+      "U-E5",
+      "U-E6",
+      "U-E7"
+    ],
+    "all_requested_rgb_audit_complete": false
+  },
+  "train_only_groups": [
+    "NonSignalizedJunctionLeftTurn/Town03_route_000924",
+    "NonSignalizedJunctionLeftTurn/Town03_route_000925",
+    "NonSignalizedJunctionLeftTurn/Town04_route_000935",
+    "ParkingCrossingPedestrian/Town13_1017_0",
+    "ParkingCrossingPedestrian/Town13_1017_1",
+    "ParkingCrossingPedestrian/Town13_1085_0",
+    "ParkingCutIn/Town13_1075_1",
+    "StaticCutIn/Town12_2450_0",
+    "StaticCutIn/Town12_960_0",
+    "StaticCutIn/Town13_1212_0",
+    "VehicleOpensDoorTwoWays/Town13_19_0",
+    "VehicleOpensDoorTwoWays/Town13_19_1",
+    "noScenarios/Town03_Town03_lr_1",
+    "noScenarios/Town03_Town03_lr_2",
+    "noScenarios/Town03_Town03_rl_7",
+    "noScenarios/Town04_Town04_ll_17",
+    "noScenarios/Town04_Town04_rl_10",
+    "noScenarios/Town04_Town04_rr_16",
+    "noScenarios/Town04_route_000522",
+    "noScenarios/Town04_route_000524",
+    "noScenarios/Town10HD_Town10HD_lr_7",
+    "noScenarios/Town10HD_Town10HD_rl_2",
+    "noScenarios/Town10HD_Town10HD_rl_7"
+  ],
+  "local_reinspection": {
+    "scope": "Three existing audit windows re-viewed; no new complete sequence or approved YES interval",
+    "frames_per_route": [
+      72,
+      95
+    ],
+    "windows": [
+      {
+        "manifest_id": "389",
+        "manifest_sha256": "d80dca2f06bedaed55ad09d8c2fdd9436f5b9a3bbcd1613a079212573f1f6878",
+        "panel_sha256": "0fabe4e6cf42cb412f0523ca836011232c4d85a97646178ee9bcbd0cd240386b"
+      },
+      {
+        "manifest_id": "390",
+        "manifest_sha256": "1febba0899a38010680c72ac8e458bfa8b377cedb1d351fd279a3b56b8d94d42",
+        "panel_sha256": "94b3b6ffc6b832c3af96f6d093f20e42b1d45846529bdd9b4899f0e6f488aa1c"
+      },
+      {
+        "manifest_id": "391",
+        "manifest_sha256": "dfc65b437db6b3b5214c332e93beed64f8fac18b28d15a9f7b6566f469d9bf9e",
+        "panel_sha256": "2f7234e48713ddb0326f268bb8af24d66899090e6fcbf1e8ac303899e7368778"
+      }
+    ]
+  }
+}

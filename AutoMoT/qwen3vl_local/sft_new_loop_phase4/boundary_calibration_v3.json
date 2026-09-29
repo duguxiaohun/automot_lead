@@ -1,0 +1,1064 @@
+{
+  "policy": "Per-route frame evidence; no fixed or event-wide temporal dilation",
+  "legacy_intervals_retained": 11,
+  "bands": [
+    {
+      "evidence_id": "p4_001/boundary_v3/proceed",
+      "event": "U-E1",
+      "edge": "proceed",
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_346_0_route0_01_08_04_09_24",
+      "reference_frame": 41,
+      "reference_kind": "successor_observed",
+      "first_yes": 41,
+      "last_yes": 44,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": false,
+      "stop": {
+        "frame": 45,
+        "kind": "stable_successor",
+        "reason": "45起已建立普通跟随，停止采该旧等待问题。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_002/boundary_v3/proceed",
+      "event": "U-E1",
+      "edge": "proceed",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1624_0_route0_01_09_02_24_14",
+      "reference_frame": 76,
+      "reference_kind": "successor_observed",
+      "first_yes": 75,
+      "last_yes": 78,
+      "before_frames": 1,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 79,
+        "kind": "stable_successor",
+        "reason": "79起已普通跟随；后续速度抖动不是新的释放点。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_004/boundary_v3/proceed",
+      "event": "U-E1",
+      "edge": "proceed",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1049_0_route0_01_08_23_16_01",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 245,
+        "kind": "unresolved",
+        "reason": "审阅结束仍未发生释放。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_008/boundary_v3/depart",
+      "event": "U-E2",
+      "edge": "depart",
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town10HD_Rep0_route_002012_route0_01_09_08_54_16",
+      "reference_frame": 41,
+      "reference_kind": "successor_observed",
+      "first_yes": 39,
+      "last_yes": 43,
+      "before_frames": 2,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 44,
+        "kind": "next_stage",
+        "reason": "44起已进入绕行通道，下一问题应为沿通道通过。"
+      },
+      "counts": {
+        "readiness": 2,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_010/boundary_v3/depart",
+      "event": "U-E2",
+      "edge": "depart",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town07_Rep0_route_001440_route0_01_11_01_57_13",
+      "reference_frame": 64,
+      "reference_kind": "successor_observed",
+      "first_yes": 63,
+      "last_yes": 66,
+      "before_frames": 1,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 67,
+        "kind": "next_stage",
+        "reason": "67已完成借道进入。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_011/boundary_v3/depart",
+      "event": "U-E2",
+      "edge": "depart",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town04_Rep0_route_001898_route0_01_08_19_24_38",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 100,
+        "kind": "unresolved",
+        "reason": "未认证其他帧入口后方净空；无正例扩展。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_013/boundary_v3/depart",
+      "event": "U-E2",
+      "edge": "depart",
+      "scenario": "VehicleOpensDoorTwoWays",
+      "route_id": "Town12_Rep0_2091_0_route0_01_10_20_13_16",
+      "reference_frame": 53,
+      "reference_kind": "successor_observed",
+      "first_yes": 50,
+      "last_yes": 54,
+      "before_frames": 3,
+      "after_frames": 1,
+      "right_censored": false,
+      "stop": {
+        "frame": 55,
+        "kind": "next_stage",
+        "reason": "55起已沿借道通道通过。"
+      },
+      "counts": {
+        "readiness": 3,
+        "catchup": 2
+      }
+    },
+    {
+      "evidence_id": "p4_013/boundary_v3/pass",
+      "event": "U-E2",
+      "edge": "pass",
+      "scenario": "VehicleOpensDoorTwoWays",
+      "route_id": "Town12_Rep0_2091_0_route0_01_10_20_13_16",
+      "reference_frame": 55,
+      "reference_kind": "milestone_observed",
+      "first_yes": 55,
+      "last_yes": 56,
+      "before_frames": 0,
+      "after_frames": 1,
+      "right_censored": false,
+      "stop": {
+        "frame": 57,
+        "kind": "next_stage",
+        "reason": "57起进入回切判断；不再重复DEPART→PASS。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 1
+      }
+    },
+    {
+      "evidence_id": "p4_013/boundary_v3/return",
+      "event": "U-E2",
+      "edge": "return",
+      "scenario": "VehicleOpensDoorTwoWays",
+      "route_id": "Town12_Rep0_2091_0_route0_01_10_20_13_16",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 61,
+        "kind": "unresolved",
+        "reason": "58–60回切净空/执行边界不足以认证旧PASS许可，不根据真实转向补YES。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_016/boundary_v3/proceed",
+      "event": "U-E3",
+      "edge": "proceed",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town12_Rep0_1681_0_route0_01_09_14_15_55",
+      "reference_frame": 108,
+      "reference_kind": "successor_observed",
+      "first_yes": 108,
+      "last_yes": 110,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 111,
+        "kind": "stable_successor",
+        "reason": "111后普通跟随。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 2
+      }
+    },
+    {
+      "evidence_id": "p4_021/boundary_v3/proceed",
+      "event": "U-E3",
+      "edge": "proceed",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_1009_1_route0_01_11_03_10_29",
+      "reference_frame": 38,
+      "reference_kind": "successor_observed",
+      "first_yes": 38,
+      "last_yes": 40,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 41,
+        "kind": "stable_successor",
+        "reason": "41后普通跟随。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 2
+      }
+    },
+    {
+      "evidence_id": "p4_019/boundary_v3/proceed",
+      "event": "U-E3",
+      "edge": "proceed",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_1_route0_01_08_12_54_26",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 99,
+        "kind": "unresolved",
+        "reason": "雾中不能建立切入参与者身份。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_025/boundary_v3/proceed",
+      "event": "U-E4",
+      "edge": "proceed",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03",
+      "reference_frame": 170,
+      "reference_kind": "successor_observed",
+      "first_yes": 167,
+      "last_yes": 172,
+      "before_frames": 3,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 173,
+        "kind": "stable_successor",
+        "reason": "自此进入普通行进；保留之前的旧等待补问。"
+      },
+      "counts": {
+        "readiness": 3,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_026/boundary_v3/proceed",
+      "event": "U-E4",
+      "edge": "proceed",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07",
+      "reference_frame": 70,
+      "reference_kind": "successor_observed",
+      "first_yes": 67,
+      "last_yes": 72,
+      "before_frames": 3,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 73,
+        "kind": "stable_successor",
+        "reason": "自此进入普通行进；保留之前的旧等待补问。"
+      },
+      "counts": {
+        "readiness": 3,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_028/boundary_v3/proceed",
+      "event": "U-E4",
+      "edge": "proceed",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18",
+      "reference_frame": 92,
+      "reference_kind": "successor_observed",
+      "first_yes": 88,
+      "last_yes": 94,
+      "before_frames": 4,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 95,
+        "kind": "stable_successor",
+        "reason": "自此进入普通行进；保留之前的旧等待补问。"
+      },
+      "counts": {
+        "readiness": 4,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_081/boundary_v3/depart",
+      "event": "U-E4",
+      "edge": "depart",
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town12_Rep0_1092_0_route0_01_11_00_38_57",
+      "reference_frame": 43,
+      "reference_kind": "successor_observed",
+      "first_yes": 42,
+      "last_yes": 45,
+      "before_frames": 1,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 46,
+        "kind": "next_stage",
+        "reason": "已进入借道通道，转入沿通道通过骑手阶段。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_088/boundary_v3/depart",
+      "event": "U-E4",
+      "edge": "depart",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town12_Rep0_1067_0_route0_01_10_00_13_56",
+      "reference_frame": 186,
+      "reference_kind": "successor_observed",
+      "first_yes": 185,
+      "last_yes": 188,
+      "before_frames": 1,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 189,
+        "kind": "next_stage",
+        "reason": "已进入借道通道，转入沿通道通过骑手阶段。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_091/boundary_v3/depart",
+      "event": "U-E4",
+      "edge": "depart",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+      "reference_frame": 68,
+      "reference_kind": "successor_observed",
+      "first_yes": 67,
+      "last_yes": 70,
+      "before_frames": 1,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 71,
+        "kind": "next_stage",
+        "reason": "已进入借道通道，转入沿通道通过骑手阶段。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_081/boundary_v3/pass",
+      "event": "U-E4",
+      "edge": "pass",
+      "scenario": "HazardAtSideLane",
+      "route_id": "Town12_Rep0_1092_0_route0_01_11_00_38_57",
+      "reference_frame": 46,
+      "reference_kind": "milestone_observed",
+      "first_yes": 46,
+      "last_yes": 52,
+      "before_frames": 0,
+      "after_frames": 6,
+      "right_censored": true,
+      "stop": {
+        "frame": 53,
+        "kind": "review_end",
+        "reason": "审阅仅覆盖至52，回切边界未见。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 6
+      }
+    },
+    {
+      "evidence_id": "p4_088/boundary_v3/pass",
+      "event": "U-E4",
+      "edge": "pass",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town12_Rep0_1067_0_route0_01_10_00_13_56",
+      "reference_frame": 189,
+      "reference_kind": "milestone_observed",
+      "first_yes": 189,
+      "last_yes": 194,
+      "before_frames": 0,
+      "after_frames": 5,
+      "right_censored": false,
+      "stop": {
+        "frame": 195,
+        "kind": "next_stage",
+        "reason": "进入最后骑手净空/回切判断阶段，不再补问更早进入阶段。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 5
+      }
+    },
+    {
+      "evidence_id": "p4_091/boundary_v3/pass",
+      "event": "U-E4",
+      "edge": "pass",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+      "reference_frame": 71,
+      "reference_kind": "milestone_observed",
+      "first_yes": 71,
+      "last_yes": 76,
+      "before_frames": 0,
+      "after_frames": 5,
+      "right_censored": false,
+      "stop": {
+        "frame": 77,
+        "kind": "next_stage",
+        "reason": "进入最后骑手净空/回切判断阶段，不再补问更早进入阶段。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 5
+      }
+    },
+    {
+      "evidence_id": "p4_088/boundary_v3/return",
+      "event": "U-E4",
+      "edge": "return",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town12_Rep0_1067_0_route0_01_10_00_13_56",
+      "reference_frame": 195,
+      "reference_kind": "successor_observed",
+      "first_yes": 195,
+      "last_yes": 198,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": false,
+      "stop": {
+        "frame": 199,
+        "kind": "next_stage",
+        "reason": "已稳定回到原通道，结束旧PASS→RETURN补问。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_091/boundary_v3/return",
+      "event": "U-E4",
+      "edge": "return",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+      "reference_frame": 78,
+      "reference_kind": "successor_observed",
+      "first_yes": 78,
+      "last_yes": 80,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 81,
+        "kind": "next_stage",
+        "reason": "已稳定回到原通道，结束旧PASS→RETURN补问。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 2
+      }
+    },
+    {
+      "evidence_id": "p4_088/boundary_v3/complete",
+      "event": "U-E4",
+      "edge": "complete",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town12_Rep0_1067_0_route0_01_10_00_13_56",
+      "reference_frame": 199,
+      "reference_kind": "milestone_observed",
+      "first_yes": 199,
+      "last_yes": 202,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": false,
+      "stop": {
+        "frame": 203,
+        "kind": "stable_successor",
+        "reason": "旧绕行已进入普通路段，后续近景由新的来车主导。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_091/boundary_v3/complete",
+      "event": "U-E4",
+      "edge": "complete",
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+      "reference_frame": 81,
+      "reference_kind": "milestone_observed",
+      "first_yes": 81,
+      "last_yes": 84,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": false,
+      "stop": {
+        "frame": 85,
+        "kind": "stable_successor",
+        "reason": "旧绕行已进入普通路段，后续近景由新的来车主导。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_032/boundary_v3/proceed",
+      "event": "U-E5",
+      "edge": "proceed",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1229_0_route0_01_08_21_43_40",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 50,
+        "kind": "unresolved",
+        "reason": "35–39受雾遮挡，其后又有冲突；不补释放正例。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_033/boundary_v3/proceed",
+      "event": "U-E5",
+      "edge": "proceed",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1158_0_route0_01_09_11_16_32",
+      "reference_frame": 95,
+      "reference_kind": "condition_onset",
+      "first_yes": 95,
+      "last_yes": 101,
+      "before_frames": 0,
+      "after_frames": 6,
+      "right_censored": false,
+      "stop": {
+        "frame": 102,
+        "kind": "new_conflict",
+        "reason": "新的来车出现，需要重查；reference是条件开放，不声称示范执行点。"
+      },
+      "counts": {
+        "readiness": 7,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_039/boundary_v3/proceed",
+      "event": "U-E5",
+      "edge": "proceed",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1148_0_route0_01_08_19_01_21",
+      "reference_frame": 46,
+      "reference_kind": "condition_onset",
+      "first_yes": 46,
+      "last_yes": 48,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 49,
+        "kind": "new_conflict",
+        "reason": "新的来车出现，需要重查；reference是条件开放，不声称示范执行点。"
+      },
+      "counts": {
+        "readiness": 3,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_040/boundary_v3/proceed",
+      "event": "U-E6",
+      "edge": "proceed",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 44,
+        "kind": "unresolved",
+        "reason": "后段信号/优先权关系不能完整认证。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_042/boundary_v3/proceed",
+      "event": "U-E6",
+      "edge": "proceed",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10",
+      "reference_frame": 82,
+      "reference_kind": "successor_observed",
+      "first_yes": 75,
+      "last_yes": 86,
+      "before_frames": 7,
+      "after_frames": 4,
+      "right_censored": true,
+      "stop": {
+        "frame": 87,
+        "kind": "review_end",
+        "reason": "窗口结束，尚未观察到补问最晚终点；只声明已审范围。"
+      },
+      "counts": {
+        "readiness": 7,
+        "catchup": 5
+      }
+    },
+    {
+      "evidence_id": "p4_046/boundary_v3/proceed",
+      "event": "U-E6",
+      "edge": "proceed",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34",
+      "reference_frame": 48,
+      "reference_kind": "successor_observed",
+      "first_yes": 44,
+      "last_yes": 53,
+      "before_frames": 4,
+      "after_frames": 5,
+      "right_censored": true,
+      "stop": {
+        "frame": 54,
+        "kind": "review_end",
+        "reason": "窗口结束，尚未观察到补问最晚终点；只声明已审范围。"
+      },
+      "counts": {
+        "readiness": 4,
+        "catchup": 6
+      }
+    },
+    {
+      "evidence_id": "p4_048/boundary_v3/complete",
+      "event": "U-E7",
+      "edge": "complete",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town13_Rep0_route_002180_route0_01_08_13_54_39",
+      "reference_frame": 49,
+      "reference_kind": "milestone_observed",
+      "first_yes": 49,
+      "last_yes": 52,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": true,
+      "stop": {
+        "frame": 53,
+        "kind": "review_end",
+        "reason": "审阅/录像结束，只保留明确已完成的旧问题。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_050/boundary_v3/complete",
+      "event": "U-E7",
+      "edge": "complete",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002163_route0_01_11_03_37_58",
+      "reference_frame": 39,
+      "reference_kind": "milestone_observed",
+      "first_yes": 39,
+      "last_yes": 41,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": true,
+      "stop": {
+        "frame": 42,
+        "kind": "review_end",
+        "reason": "审阅/录像结束，只保留明确已完成的旧问题。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 2
+      }
+    },
+    {
+      "evidence_id": "p4_055/boundary_v3/complete",
+      "event": "U-E7",
+      "edge": "complete",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town12_Rep0_route_002103_route0_01_11_01_15_31",
+      "reference_frame": 35,
+      "reference_kind": "milestone_observed",
+      "first_yes": 35,
+      "last_yes": 38,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": true,
+      "stop": {
+        "frame": 39,
+        "kind": "review_end",
+        "reason": "审阅/录像结束，只保留明确已完成的旧问题。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_056/boundary_v3/complete",
+      "event": "R-E2",
+      "edge": "complete",
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+      "reference_frame": 106,
+      "reference_kind": "milestone_observed",
+      "first_yes": 106,
+      "last_yes": 108,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": false,
+      "stop": {
+        "frame": 109,
+        "kind": "next_stage",
+        "reason": "109起前方分岔引入新路线决策。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 2
+      }
+    },
+    {
+      "evidence_id": "p4_059/boundary_v3/enter",
+      "event": "R-E2",
+      "edge": "enter",
+      "scenario": "noScenarios",
+      "route_id": "Town05_Rep0_Town05_ll_2_route0_01_11_09_57_22",
+      "reference_frame": 52,
+      "reference_kind": "successor_observed",
+      "first_yes": 49,
+      "last_yes": 55,
+      "before_frames": 3,
+      "after_frames": 3,
+      "right_censored": false,
+      "stop": {
+        "frame": 56,
+        "kind": "next_stage",
+        "reason": "56起已经位于目标车道。"
+      },
+      "counts": {
+        "readiness": 3,
+        "catchup": 4
+      }
+    },
+    {
+      "evidence_id": "p4_059/boundary_v3/complete",
+      "event": "R-E2",
+      "edge": "complete",
+      "scenario": "noScenarios",
+      "route_id": "Town05_Rep0_Town05_ll_2_route0_01_11_09_57_22",
+      "reference_frame": 56,
+      "reference_kind": "milestone_observed",
+      "first_yes": 56,
+      "last_yes": 60,
+      "before_frames": 0,
+      "after_frames": 4,
+      "right_censored": true,
+      "stop": {
+        "frame": 61,
+        "kind": "review_end",
+        "reason": "审阅结束，未向后外推。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 4
+      }
+    },
+    {
+      "evidence_id": "p4_060/boundary_v3/complete",
+      "event": "R-E2",
+      "edge": "complete",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001923_route0_01_09_18_02_51",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 49,
+        "kind": "unresolved",
+        "reason": "43起黄色车辆切入目标通道，撤销旧完成扩展，需新冲突复核。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_063/boundary_v3/complete",
+      "event": "R-E2",
+      "edge": "complete",
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town01_Rep0_route_001275_route0_01_09_16_43_40",
+      "reference_frame": 99,
+      "reference_kind": "milestone_observed",
+      "first_yes": 99,
+      "last_yes": 103,
+      "before_frames": 0,
+      "after_frames": 4,
+      "right_censored": false,
+      "stop": {
+        "frame": 104,
+        "kind": "stable_successor",
+        "reason": "104以后普通前行占主导，停止旧回切问题采样。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 4
+      }
+    },
+    {
+      "evidence_id": "p4_064/boundary_v3/proceed",
+      "event": "R-E5",
+      "edge": "proceed",
+      "scenario": "noScenarios",
+      "route_id": "Town07_Rep0_Town07_0_route0_01_11_03_22_27",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 31,
+        "kind": "unresolved",
+        "reason": "微小前进不能认证通行条件。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_067/boundary_v3/proceed",
+      "event": "R-E5",
+      "edge": "proceed",
+      "scenario": "InterurbanAdvancedActorFlow",
+      "route_id": "Town12_Rep0_3457_0_route0_01_09_09_59_12",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 86,
+        "kind": "unresolved",
+        "reason": "85轻微运动不能认证优先权满足。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_070/boundary_v3/proceed",
+      "event": "R-E5",
+      "edge": "proceed",
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town04_Rep0_route_000931_route0_01_10_04_18_32",
+      "reference_frame": 26,
+      "reference_kind": "successor_observed",
+      "first_yes": 26,
+      "last_yes": 30,
+      "before_frames": 0,
+      "after_frames": 4,
+      "right_censored": false,
+      "stop": {
+        "frame": 31,
+        "kind": "stable_successor",
+        "reason": "31起进入出口通道普通行进，不把20微动当转移点。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 4
+      }
+    },
+    {
+      "evidence_id": "p4_073/boundary_v3/complete",
+      "event": "R-E3",
+      "edge": "complete",
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_1388_0_route0_01_10_05_04_45",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 64,
+        "kind": "unresolved",
+        "reason": "拓扑编号变化不能代替目标通道和汇入完成证据。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_076/boundary_v3/enter",
+      "event": "R-E3",
+      "edge": "enter",
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_12_route0_01_10_00_03_59",
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "first_yes": null,
+      "last_yes": null,
+      "before_frames": null,
+      "after_frames": null,
+      "right_censored": false,
+      "stop": {
+        "frame": 70,
+        "kind": "unresolved",
+        "reason": "起步不等于汇入许可，后段跟随/间隙边界需复核。"
+      },
+      "counts": {
+        "readiness": 0,
+        "catchup": 0
+      }
+    },
+    {
+      "evidence_id": "p4_076/boundary_v3/complete",
+      "event": "R-E3",
+      "edge": "complete",
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_12_route0_01_10_00_03_59",
+      "reference_frame": 72,
+      "reference_kind": "milestone_observed",
+      "first_yes": 72,
+      "last_yes": 75,
+      "before_frames": 0,
+      "after_frames": 3,
+      "right_censored": false,
+      "stop": {
+        "frame": 76,
+        "kind": "stable_successor",
+        "reason": "76起已普通主路跟随。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 3
+      }
+    },
+    {
+      "evidence_id": "p4_079/boundary_v3/complete",
+      "event": "R-E3",
+      "edge": "complete",
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_1396_12_route0_01_09_17_40_40",
+      "reference_frame": 94,
+      "reference_kind": "milestone_observed",
+      "first_yes": 94,
+      "last_yes": 96,
+      "before_frames": 0,
+      "after_frames": 2,
+      "right_censored": true,
+      "stop": {
+        "frame": 97,
+        "kind": "review_end",
+        "reason": "审阅结束，保留FORWARD路线分支且不外推。"
+      },
+      "counts": {
+        "readiness": 1,
+        "catchup": 2
+      }
+    }
+  ]
+}

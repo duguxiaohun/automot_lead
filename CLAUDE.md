@@ -1,5 +1,98 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-09-30 Phase4 第四轮部分审计修复
+
+旧per_frame_conditions仅保留readiness；legacy catchup构建和直接helper均拒绝，须逐帧复审为reviewed_transition_band。
+回放真值缺失/UNKNOWN在truth_unknown处删失，后续YES另起；整帧缺失/不再询问的边也截止，记录last_ready_frame。
+f10 YES/f11未知/f12 YES且执行，三种延迟均[0]并保留旧区间删失；连续YES对照仍[2]。
+222项专项通过；2/4RGB各429题及121待审与v6逐行一致，全量哈希、各7轮×world1/4采样通过。
+任务合同v7/标定代码v5/data_v7，提示词v5/人工标注v3/快照v6不变，须新数据新run。
+本轮无新增RGB目视/曝光/标注；完整审计仍224条/26418帧、92/278单元三ID，剩476条、18单元来源不足。
+ready=false；缺完整逐帧覆盖、监督/独立holdout及完整4B，无正式GPU/DDP/CARLA验收。
+Phase3/Action稳定默认未改；见Phase4/FOURTH_AUDIT_FIXES_20260930.md。
+
+### 2026-09-30 Phase4 第三轮部分审计修复
+
+re_yield保留尚未解除的HOLD，七类事件连续hold→re_yield仍STOP。
+tick先整批检查再在副本推进/核验回执，异常时快照不变；advance/revalidate/acknowledge同样避免部分写入。
+catchup新增transition_blocking_conflict作用范围：独立纵向限制不否定几何完成；有冲突但无范围拒绝构建。
+新增instance_boundary/calibration_anomaly人工审核截止，不自动扩窗或从目标消失生成YES。
+本次复看七面板155张既有RGB、不增加完整序列计数；报告11个实际曝光组补入Phase4 train-only。
+用户报告累计224条/26418帧，92/278单元三ID，剩476条，18单元来源不足；完整审计未完成。
+202项专项通过；2/4RGB各429题逐行等于v5、121待审，哈希及各7轮×world1/4采样通过。
+任务/快照v6、标定代码v4；提示词v5/人工标注v3未改，须新数据新run。Phase3/Action稳定默认未动。
+ready=false；缺完整分支/纵向及独立holdout监督、完整4B权重，无正式GPU/CARLA或实时吞吐验收。
+详见Phase4/THIRD_AUDIT_FIXES_20260930.md；事务不回滚外部预测器副作用，副本随历史增长的开销待实测。
+
+### 2026-09-29 Phase4 第二轮部分审计修复
+
+用户报告两轮累计121条完整序列/10900帧，278单元仅37个三ID，剩579条，18单元来源不足。
+本次只复看StaticCutIn/Town13三条已审路线72–95帧共72张，不增加完整序列计数、不批准新YES区间。
+修复横向目标冲突丢STOP/无可用复核入口；汇总/export返回冲突及待审实例，runtime落实needs_recheck，
+取消未执行冲突许可但保留已确认制动，公开revalidate逐项恢复。re_yield+stable原子拒绝，不能变KEEP。
+返回完成后继续使用原车道目标，其他路线分支不受影响；DONE文字明确阶段完成且纵向约束继续保留。
+UE3恢复提示词覆盖可跟随/旁侧通过，仍受继续侵入、来车、通道和优先权约束，不硬编码左绕。
+报告中的23个新曝光组登记Phase4 train-only，来源SHA绑定；原逐帧标注/边界证据SHA未改。
+172项专项通过，原复现通过；2/4RGB各429题＋121待审、全量哈希及各7轮×world1/4采样回放通过。
+任务/提示词v5、快照v5、先验source v2，人工标注仍v3；须新产物新run，旧版本不硬复用。
+ready=false，全量RGB/COMMON/re_yield/分支/独立三split仍未验收；未正式4B/GPU/CARLA训练或集成。
+Phase3/Action稳定默认未改；详见Phase4/REAUDIT_FIXES_20260929.md。
+
+### 2026-09-29 Phase4 部分审计后的控制器与训练门槛修复
+
+用户提供的只读审计仅部分完成：38条完整序列/4290帧，278单元仅7个三ID，
+仍缺662条/94378帧，18单元来源不足三ID。本轮无新增目视审计、不改标注与曝光SHA。
+修复COMMON覆盖漏检、许可撤销误回退独立里程碑、几何完成与减速冲突、正常NO等待误超时；
+事件轴DONE不等于实例退出，纵向APPROACH/HOLD/RECOVER继续保留；复核保留已有制动约束。
+回放分回答/接受/执行确认延迟及未确认右删失；handoff要求完整显式有效性判断；
+训练/adapter/runtime/replay绑定2/4RGB及历史间隔。新增当前实例/边/决定的因果执行回执，
+支持已开始动作的旧状态同步及新快照恢复，旧/未来/错边回执拒绝；未真实跟踪器/CARLA验收。
+流水线接上独立test与审计包，单独train默认data_v4；未认证Phase3所有功能完全对齐。
+138项专项通过（含原复现、小模型、观察合同及流程stub）；2/4RGB各429题＋121待审、
+全量哈希及各7轮×world1/4采样回放通过。公共纵向缺额270，正式ready=false，缺完整4B。
+任务合同v4，提示词/人工标注仍v3，须新产物新run，旧快照拒绝；Phase3/Action稳定默认未改。
+详见Phase4/AUDIT_FIXES_20260929.md及README；未GPU/DDP/正式训练。
+
+### 2026-09-29 Phase4 按逐帧RGB标定转移范围（覆盖同日固定半秒窗口）
+
+用户纠正：0.5秒只是例子，必须根据不同事件/Town/路线逐帧RGB决定前后范围，不能固定扩窗。
+本轮实际复查45窗、720次呈现、701张不同RGB、36物理组、10Town、十事件；含9个续窗，
+新增125张不同RGB，累计1541张，复查旧图不重复算新增曝光；均属于既有train-only路线。
+v3移除时间距离自动YES，改为46条逐帧reviewed_transition_band＋11条保留旧审核区间；
+区分条件成立与转移后旧状态补问，明确下一阶段/新冲突/普通行进截止；未见终点标右删失。
+完成类不得提前YES，窗外/不确定不补NO；修正UE3误NO、RE2新切入后的完成标签及UE2起步/横移混淆。
+模型仍只看当前/候选下一状态和因果2/4RGB，回答YES/NO；动作先验/流程/路线分支保留。
+新默认reviewed_state_pairs_v3.json，task/prompt v3，默认标注与审阅证据绑定合同，须新产物新run。
+两模式各429道二元开发题（323 readiness、106 catchup）＋121待审；catchup不补readiness缺额。
+107项专项通过，含真实小模型；2/4RGB全量哈希及各7轮×world1/4采样回放通过。
+无独立val/test、缺完整分支支持/4B基座，ready=false，未正式训练/GPU/DDP/CARLA验收。
+Phase3/Action稳定默认未改；详见Phase4/RGB_BOUNDARIES_V3_20260929.md及README.md。
+
+### 2026-09-29 Phase4 状态对二元问答与半秒窗口（覆盖首版四分类/不扩窗约定）
+
+用户明确文字只给当前状态和候选下一状态，因果条件/动作含义融入状态描述，仅回答YES/NO。
+Phase4 prompt/task升级state_pair_binary_v2；速度/帧号/全流程不进入文字，因果2/4RGB保留。
+新增转移点前后各0.5秒，4Hz共5帧，同一旧状态构题；明确阻挡NO、逐帧条件优先，事件/下一转移裁边。
+窗口仅是用户指定训练容差，指标独立于严格readiness；未来点不进模型，窗外未知不补NO。
+复用原92窗1416张RGB审阅的9个转折，未增加目视计数。55条标注产出214道二元开发题及20条待审，
+UNKNOWN/INVALID仅内部审计/控制器保留，不作模型答案。全train-only，缺独立三split/完整基座，ready=false。
+88项专项通过；2/4RGB全量开发题哈希核验及各7轮×world1/4采样回放通过，未真实4B/GPU/CARLA验收。
+默认reviewed_state_pairs_v2.json，新合同须新产物新run；Phase3/Action稳定默认未动。细节见Phase4/README.md。
+
+### 2026-09-29 Phase4 条件转移实验与逐帧RGB审阅
+
+用户授权新增 `AutoMoT/qwen3vl_local/sft_new_loop_phase4/`（代码、测试、轻量审核记录与说明）到白名单。
+LoRA只判断状态转移条件，动作先验由事件/纵向状态派生；覆盖十事件，保留UE2左右绕行/不返回/
+本车道通过、UE4沿路跟随/绕行、RE3沿路线汇入驶出。正常事件内不重复Phase1/2，许可未执行则重查，
+未知/矛盾/卡住复核，完成才退出。新实验不修改Phase3 v23_io1或Action稳定默认，不兼容旧adapter。
+实际审阅92个连续窗、1416张不同RGB、81物理组、11Town；全部新增曝光组train-only，兼并Phase3旧隔离。
+46个审核区间构建204道开发题；未以未来动作时刻膨胀许可。catchup独立分层，不能填readiness缺额。
+代码含独立构建/预检/单卡DDP/2与4图/生成评估/预测状态回放/先验导出/demo/审计入口。
+当前无独立val/test和完整分支正负标注，正式训练ready=false；缺完整4B权重，未真实GPU/多卡/CARLA验收。
+专项77项通过，包含真实小型Qwen3.5的2/4图答案mask、LoRA反向与实际204题构建/哈希拒绝；另两模式各14个epoch采样计划通过。
+详细证据、边界和运行见Phase4/README.md与RGB_AUDIT_20260929.md。RGB、probe_output、权重不入库。
+
+
 ### 2026-09-29 旧 BEV-only 评估兼容（补充诊断入口）
 
 训练机报告原合同/三split一致、真实EMA旧RoPE探针通过。eval/compare新增精确审查的兼容

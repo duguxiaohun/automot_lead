@@ -1,0 +1,1375 @@
+[
+  {
+    "scenario": "HardBreakRoute",
+    "route_id": "Town13_Rep0_1056_0_route0_01_11_02_56_38",
+    "episode": {
+      "event": "U-E1",
+      "instance_id": "HardBreakRoute/Town13_Rep0_1056_0_route0_01_11_02_56_38/U-E1",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 54,
+    "end": 60,
+    "facts": {
+      "release_ready": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_000",
+    "observation": "f48–50接近黑色前车并停下，f51–63队列与间距基本不变；前方受限，不能因邻道车辆通过就释放。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "54": "8a0b8c9eca71fda6cdef45153f8f9cb5b6f11d91b139c481a839bb98db21487b",
+      "55": "c3d5e1db541f344b56baa33ce9056d7f5f019d263ca907375796da43d554cbda",
+      "56": "25bd7f50a89accb60474613e7065ff9e9b270d30e93215875c607b20f376a58a",
+      "57": "c2a8f0737dea67cc0b14c8ffe8419838e7af1c9c3c139a1cf2a5a2c2df548ade",
+      "58": "315aee4c8ed07b226fe92f9e1b3495fc6cc94066ab1170becc07829865cfa953",
+      "59": "e14152e70c59b421e749f23954770f2edd130e770278df71a21ec76b438ea431",
+      "60": "f107ca1dd3e0f76b7b36908bfe6c8ad5a307e76ca89637d32bb19a2f8f76533a"
+    }
+  },
+  {
+    "scenario": "HardBreakRoute",
+    "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+    "episode": {
+      "event": "U-E1",
+      "instance_id": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/U-E1",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 42,
+    "end": 49,
+    "facts": {
+      "release_ready": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_006",
+    "observation": "f34–38接近前车，f39–49停住；右车与对向车通过但本车前方黑车仍占据通道，机会判断应绑定目标参与者。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "42": "6b35a94639f7684ff32bc123ac2054e041103759c2845c8dddf8970a64e54548",
+      "43": "f7debb193cc0367c4c2d61d7f07f387596df11293eff417491f42bac5d55111f",
+      "44": "20368a81a542ed9af996f9c5cc911099848c02266f655df4ab8829b871692ced",
+      "45": "b754eaca735b8779eaa9d87990aff7991d73863ae7e42a8177620fb3780e2026",
+      "46": "657dfa8be1a49f828530f9c06515ec3dd6f1d3d2456152dd5f8254b83b58c3b7",
+      "47": "be08bbd4a2477186a3ae935deefc3d44a2c22db75a22be63de01671b50c320f5",
+      "48": "4644548d74bc0711ce59ecbfe9018954e87dc32c6a9665cab16ec1997a7822d4",
+      "49": "3216a1daaa505181f38c122919f2616fe55460d5540c2ac6bad1ec37c2e80f07"
+    }
+  },
+  {
+    "scenario": "ConstructionObstacle",
+    "route_id": "Town10HD_Rep0_route_002012_route0_01_09_08_54_16",
+    "episode": {
+      "event": "U-E2",
+      "instance_id": "ConstructionObstacle/Town10HD_Rep0_route_002012_route0_01_09_08_54_16/U-E2",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "direction": "LEFT",
+      "target_corridor": "the left corridor alongside the obstruction",
+      "return_direction": "RIGHT",
+      "return_corridor": "the original route corridor"
+    },
+    "edge": "depart",
+    "start": 34,
+    "end": 36,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_008",
+    "observation": "f34–36施工牌前等待左侧同向黑车经过；f37–43随后向左进入通道，f43车道2→1；f44–49仍沿锥桶通过，不能把越过第一块施工牌当整个障碍通过。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "34": "24187e2f3bcf2a13fbdd8f91dcace705cc69f9403b9fc1948573803436054f73",
+      "35": "059100220fe2b4d626385e33b141f1762bb53643dc7baf41fc9ce673564bc53f",
+      "36": "a10ed47eff1e8c525e0aa19fd6d63ac90abb34667b75c3d0ef2bd7495c880241"
+    }
+  },
+  {
+    "scenario": "AccidentTwoWays",
+    "route_id": "Town07_Rep0_route_001440_route0_01_11_01_57_13",
+    "episode": {
+      "event": "U-E2",
+      "instance_id": "AccidentTwoWays/Town07_Rep0_route_001440_route0_01_11_01_57_13/U-E2",
+      "state": "WAIT",
+      "longitudinal": "HOLD",
+      "direction": "LEFT",
+      "target_corridor": "the left corridor alongside the obstruction",
+      "return_direction": "RIGHT",
+      "return_corridor": "the original route corridor"
+    },
+    "edge": "depart",
+    "start": 53,
+    "end": 58,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_010",
+    "observation": "f53–59停在障碍车后等对向黑车，f60–65开始左借道，f66跨中心线后继续通过，前方仍有障碍车；开始绕行与绕行完成必须分开。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "53": "0a712542112e99c02d27b89b54924016d816acddde535d088be796d5175a095e",
+      "54": "578772099608a5f06adb39320ae6c2030b0ef61a61c038c2648ad6398e164354",
+      "55": "5ddbb2fb6d025b3b8fe9ad47168cabe35a814a7a740346cb60ef31277b6b48df",
+      "56": "18418077bef6e132386e4b22c4330be9822b0d268ac3b7080c4ebdf9ee6fb323",
+      "57": "a54bca7bb50590033d2a8361242f58f76402bbe6be69a4e662df5526b9e819e5",
+      "58": "d305fc18f17bf72017fbaede05806f64ba32f7911c82568cfdcb36361a792e85"
+    }
+  },
+  {
+    "scenario": "VehicleOpensDoorTwoWays",
+    "route_id": "Town12_Rep0_2091_0_route0_01_10_20_13_16",
+    "episode": {
+      "event": "U-E2",
+      "instance_id": "VehicleOpensDoorTwoWays/Town12_Rep0_2091_0_route0_01_10_20_13_16/U-E2",
+      "state": "PASS",
+      "longitudinal": "STABLE",
+      "direction": "LEFT",
+      "target_corridor": "the left corridor alongside the obstruction",
+      "return_direction": "RIGHT",
+      "return_corridor": "the original route corridor"
+    },
+    "edge": "return",
+    "start": 55,
+    "end": 56,
+    "facts": {
+      "obstacle_passed": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_013",
+    "observation": "f44–49等待对向绿车通过，白车开门占自车通道；f50–54左借道，f55–57通过打开的车门，f58–59返回原侧。需要按整个车体/门的净空确认通过。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "55": "b41dc9e643d52103a3bec171bd92d16a2b95d712ea2f3fc1d35628b346084656",
+      "56": "4141a9ebea8dfe23a7a524abc3cff2d17dc81eb18d5c8eeee81ca7d9f8ea2d04"
+    }
+  },
+  {
+    "scenario": "ParkingCutIn",
+    "route_id": "Town12_Rep0_1681_0_route0_01_09_14_15_55",
+    "episode": {
+      "event": "U-E3",
+      "instance_id": "ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "start": 99,
+    "end": 103,
+    "facts": {
+      "release_ready": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_016",
+    "observation": "f99–103蓝色停放车后方黑车开始离开车位，f104–106自车停等，f107–114黑车汇入前方通道并拉开距离；不能把旁边静止蓝车当切入对象。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "99": "6b83e5123ed4c4282be808aeab841b86f3e92152ffb7bee9f277a47945e6cd66",
+      "100": "93f61ae991970878fd8895a837dc125bd20312fab0d244b96c4bfa2034fe0552",
+      "101": "71dc201d5bfcffde085f4fd206bb14d9a51626b180e9bb913162304fa69ba2b0",
+      "102": "37468362d5ca325926a8109dfe2df8f0c512ecc28dce1348abcbff5ab90438cb",
+      "103": "ed330e5e67d063e00d9a8be250a7d619bbdbb782d7545f836a1164c99eb18327"
+    }
+  },
+  {
+    "scenario": "ParkingCutIn",
+    "route_id": "Town13_Rep0_1009_1_route0_01_11_03_10_29",
+    "episode": {
+      "event": "U-E3",
+      "instance_id": "ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 38,
+    "end": 40,
+    "facts": {
+      "release_ready": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_021",
+    "observation": "f28–43右侧绿车前的黑车从停车位汇入，f36–37短停后随黑车摆正且距离增大恢复；切入车仍存在时也可转正常跟随。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "38": "43caf1185fd9fe452a46f3636e62245fdf4e14d88b1326e0f2602847fecfb820",
+      "39": "0cb06c7cf85464ee7be38be840be595f6a6b8260dcc9ab39bf1f8347dada4540",
+      "40": "9898824e0aa66c20b8440044ce5dff845607e3057b44fa203974211d463107aa"
+    }
+  },
+  {
+    "scenario": "VehicleTurningRoute",
+    "route_id": "Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/U-E4",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 150,
+    "end": 158,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_025",
+    "observation": "f147–152转弯出口自行车从右侧接近并横穿，f153–162停等且自行车仍在自车通道内；横穿分支不应误归沿路绕行。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "150": "0c12d811f0f3c8830fd0ea4781e926fb53c4823c483a3881ae28988aafed9dea",
+      "151": "c33a8ca70c41e414a8599af53fc48c17ece7e027b61586031843512f4e07c1e5",
+      "152": "37c94fa2c5feaa110f6027ff02aec8f91f31a7f84c816a1a21947cf3ddb05453",
+      "153": "e6d9fa167c4fb44ede1097a3b06bcf98d9034b796c01ffaad7e6bebd3c272519",
+      "154": "b4ff20acc476661712463f9d5d09f0d48b576f895cdd9fff60124d09ca0195d0",
+      "155": "5cb977978eb2d28f60d30c14758f808d64ff64916bc92896c83054907e6ff469",
+      "156": "cc09e95b66b778ba4314365dc1328280de75e50145120bfbad9ac515ca64fecf",
+      "157": "a3980cfed32d2dc815bd54341baeb15c4ba37d3f41693f5147be2f61d952a531",
+      "158": "4fc885fef7bb83822f9886d4029f8927b4467c4cbc728ffe67d870919ccc27e6"
+    }
+  },
+  {
+    "scenario": "DynamicObjectCrossing",
+    "route_id": "Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/U-E4",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 62,
+    "end": 65,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_026",
+    "observation": "f58–64行人由右走到中心线，自车未动；f65–69行人继续走向左侧且本车通道逐渐净空，f70起步。许可应依据走向与本车扫掠通道，不要求人完全走到人行道。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "62": "a92d8b9bcc875e9ff93e0ac6899245b06f059b128ad7b2a49e998350733443a2",
+      "63": "0f6d9e722be4032459cff90ee855105abf59f9b3aa11a53665c66dc20a7506ff",
+      "64": "d59927d3eeca4477e202c75fbeeeddf04eabfaf090bc50121a76fc4a7580ee3a",
+      "65": "4f4e0c8bbc5c52010ed67c4c9aa002b20692828f4fe9bb1a53c7db86cdbb9e03"
+    }
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_1229_0_route0_01_08_21_43_40",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_1229_0_route0_01_08_21_43_40/U-E5",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "start": 42,
+    "end": 46,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_032",
+    "observation": "f34对向白车经过后短暂无车，f40–49另一车绕锥桶压向中心再通过；雾中不能把首车离开标整个入侵事件完成。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "42": "196d6051b245aa1bbf73b28be8228959eaafcf6aadfea7f21a8567924e0910f5",
+      "43": "9e177fc4c4af95db3ee475710799686ab1d0f1f569998cfc593f3971ff20017e",
+      "44": "dca6e7f834ff725c936c2dbcb6c8c461010de6a7ed3f678b796e60276d822a02",
+      "45": "627a7ce23da4d2cd82701ca2d3b0184f9938c6ad0dc07f5bf1c12575281aff5e",
+      "46": "6e5656d4e6c16fe131ee0336695a8d4015bb06e53d9a24efe65cf505259244a8"
+    }
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_1450_0_route0_01_09_22_58_43",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_1450_0_route0_01_09_22_58_43/U-E5",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "start": 70,
+    "end": 73,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_035",
+    "observation": "f63–65红车近身通过，f70–75后续红车通过，ego始终行进；多个来车与同一受限通道需要持续监测。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "70": "b9edd2f8fb1195442a7cec8ecd84588f73cc0060d782bc704f0e98dcbd915dee",
+      "71": "649d01e858946a504902d5d1061da767b76bf538326c510904786f664b7fb802",
+      "72": "8e8d3cb9903a761489043fbddb1380f89b107228414378a5d30699f860eeff82",
+      "73": "450b7c33ace88373800459397f28eb8e9051a3caab9f8b99ddca01a27aed6797"
+    }
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/U-E6",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 29,
+    "end": 33,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_040",
+    "observation": "f28–35消防车由右横穿至左，f36–43已离开自车前方但ego仍静止；横车离开不等于所有信号/优先权条件已满足，也不能因ego停着全标NO。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "29": "ffb7715f671c32e6ffacdd3971d7b606b6e553ac58ba41f13a4a0c6a7486b6fd",
+      "30": "c8d0215b278a0e7b308062f9e9ead536c9ef4b4ef3c6a63d7c65040751458835",
+      "31": "11e3e7ba8da51f3a637aba2442b324b8036664b984a2acc19a3da8c1c993b468",
+      "32": "b1521e4517a0771abb89560d65b526d0d27cd8f73e34404f1e04d0a6c04c837a",
+      "33": "201e95360a9f38a9793934dfdaf5796d5e91224982c955fcc5b48f2115c98e96"
+    }
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town13_Rep0_route_002180_route0_01_08_13_54_39",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/U-E6",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 26,
+    "end": 28,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_043",
+    "observation": "f25–29橙车横过，f32–38第二辆蓝车横过；f34自车已起步而蓝车仍在横向通道，标定需时空扫掠关系，不能把起步直接当冲突解除。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "26": "9d12ab8ccdb42283f22f90da5a8e05b45b2cb2a9af97b287b0e19512b4b2dbac",
+      "27": "d90c5468237316dedd6b19596fbb2c6899e2146433620d54c3d0a50412114dd6",
+      "28": "d6eae35383cb8cd8d550df152b7da338ec8367d3c8e23a7f56694de604473b41"
+    }
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town04_Rep0_route_002163_route0_01_11_03_37_58",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town04_Rep0_route_002163_route0_01_11_03_37_58/U-E7",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "start": 25,
+    "end": 29,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_050",
+    "observation": "f23–32蓝车从右横过，本车持续行进；f33–38沿出口通过。无需把停车设为故障路口必经阶段。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "25": "aee9c8a06922c6924572eccb9705a80ed9c11a9b4fa815efb2f7924d9577b15a",
+      "26": "6b991ecdb839f59d16c01d7aea8436c3d1cc3356a0e90f1d953505b2d63b596e",
+      "27": "dcc1b87c107ecc27477fb6218a842b516c82c0d71b533eec7014580bdfbba90a",
+      "28": "5c17823c6d27b420bfca7d4c03263b0597ab13b43c0b6536bea7471bffd0d07c",
+      "29": "1df1bd9cbbc8fc6cb8ff541b94026a4bbe57f2eb6eb473f892ac4a9337fcdcb1"
+    }
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002133_route0_01_11_02_05_57",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002133_route0_01_11_02_05_57/U-E7",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "start": 34,
+    "end": 37,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_052",
+    "observation": "f34–40红车从左横过，f41–49通过宽路口，出口对向队列仍可见；绿灯存在与给定故障可共存，不用灯色作为放行充分条件。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "34": "97d45d6a3cf38960ce396b4f64426f8a921928859284052f334e41ba2ad16cbc",
+      "35": "b9440490ecc39e6dafbca724ce991b5cbe66d3a6913b030e70d9a477454bb443",
+      "36": "62aa3ce2af0c9bb65b5bac5b85bc4a55dec48cc7c4124e17a5331c9c91d08937",
+      "37": "8891dce68aadb668193341f41be84bbb7757e4f0b9507a5497a903ce75cefda5"
+    }
+  },
+  {
+    "scenario": "MergerIntoSlowTraffic",
+    "route_id": "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+    "episode": {
+      "event": "R-E2",
+      "instance_id": "MergerIntoSlowTraffic/Town12_Rep0_1010_1_route0_01_09_18_29_03/R-E2",
+      "state": "CROSS",
+      "longitudinal": "STABLE",
+      "direction": "RIGHT",
+      "target_corridor": "the route lane beyond the current lane boundary"
+    },
+    "edge": "complete",
+    "start": 98,
+    "end": 102,
+    "facts": {
+      "route_corridor_reached": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_056",
+    "observation": "f97–104高速弯道向右连续跨入目标外侧通道，f105–112稳定；不可把每一次lane编号变化当事件完成，目标可能跨多个车道。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "98": "5a160d7fa5d693d6c7c4803b323387e5245fbbcbe4ce7c3fa6431f57aa6037cb",
+      "99": "bab0617a0ef432871cf1f27bb78aa9d93fe018d6dfae418a06436911fd0018b8",
+      "100": "6c093941e9da4fc4db88ebc3640faa867256d93f392eed562f060c4de6d68d65",
+      "101": "5679f17b91923ffb87588509a4d7f62faa329d810b2fb37b094dec10613fee0c",
+      "102": "356f55855fac512f3e644b15f09ceae21a2073145b48cbfd65c8f588288b6023"
+    }
+  },
+  {
+    "scenario": "noScenarios",
+    "route_id": "Town05_Rep0_Town05_ll_2_route0_01_11_09_57_22",
+    "episode": {
+      "event": "R-E2",
+      "instance_id": "noScenarios/Town05_Rep0_Town05_ll_2_route0_01_11_09_57_22/R-E2",
+      "state": "WAIT",
+      "longitudinal": "HOLD",
+      "direction": "LEFT",
+      "target_corridor": "the route lane beyond the current lane boundary"
+    },
+    "edge": "enter",
+    "start": 45,
+    "end": 48,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_059",
+    "observation": "f45–48两侧车经过，f49–55随后向左进入红SUV后方lane-1，f56–60跟随；RE2并非固定右变道，需来自当前路线的目标侧。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "45": "3fb17894c2c099f76e6dad10ebe0773f98e060d706346be379ea993245e9f1c9",
+      "46": "242288ba890345ac2750da374f5e3db2441624ff498668385f2004da935ecf54",
+      "47": "addc824434b2decd80e2d15861823f22e543fc791b0da537cc69c5e031fc2771",
+      "48": "a8867f8e4592dfaed00189f0cbb5627812e8be9c91bb2284dcd05023b1c5a755"
+    }
+  },
+  {
+    "scenario": "InterurbanAdvancedActorFlow",
+    "route_id": "Town12_Rep0_3457_0_route0_01_09_09_59_12",
+    "episode": {
+      "event": "R-E5",
+      "instance_id": "InterurbanAdvancedActorFlow/Town12_Rep0_3457_0_route0_01_09_09_59_12/R-E5",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 71,
+    "end": 78,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_067",
+    "observation": "f70–85多辆车从左右连续横过，ego蠕行和驻停交替；相邻车之间的短空档不自动是足够可用的穿越间隙。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "71": "c7898e51cb14416a2990e40245bf9c9a8797f9d99145e6adf9e13080bd607e76",
+      "72": "09bf793a91d3b380a6e481edabfd19d0b1308e1f2dd7db503b3b3124ee11bcd3",
+      "73": "e46ab9843bf56764fb71c98c9c41d72ee53ae673ffd008bb8bcd4c148f8841a5",
+      "74": "e473df1fffa7770d926876ef6c304dc5e62d1a21e94aa51a7cda9e632a3f893d",
+      "75": "22e316469e885f2141f4ae5e822d11b7dce826bec84faedc5cb5abbaec7e8984",
+      "76": "be6542baa86235928f159841d013c7fd3b742d81192c1b6a4d7ed5250c6ed27e",
+      "77": "2f7fc34f86fca511e7aeb6612efdbb614a027803e2674b3d5bedc61786163f64",
+      "78": "dce4b7d7e837cbe743c2c752adc91321d565e58906b0e89d2cb5980ad4a0ce64"
+    }
+  },
+  {
+    "scenario": "NonSignalizedJunctionLeftTurn",
+    "route_id": "Town04_Rep0_route_000931_route0_01_10_04_18_32",
+    "episode": {
+      "event": "R-E5",
+      "instance_id": "NonSignalizedJunctionLeftTurn/Town04_Rep0_route_000931_route0_01_10_04_18_32/R-E5",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 15,
+    "end": 19,
+    "facts": {
+      "corridor_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_070",
+    "observation": "路口14–19等待，对向红车14–25接近并经过，自车20开始蠕行、26–29左转；应判断轨迹冲突而非要求所有车辆消失。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "15": "825004cf41251440b16062b4bf3186c4141411664e734bef31d7b46a3d69df4e",
+      "16": "c5b91480deecda281f73f4cf912de2efc0e9c584c0cecde8842775d667932e18",
+      "17": "0e0164cdf1b7cfdf1c33d2802fc75f947f51c7b0af7bb0772a5868df36c5916b",
+      "18": "8dac319396b6bf4ce133748275b58c221ef93208b6aa416b56bd14180ac8d8a1",
+      "19": "a520764c88332027788c64924e638a43cbb3bb6b0fb08b58ef2494010ff3c9a3"
+    }
+  },
+  {
+    "scenario": "MergerIntoSlowTraffic",
+    "route_id": "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+    "episode": {
+      "event": "R-E3",
+      "instance_id": "MergerIntoSlowTraffic/Town12_Rep0_1010_1_route0_01_09_18_29_03/R-E3",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "direction": "FORWARD",
+      "target_corridor": "the lane where the ramp joins the main traffic flow"
+    },
+    "edge": "enter",
+    "start": 46,
+    "end": 49,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_075",
+    "observation": "35–44沿匝道前进，45–49橙色主路车从左汇入前方，自车减速让行，50恢复；通行阶段可以再次出现新约束。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "46": "176f97cc292409677d185850e024b3f788903b48af6fa83a72dde1505b78e8e3",
+      "47": "a5f03cf39a4f076119166c325c99fc820ef4709bdabf6cad2241bea7bd05f0f8",
+      "48": "4fb6be5613efa77d3c53106ef162a97a59ebb2ae8de15d31ad826ebf3269c403",
+      "49": "5e393284c613b9c8ab7758d97fd1f30fd244db73e6269f2628eb3f99fc617c6e"
+    }
+  },
+  {
+    "scenario": "MergerIntoSlowTraffic",
+    "route_id": "Town13_Rep0_1230_12_route0_01_10_00_03_59",
+    "episode": {
+      "event": "R-E3",
+      "instance_id": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/R-E3",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "direction": "FORWARD",
+      "target_corridor": "the lane where the ramp joins the main traffic flow"
+    },
+    "edge": "enter",
+    "start": 57,
+    "end": 59,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_076",
+    "observation": "56–59跟随红车减速让主路绿车，60–65恢复进入，66–69绿车占据前方又减速；合流完成与跟车纵向约束须分开。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "57": "2381645442c8a0b4170367c17ff28a3e5251e7b8d4302b0ec26f9cb8b9ab88bd",
+      "58": "851c38c87b9bc95b87055ebfcb2afbc1ef670ba109e054b54965b4c063995400",
+      "59": "9b1903867b08d94ae9c629c987b79173bccf4e5f1d420687132ce577f87afb76"
+    }
+  },
+  {
+    "scenario": "BlockedIntersection",
+    "route_id": "Town12_Rep0_346_0_route0_01_08_04_09_24",
+    "episode": {
+      "event": "U-E1",
+      "instance_id": "BlockedIntersection/Town12_Rep0_346_0_route0_01_08_04_09_24/U-E1",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 43,
+    "end": 46,
+    "facts": {
+      "release_ready": true,
+      "corridor_clear": true,
+      "priority_satisfied": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_001",
+    "observation": "f31–35接近蓝车，f36–40驻停，f41–46低速恢复；对向车在自身通道通过，前车关系是主要观察对象，不能单凭对向车出现判冲突。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "43": "79f3aa04a082b6172f9f2e1416c7cd3a95b7f8a8703c6c3c5dfaa4729c345daa",
+      "44": "f6033140554f0960f126e139f63e790131a5a5cc6383b493c5571b9f896e14a3",
+      "45": "c631427cc7264dd35f41f07519de19df132fea5c1df8dbb25b30ad8307d9bd62",
+      "46": "1a3aa455314b2f7dc1bf5257ce641e2b37649afb1cd3fd71aca4bd5f02096907"
+    }
+  },
+  {
+    "scenario": "HardBreakRoute",
+    "route_id": "Town12_Rep0_1624_0_route0_01_09_02_24_14",
+    "episode": {
+      "event": "U-E1",
+      "instance_id": "HardBreakRoute/Town12_Rep0_1624_0_route0_01_09_02_24_14/U-E1",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 77,
+    "end": 78,
+    "facts": {
+      "release_ready": true,
+      "corridor_clear": true,
+      "priority_satisfied": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_002",
+    "observation": "f63–74停在蓝车后，f75起前車逐渐前移、自车f76后移动；恢复不要求前车消失，精确最早许可时刻仍需间距证据。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "77": "e1c01da2f4504f633209f0dcee8310f5d8ea7fba14481daf97e1a407288ecbdc",
+      "78": "9ea3f4e20b46d10132948180d62cfcc714077452783d61e4fac13ee46e0af2a3"
+    }
+  },
+  {
+    "scenario": "DynamicObjectCrossing",
+    "route_id": "Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/U-E4",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 70,
+    "end": 73,
+    "facts": {
+      "release_ready": true,
+      "corridor_clear": true,
+      "priority_satisfied": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_026",
+    "observation": "f58–64行人由右走到中心线，自车未动；f65–69行人继续走向左侧且本车通道逐渐净空，f70起步。许可应依据走向与本车扫掠通道，不要求人完全走到人行道。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "70": "103190c6e1386205cf302551191130b2e659cd024a385957f5b0bb01eb0492b7",
+      "71": "d7e7b5e76a8028d22f143afde74410d0c5493ea23959e263a057878136aa5ebd",
+      "72": "25a149a60c091924044b4fe9f092225f674c455e0c1ab92e6475bd1be8b2c7e5",
+      "73": "214456baa7da06c90fb27088a001a51bbb76bd90242f608549a877b81647655e"
+    }
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10/U-E6",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 77,
+    "end": 80,
+    "facts": {
+      "release_ready": true,
+      "corridor_clear": true,
+      "priority_satisfied": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_042",
+    "observation": "f71–73警车驶离后74–81路口近处空，82才恢复；记录起步明显可能晚于净空，不以轨迹起步帧当唯一YES。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "77": "37d8c7165b5b77c43a0e9e30477462b8d9185ba9d39456fdba262e34c070879b",
+      "78": "6b9eca9c4cd36113b9774ba9a4094eb078a93b2fa5b4fe9be8efaccdc1a61a14",
+      "79": "d4c5dfad5b2257a66dfbcfea9a4157317f3bb9dba573c072366abf2ca7a14485",
+      "80": "5f5b360cac7e0a5fae423b1cbc16fe22ca87119c556bbb0f7ff04f13f36840c3"
+    }
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34/U-E6",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 44,
+    "end": 47,
+    "facts": {
+      "release_ready": true,
+      "corridor_clear": true,
+      "priority_satisfied": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_046",
+    "observation": "f38–41救护车离开，f42–47本车前方净空但仍驻停，f48开始恢复；示范动作有等待尾段，旧状态正例可持续而非一个点。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "44": "d7f1ca5d26bb840452fa3acf7fad1d45dae1d2bb6a089e3870dc211312e5fd74",
+      "45": "cc1fc07df00e19b4676c1245448c1a883dffd27c5e62cb0416541463ee16a8b8",
+      "46": "a4c210a7189e0c450cf7e2add49b23eb5c1b9f200c5f30c5803f1755cd64d7c1",
+      "47": "2114402a4d649276d75365a5a8477f4d2aa6b434047af84758bb2e4de1ea8289"
+    }
+  },
+  {
+    "scenario": "VehicleOpensDoorTwoWays",
+    "route_id": "Town12_Rep0_2091_0_route0_01_10_20_13_16",
+    "episode": {
+      "event": "U-E2",
+      "instance_id": "VehicleOpensDoorTwoWays/Town12_Rep0_2091_0_route0_01_10_20_13_16/U-E2",
+      "state": "DEPART",
+      "longitudinal": "STABLE",
+      "direction": "LEFT",
+      "target_corridor": "the left corridor alongside the obstruction",
+      "return_direction": "RIGHT",
+      "return_corridor": "the original route corridor"
+    },
+    "edge": "pass",
+    "start": 55,
+    "end": 57,
+    "facts": {
+      "lateral_entry_complete": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_013",
+    "observation": "f44–49等待对向绿车通过，白车开门占自车通道；f50–54左借道，f55–57通过打开的车门，f58–59返回原侧。需要按整个车体/门的净空确认通过。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "55": "b41dc9e643d52103a3bec171bd92d16a2b95d712ea2f3fc1d35628b346084656",
+      "56": "4141a9ebea8dfe23a7a524abc3cff2d17dc81eb18d5c8eeee81ca7d9f8ea2d04",
+      "57": "7559729c5b9a63386fe2dec5ce62719c3c88bcfa6849d216d3d8244cdde92b71"
+    }
+  },
+  {
+    "scenario": "MergerIntoSlowTraffic",
+    "route_id": "Town12_Rep0_1010_1_route0_01_09_18_29_03",
+    "episode": {
+      "event": "R-E2",
+      "instance_id": "MergerIntoSlowTraffic/Town12_Rep0_1010_1_route0_01_09_18_29_03/R-E2",
+      "state": "CROSS",
+      "longitudinal": "STABLE",
+      "direction": "RIGHT",
+      "target_corridor": "the route lane beyond the current lane boundary"
+    },
+    "edge": "complete",
+    "start": 108,
+    "end": 112,
+    "facts": {
+      "lateral_entry_complete": true,
+      "route_corridor_reached": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_056",
+    "observation": "f97–104高速弯道向右连续跨入目标外侧通道，f105–112稳定；不可把每一次lane编号变化当事件完成，目标可能跨多个车道。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "108": "fcff37d80601ca19d507e36b663dce54816f2c7d3eebbd27bb41b349fc343c7b",
+      "109": "fc96502524079729253bedf30b08cda31f69407d0737af47133d9bdcad7e074c",
+      "110": "5358dd9dd55cd4e5735703e1d339301ac53100a5dfd1688abbd62cd935f81bdd",
+      "111": "831b8bf7705d08195e212898288ff68cbea1f4da4416c74a8135e3b567e5d4ac",
+      "112": "2339116f9860dec7ad87f0fe5c23b37f3b4eb8d3979f5e75dbb567067d543ddb"
+    }
+  },
+  {
+    "scenario": "Accident",
+    "route_id": "Town10HD_Rep0_route_001819_route0_01_10_20_49_40",
+    "episode": {
+      "event": "R-E2",
+      "instance_id": "Accident/Town10HD_Rep0_route_001819_route0_01_10_20_49_40/R-E2",
+      "state": "CROSS",
+      "longitudinal": "STABLE",
+      "direction": "RIGHT",
+      "target_corridor": "the route lane beyond the current lane boundary"
+    },
+    "edge": "complete",
+    "start": 52,
+    "end": 54,
+    "facts": {
+      "lateral_entry_complete": true,
+      "route_corridor_reached": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_058",
+    "observation": "f39–46右侧蓝/黄车依次被经过，f47–50向右lane1→2，f51–54稳定；返回前要整个障碍净空且目标通道可用。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "52": "c6532d3df1fd22eef8b21f8daecb7b441a57b80e930c7fd7d3e9fca3a09b9043",
+      "53": "abc115c905b95816fba0159721fe62eacb5f26bd3812b93ef6b395d5e434ac39",
+      "54": "88aea8c5965573ce8dfdd3fe2f3c8768a4d4aaecd6013ac71fe4979c217eae1b"
+    }
+  },
+  {
+    "scenario": "ParkedObstacle",
+    "route_id": "Town06_Rep0_route_001923_route0_01_09_18_02_51",
+    "episode": {
+      "event": "R-E2",
+      "instance_id": "ParkedObstacle/Town06_Rep0_route_001923_route0_01_09_18_02_51/R-E2",
+      "state": "CROSS",
+      "longitudinal": "STABLE",
+      "direction": "LEFT",
+      "target_corridor": "the route lane beyond the current lane boundary"
+    },
+    "edge": "complete",
+    "start": 45,
+    "end": 48,
+    "facts": {
+      "lateral_entry_complete": true,
+      "route_corridor_reached": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_060",
+    "observation": "f33–38先在右侧lane4绕过左边白车，f39–43向左回lane3，f44–48稳定；右绕左回确实存在。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "45": "f285f020229b84a931679ef34023704ba3c7f37629c8b7a7f3c043bb1727503e",
+      "46": "c2022a30aa5ec278acb444e054b413f0b57e3d685c2822211e59f3c5bfff2535",
+      "47": "6a34bff632c6512da31bfc6f2ff0ccebee52c3e56e72c3efb05d94cc7adcba0a",
+      "48": "5d904f4bc7e0cfb2e00316e04e9d1e8df894cf736b831070134c6204c2a16aaa"
+    }
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town13_Rep0_route_002180_route0_01_08_13_54_39",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/U-E7",
+      "state": "PROCEED",
+      "longitudinal": "STABLE"
+    },
+    "edge": "complete",
+    "start": 50,
+    "end": 52,
+    "facts": {
+      "event_resolved": true,
+      "stable_progress_established": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_048",
+    "observation": "f37–40蓝车离开本车前方，f41–48穿过出口斑马线、f49 road4574→36；事件结束应看冲突区和出口，不看绿灯或任一road变化。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "50": "da0bc8aeaed9fa61c479aaf65b062a8512e11baac31fcda883977c2c3e5bf806",
+      "51": "93e63acc65480fa02390aea7882fbc5f05b54e9fea95a0a909c0799cbab5e4a9",
+      "52": "8d75b5716b0cb37660b64d81b57d25fb6046ab21952a3efd51de8589f9a30249"
+    }
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002133_route0_01_11_02_05_57",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002133_route0_01_11_02_05_57/U-E7",
+      "state": "PROCEED",
+      "longitudinal": "STABLE"
+    },
+    "edge": "complete",
+    "start": 46,
+    "end": 49,
+    "facts": {
+      "event_resolved": true,
+      "stable_progress_established": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_052",
+    "observation": "f34–40红车从左横过，f41–49通过宽路口，出口对向队列仍可见；绿灯存在与给定故障可共存，不用灯色作为放行充分条件。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "46": "499d49e019802e96c7ce9fd5688c7cb69e65c8ccedccdf153abc049ce808d44d",
+      "47": "89e4b799a26c3d3d376543e676d39cd3ac710d6d86bee7c7852267f25e83b760",
+      "48": "2e77a31e521e8ed87f9236c17eab51ba6006b1ba90827bfc83f1de1e1ed88c9f",
+      "49": "308576d917e2203e5adcdfd292a62fb758d061b57abf488b009fc2cfbf6dc57f"
+    }
+  },
+  {
+    "scenario": "HighwayExit",
+    "route_id": "Town13_Rep0_1396_12_route0_01_09_17_40_40",
+    "episode": {
+      "event": "R-E3",
+      "instance_id": "HighwayExit/Town13_Rep0_1396_12_route0_01_09_17_40_40/R-E3",
+      "state": "CROSS",
+      "longitudinal": "STABLE",
+      "direction": "FORWARD",
+      "target_corridor": "the route exit lane"
+    },
+    "edge": "complete",
+    "start": 91,
+    "end": 96,
+    "facts": {
+      "route_corridor_reached": true,
+      "lateral_entry_complete": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_079",
+    "observation": "81–96沿最右车道自然进入分流出口，82–83编号变化但无需横跨车道；FORWARD分支，路口外稳定目标走廊才完成。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "91": "6079e6876d5b33135841c108d5219ef1376193c6c8b2a4804c1e4f8cdac01320",
+      "92": "f00f270ed75de19e074865d0ebfe3a1f4f19c373d2919a184500d515babbf875",
+      "93": "9d9fa3d16f184942b7a2f211fe4a922d1323677d70c803f02d934dfde88265a7",
+      "94": "5a9ff19ea584dcb21d253e20a4e4b253a634cfe674d51a089e6279b8cbca3b0a",
+      "95": "b2c546564205f5b2ef2fc95bc964d986d818e6fa3efd1f3c27db0e33c4da4d43",
+      "96": "17b567e3f3698e13112777fe32030df2c0a8c405a4f7222650b70e76f81047fc"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLane",
+    "route_id": "Town12_Rep0_1092_0_route0_01_11_00_38_57",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLane/Town12_Rep0_1092_0_route0_01_11_00_38_57/U-E4",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "depart",
+    "start": 36,
+    "end": 40,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_080",
+    "observation": "沿路两骑手在右侧，左邻蓝车30–41占据绕行入口，自车38–42减速，43–45开始进入左邻道；不能只看骑手距离决定可绕行。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "36": "ea3823786e9a171b1504252607c7ae708f2de5d768c2608b0b04ec04788266e1",
+      "37": "d3bfb443b8e138461af1e29540267fb010069c72c79f27da464c2d17312f6d6e",
+      "38": "758668f570b1c120b4573c5c9e0d7d0a1e1ddc5374ac28b737c916dd1c864d77",
+      "39": "b12bef1b59e1856cacb8dd13d6e3c93895370aaa1cab0fbc47b95547e105523e",
+      "40": "386fa5fae82e76bcf962fa0007a1c3ff47e5f0acbc4cd7942720b0807858cd89"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLaneTwoWays",
+    "route_id": "Town12_Rep0_1067_0_route0_01_10_00_13_56",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLaneTwoWays/Town12_Rep0_1067_0_route0_01_10_00_13_56/U-E4",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "depart",
+    "start": 178,
+    "end": 182,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_087",
+    "observation": "173–184等待对向红车并跟随骑手，185后车流窗口出现，186–188自车左移借道；应将进入许可与借道完成分别标注。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "178": "8db161a56557d751f3b4df5eb9f0755da80737235cd9ddbf0c898f70f2cd03cf",
+      "179": "fb73677e03a5fc4f335d2bcefc5a57efef2c29911bda55253ecd5708af34e0dd",
+      "180": "6753ad89026be9b92f41c66a911967e4be988ac1469ea9d758d733466beb8634",
+      "181": "172b1ceac8d967d5cdd03007e0375f51f4a4745a1b244c7068e6d789a4ff4113",
+      "182": "230d82216cb434d3aeb02950086e084041fe41f9aa2ebdbd2536122f3a21156d"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLaneTwoWays",
+    "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLaneTwoWays/Town13_Rep0_1227_0_route0_01_10_21_55_12/U-E4",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "depart",
+    "start": 60,
+    "end": 65,
+    "facts": {
+      "entry_gap_clear": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_090",
+    "observation": "56–66等黑车，67后窗口打开，68–70左移借道，71超过第一骑手；进入完成与所有骑手通过不同。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "60": "3678cc90aec77ad0589252e3c4bfa21ddf30104808ae7da915ca6a16de91e7e4",
+      "61": "9f17b1024741ae2bb18fa5596698d238e115bec11c2175b3f5f87105c73ad57a",
+      "62": "b23969e99824345284cc22608643169d5a860eb684762a3ed79524f943ad8bb9",
+      "63": "ec2a785480c48ecc621f8e3b07362bf863758767f7945f547397006c7ecdb23b",
+      "64": "e1197e1d2a8cbf33bb16ebcc2f8c6d0e4fe876cec0386dca33e00e928f80fa72",
+      "65": "fd37e2844d57ef159ac62382f1ce2cf80778b04fbd8d3c8629dc006d49cfba93"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLane",
+    "route_id": "Town12_Rep0_1092_0_route0_01_11_00_38_57",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLane/Town12_Rep0_1092_0_route0_01_11_00_38_57/U-E4",
+      "state": "DEPART",
+      "longitudinal": "STABLE",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "pass",
+    "start": 47,
+    "end": 50,
+    "facts": {
+      "lateral_entry_complete": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_081",
+    "observation": "37–42等待左邻车通过，43–46左移完成，47–52沿左道超过第一个骑手，第二骑手仍在前方；不能过第一个就回切。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "47": "ae0aa61db5da94a2e59f0b4c56712f832b18eec0048d60d7b7b186db10e69193",
+      "48": "dc77cf96053545b1c0d13374696aadbc360fe61c7ddf588348c5a44a06898c58",
+      "49": "6c07c88d802c29e5f21a59378b085fe834a87fb1734c4c5eeb5f763e0b0a40e6",
+      "50": "9c2bfa386a5c668f9469ba05cbaf12dccceb7bf9bcd268d3688aeddb1a3f838e"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLaneTwoWays",
+    "route_id": "Town12_Rep0_1067_0_route0_01_10_00_13_56",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLaneTwoWays/Town12_Rep0_1067_0_route0_01_10_00_13_56/U-E4",
+      "state": "DEPART",
+      "longitudinal": "STABLE",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "pass",
+    "start": 190,
+    "end": 193,
+    "facts": {
+      "lateral_entry_complete": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_088",
+    "observation": "181–184对向红车仍经过，186–188借道，189–194依次经过骑手，195–196开始右回切；第一个骑手离开不等于全部障碍已通过。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "190": "4f9ec4e06074db504e24faac8c72115c6add1ad17157aec635b980595ccc1631",
+      "191": "59b8b192f8ad1252e5362af911cbe53eeb12666d041cd0dadf673d4f89e1f656",
+      "192": "667a1ceedb6d2f2f97b72d8b7145eeb06ac9278645c45f6ace16557f50fc6ce6",
+      "193": "47dca5539e0963b062ca5bb0bb604ed75eb9f6c1abc7cd271f0f17e37564e10a"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLaneTwoWays",
+    "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLaneTwoWays/Town13_Rep0_1227_0_route0_01_10_21_55_12/U-E4",
+      "state": "DEPART",
+      "longitudinal": "STABLE",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "pass",
+    "start": 72,
+    "end": 75,
+    "facts": {
+      "lateral_entry_complete": true
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_091",
+    "observation": "64–67等待，68–70借道，71–76依次超过骑手，77–79右回原车道；形成完整UE4借道返回链。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "72": "cbc6f3e5a02251e0b968ba44d7270190ef2d87ee8abd9eb1d13008c2214d606e",
+      "73": "7dae993f0f5954745d294daadbf2fb37470dbd30e6c535e7006413c25e5edcdf",
+      "74": "7e5110a78efb7fc626faad72c4813d12f113279fdcf1581fe649107b6ee13c6c",
+      "75": "05c316d0fea7cf05b9a7b61682adea9dd14d7b06961a2ce055b8681360ccbb89"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLaneTwoWays",
+    "route_id": "Town13_Rep0_1227_0_route0_01_10_21_55_12",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLaneTwoWays/Town13_Rep0_1227_0_route0_01_10_21_55_12/U-E4",
+      "state": "PASS",
+      "longitudinal": "STABLE",
+      "branch": "cyclist_bypass",
+      "return_direction": "RIGHT",
+      "return_corridor": "original route corridor"
+    },
+    "edge": "return",
+    "start": 72,
+    "end": 75,
+    "facts": {
+      "obstacle_passed": false
+    },
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_091",
+    "observation": "64–67等待，68–70借道，71–76依次超过骑手，77–79右回原车道；形成完整UE4借道返回链。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "72": "cbc6f3e5a02251e0b968ba44d7270190ef2d87ee8abd9eb1d13008c2214d606e",
+      "73": "7dae993f0f5954745d294daadbf2fb37470dbd30e6c535e7006413c25e5edcdf",
+      "74": "7e5110a78efb7fc626faad72c4813d12f113279fdcf1581fe649107b6ee13c6c",
+      "75": "05c316d0fea7cf05b9a7b61682adea9dd14d7b06961a2ce055b8681360ccbb89"
+    }
+  },
+  {
+    "scenario": "HazardAtSideLane",
+    "route_id": "Town12_Rep0_1092_0_route0_01_11_00_38_57",
+    "episode": {
+      "event": "U-E4",
+      "instance_id": "HazardAtSideLane/Town12_Rep0_1092_0_route0_01_11_00_38_57/U-E4",
+      "state": "WAIT",
+      "longitudinal": "APPROACH",
+      "branch": "cyclist_bypass",
+      "direction": "LEFT",
+      "target_corridor": "the left bypass corridor"
+    },
+    "edge": "depart",
+    "start": 47,
+    "end": 50,
+    "facts": {},
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_081",
+    "observation": "37–42等待左邻车通过，43–46左移完成，47–52沿左道超过第一个骑手，第二骑手仍在前方；不能过第一个就回切。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "catchup",
+    "frame_sha256": {
+      "47": "ae0aa61db5da94a2e59f0b4c56712f832b18eec0048d60d7b7b186db10e69193",
+      "48": "dc77cf96053545b1c0d13374696aadbc360fe61c7ddf588348c5a44a06898c58",
+      "49": "6c07c88d802c29e5f21a59378b085fe834a87fb1734c4c5eeb5f763e0b0a40e6",
+      "50": "9c2bfa386a5c668f9469ba05cbaf12dccceb7bf9bcd268d3688aeddb1a3f838e"
+    },
+    "catchup": {
+      "completed_at": 46,
+      "valid_until": 50,
+      "subsequent_stage_confirmed": true
+    }
+  },
+  {
+    "scenario": "BlockedIntersection",
+    "route_id": "Town13_Rep0_1530_0_route0_01_11_09_53_48",
+    "episode": {
+      "event": "U-E1",
+      "instance_id": "BlockedIntersection/Town13_Rep0_1530_0_route0_01_11_09_53_48/U-E1",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 132,
+    "end": 135,
+    "facts": {},
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_003",
+    "observation": "f127–142极暗、前方车灯与对向车可见但间距/车道占用细节不足；速度反复波动不证明每次都发生事件转移。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "132": "67b7c05a868a94c5f893e1a8cdaeb1ffd835dc6a0dbb4c1ddc37c8be08064c40",
+      "133": "a23652f79b943a17c820a75eea3e8f1141ab9ea18a0b01ef430e2f6166d3a4a0",
+      "134": "291d514dc876d7549ab1ceb1ba359d5d749f6820bac251a00e66a96388777d5a",
+      "135": "bc283114868e75afad899e7296303d221bdb98894e7d775f392484049552d105"
+    }
+  },
+  {
+    "scenario": "StaticCutIn",
+    "route_id": "Town12_Rep0_1004_1_route0_01_09_04_35_12",
+    "episode": {
+      "event": "U-E3",
+      "instance_id": "StaticCutIn/Town12_Rep0_1004_1_route0_01_09_04_35_12/U-E3",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 84,
+    "end": 87,
+    "facts": {},
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_022",
+    "observation": "f80–95夜间极暗，仅灯光和部分车身可辨，自车停等再动；无法精确确认切入占用和许可时刻，应保留未知。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "84": "fdbce4f203d5c9219702e1fb64f2d4af847ce9a3baf6a39de4ea7f9b9f955cb1",
+      "85": "3a5782d8b9132ccaff8cf9d3df990242dc6d61ce3324d58bf39681d73f3391cc",
+      "86": "3c3918a3b708551ec7c0b7d7f26b6a32f86a2460561a2cd90b8f9a8ca297a011",
+      "87": "7120782a4bd6e93b18889e30384c00cddd8e10a1927ae7973d610873faaa1ee2"
+    }
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_1450_1_route0_01_10_14_16_16",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_1450_1_route0_01_10_14_16_16/U-E5",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 82,
+    "end": 85,
+    "facts": {},
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_038",
+    "observation": "f72–74蓝车通过，f82–87另一车头灯从前方出现，自车减速；夜间几何不清，不能给定固定安全间距数值。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "82": "d32e7a9c69a93f434031e3c667bb5ee1176d54824b77837c85e3a354ae27fcda",
+      "83": "3546d72e92ed83bc59614094889a213034af6aa755d9daa5cbbbf62db83fbbaf",
+      "84": "550c2d498fd5583cb197395e9282859db1e5ef09f05855d4f01ba951ad033b6a",
+      "85": "84312bc180fb80aeffe2f424b49d7e48bce7c3843ee0c3f7ab790cb96a358249"
+    }
+  },
+  {
+    "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+    "route_id": "Town10HD_Rep0_route_001073_route0_01_10_16_21_02",
+    "episode": {
+      "event": "R-E5",
+      "instance_id": "NonSignalizedJunctionLeftTurnEnterFlow/Town10HD_Rep0_route_001073_route0_01_10_16_21_02/R-E5",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "start": 31,
+    "end": 34,
+    "facts": {},
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_068",
+    "observation": "夜间无信号路口，23–38反复蠕行和停车，窗口内未转向；精确通行许可证据不足。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "31": "b7e81c3eb8c84a507e6ff715797cd0f582c2c1234e286a55fd006954e0b9f578",
+      "32": "a04cdd044a21d63d91d576df16b1b1f226918c32e85c15f86c6ac3457a5cd8c9",
+      "33": "7c5e23c4b4ad8c3c59c50b2e352dbd93439ed146b1f24bf37502aa4606cc9ea4",
+      "34": "5e800cf605375061648df3e3c11b3aff0d68317c573b59b47671aed15bd7094f"
+    }
+  },
+  {
+    "scenario": "MergerIntoSlowTrafficV2",
+    "route_id": "Town06_Rep0_route_000834_route0_01_10_10_34_36",
+    "episode": {
+      "event": "R-E3",
+      "instance_id": "MergerIntoSlowTrafficV2/Town06_Rep0_route_000834_route0_01_10_10_34_36/R-E3",
+      "state": "WAIT",
+      "longitudinal": "HOLD"
+    },
+    "edge": "enter",
+    "start": 24,
+    "end": 27,
+    "facts": {},
+    "reviewer": "Codex RGB chronological review 2026-09-29",
+    "evidence_id": "p4_077",
+    "observation": "夜雨20–35多车交错，红车左前、黑蓝车右侧，自车28–29明显减速；lane2到4不是可见目标到达证明，低能见度间隙标UNKNOWN。",
+    "label_basis": "per_frame_conditions",
+    "context_valid": true,
+    "slice": "readiness",
+    "frame_sha256": {
+      "24": "425a7ce6d5f49cbab81fd79eb2ac987eba39efce9da5d1365fd867aafcbab1f4",
+      "25": "dfb878ef02c46f7e5221ef6f8c3acf84ae0c2f2c0cdf694d0eae342287104ab5",
+      "26": "dc3ce6a7307e2c6e79f457e6eba20a90f191bfcd643de9a6f8e3b28114b01484",
+      "27": "3d4e999abf5860f1a7369247e52b059c6e47acb273d1dd78ae274141bce55fd6"
+    }
+  }
+]

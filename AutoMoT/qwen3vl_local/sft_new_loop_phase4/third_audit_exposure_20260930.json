@@ -1,0 +1,43 @@
+{
+  "train_only_groups": [
+    "AccidentTwoWays/Town01_route_001552",
+    "DynamicObjectCrossing/Town01_Town01_Scenario3_1",
+    "DynamicObjectCrossing/Town01_Town01_Scenario3_3",
+    "DynamicObjectCrossing/Town01_Town01_Scenario3_4",
+    "HighwayCutIn/Town12_2457_1",
+    "OppositeVehicleRunningRedLight/Town06_Town06_Scenario8_72",
+    "ParkingExit/Town12_2179_1",
+    "ParkingExit/Town12_2179_3",
+    "T_Junction/Town10HD_Town10HD_Scenario7_29",
+    "VehicleTurningRoute/Town02_Town02_Scenario4_14",
+    "noScenarios/Town05_Town05_rl_22"
+  ],
+  "reason": "Previously viewed RGB development exposure, verified against actual visual notes; no new labels",
+  "sources": {
+    "AUDIT_PARTIAL.md": "d39be101adc629277ccfb7465df2538fbb895b0e843ee43efdc8baa592a580d5",
+    "visual_notes.json": "e2354ae97043903bbc2e5292ff89c853011f9548dcad9e2ed1a0032bd89d3120",
+    "new_exposure_train_only.json": "eaef1a4149e5fb1be2c8bbacf69ea87d8395e49fd4d0e0d13713f5590d3833e4",
+    "coverage_progress.csv": "b5516bb123c99353839e9fde36c8e84f341fdb850492da4fc3d611f69ae798d1",
+    "panels/645/001.jpg": "34e3c11e7a7051752e648ece313655fbb0234e255010e47405582d4dde52eff5",
+    "panels/645/002.jpg": "a7ec3bce7d9b3231b88a1b959ccbd19fd97d5df950bdc9c990109e9802561186",
+    "panels/091/003.jpg": "5aa773e111107ae8b3ef82b1bdf5f107d8ae11de991a9f207b9a9c8a604c2955",
+    "panels/132/000.jpg": "a98327b1c9ac981b2120b90092552dc8707585268df6c81b0d2b92385cc8a7b7",
+    "panels/132/002.jpg": "1e7f350ea86c2bc0be98119c762fb1a2abbe90d4cceaadc8cf83023ec4ebda1f",
+    "panels/347/002.jpg": "465d5413311327798f0b0cfa0f6c704e3ff2131471075048c9c4704c364c91ab",
+    "panels/347/003.jpg": "8081d7db7c01c322d197063be5501d6a0fda22fbf1416fa7bbdaf95824d24565"
+  },
+  "reported_coverage": {
+    "complete_sequences": 224,
+    "unique_rgb_frames": 26418,
+    "cells_at_three_ids": 92,
+    "total_cells": 278,
+    "remaining_sequences": 476,
+    "source_shortfall_cells": 18,
+    "all_requested_rgb_audit_complete": false
+  },
+  "this_fix_review": {
+    "existing_frames_revisited": 155,
+    "new_complete_sequences": 0,
+    "new_approved_transition_bands": 0
+  }
+}
