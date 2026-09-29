@@ -1,5 +1,21 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-29 旧 BEV-only 评估兼容接线（补充只读诊断）
+
+训练机报告run_20260928_101609/best.pt合同完整、train/val/test哈希一致，真实EMA在恢复
+旧RoPE后严格加载/CPU前向通过；差异恰为六个已审查Qwen迁移文件和transformers4.57.3→5.3.0。
+新增evaluation_compatibility.py，仅eval/compare接受指定旧→新源码SHA对与该版本对，
+其它源码/运行库/BEV权重/条件/精度/标签/采样字段保持一致，split仍验hash。
+共同eval入口本轮加载改动另用精确SHA对核对，避免当前qwen_simple因这一纯入口修改失效。
+完整旧BEV配置恢复partial_rotary_factor=1.0、mrope_interleaved=false，原层数/头数/theta/
+dropout保留；父预检与worker均核对，不靠用户报告授权。manifest/metrics记录两份身份、
+兼容规则源码SHA及差异，不改checkpoint。训练resume仍原require_contract，旧Qwen基座不可替换。
+
+专项31通过（含旧源码数值回放、单eval及comparison worker真实小网络EMA加载）；
+相关共138通过、11失败：1缺只读runner、8缺matplotlib、2既有shell默认30与测试50不符。
+未绕过缺失依赖、未训练机完整RGB/LiDAR或GPU验收，不宣称CUDA数值/效果等价。
+使用原compare_checkpoints.sh即可；详见action_prior/CHECKPOINT_COMPARISON.md与消融run.md。
+
 ### 2026-09-29 旧 BEV-only 在 Qwen3.5 环境下的兼容性诊断
 
 用户要求检验升级环境能否继续使用旧模型。复核发现除源码/依赖指纹变化外，旧 BEV-only

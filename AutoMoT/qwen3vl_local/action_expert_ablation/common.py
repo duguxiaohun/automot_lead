@@ -946,10 +946,13 @@ def eval_main(variant: str) -> None:
             setattr(args, key, getattr(cli, key))
     validate_args(args, variant)
     contract = build_contract(args, variant)
-    require_contract(state["condition_contract"], contract)
+    from qwen3vl_local.action_prior.evaluation_compatibility import (
+        require_evaluation_contract, evaluation_decoder_config,
+    )
+    compatibility = require_evaluation_contract(state, contract)
     if file_hash(Path(args.data_dir) / f"{cli.split}.jsonl") != state["dataset_hashes"][cli.split]:
         raise ValueError("evaluation dataset differs from checkpoint split")
-    config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
+    config = evaluation_decoder_config(state, compatibility)
     flow_config = FlowMatchingConfig(**state["flow_config"])
     device = torch.device("cuda", local_rank)
     dtype = old._dtype(args.decoder_dtype)
@@ -985,6 +988,7 @@ def eval_main(variant: str) -> None:
                 ema=not cli.raw,
                 ablation_variant=variant,
                 contract_identity=contract["identity"],
+                evaluation_compatibility=compatibility,
                 dataset_hashes=dataset_hashes,
                 checkpoint_step=checkpoint_step,
             ),

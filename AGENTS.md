@@ -1,5 +1,13 @@
 # AGENTS.md
 
+### 2026-09-29 旧 BEV-only 评估兼容（补充诊断入口）
+
+训练机报告原合同/三split一致、真实EMA旧RoPE探针通过。eval/compare新增精确审查的兼容
+路径：仅六个Qwen迁移源码SHA对、指定transformers版本对及本轮eval入口SHA对可接受，
+恢复旧完整decoder配置；其余资产/条件/源码仍严格核对，未知改动拒绝。报告记录双合同身份。
+不修改checkpoint、不放宽训练resume、不替换旧Qwen基座。专项31通过，完整GPU尚未验收。
+细节与相关检查限制见PROJECT_CONTEXT同日条目及action_prior/CHECKPOINT_COMPARISON.md。
+
 ### 2026-09-29 旧 BEV-only 兼容性诊断入口
 
 新增只读 `action_prior/audit_checkpoint_compatibility.py`，输出源码/依赖/合同差异及可选

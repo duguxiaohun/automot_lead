@@ -37,7 +37,7 @@ def restore_args(state, checkpoint, overrides):
 
 
 def check_contract(state, args, variant):
-    """使用正式入口的源码/权重/条件校验，新增对比工具不放宽合同。"""
+    """核对正式合同；消融评估仅接受逐项审查的兼容迁移。"""
     from qwen3vl_local.action_prior.contracts import file_hash
     if variant == "action_prior":
         from qwen3vl_local.action_prior.config import validate_args, build_contract
@@ -46,10 +46,14 @@ def check_contract(state, args, variant):
         contract = build_contract(args)
         require_contract(state["qwen_backbone"], contract)
     else:
-        from qwen3vl_local.action_expert_ablation.common import validate_args, build_contract, require_contract
+        from qwen3vl_local.action_expert_ablation.common import validate_args, build_contract
+        from qwen3vl_local.action_prior.evaluation_compatibility import require_evaluation_contract
         validate_args(args, variant)
         contract = build_contract(args, variant)
-        require_contract(state["condition_contract"], contract)
+        compatibility = require_evaluation_contract(state, contract)
+        if compatibility:
+            contract["evaluation_compatibility"] = compatibility
+            print(f"[compatibility] {compatibility['profile']}: original decoder configuration retained", flush=True)
     for split in ("train", "val", "test"):
         if file_hash(Path(args.data_dir) / f"{split}.jsonl") != state["dataset_hashes"][split]:
             raise ValueError(f"{split} 索引不匹配 checkpoint")
@@ -106,7 +110,7 @@ def evaluate_worker(job, cache=None):
     from qwen3vl_local.action_prior.comparison_cases import read_json
     from qwen3vl_local.action_prior.progress import current
     from qwen3vl_local.action_prior.flow_matching import ConditionalFlowMatchingDecoder, FlowMatchingConfig
-    from qwen3vl_local.leadmot import LeadMoTPlanningDecoderConfig
+    from qwen3vl_local.action_prior.evaluation_compatibility import evaluation_decoder_config
     checkpoint = job["checkpoint"]
     key = (checkpoint, job["checkpoint_sha256"], sorted(job["overrides"].items()))
     cache = {} if cache is None else cache
@@ -123,7 +127,7 @@ def evaluate_worker(job, cache=None):
         args.output_dir = job.get("runtime_output", job["output"])
         # seed 单独作为配对评估协议；合同先按训练 seed 检查，保留先验噪声原定义。
         device = torch.device("cuda", 0)
-        config = LeadMoTPlanningDecoderConfig(**state["decoder_config"])
+        config = evaluation_decoder_config(state, contract.get("evaluation_compatibility"))
         model = ConditionalFlowMatchingDecoder(config, FlowMatchingConfig(**state["flow_config"])).to(device=device, dtype=torch.float32)
         model.load_state_dict(state["ema_state_dict"]["shadow"], strict=True)
         del state

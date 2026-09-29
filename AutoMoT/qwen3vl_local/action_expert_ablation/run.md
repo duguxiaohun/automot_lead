@@ -2,6 +2,12 @@
 
 # Action Expert 消融实验
 
+2026-09-29补充：旧 BEV-only 可在已审查的 Qwen3.5 环境升级差异下评估，自动恢复旧 RoPE、
+保留原 decoder 结构和 EMA，不重写 checkpoint；比较器和本包 eval 共用严格兼容规则。
+仅指定源码SHA对与 transformers 4.57.3→5.3.0可兼容，其余合同与索引仍严格校验；
+不包括 optimizer 续训或将旧 Qwen 条件模型换基座。详见
+[评估兼容边界](../action_prior/CHECKPOINT_COMPARISON.md)。
+
 2026-09-27补充：当前为 **v23语义基线＋ESTALE工程修订（v23_io1）**。
 纯工程bug修复经故障回归和输出等价复核可保留；提示词、标定、标签及采样等效果改动仍须验证后晋升。
 已补回Phase3内部文件发布恢复，Action完成缓存续发继续保留。详见 [工程维护记录](../action_prior/V23_IO_MAINTENANCE_20260927.md)。

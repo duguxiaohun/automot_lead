@@ -1,6 +1,34 @@
 # 多模型同帧轨迹对比
 
-统一入口是 `action_prior/compare_checkpoints.sh`，支持 `bev_only`、`qwen_simple`、`action_prior` 任意组合及任意数量的训练目录。两个消融目录中的同名脚本转到此入口。只增加对比文件，没有修改训练、标签、已有eval或严格合同校验。
+统一入口是 `action_prior/compare_checkpoints.sh`，支持 `bev_only`、`qwen_simple`、`action_prior` 任意组合及任意数量的训练目录。两个消融目录中的同名脚本转到此入口。训练、标签和续训合同保持原定义；评估兼容规则见下节。
+
+## 已核对的旧 BEV-only 评估兼容（2026-09-29）
+
+训练机报告 `run_20260928_101609/best.pt` 的合同完整、三 split 哈希相同，真实 EMA 严格加载和
+旧 RoPE CPU 探针通过。差异仅为 Qwen3.5 迁移的六个共用源码及 transformers 4.57.3→5.3.0。
+针对这一边界，`evaluation_compatibility.py` 提供自动、只限评估的 `bev_qwen35_environment_v1`。
+完整同步本次代码后直接使用原命令，无需手工编辑 checkpoint、提交诊断报告或传忽略开关：
+
+```bash
+bash qwen3vl_local/action_prior/compare_checkpoints.sh
+```
+
+单模型 `action_expert_ablation/bev_only/eval.py` 同样接入；父进程预检和 GPU worker 都重新检查
+当前资产合同。只接受六个文件已审查的旧→新 SHA256 对与指定 transformers 版本对，其余源码、
+依赖、BEV 权重、条件、精度、标签和采样字段必须一致，数据索引仍验证内容哈希。
+共同 eval 入口的本轮纯加载修订另用精确 SHA 对核对，避免它自身影响已迁移的当前消融模型。
+未来再改同名文件也不会自动放行。完整旧配置才可恢复 full RoPE=1.0、mrope_interleaved=false；
+原12层/8头/128维、theta、dropout及所有已保存字段保留，模型仍严格加载原EMA。
+
+比较器 manifest 的每个模型以及单模型 metrics 保存 `evaluation_compatibility`，包括迁移规则、
+规则源码 SHA256、原/当前两份合同身份和实际差异，不把旧合同伪装成当前合同。
+不迁移 optimizer/训练恢复，不允许旧 Qwen3-VL 条件模型替换为 Qwen3.5 基座。
+这是评估兼容规则，旧 checkpoint 本身不会被更新，恢复训练仍须满足原严格合同。
+
+专项31项通过，含真实旧源码小网络数值回放、eval和comparison worker实际加载旧EMA的CPU测试，
+以及未知源码/依赖/权重/标签/采样变化和坏split拒绝。相关检查合计138通过、11失败：
+1项缺外部runner、8项缺matplotlib、2项既有shell默认30与测试50不符。未修改这些缺依赖检查。
+尚无训练机完整RGB/LiDAR和GPU验收，不能将CPU回放表述为CUDA逐位一致或效果验收。
 
 ## Qwen3.5 升级后检查旧 BEV-only（2026-09-29）
 
@@ -33,7 +61,7 @@ python qwen3vl_local/action_prior/audit_checkpoint_compatibility.py \
 
 `legacy_rope_candidate_probe.status=passed` 只说明候选 decoder 严格加载和合成前向成功，
 **不等于旧模型完整兼容**。报告始终 `evaluation_authorized=false`，不会被比较器当作放行文件；
-训练/恢复/正式评估合同未改。退出码 0 表示诊断已完成，合同差异仍须阅读；1 表示加载或合同
+工具本身不改变训练/恢复/评估条件；正式评估的已审查兼容路径见上节。退出码 0 表示诊断已完成，合同差异仍须阅读；1 表示加载或合同
 重建等检查不完整，2 表示 CLI/输出路径错误。即使合同重建失败，能完成的配置与探针结果仍会保存。
 
 本地回归用迁移前 `59a5d7fe21de66e1bae95d95fd7848cccfe64f7b` 的真实源码在独立进程生成小网络
@@ -41,7 +69,7 @@ python qwen3vl_local/action_prior/audit_checkpoint_compatibility.py \
 满足 atol=rtol=1e-6。历史 Git 对象缺失时这些数值对照测试明确 skip。此测试在同一当前 Torch
 环境下比较新旧源码，不等于旧/新依赖环境等价，更不是实际 checkpoint 或 GPU 验收。
 
-正式建立兼容规则前仍需逐项审查报告中的差异，在原环境与新环境使用相同实际 RGB/LiDAR、
+未知差异仍需逐项审查；完整环境验收应在原环境与新环境使用相同实际 RGB/LiDAR、
 原 EMA、预处理和评估噪声，比较 BEV 特征、decoder 条件特征、轨迹及 ADE/FDE；记录依赖、
 硬件、精度和预先约定的容差。未知差异不能用一次有限输出试跑放行。
 

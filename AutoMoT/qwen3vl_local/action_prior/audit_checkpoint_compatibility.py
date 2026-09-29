@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from datetime import datetime
 from importlib import metadata
 import json
@@ -43,12 +43,8 @@ def probe_config(state, *, legacy=False):
         raise ValueError("decoder probe supports BEV-only joint FM checkpoints only")
     saved = dict(state["decoder_config"])
     if legacy:
-        added = {"partial_rotary_factor", "mrope_interleaved", "qwen_full_attention_layers"}
-        required = {field.name for field in fields(LeadMoTPlanningDecoderConfig)} - added
-        if set(saved) != required:
-            raise ValueError("legacy probe requires the complete pre-Qwen3.5 decoder config, without new fields")
-        saved.update(partial_rotary_factor=1.0, mrope_interleaved=False,
-                     qwen_full_attention_layers=())
+        from qwen3vl_local.action_prior.evaluation_compatibility import legacy_bev_config
+        return legacy_bev_config(state)
     config = LeadMoTPlanningDecoderConfig(**saved)
     config.validate_qwen_kv_shape()
     return config

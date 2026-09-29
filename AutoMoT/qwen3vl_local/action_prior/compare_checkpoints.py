@@ -70,7 +70,8 @@ def prepare(cli, out):
             selection=selection, ema=True, contract_identity=contract["identity"], dataset_hashes=state["dataset_hashes"],
             high_level_action_token=bool(args.high_level_action_token), high_level_action_prior=bool(getattr(args, "high_level_action_prior", False)),
             rgb_frame_count=args.rgb_frame_count, trained_seed=args.seed,
-            saved_args=state["args"], effective_args=vars(args).copy())
+            saved_args=state["args"], effective_args=vars(args).copy(),
+            evaluation_compatibility=contract.get("evaluation_compatibility"))
         # 轨迹形状/缩放/时间点必须相同，才有同一 eps/t 和可解释的指标。
         signature = {key: getattr(args, key) for key in (
             "route_points", "waypoint_points", "smooth_route", "frame_interval_s", "flow_route_coordinate_scale_m",
