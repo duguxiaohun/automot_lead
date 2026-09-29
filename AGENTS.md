@@ -1,5 +1,13 @@
 # AGENTS.md
 
+### 2026-09-29 旧 BEV-only 兼容性诊断入口
+
+新增只读 `action_prior/audit_checkpoint_compatibility.py`，输出源码/依赖/合同差异及可选
+EMA decoder CPU 探针；旧完整配置可测试恢复原 RoPE，不修改 checkpoint 或放宽正式合同。
+14项专项通过，含迁移前真实源码的小网络数值对照；未训练机真实权重/完整RGB-LiDAR/GPU验收。
+报告不是评估放行凭据。命令与验证边界见 `action_prior/CHECKPOINT_COMPARISON.md`
+及 `PROJECT_CONTEXT.md` 同日条目。
+
 ### 2026-09-28 修正 Qwen3.5 官方资产预检
 
 训练机报告 transformers 4.57.3 与缺 generation_config.json。核对官方 Qwen/Qwen3.5-4B

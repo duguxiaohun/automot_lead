@@ -2,6 +2,49 @@
 
 统一入口是 `action_prior/compare_checkpoints.sh`，支持 `bev_only`、`qwen_simple`、`action_prior` 任意组合及任意数量的训练目录。两个消融目录中的同名脚本转到此入口。只增加对比文件，没有修改训练、标签、已有eval或严格合同校验。
 
+## Qwen3.5 升级后检查旧 BEV-only（2026-09-29）
+
+`ablation condition contract mismatch` 是当前环境与该 checkpoint 自身的训练合同不同，
+不是两个模型互相不同。源码和运行库版本参与身份；Qwen 专用升级也可能改变 BEV 共用文件哈希。
+此外旧 decoder 没有 `partial_rotary_factor` / `mrope_interleaved`，直接用当前 dataclass
+会套入新默认值（0.25 / true），旧 mrope 的 section 校验会失败。BEV 的 Qwen prefix 虽为空，
+生成 token 的 self-attention 仍用 RoPE，不能据此忽略位置编码。
+
+在训练机 AutoMoT 目录，用当前报错的 Python 环境执行只读诊断：
+
+```bash
+python qwen3vl_local/action_prior/audit_checkpoint_compatibility.py \
+  checkpoints/action_expert_ablation/bev_only/run_20260928_101609 \
+  --probe-decoder
+```
+
+默认报告为 `AutoMoT/test/compatibility_<时间>.json`；每个被比较的 run 分别执行。
+支持与 comparison 一样的路径覆盖参数（如 `--data-root`、`--data-dir`、`--lead-bev-ckpt`、
+`--event-balance-index`），只用于定位原内容。报告不写入原训练目录、不覆盖已有文件。
+不加 `--probe-decoder` 仍读取 CPU checkpoint、核对合同和配置，但不实例化 decoder。
+探针需要容纳 checkpoint 和完整 decoder 的 CPU 内存；不选 GPU、不加载 Qwen、不训练。
+
+报告含原合同完整性、源码/依赖/条件的逐字段差异、三 split 哈希、当前 decoder 配置检查。
+开启探针时严格载入保存的 EMA 并检查固定合成 BEV 特征/状态/噪声下的 FP32 forward 和 Euler 输出。
+对字段完整且没有新 Qwen3.5 字段的旧 BEV-only，另外在内存中测试 full RoPE=1.0、
+`mrope_interleaved=false` 的候选配置，保留保存的层数、头数、head_dim 和 theta。
+动作 token 开启时覆盖全部七个 ID。缺权重、形状不匹配或非有限输出都拒绝。
+旧 Qwen 条件模型不支持这一候选路径，不能替换其 Qwen 基座。
+
+`legacy_rope_candidate_probe.status=passed` 只说明候选 decoder 严格加载和合成前向成功，
+**不等于旧模型完整兼容**。报告始终 `evaluation_authorized=false`，不会被比较器当作放行文件；
+训练/恢复/正式评估合同未改。退出码 0 表示诊断已完成，合同差异仍须阅读；1 表示加载或合同
+重建等检查不完整，2 表示 CLI/输出路径错误。即使合同重建失败，能完成的配置与探针结果仍会保存。
+
+本地回归用迁移前 `59a5d7fe21de66e1bae95d95fd7848cccfe64f7b` 的真实源码在独立进程生成小网络
+权重和输出，与当前代码候选配置对照：三种 RoPE × token 开/关，条件特征、速度场与轨迹均
+满足 atol=rtol=1e-6。历史 Git 对象缺失时这些数值对照测试明确 skip。此测试在同一当前 Torch
+环境下比较新旧源码，不等于旧/新依赖环境等价，更不是实际 checkpoint 或 GPU 验收。
+
+正式建立兼容规则前仍需逐项审查报告中的差异，在原环境与新环境使用相同实际 RGB/LiDAR、
+原 EMA、预处理和评估噪声，比较 BEV 特征、decoder 条件特征、轨迹及 ADE/FDE；记录依赖、
+硬件、精度和预先约定的容差。未知差异不能用一次有限输出试跑放行。
+
 ## 最常用操作
 
 默认当前目录为远端 `AutoMoT/`。编辑 `qwen3vl_local/action_prior/compare_checkpoints.sh` 开头的 `CKPT_DIRS` 数组，填入带时间戳的训练结果文件夹，之后运行：

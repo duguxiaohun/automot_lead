@@ -1,5 +1,23 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-09-29 旧 BEV-only 在 Qwen3.5 环境下的兼容性诊断
+
+用户要求检验升级环境能否继续使用旧模型。复核发现除源码/依赖指纹变化外，旧 BEV-only
+decoder_config 缺少新增 partial_rotary_factor/mrope_interleaved，直接构造会套用0.25/true，
+旧 mrope section 校验失败；空 Qwen prefix 不代表 generated-token self-attention 不用 RoPE。
+新增 action_prior/audit_checkpoint_compatibility.py 只读诊断：逐项源码/依赖/完整合同差异、
+三split身份、原EMA严格加载和固定合成BEV输入CPU FP32 forward/Euler；完整旧配置可在内存中
+尝试1.0/false，保留原层数/头数/theta。记录源码扫描独立于数据/runner可用性，不改旧checkpoint、
+正式合同或比较器，报告evaluation_authorized=false，不对旧Qwen条件模型替换基座。
+
+14项专项通过：以59a5d7fe21de66e1bae95d95fd7848cccfe64f7b真实源码在独立进程生成小模型
+权重与参考，3种RoPE×token开关的条件特征/速度场/轨迹与候选实现atol=rtol=1e-6一致；
+另覆盖旧默认报错、完整配置要求、缺权重/NaN拒绝、合同失败仍留报告及CLI不改原run。
+比较器扩展检查51通过、10失败（8缺matplotlib，2既有shell参数30与测试硬编码50不符）。
+未修改绘图/比较器/训练实现；未安装依赖。此数值对照为同一当前Torch环境的新旧源码比较，
+没有训练机真实checkpoint、完整外部runner/GPU或旧新依赖环境的端到端验收。
+命令及判读见action_prior/CHECKPOINT_COMPARISON.md；正式兼容放行仍待具体合同差异和同帧实测。
+
 ### 2026-09-28 修正 Qwen3.5 官方资产预检
 
 训练机报告 transformers 4.57.3 与缺 generation_config.json。核对官方 Qwen/Qwen3.5-4B
