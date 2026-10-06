@@ -1,0 +1,257 @@
+{
+  "schema": "phase3_four_training_readiness_20261006",
+  "tests_passed": 633,
+  "new_tests": 16,
+  "model_inference_runs": 0,
+  "gpu_training_runs": 0,
+  "new_visual_rgb_reviews": 0,
+  "new_manual_labels": 0,
+  "code_and_data_checks_passed": true,
+  "local_runtime_ready": false,
+  "automatic_promotion": false,
+  "artifacts": "AutoMoT/checkpoints/phase3_four_runs_verified_parallel_20261006",
+  "index_sha256": "3052802c98972f600e5e38d85cd0fb670b0c605cb0d26e4f9c7f03b0a130e01e",
+  "manifest_sha256": "7d7fffd211ec3bc7462f10f355f169424e1b3fe70f755ad3fdea555ccedf9002",
+  "inherited_visual_audit": {
+    "error_cases": 582,
+    "error_windows": 200,
+    "success_control_windows": 40,
+    "distinct_rgb": 2211,
+    "visually_reviewed_success_cases": 392
+  },
+  "raw_audits": {
+    "binary": {
+      "raw_rows_verified": 12288,
+      "raw_routes_verified": 3128,
+      "raw_speed_mismatches": 0,
+      "raw_action_mismatches": 0
+    },
+    "choice": {
+      "raw_rows_verified": 12288,
+      "raw_routes_verified": 3128,
+      "raw_speed_mismatches": 0,
+      "raw_action_mismatches": 0
+    }
+  },
+  "sampling": {
+    "4rgb_binary": {
+      "ok": true,
+      "train_sampled_cases": 12288,
+      "train_unique_cases": 10985
+    },
+    "2rgb_endpoints_binary": {
+      "ok": true,
+      "train_sampled_cases": 12288,
+      "train_unique_cases": 10985
+    },
+    "4rgb_choice": {
+      "ok": true,
+      "train_sampled_cases": 10240,
+      "train_unique_cases": 9250
+    },
+    "2rgb_endpoints_choice": {
+      "ok": true,
+      "train_sampled_cases": 10240,
+      "train_unique_cases": 9250
+    }
+  },
+  "original_cases": {
+    "4rgb_binary": {
+      "cases": 551,
+      "protected_successes": 397,
+      "source_sha256": {
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260928_220255_4rgb_binary_audit_bundle/lora_production/cases_rank0.jsonl": "73d77541ea55cb06ce458fd119d29e2bfda2f3016a5db803e44d3049587c68d4",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260928_220255_4rgb_binary_audit_bundle/lora_production/cases_rank1.jsonl": "fb36d44b346696221eeb87e9d8747b0c9078e85f9fe8de82658dd4855364f94d",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260928_220255_4rgb_binary_audit_bundle/lora_production/cases_rank2.jsonl": "0e008ae992eda2916329e5ec17dda7830c7ed8d4f4425ceb8bfdb1ea37cc3915",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260928_220255_4rgb_binary_audit_bundle/lora_production/cases_rank3.jsonl": "76850d9d00af010cd3d5189674f5e883dd4a7639e3c6d7d9c02dbb48f96af2f3"
+      }
+    },
+    "2rgb_endpoints_binary": {
+      "cases": 551,
+      "protected_successes": 401,
+      "source_sha256": {
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_064331_2rgb_endpoints_binary_audit_bundle/lora_production/cases_rank0.jsonl": "4ffae46292ebae71306bf421caf627c29d33317c2a1d8879ae921ab1e63178bf",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_064331_2rgb_endpoints_binary_audit_bundle/lora_production/cases_rank1.jsonl": "f242d3687a2c676c724dee03ed0ac917518210c8b4ff1ce49fe2349c5b61544a",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_064331_2rgb_endpoints_binary_audit_bundle/lora_production/cases_rank2.jsonl": "8e5543acc33f90036d478c0c5a70db2e48919e698df55a3bdc51f5b136675be8",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_064331_2rgb_endpoints_binary_audit_bundle/lora_production/cases_rank3.jsonl": "c5a636fbe168f12022dd0e6df228b536e3b255354be30d1d233b064f44460973"
+      }
+    },
+    "4rgb_choice": {
+      "cases": 460,
+      "protected_successes": 313,
+      "source_sha256": {
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_121830_4rgb_choice_audit_bundle/lora_production/cases_rank0.jsonl": "403b62f4e85a6cdb4fc86ef0add273be502d4ab8d15b092a165139ab7178dd26",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_121830_4rgb_choice_audit_bundle/lora_production/cases_rank1.jsonl": "c90d9fa67b0ec64512d94d02eb47c3190b1a6d4340266c681e1c3da92da96bf6",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_121830_4rgb_choice_audit_bundle/lora_production/cases_rank2.jsonl": "f3e9403996866774f46b57ac4081c0c2431736e2e1bb877052d84470699649f9",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_121830_4rgb_choice_audit_bundle/lora_production/cases_rank3.jsonl": "c977eef9d8bfb0db7d312cf9e8040d2a9035a7d05a03f0fb06a7b75645670663"
+      }
+    },
+    "2rgb_endpoints_choice": {
+      "cases": 460,
+      "protected_successes": 329,
+      "source_sha256": {
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_181319_2rgb_endpoints_choice_audit_bundle/lora_production/cases_rank0.jsonl": "5f29a44a0533de35819760bba21657c0c91b1be1023ee3fddc459c04235adb52",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_181319_2rgb_endpoints_choice_audit_bundle/lora_production/cases_rank1.jsonl": "d6384cc12ef558bc202c7b59d0e0ae34cb004a0638952a54f3c25554f6c245b5",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_181319_2rgb_endpoints_choice_audit_bundle/lora_production/cases_rank2.jsonl": "cb04b1d8f29d99302726dcde6ba4c7f964350c231a10b9adda349f59909ec6be",
+        "AutoMoT/checkpoints/sft_new_loop_phase3_20260929_181319_2rgb_endpoints_choice_audit_bundle/lora_production/cases_rank3.jsonl": "7ca62dbba58c8e49b71f1aeb9e3dc70a6addbeba880879bf8fb0b4bfd8ec9c87"
+      }
+    }
+  },
+  "exposure": {
+    "registered_groups": 118,
+    "splits": {
+      "train": {
+        "rows": 11100,
+        "physical_groups": 3021,
+        "old_audit_group_overlap": 56
+      },
+      "val": {
+        "rows": 420,
+        "physical_groups": 60,
+        "old_audit_group_overlap": 0
+      },
+      "test": {
+        "rows": 768,
+        "physical_groups": 47,
+        "old_audit_group_overlap": 0
+      }
+    }
+  },
+  "same_source_rebuild_comparison": {
+    "shared_rows": 4992,
+    "answer_evidence_input_changes": 0,
+    "interpretation": "Compared isolated vs unisolated local diagnostic build, not historical training machine index."
+  },
+  "unchanged_baseline_assets": {
+    "prompts.py": "538cb83afe6a2a23d203e51a8a05308d26d3ab501fa581ab306a1810f5542767",
+    "choice_semantics.py": "9373e2d1dac1f2749c9c0dc6f9dd6bdc904ee4b2f6bc3dcea488e38f8c76278f",
+    "trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+    "source_mapping.py": "192357eb66409986a24406eda7cf1940585126c0ff12af4545e7fe3c7f3d553b",
+    "sampling.py": "50a67fa8504be28a0d5d3378b889b620b40d4c2e01275756c0813e33cb2d4b61",
+    "quality_guards.py": "e3176d3a91aaa10da84431496f30dca6becb46fb86187fdb8c663ddc4d489a80"
+  },
+  "runtime_errors": [
+    "No module named 'transformers'",
+    "Missing local Qwen3.5 model directory: /home/codon/automot_lead/AutoMoT/checkpoints/Qwen3.5-4B; runtime never downloads files"
+  ],
+  "original_inputs_sha_and_prompt_identity_verified": 2022,
+  "source_sha256": {
+    "test_support_balance.py": "5ec131a46757cbe4bc101d28c71e23ad1332bbcc62a6e659a8899074bf531622",
+    "development_route_groups_20260926.json": "c3501f3d2689c70c4bc2bde0e509e0ed3d013c07e8d35d2e9ea832d473b0ab0c",
+    "audit_annotation_repairs.py": "fdb1d0f0137a8e7446be33f6c9661c3d2a52de8a70a4d275aeef3e092734ba5d",
+    "test_context_purpose.py": "796d10745a7ae01189b3b1d184f5a8c8751663ccbf02c451689a7893b1dce64c",
+    "build_mapping_review.py": "507065eb4316f0ebfda84e8ea340be459776e775c78f28062a1b7369f29c6d78",
+    "invalid_balance.py": "94f5c9c177dcadfc6b2d23f2f7e0faa9ce2fac3e158420fc9651d5408bac2a90",
+    "test_primary_action.py": "2171d33d47c7da50324bd9021aa6cf2acdd6282108568c3723417fab3abb6da5",
+    "render_rgb_review.py": "9b3f6c8d86d3f2d498506d5d6e0cb240174adb2dd9aca495d5e4611e706a92e4",
+    "parallel_scan.py": "ad05443c9d6fbaa8a013c111d78988e1bcb1dac257dca2dc9a06b0aea90a68bc",
+    "source_mapping.py": "192357eb66409986a24406eda7cf1940585126c0ff12af4545e7fe3c7f3d553b",
+    "navigation_goal.py": "cd24ac58aacd82a19b3cb3fb81528e12e6ce5362d12d14357a49eda3e5028002",
+    "split_coverage.py": "d3f0ad3f8de9b7df11389b39740b1758842de1fe78694a3fdf07e84072395842",
+    "sampling.py": "50a67fa8504be28a0d5d3378b889b620b40d4c2e01275756c0813e33cb2d4b61",
+    "quality_guards.py": "e3176d3a91aaa10da84431496f30dca6becb46fb86187fdb8c663ddc4d489a80",
+    "render_review_notes.py": "540a3f568dc0c14f9a782deb52f9661de0ded0c91345324d97674573818a0a8b",
+    "same_rs_invalid.py": "3271770d429a7970a1ea507025c7a70a89af1c05a3fc90232071758bb36b5494",
+    "four_runs.py": "d7ca5efb4620eb8ed19136c21dc62797d1fb8739cd98532909d9af07acb2f162",
+    "test_invalid_combinations.py": "8e2b0777202fa14261cb3c1fd200b1d3f5cc4227ffb1f67e2596dbdcad6474d4",
+    "test_causal_keep.py": "84f0a1acaf4aa33d34b002b058a0bc506a3caf001defd7faf2ce1f594e6acc41",
+    "V21_REPLAY_20260921.json": "9567662a67adf6a1ea0c492ee5b8a67500164748c6305a6bc5eb11ebac906321",
+    "development_route_groups_20260907.json": "9a7e01328f093ca1e49bbf0ed7684585c5576773ecf879bad7bfb909eb78b5af",
+    "test_rgb_review_20260921.py": "2fe972575bba85c585d9a6b9d709fa0ad79832b16d17a02f0ac9c5541901bde4",
+    "development_route_groups_20260911.json": "87e5d537fa29f2394069cb21dded994a47e9d0fbbed30dc85565a6dcea1fdd79",
+    "audit_mapping.py": "93dba27e214676ac8aa5e832bc56ae0eeb91e0a2a4bc54609772ea92555e3d77",
+    "probe_trajectory.py": "4f44bafbc8449baa587abf966845778447cb85b8e2e9a5755dc8fa887079711b",
+    "pullaway_regressions_20260921.json": "32bbbdf1c8817f0c872fb8e0a52a69b23c616afd1d0fc59e2ffea17f0c453377",
+    "transition_state.py": "217a1ec5dd34cec4deef3eefd4258f7783078c6a85c5f737d820c3998e7aedcc",
+    "test_validation_balance.py": "a415c513855ce7f4e89688da84d47faf82268af832d829e3a62102506ff35f00",
+    "build_dataset.py": "21ea65e49fdc266eaef38b510b7494ba9016bd2076ff299ab9accf1a8dd6e4aa",
+    "history_rgb.py": "17be568d5d67a0e3fb39f7473b6002c15a00a928497407aa32b3aaa850d0834f",
+    "visual_audit.py": "cc0baafb351c6cd01759be5e413757eef0be20eefe02293da345dca32475ea3c",
+    "__init__.py": "f56089c2333eca53ebff7db850d82690e1d82bf9b3104a3785a8f69036744aca",
+    "development_route_groups_20260914.json": "bda1cd5e13b286776ec634bb6cd5e4f2ad442f47265b49df3f5285f5c74c507e",
+    "test_rgb_review_20260920.py": "3847468bf4db35569b7ba5d22a1c985832c77e45414a4a237f5d9ffb626f3573",
+    "test_prediction_language.py": "78e60b7df0a5c3ed8b66128e053b086a34efe4603602843c269596e513f5a27f",
+    "test_split_coverage.py": "06724fa375ceb642f69094d74fb77f593a49a822a89c492b1946624bb3474802",
+    "test_window_contract.py": "abdd7f2e2ea3d2a4e9fc18b0cbd5fe83a3ffacc9e09f2d8f51f743cc08fb06c5",
+    "test_rgb_review_20260914.py": "6dbf54dcd701db024528a4bc509de0957e823be3f182b414e0b0761bdc801c4e",
+    "development_route_groups_noise_20260921.json": "9493a73c495cb2ce61f354d18ee7866fa8f141bd27b114c31194c7592cb775d8",
+    "development_route_groups_20260920.json": "cdf4c0e061dfb1879d71bfbe3e152e7cc2af35186a052b491166225a4fb69f43",
+    "audit_rebuilt_index.py": "7a815e246d1b18866771295a17cfacfbcc9c4ddce9ece96c693fc3503be59ef1",
+    "annotation_repair.py": "499cc3ca3757bb408e002f481576f4035821bef605d0af5bea0344241da33e5c",
+    "audit_causal_keep.py": "1920e116e1adb9e2e6f5d166058bcfaa8e081ab300e963ebf241deeede36882d",
+    "action_rgb_audit_coverage.json": "1457ceb48016d071bef1139341de07eb891647b526b90135a46ae179641fff3b",
+    "run_four_full_trainings.sh": "0f389a98293935fbea56078bda0b9bf0c2e183362692b7f0dcc29bf8aa7aeb57",
+    "primary_action.py": "43c230d0654b001e581047befb60569d0a484f56eb9e791d91cf63fb1da0443f",
+    "test_action_contract.py": "bf035b27c38d46967e7b648e0f9d9c8a0b557a4fced9b7e98e54fe494b29fa65",
+    "audit_eval_cases.py": "96dee24605cb365b0d8aa57e92e155d70376faed83626106e0731d9f8a6af91e",
+    "audit_raw_index.py": "9e766e9a6aa4d0465abf0c928e3b8fd1a1882c6972134e559742e4f23dcb2f16",
+    "test_paired_eval.py": "7f4c3044a07a455b7da28c0e25de5796e3414693052e33511e00017855d9ce56",
+    "test_review_transitions.py": "ffeb3ed24e959e3b0c3c595cf9e8c8d9e18c177cbb66be9aced69834e90cb482",
+    "prompt_contract.py": "c699ecaa04de8d11ab733c4662678ceb58a10954fe2cb5e829b3b6054000f8e4",
+    "test_four_runs.py": "8d036dfd2e9ab57f3a79e89d7838f7c2352e769471e2dbe1084efef9b2ebd57e",
+    "eval.py": "b6a5371603b80e14f1532ec39765c32a9c61d134d995da2503f5770bc3a11f5b",
+    "train.py": "aa089a90ed8319e4b3aecca141f185eef03223f6d78828e117ec68cb37614d3b",
+    "test_mapping_regressions.py": "4d032063fd23fe89bbb6dbcea04fcd1c5ef2e56875952f632ff30f77377ccdc0",
+    "audit_label_boundaries.py": "7eace04983471766e3cfc77a03b71ac4787d75baf3aba0dd262c63e8bf6f810b",
+    "trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+    "prepare_error_review.py": "2d060edf64f9125e8669fc5962886150fd8d1a2da912137ca0d52006f3917ad1",
+    "prompt_candidate.py": "3ed745e6fb0d755929bd2dca8bbb3dc3102b52376d8f9aeca342d76bc22296cb",
+    "test_repair_contract.py": "792e442fc84cff0798cd97540cb640520da12a225b0e8f2dc266b84733e76718",
+    "run_rgb_mode_matrix.sh": "d8ad876ec969233267a111b2577f548a0132717d02cd9a9cd6c5a24a34a03df8",
+    "test_build_invalid_quota.py": "a43a392172b42c213f9ed3a02e3b62c3eb327baf89985a7114550afeb48c253e",
+    "test_binary_keep.py": "50c6f636536e2c52189f8290a2307123073e48a5a44ca0ee832871b1ff7c51d8",
+    "test_rgb_review_20260911.py": "9887d7eaf0c3094ddf3c56ad22ed9f590379ed2e6ae9787c2c53b18507d9f47a",
+    "development_route_groups_20260923.json": "6b83b2a9be49dfa6047d8ef0eaa8f8277b7778b01334e15c547f33d16a36e183",
+    "rgb_stage_risks_20261006.json": "d6b69680dd6e97ed57294293e19bacee6afbbfbea24bbacfd3562a5ef4cc3a16",
+    "trajectory.py": "b8340603a9ab3a98f430da6edf579a3dba793a815afd7cde05bcb2bdfe2d1ef4",
+    "test_prompt_candidate.py": "d0bde12260f8a6e260f4a17d9a354a27f723a21d90849698911978b6a2754bf2",
+    "prompts.py": "538cb83afe6a2a23d203e51a8a05308d26d3ab501fa581ab306a1810f5542767",
+    "action_review.py": "d0543b17af9fb922a924e2835c786317e91dd985f7cc4e261fd969739ef65019",
+    "test_v23_audit.py": "ca887fb8db9f180f5992709e2d43bc65cda19b534542cbbb13c3bf5d3179ab24",
+    "candidate_data.py": "910a574959fdc5ae7ca8779c456a39d593030599cafebf42bf336671851ee667",
+    "build_same_rs_challenge.py": "cd4bcfd0bf41017ea7e311b3192d90a33aed3fa527add96a87bf53589c734436",
+    "audit_v21_rule_delta.py": "ed94c674292d54df7f66c697211902a39ea81bb7d83c9d2a43906c91b726e70d",
+    "V23_SUPPORT_REPLAY_20260923.json": "315b3c76d92f7b2092e8c0cd5997b151fea405fa8161dbed7a42db75b36d95f8",
+    "development_route_groups_rgb_stage_20261006.json": "3145f0995ffd4b5a27597f86823ff0d8379b4cc21622e0ba851898f0f25ec6bc",
+    "CAPACITY_REPLAY_20260921.json": "4fd8d80835606e6af7b9a6e81cc46bbba470aa19c8eb90c5d9f3a9d739be4350",
+    "context_taxonomy.py": "949ab8786a385df0c1253b3a1e60fe85db9e65d55c0dfabfc6806d6661b03689",
+    "run_full_pipeline.sh": "756c0a78a9f100f6b6ff4c847feee320f776df36a235f3eb56c360a1cb975188",
+    "probe_ego_frame_sign.py": "1dd1ddd090b1e10fdd6ab2f41d1f65224a4d0ea6a45c8212aabad21fc770875a",
+    "dispatch.py": "291c34a7c9ee885438e26382123bd41d0475e8f45ee382e2b4bb1f2e8eda5351",
+    "test_rgb_review_20260916.py": "bc8a1d5f777502a59787595688a36b8de8a407806fbe7b767bfb80389652d17d",
+    "choice_semantics.py": "9373e2d1dac1f2749c9c0dc6f9dd6bdc904ee4b2f6bc3dcea488e38f8c76278f",
+    "train.sh": "7db8b20b459b66792a540073c85f15e6cd1889ef5d0b6d2135496018d91a2a0c",
+    "regression_gate.py": "8a9802132d6da6af556d86acee7e2b61268c083dbc196f8f75b4e51f508e8ade",
+    "audit_action_boundaries.py": "6d147fc57def1a41035bde1c43033b2c70632ecdee76bc1b84ac16253f41f4fe",
+    "annotation_repairs_20260910.json": "2ef9b22ab99c84978615ff07a0d7f5d264510011ded8525883863e9b4fd99381",
+    "audit_temporal_slices.py": "6586fc76e146a686186c7f26b686dedddb76eb712219656fee84b3ee7a7b9c62",
+    "paired_eval.py": "14fc4b44b267cec512458141437e414c2245c1c890e8b1863789a09296a85d60",
+    "test_action_review.py": "0171760494f86f28540894109337e1fa55c6a03c0068b85698aefb283706420e",
+    "lateral_rgb_audit.py": "e3e4e359bc429a21eaa25052bd9037eca2804bbbdd69d00614dc8dd7fa5c4ef0",
+    "collection_reader.py": "5273d73c8417d972e5811b8e2e4a48d46ed5be67098248420ff0e7db1bd5cd3f",
+    "development_route_groups_20260916.json": "7d6ac47b6b3e20f091463b640bda399f99766e601f1417afbbb38b6503d6eb9d",
+    "render_action_contact_sheet.py": "f290130d8f0ee27138bc9f04a2d8e7584dca8fe3a504966fb0810e96679abdef",
+    "replay_prompt_candidate.py": "71e041ce2c34227bd054dadf315aae2d1b56ad701af709f50e021390490b612f",
+    "test_v21_pullaway.py": "82b9068c3dcb91cac06f809174f777d155694d76dcc107703b96915dafa3dced",
+    "eval.sh": "2087ab7be5a139a77634836764e373f5c178a29de14ee5a5f953237cd96247ff",
+    "test_ddp_validation.py": "a5e9dd554a0d27bb86725af426c929995c80c69c59789305fa17948efbb40fc9",
+    "test_annotation_audit.py": "a5f4401bbb9be0303bbfa07e62b0503d96f69fc7851f89e0ac1c3d5dce193006",
+    "development_route_groups_20260921.json": "2c984eec6a39ec512502beb6bd5d99f7735edaf74e8793d3c2ee8707ac035e08",
+    "test_annotation_repair.py": "3a743f34a41c29571c001c008677f5390d1dfadc4b5927eb3721646f521c52aa",
+    "development_route_groups_20260910.json": "46feb2f87459f09095abdb180a4cd085c43094253bafa726e66497e5edce945b",
+    "lane_topology_evidence_20260921.json": "a1001ad3ee2c8fdcd8028901726681dc4e4278d083b521139dcab144386aa3fc",
+    "test_v18_review.py": "a0add637442f4b172c8a5102dcddca7b8dc40cdea589ae8a71be14cef623ad47",
+    "annotation_repairs_20260914.json": "1b542600e8f294820c448a897e39e0d3e677b56185d2d634113b7cddc4d3aa34",
+    "audit_review_transitions.py": "f99b8b9fa41daf80100d7755387e71254c388323ecc9b54e02533a8eb2f45327",
+    "audit_development_replay.py": "350d042ce441fc54fed99936c5a1c97c7a6bf58ec58de60ef94b63247d7d8031",
+    "calibration_report.py": "e109833d54912d8852ec2b62cbdc93c3de5a1cb91304c47c10ebb5791d5c31dd",
+    "preflight.py": "31dca370650db9d722965509c08e591bb7f7b895be1b5d2ab6d60750661a86a6"
+  },
+  "limitations": [
+    "No real model/GPU validation; only local data and CPU checks completed.",
+    "Old 118 physical groups are exposed development regressions, not independent test.",
+    "New pool/splits differ from historical runs; results do not isolate prompt causal effects.",
+    "same-RS val/test support is zero; frozen v23 policy excludes that subgroup from checkpoint guards.",
+    "No guarantee of zero regressions on unseen cases."
+  ]
+}

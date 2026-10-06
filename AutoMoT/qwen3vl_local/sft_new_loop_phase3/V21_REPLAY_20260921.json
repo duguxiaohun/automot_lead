@@ -1,0 +1,3805 @@
+{
+  "scope": "v21 development verification; numerical label delta is not a per-frame RGB error adjudication or a production noise rate",
+  "rule_version": "current_wait_first_crossing_v9_confirmed_pullaway",
+  "rule_sha256": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+  "raw_replay_counts": {
+    "routes": 242,
+    "frames": 31668,
+    "changed_all_frames": 397,
+    "changed_context_frames": 94,
+    "changed_context_frames_risk_goal_pass": 86,
+    "changed_context_startup_frames": 29
+  },
+  "strict_monotonic_screen": {
+    "r1": 12,
+    "r2": 8,
+    "r3": 5,
+    "total": 25
+  },
+  "actual_candidates": {
+    "total": 7900,
+    "changed_context_rows": 84,
+    "changed_unique_frames": 84,
+    "changed_primary_actions": {
+      "LANE_CHANGE_LEFT": 18,
+      "RESUME": 64,
+      "LANE_CHANGE_RIGHT": 2
+    },
+    "startup_changed_rows": 29
+  },
+  "development_index_replay": {
+    "scope": "development_row_replay_not_production_preflight",
+    "production_preflight_performed": false,
+    "manual_rgb_review_performed": false,
+    "counts": {
+      "confirmed_pullaway_rows": 6,
+      "prompt_target_replays": 1408,
+      "rows": 384
+    },
+    "routes": 146,
+    "splits": [
+      "train"
+    ],
+    "raw_evidence_mismatches": 0,
+    "raw_label_mismatches": 0,
+    "raw_review_mismatches": 0
+  },
+  "tests": {
+    "phase3_cpu_passed": 587,
+    "action_integration_cpu_passed": 63
+  },
+  "production_index_rebuilt": false,
+  "gpu_training_performed": false,
+  "new_manual_rgb_review_performed": false,
+  "changes_with_context": [
+    {
+      "route": "AccidentTwoWays/Town02_Rep0_route_001607_route0_01_09_20_17_48",
+      "frame": 44,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.4770450258820503,
+        1.522618949547244,
+        2.723259060888732,
+        4.263998483270175,
+        5.439713546665844,
+        7.482555955539151,
+        8.805385433308368,
+        10.165772769231753
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town05_Rep0_route_001580_route0_01_08_14_20_06",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        1.926364932274874e-05,
+        0.002001671956812071,
+        1.5818623090127828,
+        2.936371639321195,
+        4.752165515493176,
+        5.743842822019751,
+        6.777305285199871,
+        5.99571261402278,
+        5.097325224366455
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town12_Rep0_1573_0_route0_01_10_07_00_13",
+      "frame": 123,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        8.313582297676389e-06,
+        0.2918503682231577,
+        1.2872069206664962,
+        2.569399320861537,
+        4.3622113254690875,
+        5.235128653430133,
+        7.027993762763132,
+        8.647338880847437,
+        9.732985888271912
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 37,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.10433759021488417,
+        1.0393761926919172,
+        2.1423888393934507,
+        3.825182099461757,
+        5.559731997187898,
+        6.585959954047544,
+        6.97737701511157,
+        6.656330128782508
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town15_Rep0_route_001342_route0_01_10_04_33_06",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.001952719959759125,
+        1.5191576171021186,
+        2.887799876895026,
+        4.699266136215341,
+        5.53007103203143,
+        5.064108186686272,
+        5.233519526790775,
+        6.609756402704719
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "Accident/Town13_Rep0_1044_0_route0_01_08_22_08_42",
+      "frame": 100,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.977059385818972e-05,
+        0.10617985103297993,
+        1.0352025105576037,
+        2.185600556178156,
+        3.991146204248318,
+        5.531767008196117,
+        6.753894404375494,
+        8.662156221972365,
+        8.357056753954536
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town12_Rep0_1207_0_route0_01_08_09_07_54",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.00021104793992682063,
+        0.002112410393710088,
+        1.6034338597476763,
+        3.0944506583576206,
+        4.95191806728292,
+        5.677342216441137,
+        7.711215486168385,
+        7.6407085632821925,
+        7.209499003283013
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town12_Rep0_346_0_route0_01_08_04_09_24",
+      "frame": 39,
+      "contexts": [
+        "LEAD_BRAKE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0017647515767322437,
+        0.002784655233433948,
+        0.3963456037271415,
+        0.6872648390176639,
+        1.3371384907113573,
+        2.560719143172889,
+        4.231396239806332,
+        4.006040075084953,
+        2.775317750435467
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "LEAD_BRAKE"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town12_Rep0_346_0_route0_01_08_04_09_24",
+      "frame": 40,
+      "contexts": [
+        "LEAD_BRAKE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.002784655233433948,
+        0.3963456037271415,
+        0.6872648390176639,
+        1.3371384907113573,
+        2.560719143172889,
+        4.231396239806332,
+        4.006040075084953,
+        2.775317750435467,
+        2.9959998029578445
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "LEAD_BRAKE"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town13_Rep0_1169_0_route0_01_09_09_33_13",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.836922783944822e-05,
+        0.002003457448282891,
+        1.5596525284585425,
+        2.8990793126020318,
+        4.718461600488284,
+        5.737214602612562,
+        7.058346337695421,
+        5.440539179930204,
+        4.526169900885697
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town13_Rep0_1169_0_route0_01_09_09_33_13",
+      "frame": 105,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.2804171031667693,
+        1.1125447501139896,
+        2.3459299827410405,
+        3.92547691187907,
+        5.536089420876622,
+        6.784933738028234,
+        7.143785416137331,
+        6.046765983518213
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town02_Rep0_route_001339_route0_01_08_14_19_04",
+      "frame": 63,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.06446437630046804,
+        1.0272357247937254,
+        2.1886243296329098,
+        3.947405680461752,
+        5.2897399329764125,
+        5.790977021627883,
+        8.08244412735671,
+        8.711444514274522
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town07_Rep0_route_001177_route0_01_08_12_52_43",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.7641893462678125e-06,
+        0.001975176326797352,
+        1.4697749014410826,
+        2.9575648496671287,
+        4.784885756787148,
+        5.829918269013021,
+        7.011230137231041,
+        6.215467186537689,
+        5.175241259896798
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_0_route0_01_10_21_32_31",
+      "frame": 0,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0,
+        0.0026900746555227366,
+        1.3092068675295019,
+        2.656002976745184,
+        4.573991848965284,
+        5.626975892057707,
+        7.448058483674798,
+        6.459623160273624
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_0_route0_01_10_21_32_31",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0026900746555227366,
+        1.3092068675295019,
+        2.656002976745184,
+        4.573991848965284,
+        5.626975892057707,
+        7.448058483674798,
+        6.459623160273624,
+        5.612250974898863
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town15_Rep0_route_001074_route0_01_08_16_28_11",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0019449193755590205,
+        1.5373761681583322,
+        2.8894851449606627,
+        4.702201418282503,
+        5.75592633240108,
+        6.365766298050715,
+        5.760838906406698,
+        5.787872421490494
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town15_Rep0_route_001074_route0_01_08_16_28_11",
+      "frame": 76,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.43891694420942573,
+        1.418218451221915,
+        2.7046420331910546,
+        4.44135196807096,
+        5.13088455885623,
+        6.811887781530499,
+        8.586021148126816,
+        9.38353308846283
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town15_Rep0_route_001079_route0_01_09_05_23_12",
+      "frame": 0,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0,
+        0.0028026608594019582,
+        1.4929979801121662,
+        2.8699253535064955,
+        4.689303727623194,
+        5.478102954994581,
+        5.01158264967786,
+        5.124131312989111
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town15_Rep0_route_001079_route0_01_09_05_23_12",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0028026608594019582,
+        1.4929979801121662,
+        2.8699253535064955,
+        4.689303727623194,
+        5.478102954994581,
+        5.01158264967786,
+        5.124131312989111,
+        6.396978709607538
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacle/Town06_Rep0_route_002017_route0_01_09_04_05_22",
+      "frame": 44,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.2702756642064439,
+        1.2095665711983679,
+        2.467315513469619,
+        4.216064752667448,
+        5.609349482484853,
+        7.151037625798931,
+        8.91214526460009,
+        8.008014285217822
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacle/Town12_Rep0_1256_0_route0_01_09_07_30_45",
+      "frame": 84,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        2.7983249764286384e-06,
+        0.43181672157738316,
+        1.4591702074906514,
+        2.7818599272674587,
+        4.601538300969389,
+        5.737593261412302,
+        7.36907251122089,
+        6.890473442797999,
+        5.81992416307336
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002052_route0_01_08_08_46_16",
+      "frame": 22,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT",
+        "SIGNAL_FAILURE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.10414945237209937,
+        0.4901131869115902,
+        1.1734565881005306,
+        2.391246192623515,
+        3.319906708445048,
+        3.4900155279994065,
+        4.051296100703745,
+        5.489561355166616,
+        6.5010612543219235
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39",
+      "frame": 33,
+      "contexts": [
+        "SIGNAL_FAILURE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.42370733625305546,
+        1.425328251086771,
+        2.653369464542174,
+        4.43878314610687,
+        5.672673357745312,
+        7.44761126140433,
+        6.96050559477171,
+        5.937063653278374
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "SIGNAL_FAILURE"
+      ]
+    },
+    {
+      "route": "HardBreakRoute/Town12_Rep0_1254_0_route0_01_09_07_52_53",
+      "frame": 73,
+      "contexts": [
+        "LEAD_BRAKE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        1.614934421599589e-05,
+        0.26360007863302476,
+        1.160372001110199,
+        2.3344507766308458,
+        4.114741147093139,
+        4.75412929213039,
+        5.3596534417825525,
+        6.582596061080788,
+        7.320640591196735
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "LEAD_BRAKE"
+      ]
+    },
+    {
+      "route": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.00011161035482601975,
+        0.003691898440181919,
+        1.358257278032811,
+        2.881180266598288,
+        4.733593229596114,
+        5.654742731045487,
+        7.580042040614404,
+        6.403615433679723,
+        5.147865879245122
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame": 69,
+      "contexts": [
+        "LEAD_BRAKE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.13805064645891185,
+        0.9834091068799865,
+        2.1590844176715827,
+        3.8287670446170803,
+        5.5483384521601895,
+        6.650913162037453,
+        7.4263959562246615,
+        8.009186032862866
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "LEAD_BRAKE"
+      ]
+    },
+    {
+      "route": "HazardAtSideLane/Town13_Rep0_1619_0_route0_01_08_20_40_19",
+      "frame": 77,
+      "contexts": [
+        "VULNERABLE_CROSSING"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.30903703959808265,
+        1.1834902622820835,
+        2.394060187782367,
+        4.111529368976388,
+        5.567739755077432,
+        7.0588845177063915,
+        8.773255770966317,
+        7.961009299433634
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "VULNERABLE_CROSSING"
+      ]
+    },
+    {
+      "route": "MergerIntoSlowTrafficV2/Town06_Rep0_route_000832_route0_01_10_07_43_29",
+      "frame": 1,
+      "contexts": [
+        "RAMP_MERGE_EXIT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.0890717662577805e-05,
+        0.0020016594373708186,
+        1.5536264137616032,
+        2.921059980822484,
+        4.743169745255395,
+        5.783281473596599,
+        7.575050057402012,
+        8.98738897640971,
+        9.227025500408645
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "RAMP_MERGE_EXIT"
+      ]
+    },
+    {
+      "route": "NonSignalizedJunctionLeftTurnEnterFlow/Town10HD_Rep0_route_001073_route0_01_10_16_21_02",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.083546845193639e-05,
+        0.002001584665213825,
+        1.5598750336946823,
+        2.9372541779211807,
+        4.7496318149841015,
+        5.812184494748254,
+        7.589707182784905,
+        9.200998795831314,
+        10.922039166683156
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "NonSignalizedJunctionLeftTurnEnterFlow/Town10HD_Rep0_route_001073_route0_01_10_16_21_02",
+      "frame": 46,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.4763759659312949,
+        1.4650122614343755,
+        2.806172055748685,
+        4.642523923163222,
+        5.635144017852621,
+        7.588100897078953,
+        8.892695393175066,
+        10.29892601644151
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "NonSignalizedJunctionLeftTurn/Town05_Rep0_route_000845_route0_01_10_00_42_03",
+      "frame": 27,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.05669393306446212,
+        1.0359276657968086,
+        2.2581342941094324,
+        3.9508261532346682,
+        5.674908596591937,
+        6.7292063809841345,
+        8.721313415127975,
+        9.889053272256751
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_102_route0_01_09_17_16_49",
+      "frame": 39,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.45415832984117077,
+        1.4190901442932147,
+        2.8086839527046457,
+        4.632167959127835,
+        5.669957797291475,
+        7.302203129830245,
+        6.759284861747238,
+        6.677188781286152
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ]
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_0_route0_01_10_17_59_38",
+      "frame": 180,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.3181097284589093,
+        1.0820539790085304,
+        2.208823681200113,
+        3.8950720916402495,
+        4.259687109588622,
+        3.8514935379483513,
+        4.523871523991529,
+        4.152364908951069
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ]
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town06_Rep0_Town06_Scenario8_63_route0_01_08_08_24_19",
+      "frame": 51,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        2.4877236947138296e-09,
+        0.2954936469057979,
+        1.2754140044931364,
+        2.4424612651057105,
+        4.24548042497325,
+        5.524994036119517,
+        7.095820226304456,
+        8.957564520528305,
+        10.28602688158405
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "VehicleTurningRoute/Town10HD_Rep0_Town10HD_Scenario4_15_route0_01_08_12_45_08",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.02320825087285e-05,
+        0.0020003810301792617,
+        1.551671449200888,
+        2.9468982819001783,
+        4.7658505889635485,
+        5.545761133917548,
+        7.494535751680421,
+        6.78942890485397,
+        5.854700956351404
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "VehicleTurningRoute/Town10HD_Rep0_Town10HD_Scenario4_15_route0_01_08_12_45_08",
+      "frame": 61,
+      "contexts": [
+        "VULNERABLE_CROSSING"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.41955243724934566,
+        1.5057630151515302,
+        2.7972493142828085,
+        4.628403588757225,
+        5.787340110900759,
+        6.988421965262331,
+        6.2829099147890455,
+        5.1693291635440595
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "AccidentTwoWays/Town01_Rep0_route_001543_route0_01_08_23_18_47",
+      "frame": 88,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.17031723414003885,
+        1.020873611341488,
+        2.1888721046240045,
+        3.9270887033313104,
+        5.361113284608357,
+        5.723445575328638,
+        8.106438788692392,
+        8.52911710980251
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town12_Rep0_1214_0_route0_01_08_23_59_12",
+      "frame": 98,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        1.453154188589677e-05,
+        0.37165769282479844,
+        1.3008713221886845,
+        2.5471145710780387,
+        4.370633701610951,
+        5.253068261454846,
+        6.4498701132682985,
+        8.457534009094235,
+        9.14117663151853
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town13_Rep0_1153_1_route0_01_09_11_08_38",
+      "frame": 52,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.11112063285668095,
+        0.6940010495171642,
+        1.6681392490332487,
+        3.2426252958337227,
+        5.004421536988213,
+        5.604716466419071,
+        7.383296747895986,
+        6.605709699914827
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town13_Rep0_1153_1_route0_01_09_11_08_38",
+      "frame": 130,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.1289436812333526,
+        1.0258535599727445,
+        2.181377290880936,
+        3.827634789408018,
+        5.314806512642047,
+        6.405309597990368,
+        8.319640343278946,
+        9.22810097463971
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "Accident/Town04_Rep0_route_001798_route0_01_09_06_48_12",
+      "frame": 1,
+      "contexts": [
+        "POST_BYPASS_RETURN"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": true
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": true
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        1.939714241418377e-05,
+        0.0025083689648059747,
+        1.0474471876316684,
+        2.4324980334087196,
+        4.435080309997227,
+        5.632120775206123,
+        7.3141152498003725,
+        8.691712144658112,
+        8.626154802197062
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "POST_BYPASS_RETURN"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town13_Rep0_1016_1_route0_01_07_23_26_17",
+      "frame": 80,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        3.278251063470699e-05,
+        0.151964764736312,
+        1.0263308693765343,
+        2.1667165809478615,
+        3.824316871036103,
+        5.52415479677977,
+        6.735471402056126,
+        7.131925962375971,
+        6.080536070895369
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town01_Rep0_route_001275_route0_01_09_16_43_40",
+      "frame": 79,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        2.7217883248337983e-10,
+        0.30627820969241865,
+        1.2684636298744274,
+        2.485339028585265,
+        4.245946829541745,
+        5.181942572381504,
+        6.328385887037128,
+        8.558702317861915,
+        9.113271701022134
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_1_route0_01_10_18_24_38",
+      "frame": 0,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0,
+        0.0027134680540876026,
+        1.246282809997261,
+        2.6308974813503183,
+        4.556444771011738,
+        5.597766111933083,
+        7.4509549834157225,
+        6.505341065483026
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_1_route0_01_10_18_24_38",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0027134680540876026,
+        1.246282809997261,
+        2.6308974813503183,
+        4.556444771011738,
+        5.597766111933083,
+        7.4509549834157225,
+        6.505341065483026,
+        5.765627629924697
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ControlLoss/Town03_Rep0_Town03_Scenario1_12_route0_01_11_01_24_33",
+      "frame": 53,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.05502099576177155,
+        0.3148767609963412,
+        1.2894806101330787,
+        2.5302985081552367,
+        4.354299282081971,
+        5.5676782488599725,
+        7.241998155610346,
+        6.923363793991555,
+        5.684445249682772
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ControlLoss/Town06_Rep0_Town06_Scenario1_30_route0_01_08_16_51_17",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        2.808658435476737e-05,
+        0.0022038323442110153,
+        1.509045610966534,
+        2.8475463995249526,
+        4.703250732677067,
+        5.487153639630563,
+        5.367197599791197,
+        6.240540127312347,
+        5.670092707850962
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002181_route0_01_11_03_32_36",
+      "frame": 31,
+      "contexts": [
+        "SIGNAL_FAILURE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.05723489997164959,
+        1.0001920613719446,
+        2.142436135365585,
+        3.856292187237561,
+        5.582127529256424,
+        6.739991739850311,
+        7.3698177101857985,
+        6.4555713964477235
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "SIGNAL_FAILURE"
+      ]
+    },
+    {
+      "route": "CrossingBicycleFlow/Town12_Rep0_136_1_route0_01_10_21_53_51",
+      "frame": 28,
+      "contexts": [
+        "VULNERABLE_CROSSING"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        3.196378330359943e-05,
+        0.38341020156742034,
+        1.2995799775649317,
+        2.5762314686885635,
+        4.402331502882836,
+        4.985793918871279,
+        4.579415921878641,
+        4.041678767166044,
+        3.9630334616568423
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "VULNERABLE_CROSSING"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_12_route0_01_11_08_48_57",
+      "frame": 47,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.007242511625714046,
+        0.45303851581794685,
+        0.5612844797172423,
+        0.662618800932883,
+        1.9012581105244142,
+        3.535868038928457,
+        5.297020379080003,
+        5.657688021143785,
+        2.876177074861622
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_12_route0_01_11_08_48_57",
+      "frame": 78,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.45996162224203424,
+        1.5079865698185735,
+        2.7974059466529506,
+        4.6191766389463975,
+        5.364831659223338,
+        2.854275019110304,
+        3.7602815078467047,
+        4.848188103362001
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_53_route0_01_10_22_49_35",
+      "frame": 41,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.15218308770163458,
+        1.0455231652152153,
+        2.1803600454212835,
+        3.9370929374666477,
+        5.631933985175099,
+        6.7441509689892,
+        6.913300122276394,
+        3.2569717320635037
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town05_Rep0_Town05_Scenario3_13_route0_01_09_20_54_50",
+      "frame": 58,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.15915744897331693,
+        1.0429385456074127,
+        2.283671434072125,
+        3.928411763757237,
+        5.592635810049013,
+        6.701207040724416,
+        7.0201401133796075,
+        3.4925878465646987
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town05_Rep0_Town05_Scenario3_13_route0_01_09_20_54_50",
+      "frame": 101,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0,
+        0.09775473167670128,
+        0.3947930848673025,
+        1.421496114344117,
+        2.5143796674741874,
+        2.7686643201808283,
+        4.088377663360213,
+        5.426326236057334
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town05_Rep0_Town05_Scenario3_13_route0_01_09_20_54_50",
+      "frame": 103,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.09775473167670128,
+        0.3947930848673025,
+        1.421496114344117,
+        2.5143796674741874,
+        2.7686643201808283,
+        4.088377663360213,
+        5.426326236057334,
+        6.274131006505423,
+        7.234676541633235
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town12_Rep0_1808_0_route0_01_08_13_10_06",
+      "frame": 175,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        6.031684110904884e-05,
+        0.380388278266743,
+        1.281961622963775,
+        2.555664201805469,
+        4.394256630745878,
+        5.667727111509529,
+        7.347507387304578,
+        6.890043977846546,
+        5.858535975634107
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town13_Rep0_1563_0_route0_01_10_06_21_13",
+      "frame": 34,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.2577876881443628,
+        1.2767834857479892,
+        2.4440432510612338,
+        4.249292395038776,
+        5.670463399173604,
+        7.126992054153506,
+        6.801247866337901,
+        6.677432558337777
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "HardBreakRoute/Town12_Rep0_1511_0_route0_01_09_13_10_16",
+      "frame": 80,
+      "contexts": [
+        "LEAD_BRAKE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.030390669681516956,
+        0.9876329583429388,
+        2.0954650734993927,
+        3.710486758164222,
+        3.6171434764111514,
+        2.67202751489167,
+        3.7735364842561467,
+        5.48675922136325
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "LEAD_BRAKE"
+      ]
+    },
+    {
+      "route": "HazardAtSideLane/Town13_Rep0_1619_10_route0_01_09_02_56_46",
+      "frame": 101,
+      "contexts": [
+        "VULNERABLE_CROSSING"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.34848901496017876,
+        1.1938758531674687,
+        2.3645283243858235,
+        4.151250173372085,
+        5.631977117772712,
+        7.096215577027142,
+        7.034074304463999,
+        5.88135715923548
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "VULNERABLE_CROSSING"
+      ]
+    },
+    {
+      "route": "MergerIntoSlowTrafficV2/Town06_Rep0_route_000834_route0_01_10_10_34_36",
+      "frame": 1,
+      "contexts": [
+        "RAMP_MERGE_EXIT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.082676571879199e-05,
+        0.00200228413720342,
+        1.4693762952348892,
+        2.9676307453574546,
+        4.7976388523799995,
+        5.848429963332321,
+        7.834055867343259,
+        9.338900051433455,
+        11.076849240175479
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "RAMP_MERGE_EXIT"
+      ]
+    },
+    {
+      "route": "NonSignalizedJunctionLeftTurn/Town04_Rep0_route_000930_route0_01_10_01_26_01",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.779235938761595e-05,
+        0.002943086484271892,
+        1.519212850319438,
+        2.920446429879727,
+        4.75841828479792,
+        5.624599418898984,
+        7.742351684298686,
+        7.3839614649106915,
+        5.201321963180773
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "NonSignalizedJunctionLeftTurn/Town04_Rep0_route_000930_route0_01_10_01_26_01",
+      "frame": 26,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.48324220468510465,
+        1.4746450761505996,
+        2.7975001122986063,
+        4.620341367019191,
+        5.707470729887305,
+        7.520444689822897,
+        8.88596738371254,
+        10.28870418347671
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town05_Rep0_Town05_Scenario8_100_route0_01_10_21_17_06",
+      "frame": 44,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        2.8202642677470427e-08,
+        0.4852355917065004,
+        1.4252372120892576,
+        2.8594473495439607,
+        4.578929344387415,
+        5.548670715568403,
+        7.43535870251084,
+        7.033559079227556,
+        5.959319687389371
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town13_Rep0_1047_1_route0_01_08_00_48_12",
+      "frame": 180,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.7120684133111235e-05,
+        0.33720456178177366,
+        0.41268981339755045,
+        1.0949275809569317,
+        2.253367924830342,
+        3.298573226186262,
+        3.4696809604050696,
+        4.5360078899003735,
+        4.076362266184336
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "ParkedObstacle/Town04_Rep0_route_001895_route0_01_09_03_47_39",
+      "frame": 1,
+      "contexts": [
+        "POST_BYPASS_RETURN"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": true
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": true
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        3.12851412146092e-05,
+        0.003486405392080354,
+        1.0476898612658037,
+        2.4317635338559795,
+        4.402728781161533,
+        5.678701481896167,
+        7.404269694612313,
+        6.777988811953716,
+        5.578177459983099
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "POST_BYPASS_RETURN"
+      ]
+    },
+    {
+      "route": "VehicleTurningRoute/Town05_Rep0_Town05_Scenario4_100_route0_01_09_18_38_20",
+      "frame": 27,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.46567887017754245,
+        1.4370380415110642,
+        2.8201664668722595,
+        4.653024228585822,
+        5.290260018453206,
+        5.247173654747431,
+        6.60372356443088,
+        2.2539783728028806
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "VehicleTurningRoute/Town05_Rep0_Town05_Scenario4_100_route0_01_09_18_38_20",
+      "frame": 55,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.2202567845559142,
+        1.0450328833338864,
+        2.2465888286178384,
+        3.946779214109438,
+        5.527187968187919,
+        6.576497426172543,
+        7.197255991441673,
+        6.402104553557366
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_16_route0_01_09_16_43_49",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.0268697197902785e-05,
+        0.002000311919645775,
+        1.5596747207955761,
+        2.919667398779369,
+        4.7460876004116015,
+        5.6395762472641735,
+        6.776499374772084,
+        3.0723133947820567,
+        3.9152305230240056
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "AccidentTwoWays/Town15_Rep0_route_001343_route0_01_08_05_24_37",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        1.7945493557521464e-05,
+        0.0019498132550463732,
+        1.5520461098539664,
+        2.8745860761525845,
+        4.6778260865346475,
+        5.668354180383712,
+        7.452161561707759,
+        8.739569256427778,
+        8.002823983217349
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "Accident/Town10HD_Rep0_route_001818_route0_01_09_04_05_55",
+      "frame": 61,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.3209050878451406,
+        1.2045774783317689,
+        2.4741525013508605,
+        4.409468034806876,
+        5.408145485017108,
+        7.116320724636676,
+        6.717737280590361,
+        6.48622664923201
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "BlockedIntersection/Town12_Rep0_1509_0_route0_01_10_17_31_08",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.725546530763973e-05,
+        0.002013597775296661,
+        1.5680252210568681,
+        2.9464174735133892,
+        4.763958722277608,
+        5.649188318924849,
+        6.9414325216784,
+        6.170342334006032,
+        5.0182095944026175
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town05_Rep0_route_001312_route0_01_09_14_25_48",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.788710623043892e-06,
+        0.00199709074145342,
+        1.4750563687813008,
+        2.962541870738696,
+        4.776102986069578,
+        5.779633579621606,
+        6.5241293462816285,
+        5.944600887815526,
+        5.760960998033092
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town05_Rep0_route_001312_route0_01_09_14_25_48",
+      "frame": 86,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        8.803738985549578e-10,
+        0.23512615504789866,
+        1.047722507964874,
+        2.2085464812188285,
+        3.8184281870342227,
+        5.250508048190594,
+        6.328497805655698,
+        8.413257888499317,
+        8.906896881147436
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town07_Rep0_route_001178_route0_01_11_02_50_17",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        4.836848954239877e-06,
+        0.0019749147439278303,
+        1.530198280402285,
+        2.9424331454311266,
+        4.774419092075757,
+        5.860944734210116,
+        7.171965355904037,
+        6.400197936349262,
+        5.261326067944244
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_2_route0_01_09_12_08_18",
+      "frame": 0,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0,
+        0.002689328124444048,
+        1.2341674184701383,
+        2.6490077823458598,
+        4.586834962077683,
+        5.6005090769915435,
+        7.360958684507523,
+        6.436589281045822
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_2_route0_01_09_12_08_18",
+      "frame": 1,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.002689328124444048,
+        1.2341674184701383,
+        2.6490077823458598,
+        4.586834962077683,
+        5.6005090769915435,
+        7.360958684507523,
+        6.436589281045822,
+        5.421159950727254
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town13_Rep0_1143_2_route0_01_09_12_08_18",
+      "frame": 101,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.45313598649397824,
+        1.450502855272798,
+        2.6691314384708966,
+        4.3642298851507135,
+        5.264383675148385,
+        7.074327095997174,
+        8.628613461244887,
+        9.693790563429186
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacleTwoWays/Town15_Rep0_route_001075_route0_01_08_00_44_13",
+      "frame": 1,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.0019391572952266699,
+        1.4758920829439837,
+        2.880515253152801,
+        4.692463232716804,
+        5.763557112440873,
+        7.672679656468582,
+        7.87146127794736,
+        6.758733291370352
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "ConstructionObstacle/Town10HD_Rep0_route_002011_route0_01_07_21_41_31",
+      "frame": 92,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.45579296890126736,
+        1.4689721516357883,
+        2.7531483566897426,
+        4.5662996367476225,
+        5.592760952026874,
+        7.329791535275584,
+        6.622468712577548,
+        5.66812621400599
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "CrossJunctionDefectTrafficLight/Town10HD_Rep0_route_002196_route0_01_09_17_44_26",
+      "frame": 33,
+      "contexts": [
+        "SIGNAL_FAILURE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.11791206355816682,
+        1.0913675465218922,
+        2.1894802837142793,
+        3.937734550116074,
+        5.698632488675602,
+        6.673453874225309,
+        7.40207275862899,
+        6.53208983182153
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "SIGNAL_FAILURE"
+      ]
+    },
+    {
+      "route": "CrossingBicycleFlow/Town12_Rep0_136_2_route0_01_10_07_45_12",
+      "frame": 26,
+      "contexts": [
+        "VULNERABLE_CROSSING"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        5.1215791452652564e-05,
+        0.4840485010284268,
+        1.502525352527792,
+        2.916759447364983,
+        4.750870865227226,
+        4.997969108468287,
+        4.583569135588894,
+        4.0442662266813745,
+        3.865493222556028
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "VULNERABLE_CROSSING"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_10_route0_01_07_21_27_45",
+      "frame": 105,
+      "contexts": [
+        "VULNERABLE_CROSSING"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.07988440587213669,
+        0.4118410636003469,
+        1.3688694775594834,
+        2.5702286730250203,
+        4.3991309882106115,
+        5.357689809998108,
+        6.819949605310902,
+        8.500864109758904,
+        8.29271666374396
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "VULNERABLE_CROSSING"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town05_Rep0_Town05_Scenario3_14_route0_01_10_15_07_07",
+      "frame": 76,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.3608743579958666,
+        1.2671527730751497,
+        2.4389203645207465,
+        4.241702990261221,
+        5.497559149723057,
+        7.1121840024185685,
+        8.610388390377604,
+        8.268147922984028
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town12_Rep0_3380_0_route0_01_10_03_31_54",
+      "frame": 46,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.196447187312165,
+        1.0336750594291413,
+        2.144655789585003,
+        3.7992709712996007,
+        5.076184486798609,
+        5.102409803470374,
+        5.145263195641854,
+        6.750815660822011
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "DynamicObjectCrossing/Town13_Rep0_1758_0_route0_01_07_22_22_11",
+      "frame": 34,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        2.487296832510662e-05,
+        0.4963147459807095,
+        1.5363461264608886,
+        2.882203093390215,
+        4.727553688105521,
+        5.703379352575669,
+        7.517821237831845,
+        6.836524283963806,
+        5.848127396087154
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "HardBreakRoute/Town12_Rep0_1601_0_route0_01_08_00_12_38",
+      "frame": 73,
+      "contexts": [
+        "LEAD_BRAKE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.15821139140358007,
+        0.6501176269571622,
+        1.4013303592814663,
+        2.7396337025089017,
+        3.570612871961171,
+        3.816890651101747,
+        4.689910324922258,
+        4.957162889464205
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "LEAD_BRAKE"
+      ]
+    },
+    {
+      "route": "MergerIntoSlowTraffic/Town13_Rep0_1230_11_route0_01_10_20_33_38",
+      "frame": 50,
+      "contexts": [
+        "RAMP_MERGE_EXIT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.48159510525816196,
+        1.499076651472766,
+        2.78999669178074,
+        3.969100586377861,
+        3.573561249963978,
+        3.053987584797459,
+        2.575413682756679,
+        3.221823836888431
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "NonSignalizedJunctionLeftTurn/Town05_Rep0_route_000846_route0_01_08_13_56_37",
+      "frame": 26,
+      "contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.3857124741674303,
+        1.244332001721965,
+        2.4285896811878622,
+        2.753319432949419,
+        4.327854389366378,
+        5.5931617338026465,
+        7.349654068954884,
+        9.072179125471619
+      ],
+      "whole_window_nondecreasing": true,
+      "actual_candidate_contexts": [
+        "UNSIGNALIZED_PRIORITY"
+      ]
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town01_Rep0_Town01_Scenario8_11_route0_01_10_04_44_00",
+      "frame": 44,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.24471121416533223,
+        1.2674768916233614,
+        2.4773026404722347,
+        4.087133386831444,
+        4.050931350693178,
+        5.33336789484929,
+        6.152150571191034,
+        6.717681869594436
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34",
+      "frame": 47,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.206954146369176,
+        1.1058004933510472,
+        2.2128024975408684,
+        3.924930702662378,
+        5.492656919746907,
+        6.640500144046774,
+        7.102381816200528,
+        6.5487271670497
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town10HD_Rep0_Town10HD_Scenario8_16_route0_01_09_04_07_14",
+      "frame": 54,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.3210290771985533,
+        1.273792082626928,
+        2.459851969070753,
+        4.270113016430004,
+        5.56255281630662,
+        7.117718917010181,
+        7.064968868272471,
+        6.454408341872401
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "OppositeVehicleRunningRedLight/Town12_Rep0_1579_0_route0_01_09_00_13_44",
+      "frame": 69,
+      "contexts": [
+        "JUNCTION_RULE_CONFLICT"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        3.97895905711193e-06,
+        0.41426241789806306,
+        1.4163352420405486,
+        2.7859586868547415,
+        4.583631371198743,
+        5.629212881257862,
+        7.328830031668203,
+        7.094128583522899,
+        6.464511509456724
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": []
+    },
+    {
+      "route": "ParkedObstacle/Town06_Rep0_route_001921_route0_01_10_21_18_51",
+      "frame": 36,
+      "contexts": [
+        "STATIC_BLOCKAGE"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": true,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.4268397268076992,
+        1.366161839909662,
+        2.6901935087455016,
+        4.509415388669392,
+        5.546054867784801,
+        7.364230350545681,
+        8.935222324232463,
+        8.679938718639061
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "STATIC_BLOCKAGE"
+      ]
+    },
+    {
+      "route": "StaticCutIn/Town12_Rep0_1003_0_route0_01_10_22_02_55",
+      "frame": 72,
+      "contexts": [
+        "DYNAMIC_CUTIN"
+      ],
+      "before": {
+        "DECELERATE": false,
+        "STOP": true,
+        "RESUME": false,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "after": {
+        "DECELERATE": false,
+        "STOP": false,
+        "RESUME": true,
+        "LANE_CHANGE_LEFT": false,
+        "LANE_CHANGE_RIGHT": false
+      },
+      "anchor_controls": {
+        "brake": false,
+        "throttle": 1.0
+      },
+      "future_speeds_exact_mps": [
+        0.0,
+        0.3652074196335904,
+        1.3367291814968996,
+        2.6246759591515936,
+        4.458869565693258,
+        5.6667455257088175,
+        7.481373147131582,
+        8.707036055105243,
+        8.090178649142912
+      ],
+      "whole_window_nondecreasing": false,
+      "actual_candidate_contexts": [
+        "DYNAMIC_CUTIN"
+      ]
+    }
+  ],
+  "artifacts_sha256": {
+    "final_delta.json": "f5738927024eb7393d9eb59a11a00f12dccd988a60af14fa6e1d8a49d6524e06",
+    "final_development_replay.json": "52962614b6ebe8fe436c072ef7b072105d2cdfacd5479d9c128a26313f195c6a",
+    "final_tests.log": "7cade264599af248f13de345fb291bbb9090635eb231cde092cd7c453bf9abba",
+    "action_tests.log": "e9a6ff0bff063d620f97c4f82cf4a142b8f0f11804d481fc5706697f822c8ca4",
+    "final_index/manifest.json": "a7cda4333f4bd63a8f95fbaa976e36dce6357ae06db6255c67641aea8a2deb7c",
+    "final_index/frame_index.jsonl": "8901d0696930dcfa07ef374b50f5be0a1dd41cabfadb33873cd5cef654a2b62d"
+  }
+}

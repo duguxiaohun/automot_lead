@@ -15,8 +15,8 @@ set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
 
 MODE="${1:-${MODE:-ddp}}"
-if [[ "${MODE}" != "single" && "${MODE}" != "ddp" && "${MODE}" != "check" ]]; then
-  echo "Unknown mode: ${MODE}. Use single/ddp/check." >&2
+if [[ "${MODE}" != "single" && "${MODE}" != "ddp" && "${MODE}" != "check" && "${MODE}" != "sampling" ]]; then
+  echo "Unknown mode: ${MODE}. Use single/ddp/check/sampling." >&2
   exit 1
 fi
 
@@ -31,6 +31,7 @@ INDEX="${INDEX:-checkpoints/sft_new_loop_phase3_data_v23/frame_index.jsonl}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
 ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-choice}"
+PROMPT_VARIANT="${PROMPT_VARIANT:-baseline}"
 case "${HISTORY_RGB_MODE}" in
   4rgb|2rgb_endpoints) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
   *)
@@ -47,6 +48,7 @@ case "${ACTION_OUTPUT_MODE}" in
 esac
 OUTPUT_DIR_BASE="checkpoints/sft_new_loop_phase3_runs"
 FINAL_RUN_NAME="run_high_level_action_${HISTORY_RGB_TAG}_${ACTION_OUTPUT_MODE}"
+if [[ "${PROMPT_VARIANT}" != "baseline" ]]; then FINAL_RUN_NAME="${FINAL_RUN_NAME}_${PROMPT_VARIANT}"; fi
 CHECK_RUN_NAME="check_high_level_action_${HISTORY_RGB_TAG}_${ACTION_OUTPUT_MODE}"
 RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}/${RUN_TIMESTAMP}"
@@ -58,7 +60,17 @@ else
   RUN_NAME="${FINAL_RUN_NAME}"
   OUTPUT_DIR="${OUTPUT_DIR:-${FINAL_OUTPUT_DIR}}"
 fi
+# Validate selector even in sampling mode; no silent fallback to v23.
+python - "${PROMPT_VARIANT}" "${INDEX}" <<'PYCODE'
+import sys
+from qwen3vl_local.sft_new_loop_phase3.prompt_contract import prompt_name
+prompt_name(sys.argv[1])
+if sys.argv[1] != "baseline":
+    from qwen3vl_local.sft_new_loop_phase3.candidate_data import validate_candidate_index
+    validate_candidate_index(sys.argv[2])
+PYCODE
 # 在写 latest 或创建运行目录前检查合同与完整本地权重。
+if [[ "${MODE}" != "sampling" ]]; then
 python qwen3vl_local/sft_new_loop_phase3/preflight.py --index "${INDEX}" --model-dir "${MODEL_DIR}" --action-output-mode "${ACTION_OUTPUT_MODE}"
 mkdir -p "${OUTPUT_DIR}" "${OUTPUT_DIR_BASE}/${RUN_NAME}"
 LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
@@ -74,6 +86,7 @@ if [[ "${RUN_LOG:-}" != "0" ]]; then
   mkdir -p "$(dirname "${RUN_LOG}")"
   # 脚本内部 tee 一份日志，避免外层漏写 tee 时找不到训练记录。
   exec > >(tee -a "${RUN_LOG}") 2>&1
+fi
 fi
 export RUN_NAME RUN_TIMESTAMP
 
@@ -113,6 +126,7 @@ s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/
 EXTRA_ARGS=()
 NPROC=1
 case "${MODE}" in
+  sampling) NPROC="${NPROC_PER_NODE:-${DDP_GPU_COUNT:-4}}" ;;
   single)
     export CUDA_VISIBLE_DEVICES="$(resolve_visible_gpus 1)"
     NPROC=1
@@ -149,6 +163,7 @@ COMMON_ARGS=(
   --output-dir "${OUTPUT_DIR}"
   --history-rgb-mode "${HISTORY_RGB_MODE}"
   --action-output-mode "${ACTION_OUTPUT_MODE}"
+  --prompt-variant "${PROMPT_VARIANT}"
   --ddp-timeout-seconds "${DDP_TIMEOUT_SECONDS:-3600}"
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-frames "${MAX_FRAMES:-0}"
@@ -215,6 +230,11 @@ if [[ "${SAVE_FINAL:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-save-final)
 else
   COMMON_ARGS+=(--save-final)
+fi
+
+if [[ "${MODE}" == "sampling" ]]; then
+  WORLD_SIZE="${NPROC}" RANK=0 python qwen3vl_local/sft_new_loop_phase3/train.py "${COMMON_ARGS[@]}" --sampling-only
+  exit 0
 fi
 
 echo "[phase3-train] mode=${MODE} output_mode=${ACTION_OUTPUT_MODE} gpus=${CUDA_VISIBLE_DEVICES:-unset} nproc=${NPROC} output=${OUTPUT_DIR}"

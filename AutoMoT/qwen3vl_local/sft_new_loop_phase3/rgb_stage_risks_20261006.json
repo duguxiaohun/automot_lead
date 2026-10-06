@@ -1,0 +1,101 @@
+{
+  "schema": "phase3_rgb_risks_20261006",
+  "risks": [
+    {
+      "id": "trailer_flip",
+      "route": [
+        "ConstructionObstacleTwoWays",
+        "Town12_Rep0_1945_0_route0_01_11_03_50_56"
+      ],
+      "frames": [
+        115,
+        118
+      ],
+      "observed": true,
+      "note": "拖车明显离地翻转；115–118为本次覆盖到的风险段，异常最初起点未知。",
+      "evidence": [
+        {
+          "frame": 115,
+          "path": "AutoMoT/lead_data/ConstructionObstacleTwoWays/Town12_Rep0_1945_0_route0_01_11_03_50_56/rgb/0115.jpg",
+          "sha256": "911cac2bd613d38cab20f95b49049cc8ce65740e9ebc6a5c3f47e163c34d0a67",
+          "speed": 5.348491007367462,
+          "lane": 1,
+          "road": 268
+        },
+        {
+          "frame": 118,
+          "path": "AutoMoT/lead_data/ConstructionObstacleTwoWays/Town12_Rep0_1945_0_route0_01_11_03_50_56/rgb/0118.jpg",
+          "sha256": "6929c835e7c9c3332ca98dcc05080831b8e0f7bd1e40b66041fcee57721e928c",
+          "speed": 8.91984055738793,
+          "lane": -1,
+          "road": 268
+        }
+      ],
+      "disposition": "diagnostic_only; preserve raw benchmark; no clean label/prompt calibration from this transition"
+    },
+    {
+      "id": "visible_vehicle_deletion",
+      "route": [
+        "MergerIntoSlowTraffic",
+        "Town12_Rep0_2787_1_route0_01_10_20_02_09"
+      ],
+      "frames": [
+        16,
+        17
+      ],
+      "observed": true,
+      "note": "前方多辆可见车辆f16→17同时消失。",
+      "evidence": [
+        {
+          "frame": 16,
+          "path": "AutoMoT/lead_data/MergerIntoSlowTraffic/Town12_Rep0_2787_1_route0_01_10_20_02_09/rgb/0016.jpg",
+          "sha256": "c9ca1aadbcb7edc49bc922c9dff4a65468f9188cc24049dd36ed6e6cddbb9b08",
+          "speed": 6.804657179952469,
+          "lane": 4,
+          "road": 927
+        },
+        {
+          "frame": 17,
+          "path": "AutoMoT/lead_data/MergerIntoSlowTraffic/Town12_Rep0_2787_1_route0_01_10_20_02_09/rgb/0017.jpg",
+          "sha256": "fb7b755252174c6ce54b46cc94ba26986214b0813a8272d0c94774f18ed5598f",
+          "speed": 7.947467263937804,
+          "lane": 4,
+          "road": 927
+        }
+      ],
+      "disposition": "diagnostic_only; preserve raw benchmark; no clean label/prompt calibration from this transition"
+    },
+    {
+      "id": "visible_actor_and_prop_deletion",
+      "route": [
+        "DynamicObjectCrossing",
+        "Town01_Rep0_Town01_Scenario3_1_route0_01_08_15_18_34"
+      ],
+      "frames": [
+        49,
+        50
+      ],
+      "observed": true,
+      "note": "静止自车前仍可见的行人与右侧红色遮挡物f49→50同时消失。",
+      "evidence": [
+        {
+          "frame": 49,
+          "path": "AutoMoT/lead_data/DynamicObjectCrossing/Town01_Rep0_Town01_Scenario3_1_route0_01_08_15_18_34/rgb/0049.jpg",
+          "sha256": "4e41a810d50c46388f424f83e52c5e51e05b49819ae88a59be03d3b1e8b37b44",
+          "speed": -2.5378248510781607e-08,
+          "lane": -1,
+          "road": 5
+        },
+        {
+          "frame": 50,
+          "path": "AutoMoT/lead_data/DynamicObjectCrossing/Town01_Rep0_Town01_Scenario3_1_route0_01_08_15_18_34/rgb/0050.jpg",
+          "sha256": "17eda02bd1a05782dbda3191c3b04c33183ebbbac2e437344ef3ccbb14e7c2dd",
+          "speed": -3.0637370917447845e-08,
+          "lane": -1,
+          "road": 5
+        }
+      ],
+      "disposition": "diagnostic_only; preserve raw benchmark; no clean label/prompt calibration from this transition"
+    }
+  ]
+}

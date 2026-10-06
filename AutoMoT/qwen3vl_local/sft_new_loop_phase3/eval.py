@@ -166,6 +166,9 @@ from qwen3vl_local.sft_new_loop_phase3.invalid_balance import (  # noqa: E402
     unique_cases,
 )
 from qwen3vl_local.sft_new_loop_phase3.choice_semantics import count_keep_prediction, PRIMARY_CHOICE_VERSION as PRIMARY_ACTION_VERSION
+from qwen3vl_local.sft_new_loop_phase3.prompt_contract import (
+    PROMPT_VARIANTS, resolve_prompt_variant, adapter_prompt_variant, prompt_name, action_prompt_sha256, build_action_messages, build_action_prompt,
+)
 from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     ANSWER_KEYS,
     DEFAULT_ACTION_OUTPUT_MODE,
@@ -176,9 +179,6 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     VARIANT_ORDER,
     VARIANT_WEIGHTS,
     PromptSpec,
-    action_prompt_sha256,
-    build_action_messages,
-    build_action_prompt,
     choice_action_for_answers,
     choice_rejection_reason,
     make_prompt_spec,
@@ -664,8 +664,7 @@ def _validate_action_adapter(
         raise ValueError(f"adapter route mismatch: {cfg.get('route')!r}")
     if cfg.get("dataset_name") != DATASET_NAME:
         raise ValueError(f"adapter dataset_name mismatch: {cfg.get('dataset_name')!r}")
-    if cfg.get("prompt_name") != PROMPT_NAME:
-        raise ValueError(f"adapter prompt_name mismatch: {cfg.get('prompt_name')!r}")
+    prompt_variant = adapter_prompt_variant(cfg)
     history_rgb_mode = validate_history_rgb_mode(str(cfg.get("history_rgb_mode", "")))
     persisted_output_mode = validate_action_output_mode(str(cfg.get("action_output_mode", "binary")))
     if action_output_mode is not None and validate_action_output_mode(action_output_mode) != persisted_output_mode:
@@ -678,7 +677,7 @@ def _validate_action_adapter(
     if not saved_prompt_hash:
         raise ValueError("adapter config missing production_prompt_sha256")
     expected_prompt_hash = action_prompt_sha256(
-        audit=False, history_rgb_mode=history_rgb_mode, action_output_mode=persisted_output_mode
+        audit=False, history_rgb_mode=history_rgb_mode, action_output_mode=persisted_output_mode, prompt_variant=prompt_variant
     )
     if saved_prompt_hash != expected_prompt_hash:
         raise ValueError(
@@ -788,6 +787,7 @@ def _generate(
     audit: bool,
     history_rgb_mode: str,
     max_new_tokens: int,
+    prompt_variant: str = "baseline",
 ) -> str:
     """单次 fresh prefill + decode。"""
 
@@ -795,7 +795,7 @@ def _generate(
         state = _kv_start_state(
             bundle,
             build_action_messages(
-                images=images, spec=spec, audit=bool(audit), history_rgb_mode=history_rgb_mode, target=None
+                images=images, spec=spec, audit=bool(audit), history_rgb_mode=history_rgb_mode, target=None, prompt_variant=prompt_variant
             ),
         )
         text, _, _ = _student_generate_kv(bundle, state, int(max_new_tokens))
@@ -923,6 +923,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         if args.adapter_dir
         else None
     )
+    prompt_variant = resolve_prompt_variant(getattr(args, "prompt_variant", "auto"), adapter_cfg)
     history_rgb_mode, history_rgb_mode_source = _resolve_history_rgb_mode(args.history_rgb_mode, adapter_cfg)
     action_output_mode, action_output_mode_source = _resolve_action_output_mode(
         args.action_output_mode, adapter_cfg
@@ -1003,7 +1004,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                           for p in used_history_rgb_paths]
             images = _load_images(used_history_rgb_paths)
             prompt = build_action_prompt(
-                spec=spec, audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode
+                spec=spec, audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode, prompt_variant=prompt_variant
             )
             raw = _generate(
                 bundle,
@@ -1012,6 +1013,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                 audit=bool(args.audit_prompt),
                 history_rgb_mode=history_rgb_mode,
                 max_new_tokens=int(args.max_new_tokens),
+                prompt_variant=prompt_variant,
             )
             parsed_bool = parse_action_output(raw, spec=spec, audit=bool(args.audit_prompt))
             answer_only_bool = parse_action_answer_lines(raw, spec=spec)
@@ -1224,7 +1226,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         }
     metrics = {
         "dataset_name": DATASET_NAME,
-        "prompt_name": PROMPT_NAME,
+        "prompt_name": prompt_name(prompt_variant),
+        "prompt_variant": prompt_variant,
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",
         "action_output_mode": action_output_mode,
         "action_output_mode_source": action_output_mode_source,
@@ -1235,10 +1238,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
         "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
         "production_prompt_sha256": action_prompt_sha256(
-            audit=False, history_rgb_mode=history_rgb_mode, action_output_mode=action_output_mode
+            audit=False, history_rgb_mode=history_rgb_mode, action_output_mode=action_output_mode, prompt_variant=prompt_variant
         ),
         "eval_prompt_sha256": action_prompt_sha256(
-            audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode, action_output_mode=action_output_mode
+            audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode, action_output_mode=action_output_mode, prompt_variant=prompt_variant
         ),
         "adapter_dir": str(args.adapter_dir) if args.adapter_dir else None,
         "adapter_dir_resolve_source": getattr(args, "adapter_dir_resolve_source", None),
@@ -1342,11 +1345,15 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         metrics["production_ready"] = bool(not args.audit_prompt and metrics["generation_guards"]["all_ok"]
             and metrics["generation_guards"]["evaluation_complete"]
             and all(report.get("invalid_rate", 1) == 0 for report in per_key.values()))
+    if prompt_variant != "baseline":
+        metrics["checkpoint_quality_guards_passed"] = metrics["production_ready"]
+        metrics["production_ready"] = False
+        metrics["promotion_status"] = "candidate_requires_paired_regression_and_independent_review"
     (output_dir / "metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
         "# sft_new_loop_phase3 eval",
         "",
-        f"- prompt_name: `{PROMPT_NAME}`",
+        f"- prompt_name: `{prompt_name(prompt_variant)}`",
         f"- prompt_mode: `{'audit' if bool(args.audit_prompt) else 'production'}`",
         f"- action_output_mode: `{action_output_mode}`",
         f"- history_rgb_mode: `{history_rgb_mode}` ({len(history_rgb_indices(history_rgb_mode))} images)",
@@ -1434,6 +1441,7 @@ def parse_args() -> argparse.Namespace:
         help="require the evaluated split's INVALID rows to cover R1-R5 and every mismatched context; disable only for smoke subsets",
     )
     p.add_argument("--max-new-tokens", type=int, default=256)
+    p.add_argument("--prompt-variant", choices=("auto", *PROMPT_VARIANTS), default="auto")
     p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--save-prompts", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--save-error-rgb", action=argparse.BooleanOptionalAction, default=True)

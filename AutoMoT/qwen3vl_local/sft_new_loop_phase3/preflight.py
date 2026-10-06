@@ -20,8 +20,10 @@ def check_index(path, action_output_mode="binary"):
     """全索引检查；不加载 Qwen 或读取未来状态作为模型条件。"""
     path = Path(path)
     manifest_path = path.with_name("manifest.json")
+    extra_development = set()
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        extra_development = set(manifest.get("additional_development", {}).get("groups", []))
         prompt_contract = manifest.get("prompt_contract")
         if not isinstance(prompt_contract, dict):
             raise ValueError(
@@ -59,7 +61,7 @@ def check_index(path, action_output_mode="binary"):
             raise ValueError("current_speed_mps must be measured, finite and nonnegative")
         group = physical_route_group(row["scenario"], row["route_id"])
         split = row["split"]
-        if group in development_route_groups() and split != "train":
+        if group in (development_route_groups() | extra_development) and split != "train":
             raise ValueError(f"development route in holdout: {group}")
         if group in groups and groups[group] != split:
             raise ValueError(f"physical route leakage: {group}")

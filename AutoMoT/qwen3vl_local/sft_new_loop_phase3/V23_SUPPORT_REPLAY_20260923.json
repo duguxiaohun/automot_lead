@@ -1,0 +1,960 @@
+{
+  "note": "Historical label replay only; no current-production manifest/hash validation claim.",
+  "phase3": {
+    "policy": "unexposed_train_context_route_capacity_v2",
+    "before": {
+      "train": {
+        "LEAD_BRAKE": 3235,
+        "STATIC_BLOCKAGE": 57675,
+        "DYNAMIC_CUTIN": 1034,
+        "VULNERABLE_CROSSING": 27392,
+        "ONCOMING_INVASION": 4127,
+        "JUNCTION_RULE_CONFLICT": 1784,
+        "SIGNAL_FAILURE": 1497,
+        "POST_BYPASS_RETURN": 24580,
+        "UNSIGNALIZED_PRIORITY": 55530,
+        "RAMP_MERGE_EXIT": 9181
+      },
+      "val": {
+        "LEAD_BRAKE": 0,
+        "STATIC_BLOCKAGE": 0,
+        "DYNAMIC_CUTIN": 0,
+        "VULNERABLE_CROSSING": 376,
+        "ONCOMING_INVASION": 0,
+        "JUNCTION_RULE_CONFLICT": 0,
+        "SIGNAL_FAILURE": 0,
+        "POST_BYPASS_RETURN": 14,
+        "UNSIGNALIZED_PRIORITY": 294,
+        "RAMP_MERGE_EXIT": 3
+      },
+      "test": {
+        "LEAD_BRAKE": 0,
+        "STATIC_BLOCKAGE": 798,
+        "DYNAMIC_CUTIN": 0,
+        "VULNERABLE_CROSSING": 960,
+        "ONCOMING_INVASION": 0,
+        "JUNCTION_RULE_CONFLICT": 0,
+        "SIGNAL_FAILURE": 0,
+        "POST_BYPASS_RETURN": 178,
+        "UNSIGNALIZED_PRIORITY": 1342,
+        "RAMP_MERGE_EXIT": 0
+      }
+    },
+    "after": {
+      "train": {
+        "LEAD_BRAKE": 2840,
+        "STATIC_BLOCKAGE": 57406,
+        "DYNAMIC_CUTIN": 922,
+        "VULNERABLE_CROSSING": 27392,
+        "ONCOMING_INVASION": 3709,
+        "JUNCTION_RULE_CONFLICT": 1616,
+        "SIGNAL_FAILURE": 1239,
+        "POST_BYPASS_RETURN": 24403,
+        "UNSIGNALIZED_PRIORITY": 55302,
+        "RAMP_MERGE_EXIT": 8933
+      },
+      "val": {
+        "LEAD_BRAKE": 239,
+        "STATIC_BLOCKAGE": 269,
+        "DYNAMIC_CUTIN": 64,
+        "VULNERABLE_CROSSING": 376,
+        "ONCOMING_INVASION": 230,
+        "JUNCTION_RULE_CONFLICT": 124,
+        "SIGNAL_FAILURE": 172,
+        "POST_BYPASS_RETURN": 131,
+        "UNSIGNALIZED_PRIORITY": 435,
+        "RAMP_MERGE_EXIT": 81
+      },
+      "test": {
+        "LEAD_BRAKE": 156,
+        "STATIC_BLOCKAGE": 798,
+        "DYNAMIC_CUTIN": 48,
+        "VULNERABLE_CROSSING": 960,
+        "ONCOMING_INVASION": 188,
+        "JUNCTION_RULE_CONFLICT": 44,
+        "SIGNAL_FAILURE": 86,
+        "POST_BYPASS_RETURN": 238,
+        "UNSIGNALIZED_PRIORITY": 1429,
+        "RAMP_MERGE_EXIT": 170
+      }
+    },
+    "min_context_frames": {
+      "train": 1,
+      "val": 32,
+      "test": 32
+    },
+    "physical_groups_before": {
+      "train": {
+        "LEAD_BRAKE": 80,
+        "STATIC_BLOCKAGE": 1481,
+        "DYNAMIC_CUTIN": 125,
+        "VULNERABLE_CROSSING": 1169,
+        "ONCOMING_INVASION": 98,
+        "JUNCTION_RULE_CONFLICT": 125,
+        "SIGNAL_FAILURE": 122,
+        "POST_BYPASS_RETURN": 2065,
+        "UNSIGNALIZED_PRIORITY": 1375,
+        "RAMP_MERGE_EXIT": 377
+      },
+      "val": {
+        "LEAD_BRAKE": 0,
+        "STATIC_BLOCKAGE": 0,
+        "DYNAMIC_CUTIN": 0,
+        "VULNERABLE_CROSSING": 19,
+        "ONCOMING_INVASION": 0,
+        "JUNCTION_RULE_CONFLICT": 0,
+        "SIGNAL_FAILURE": 0,
+        "POST_BYPASS_RETURN": 2,
+        "UNSIGNALIZED_PRIORITY": 9,
+        "RAMP_MERGE_EXIT": 1
+      },
+      "test": {
+        "LEAD_BRAKE": 0,
+        "STATIC_BLOCKAGE": 23,
+        "DYNAMIC_CUTIN": 0,
+        "VULNERABLE_CROSSING": 50,
+        "ONCOMING_INVASION": 0,
+        "JUNCTION_RULE_CONFLICT": 0,
+        "SIGNAL_FAILURE": 0,
+        "POST_BYPASS_RETURN": 18,
+        "UNSIGNALIZED_PRIORITY": 36,
+        "RAMP_MERGE_EXIT": 0
+      }
+    },
+    "physical_groups_after": {
+      "train": {
+        "LEAD_BRAKE": 70,
+        "STATIC_BLOCKAGE": 1476,
+        "DYNAMIC_CUTIN": 115,
+        "VULNERABLE_CROSSING": 1169,
+        "ONCOMING_INVASION": 88,
+        "JUNCTION_RULE_CONFLICT": 115,
+        "SIGNAL_FAILURE": 112,
+        "POST_BYPASS_RETURN": 2048,
+        "UNSIGNALIZED_PRIORITY": 1370,
+        "RAMP_MERGE_EXIT": 368
+      },
+      "val": {
+        "LEAD_BRAKE": 5,
+        "STATIC_BLOCKAGE": 5,
+        "DYNAMIC_CUTIN": 5,
+        "VULNERABLE_CROSSING": 19,
+        "ONCOMING_INVASION": 5,
+        "JUNCTION_RULE_CONFLICT": 5,
+        "SIGNAL_FAILURE": 5,
+        "POST_BYPASS_RETURN": 14,
+        "UNSIGNALIZED_PRIORITY": 12,
+        "RAMP_MERGE_EXIT": 5
+      },
+      "test": {
+        "LEAD_BRAKE": 5,
+        "STATIC_BLOCKAGE": 23,
+        "DYNAMIC_CUTIN": 5,
+        "VULNERABLE_CROSSING": 50,
+        "ONCOMING_INVASION": 5,
+        "JUNCTION_RULE_CONFLICT": 5,
+        "SIGNAL_FAILURE": 5,
+        "POST_BYPASS_RETURN": 23,
+        "UNSIGNALIZED_PRIORITY": 38,
+        "RAMP_MERGE_EXIT": 5
+      }
+    },
+    "min_holdout_physical_groups": 5,
+    "train_group_floor": {
+      "LEAD_BRAKE": 5,
+      "STATIC_BLOCKAGE": 5,
+      "DYNAMIC_CUTIN": 5,
+      "VULNERABLE_CROSSING": 5,
+      "ONCOMING_INVASION": 5,
+      "JUNCTION_RULE_CONFLICT": 5,
+      "SIGNAL_FAILURE": 5,
+      "POST_BYPASS_RETURN": 5,
+      "UNSIGNALIZED_PRIORITY": 5,
+      "RAMP_MERGE_EXIT": 5
+    },
+    "group_support": {
+      "val": {
+        "LEAD_BRAKE": "supported",
+        "STATIC_BLOCKAGE": "supported",
+        "DYNAMIC_CUTIN": "supported",
+        "VULNERABLE_CROSSING": "supported",
+        "ONCOMING_INVASION": "supported",
+        "JUNCTION_RULE_CONFLICT": "supported",
+        "SIGNAL_FAILURE": "supported",
+        "POST_BYPASS_RETURN": "supported",
+        "UNSIGNALIZED_PRIORITY": "supported",
+        "RAMP_MERGE_EXIT": "supported"
+      },
+      "test": {
+        "LEAD_BRAKE": "supported",
+        "STATIC_BLOCKAGE": "supported",
+        "DYNAMIC_CUTIN": "supported",
+        "VULNERABLE_CROSSING": "supported",
+        "ONCOMING_INVASION": "supported",
+        "JUNCTION_RULE_CONFLICT": "supported",
+        "SIGNAL_FAILURE": "supported",
+        "POST_BYPASS_RETURN": "supported",
+        "UNSIGNALIZED_PRIORITY": "supported",
+        "RAMP_MERGE_EXIT": "supported"
+      }
+    },
+    "group_deficits": {
+      "val": {},
+      "test": {}
+    },
+    "moves": {
+      "HardBreakRoute/Town12_649_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town13_1122_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town12_2325_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town12_2032_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town13_1540_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town13_54_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town12_767_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town12_274_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town13_1196_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "HardBreakRoute/Town12_3519_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "LEAD_BRAKE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town03_route_002140": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town05_route_002065": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town05_route_002080": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town05_route_002063": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town05_route_002061": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town12_route_002112": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town03_route_002138": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town15_route_002101": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town04_route_002174": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town15_route_002097": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "JUNCTION_RULE_CONFLICT",
+          "SIGNAL_FAILURE"
+        ]
+      },
+      "InvadingTurn/Town12_4223_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town12_3367_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town13_1469_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town12_4195_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town13_1477_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town13_1337_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town13_1571_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town12_4244_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town13_1461_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "InvadingTurn/Town12_1499_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "ONCOMING_INVASION"
+        ]
+      },
+      "StaticCutIn/Town12_1344_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "DYNAMIC_CUTIN"
+        ]
+      },
+      "StaticCutIn/Town13_53_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "DYNAMIC_CUTIN"
+        ]
+      },
+      "ParkingCutIn/Town13_74_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "DYNAMIC_CUTIN"
+        ]
+      },
+      "StaticCutIn/Town13_1704_1": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "DYNAMIC_CUTIN"
+        ]
+      },
+      "ParkingCutIn/Town13_1102_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "DYNAMIC_CUTIN"
+        ]
+      },
+      "StaticCutIn/Town13_1135_2": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "DYNAMIC_CUTIN",
+          "POST_BYPASS_RETURN"
+        ]
+      },
+      "StaticCutIn/Town13_1135_1": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "DYNAMIC_CUTIN",
+          "POST_BYPASS_RETURN"
+        ]
+      },
+      "StaticCutIn/Town12_1115_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "DYNAMIC_CUTIN",
+          "POST_BYPASS_RETURN"
+        ]
+      },
+      "StaticCutIn/Town13_1247_2": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "DYNAMIC_CUTIN",
+          "POST_BYPASS_RETURN"
+        ]
+      },
+      "StaticCutIn/Town13_1247_1": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "DYNAMIC_CUTIN",
+          "POST_BYPASS_RETURN"
+        ]
+      },
+      "MergerIntoSlowTrafficV2/Town13_1249_7": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "MergerIntoSlowTrafficV2/Town13_1398_4": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "MergerIntoSlowTraffic/Town12_2787_1": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "MergerIntoSlowTrafficV2/Town12_968_41": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "HighwayExit/Town13_1396_2": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "MergerIntoSlowTrafficV2/Town12_968_34": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "POST_BYPASS_RETURN",
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "MergerIntoSlowTraffic/Town12_1039_1": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "MergerIntoSlowTrafficV2/Town13_1249_2": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "EnterActorFlow/Town12_4138_5": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "RAMP_MERGE_EXIT"
+        ]
+      },
+      "ConstructionObstacleTwoWays/Town15_route_001289": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "STATIC_BLOCKAGE"
+        ]
+      },
+      "AccidentTwoWays/Town12_3555_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "STATIC_BLOCKAGE"
+        ]
+      },
+      "ConstructionObstacleTwoWays/Town15_route_001086": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "STATIC_BLOCKAGE"
+        ]
+      },
+      "AccidentTwoWays/Town13_route_001519": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "STATIC_BLOCKAGE"
+        ]
+      },
+      "AccidentTwoWays/Town15_route_001367": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "STATIC_BLOCKAGE"
+        ]
+      }
+    },
+    "unresolved": {},
+    "selection_fields": "context presence and physical route identity only; no action/RGB/model score",
+    "capacity_claim": "frame capacity plus physical-route support; minimum groups is not proof of generalization"
+  },
+  "action": {
+    "policy": "unexposed_train_context_route_capacity_v2",
+    "before": {
+      "train": {
+        "UE1": 3012,
+        "UE2": 51536,
+        "UE3": 991,
+        "UE4": 25211,
+        "UE5": 3734,
+        "UE6": 1748,
+        "UE7": 1449,
+        "RE2": 21828,
+        "RE3": 8056,
+        "RE5": 50321
+      },
+      "val": {
+        "UE1": 93,
+        "UE2": 3306,
+        "UE3": 23,
+        "UE4": 2018,
+        "UE5": 121,
+        "UE6": 6,
+        "UE7": 27,
+        "RE2": 1447,
+        "RE3": 765,
+        "RE5": 2381
+      },
+      "test": {
+        "UE1": 130,
+        "UE2": 3631,
+        "UE3": 20,
+        "UE4": 1499,
+        "UE5": 272,
+        "UE6": 30,
+        "UE7": 21,
+        "RE2": 1497,
+        "RE3": 363,
+        "RE5": 4464
+      }
+    },
+    "after": {
+      "train": {
+        "UE1": 2838,
+        "UE2": 51536,
+        "UE3": 958,
+        "UE4": 25211,
+        "UE5": 3620,
+        "UE6": 1667,
+        "UE7": 1414,
+        "RE2": 21828,
+        "RE3": 8056,
+        "RE5": 50158
+      },
+      "val": {
+        "UE1": 252,
+        "UE2": 3306,
+        "UE3": 39,
+        "UE4": 2018,
+        "UE5": 235,
+        "UE6": 75,
+        "UE7": 34,
+        "RE2": 1447,
+        "RE3": 765,
+        "RE5": 2519
+      },
+      "test": {
+        "UE1": 145,
+        "UE2": 3631,
+        "UE3": 37,
+        "UE4": 1499,
+        "UE5": 272,
+        "UE6": 42,
+        "UE7": 49,
+        "RE2": 1497,
+        "RE3": 363,
+        "RE5": 4489
+      }
+    },
+    "min_context_frames": {
+      "train": 1,
+      "val": 32,
+      "test": 32
+    },
+    "physical_groups_before": {
+      "train": {
+        "UE1": 75,
+        "UE2": 1318,
+        "UE3": 119,
+        "UE4": 1081,
+        "UE5": 89,
+        "UE6": 121,
+        "UE7": 116,
+        "RE2": 1831,
+        "RE3": 336,
+        "RE5": 1241
+      },
+      "val": {
+        "UE1": 2,
+        "UE2": 95,
+        "UE3": 3,
+        "UE4": 88,
+        "UE5": 3,
+        "UE6": 1,
+        "UE7": 4,
+        "RE2": 129,
+        "RE3": 26,
+        "RE5": 68
+      },
+      "test": {
+        "UE1": 3,
+        "UE2": 91,
+        "UE3": 3,
+        "UE4": 69,
+        "UE5": 6,
+        "UE6": 3,
+        "UE7": 2,
+        "RE2": 125,
+        "RE3": 16,
+        "RE5": 111
+      }
+    },
+    "physical_groups_after": {
+      "train": {
+        "UE1": 70,
+        "UE2": 1318,
+        "UE3": 115,
+        "UE4": 1081,
+        "UE5": 87,
+        "UE6": 115,
+        "UE7": 112,
+        "RE2": 1831,
+        "RE3": 336,
+        "RE5": 1238
+      },
+      "val": {
+        "UE1": 5,
+        "UE2": 95,
+        "UE3": 5,
+        "UE4": 88,
+        "UE5": 5,
+        "UE6": 5,
+        "UE7": 5,
+        "RE2": 129,
+        "RE3": 26,
+        "RE5": 70
+      },
+      "test": {
+        "UE1": 5,
+        "UE2": 91,
+        "UE3": 5,
+        "UE4": 69,
+        "UE5": 6,
+        "UE6": 5,
+        "UE7": 5,
+        "RE2": 125,
+        "RE3": 16,
+        "RE5": 112
+      }
+    },
+    "min_holdout_physical_groups": 5,
+    "train_group_floor": {
+      "UE1": 5,
+      "UE2": 5,
+      "UE3": 5,
+      "UE4": 5,
+      "UE5": 5,
+      "UE6": 5,
+      "UE7": 5,
+      "RE2": 5,
+      "RE3": 5,
+      "RE5": 5
+    },
+    "group_support": {
+      "val": {
+        "UE1": "supported",
+        "UE2": "supported",
+        "UE3": "supported",
+        "UE4": "supported",
+        "UE5": "supported",
+        "UE6": "supported",
+        "UE7": "supported",
+        "RE2": "supported",
+        "RE3": "supported",
+        "RE5": "supported"
+      },
+      "test": {
+        "UE1": "supported",
+        "UE2": "supported",
+        "UE3": "supported",
+        "UE4": "supported",
+        "UE5": "supported",
+        "UE6": "supported",
+        "UE7": "supported",
+        "RE2": "supported",
+        "RE3": "supported",
+        "RE5": "supported"
+      }
+    },
+    "group_deficits": {
+      "val": {},
+      "test": {}
+    },
+    "moves": {
+      "HardBreakRoute/Town13_1122_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE1"
+        ]
+      },
+      "HardBreakRoute/Town12_2325_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE1"
+        ]
+      },
+      "HardBreakRoute/Town13_54_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE1"
+        ]
+      },
+      "HardBreakRoute/Town12_767_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE1"
+        ]
+      },
+      "HardBreakRoute/Town12_274_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE1"
+        ]
+      },
+      "InvadingTurn/Town13_1337_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE5"
+        ]
+      },
+      "InvadingTurn/Town13_1571_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE5"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town05_route_002061": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE6",
+          "UE7"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town05_route_002080": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE6",
+          "UE7"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town04_route_002177": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE7"
+        ]
+      },
+      "CrossJunctionDefectTrafficLight/Town03_route_002138": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE6",
+          "UE7"
+        ]
+      },
+      "OppositeVehicleRunningRedLight/Town10HD_Town10HD_Scenario8_45": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE6"
+        ]
+      },
+      "OppositeVehicleRunningRedLight/Town03_Town03_Scenario8_111": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE6"
+        ]
+      },
+      "OppositeVehicleRunningRedLight/Town03_Town03_Scenario8_51": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE6"
+        ]
+      },
+      "StaticCutIn/Town13_1212_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE3"
+        ]
+      },
+      "ParkingCutIn/Town13_74_0": {
+        "from_split": "train",
+        "to_split": "test",
+        "fills": [
+          "UE3"
+        ]
+      },
+      "StaticCutIn/Town13_1714_1": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE3"
+        ]
+      },
+      "ParkingCutIn/Town13_22_0": {
+        "from_split": "train",
+        "to_split": "val",
+        "fills": [
+          "UE3"
+        ]
+      }
+    },
+    "unresolved": {},
+    "selection_fields": "context presence and physical route identity only; no action/RGB/model score",
+    "capacity_claim": "frame capacity plus physical-route support; minimum groups is not proof of generalization",
+    "version": "action_unexposed_route_support_v1",
+    "development_groups": 1779,
+    "scope": "Action effective event support; whole physical groups; independent of Phase3 splits"
+  },
+  "phase3_initial_excluded": {
+    "train": 3435,
+    "test": 181,
+    "val": 80
+  },
+  "action_initial_excluded": {
+    "train": 27692,
+    "val": 3276,
+    "test": 3488
+  },
+  "action_split_counts": {
+    "train": 817258,
+    "val": 66718,
+    "test": 75057
+  }
+}

@@ -89,6 +89,12 @@ print(str(config.get("action_output_mode", "binary")))
 PY
 }
 
+BASE_PROMPT_VARIANT="$(python - "${ADAPTER_DIR}" <<'PYCODE'
+import json, pathlib, sys
+from qwen3vl_local.sft_new_loop_phase3.prompt_contract import adapter_prompt_variant
+print(adapter_prompt_variant(json.loads((pathlib.Path(sys.argv[1]) / "sft_new_loop_phase3_adapter_config.json").read_text())))
+PYCODE
+)"
 BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode "${ADAPTER_DIR}")"
 BASE_ACTION_OUTPUT_MODE="$(read_adapter_action_output_mode "${ADAPTER_DIR}")"
 case "${BASE_HISTORY_RGB_MODE}" in
@@ -126,6 +132,7 @@ COMMON_ARGS=(
   --data-root "${DATA_ROOT}"
   --model-dir "${MODEL_DIR}"
   --action-output-mode "${BASE_ACTION_OUTPUT_MODE}"
+  --prompt-variant "${BASE_PROMPT_VARIANT}"
   --split "${SPLIT}"
   --cases-per-bin "${CASES_PER_BIN}"
   --max-frames "${MAX_EVAL_FRAMES}"
@@ -316,6 +323,8 @@ def adapter_identity() -> dict:
         "config_path": str(cfg_path) if cfg_path is not None else None,
         "config_schema": cfg.get("schema"),
         "prompt_name": cfg.get("prompt_name"),
+        "prompt_variant": cfg.get("prompt_variant", "baseline"),
+        "training_index_sha256": cfg.get("training_index_sha256"),
         "production_prompt_sha256": cfg.get("production_prompt_sha256"),
         "global_step": cfg.get("global_step"),
         "base_model_dir": cfg.get("base_model_dir"),

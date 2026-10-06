@@ -87,8 +87,6 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     VARIANT_ORDER,
     VARIANT_WEIGHTS,
     PromptSpec,
-    action_prompt_sha256,
-    build_action_messages,
     build_action_target,
     choice_action_for_answers,
     choice_rejection_reason,
@@ -97,6 +95,9 @@ from qwen3vl_local.sft_new_loop_phase3.prompts import (  # noqa: E402
     prompt_spec_to_json,
     spec_metric_items,
     validate_action_output_mode,
+)
+from qwen3vl_local.sft_new_loop_phase3.prompt_contract import (
+    PROMPT_VARIANTS, prompt_name, action_prompt_sha256, build_action_messages,
 )
 from qwen3vl_local.sft_new_loop_phase3.sampling import (  # noqa: E402
     support_aware_quota, SUPPORT_BALANCE_VERSION, sampling_action,
@@ -621,6 +622,7 @@ def _build_inputs(
     *,
     images: List[Image.Image],
     history_rgb_mode: str,
+    prompt_variant: str = "baseline",
     target: str,
     spec: PromptSpec,
     max_length: int,
@@ -633,6 +635,7 @@ def _build_inputs(
         spec=spec,
         audit=False,
         history_rgb_mode=history_rgb_mode,
+        prompt_variant=prompt_variant,
         target=target,
     )
     chat_text = bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
@@ -780,6 +783,7 @@ def evaluate_loss(
     work: Sequence[WorkItem],
     *,
     history_rgb_mode: str,
+    prompt_variant: str = "baseline",
     max_length: int,
     format_loss_weight: float,
     device: torch.device,
@@ -813,6 +817,7 @@ def evaluate_loss(
             bundle,
             images=images,
             history_rgb_mode=history_rgb_mode,
+            prompt_variant=prompt_variant,
             target=build_action_target(spec),
             spec=spec,
             max_length=int(max_length),
@@ -934,6 +939,7 @@ def evaluate_generation_probe(
     work: Sequence[WorkItem],
     *,
     history_rgb_mode: str,
+    prompt_variant: str = "baseline",
     max_new_tokens: int,
     record_path: Optional[pathlib.Path] = None,
     step: int = 0,
@@ -982,7 +988,7 @@ def evaluate_generation_probe(
         images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
         state = _kv_start_state(
             runtime,
-            build_action_messages(images=images, spec=spec, audit=False, history_rgb_mode=history_rgb_mode),
+            build_action_messages(images=images, spec=spec, audit=False, history_rgb_mode=history_rgb_mode, prompt_variant=prompt_variant),
         )
         raw, _, _ = _student_generate_kv(runtime, state, int(max_new_tokens))
         parsed = parse_action_output(raw, spec=spec)
@@ -1165,13 +1171,16 @@ def _save_adapter(
         "schema": "sft_new_loop_phase3_adapter_config",
         "route": "sft_new_loop_phase3_high_level_action",
         "dataset_name": DATASET_NAME,
-        "prompt_name": PROMPT_NAME,
+        "prompt_name": prompt_name(getattr(args, "prompt_variant", "baseline")),
+        "prompt_variant": getattr(args, "prompt_variant", "baseline"),
         "production_prompt_sha256": action_prompt_sha256(
-            audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode
+            audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode,
+            prompt_variant=getattr(args, "prompt_variant", "baseline"),
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
         "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "training_index_sha256": getattr(args, "training_index_sha256", None),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
         "git": _git_metadata(),
@@ -1233,6 +1242,7 @@ def record_final_generation(bundle, work, args, output_dir, step):
     """
     metrics = evaluate_generation_probe(
         bundle, work, history_rgb_mode=args.history_rgb_mode,
+        prompt_variant=getattr(args, "prompt_variant", "baseline"),
         max_new_tokens=int(args.generation_eval_max_new_tokens),
         record_path=output_dir / "final_generation_val_cases.jsonl", step=step,
         log_every=int(args.generation_eval_log_every),
@@ -1281,7 +1291,8 @@ def _write_run_metadata(
 
     payload = {
         "dataset_name": DATASET_NAME,
-        "prompt_name": PROMPT_NAME,
+        "prompt_name": prompt_name(getattr(args, "prompt_variant", "baseline")),
+        "prompt_variant": getattr(args, "prompt_variant", "baseline"),
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
         "git": _git_metadata(),
@@ -1315,11 +1326,13 @@ def _write_run_metadata(
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "choice_filter": dict(choice_filter) if choice_filter is not None else None,
         "production_prompt_sha256": action_prompt_sha256(
-            audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode
+            audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode,
+            prompt_variant=getattr(args, "prompt_variant", "baseline"),
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
         "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "training_index_sha256": getattr(args, "training_index_sha256", None),
     }
     (output_dir / "train_run_manifest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
@@ -1359,10 +1372,16 @@ def _write_run_metadata(
 def train(args: argparse.Namespace) -> None:
     """训练主流程。"""
 
+    prompt_name(getattr(args, "prompt_variant", "baseline"))
     validate_history_rgb_mode(args.history_rgb_mode)
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
+    if getattr(args, "prompt_variant", "baseline") != "baseline":
+        from qwen3vl_local.sft_new_loop_phase3.candidate_data import validate_candidate_index
+        validate_candidate_index(args.index)
     check_index(args.index, action_output_mode=args.action_output_mode)
     if not args.sampling_only:
+        if (pathlib.Path(args.output_dir) / "train_run_manifest.json").exists():
+            raise ValueError("existing training run: choose a fresh output directory; resume is not implemented")
         check_model(args.model_dir)
     # 先完成纯 CPU 采样预检；失败时尚未创建 NCCL 进程组。
     rank = int(os.environ.get("RANK", "0"))
@@ -1470,6 +1489,13 @@ def train(args: argparse.Namespace) -> None:
                 "generation_invalid_subgroups": invalid_subgroup_report(full_generation_eval_work),
             }, ensure_ascii=False, sort_keys=True), flush=True)
         return
+
+    # Bind the exact label pool once; later checkpoints reuse this immutable identity.
+    digest = hashlib.sha256()
+    with pathlib.Path(args.index).open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    args.training_index_sha256 = digest.hexdigest()
 
     rank, local_rank, world_size = setup_distributed(int(args.ddp_timeout_seconds))
     device = (
@@ -1674,6 +1700,7 @@ def train(args: argparse.Namespace) -> None:
                 bundle,
                 images=images,
                 history_rgb_mode=args.history_rgb_mode,
+                prompt_variant=getattr(args, "prompt_variant", "baseline"),
                 target=build_action_target(spec),
                 spec=spec,
                 max_length=int(args.max_length),
@@ -1768,6 +1795,7 @@ def train(args: argparse.Namespace) -> None:
                     bundle,
                     eval_work,
                     history_rgb_mode=args.history_rgb_mode,
+                    prompt_variant=getattr(args, "prompt_variant", "baseline"),
                     max_length=int(args.max_length),
                     format_loss_weight=float(args.format_loss_weight),
                     device=device,
@@ -1802,6 +1830,7 @@ def train(args: argparse.Namespace) -> None:
                         bundle,
                         full_generation_eval_work,
                         history_rgb_mode=args.history_rgb_mode,
+                        prompt_variant=getattr(args, "prompt_variant", "baseline"),
                         max_new_tokens=int(args.generation_eval_max_new_tokens),
                         record_path=output_dir / "generation_val_cases.jsonl",
                         step=global_step,
@@ -2008,8 +2037,10 @@ def train(args: argparse.Namespace) -> None:
 def parse_args() -> argparse.Namespace:
     """解析 CLI 参数。"""
 
+    from qwen3vl_local.sft_new_loop_phase3.prompt_contract import PROMPT_VARIANTS
     p = argparse.ArgumentParser(description="Train sft_new_loop_phase3 single-turn high-level action LoRA")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v23/frame_index.jsonl"))
+    p.add_argument("--prompt-variant", choices=PROMPT_VARIANTS, default="baseline")
     p.add_argument("--sampling-only", action="store_true",
                    help="check actual train/validation sampling on CPU without loading weights or writing a run")
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))

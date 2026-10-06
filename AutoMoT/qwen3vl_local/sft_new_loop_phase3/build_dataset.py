@@ -593,11 +593,17 @@ def _balanced_rows_by_split(
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """读取候选帧并按 split 生成均衡 rows。"""
 
+    from qwen3vl_local.sft_new_loop_phase3.candidate_data import exposure_contract
+    extra_path = getattr(args, "development_groups_extra", "")
+    extra = exposure_contract(extra_path) if extra_path else None
+    development = development_route_groups() | frozenset(extra["groups"] if extra else ())
     buckets: Dict[str, Dict[str, List[Mapping[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     invalid_sources: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
     raw_counts: Counter = Counter()
     actual_scenario_town_pairs: set = set()
     for base in iter_base_frames(args, risk_stats, observed_scenario_town_pairs=actual_scenario_town_pairs):
+        if physical_route_group(base["scenario"], base["route_id"]) in development:
+            base["split"] = "train"
         split = str(base["split"])
         context_id = str(base["context_id"])
         actual_scenario_town_pairs.add((str(base["scenario"]), str(base["town"])))
@@ -611,7 +617,7 @@ def _balanced_rows_by_split(
     all_bases = [base for values in invalid_sources.values() for base in values]
     split_coverage = complete_context_splits(
         all_bases, contexts=CONTEXT_IDS, splits=required_splits,
-        development=development_route_groups(),
+        development=development,
         group_of=lambda row: physical_route_group(row["scenario"], row["route_id"]), seed=args.split_seed,
         min_holdout_frames=int(getattr(args, "min_holdout_context_frames", 32)),
         min_holdout_groups=int(getattr(args, "min_holdout_context_groups", 5)),
@@ -637,6 +643,8 @@ def _balanced_rows_by_split(
         (b['scenario'], b['route_id']) for bs in invalid_sources.values() for b in bs})
     same_rs_by_split = defaultdict(list)
     for row in same_rs_pool:
+        if physical_route_group(row["scenario"], row["route_id"]) in development:
+            row["split"] = "train"
         move = split_coverage["moves"].get(physical_route_group(row["scenario"], row["route_id"]))
         if move:
             row["split"] = move["to_split"]
@@ -924,6 +932,9 @@ def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
         "sampling": balance,
         "visual_label_risk_counts": dict(sorted(risk_stats.items())),
     }
+    if getattr(args, "development_groups_extra", ""):
+        from qwen3vl_local.sft_new_loop_phase3.candidate_data import exposure_contract
+        manifest["additional_development"] = exposure_contract(args.development_groups_extra)
     atomic_write_text(out_dir / "manifest.json",
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -948,6 +959,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--scenarios", default="all")
     p.add_argument("--use-review-cache", action="store_true",
                    help="audit/smoke only: reuse cached routes; never claim full-dataset coverage")
+    p.add_argument("--development-groups-extra", default="", help="explicit extra train-only physical groups for a new experiment")
     p.add_argument("--candidate-cache", default="",
                    help="audit only: reuse candidate_frames.jsonl with the same trajectory rule version")
     p.add_argument("--split-seed", type=int, default=20260920)
