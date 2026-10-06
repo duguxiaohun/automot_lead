@@ -1,3 +1,4 @@
+from qwen3vl_local.sft_new_loop_phase4.tests.safety_fixtures import clearances, loop_clearances
 import copy
 import pytest
 from qwen3vl_local.sft_new_loop_phase4.controller import Episode,combine_priors
@@ -7,7 +8,7 @@ from qwen3vl_local.sft_new_loop_phase4.prompts import prompt
 
 
 def step(ep,frame,*keys):
-    return ep.advance(frame,{e.key:'YES' if e.key in keys else 'NO' for e in ep.questions()})
+    return ep.advance(frame,{e.key:'YES' if e.key in keys else 'NO' for e in ep.questions()},maneuver_clearances=clearances(ep,frame,*keys))
 
 
 def conflict(lon='HOLD',same_direction=False):
@@ -62,7 +63,7 @@ def test_new_conflicting_proposals_revoke_pending_permission_but_keep_stop():
     for ident,direction in [('a','LEFT'),('b','RIGHT')]:
         loop.establish(Episode('U-E2',ident,longitudinal='HOLD',direction=direction,target_corridor=direction),verified=True)
     result=loop.tick(dict(frame_id=10,history_frames=[6,10],speed_mps=0),[None]*2,
-                     lambda ep,key,*args:'YES' if key=='depart' else 'NO')
+                     lambda ep,key,*args:'YES' if key=='depart' else 'NO',maneuver_clearances=loop_clearances(loop,10,'depart'))
     assert result['prior']['action']=='STOP' and result['recheck_instances']==['a','b']
     assert all(ep.state=='WAIT' and ep.longitudinal=='HOLD' for ep in loop.episodes.values())
     with pytest.raises(ValueError):loop.acknowledge('a',10)

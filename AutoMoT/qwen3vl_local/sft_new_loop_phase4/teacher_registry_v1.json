@@ -1,0 +1,51 @@
+{
+  "policy": "causal_teacher_class_approval_v1",
+  "criteria": {
+    "min_judgments": 100,
+    "min_routes": 20,
+    "min_yes_precision_lower": 0.95,
+    "min_no_precision_lower": 0.9,
+    "min_transition_judgments": 30
+  },
+  "teacher": {
+    "version": "ue1_ue4_causal_teacher_v1",
+    "parameters": {
+      "local_horizon_m": 18.0,
+      "vru_margin_m": 1.0,
+      "boundary_band_m": 0.25,
+      "lead_growth_m": 1.0,
+      "lead_min_gap_m": 3.0,
+      "min_pixel_change": 6.0,
+      "stable_gap_m": 5.0,
+      "stable_time_gap_s": 1.2,
+      "relative_speed_mps": 1.0,
+      "receipt_displacement_m": 0.75
+    },
+    "sources": {
+      "teacher_rules.py": "7117392947c906050591f8bbbf5656ce7ec5e84fcc15dbf596704d6a6cfb727e",
+      "teacher_replay.py": "0bd98cbb12da57645b90d73f0930dee9d5073f8b972bd8d0524cac6e219cf7c6",
+      "teacher_approval.py": "ea5dba7479ad041d1314b4a8018664a25fcc5c609d2f512cc49da03c384e5503",
+      "teacher_data.py": "f76fb7d7c920475a8dc61fb2d7ace08522828c10deb4a6bb65da4ddea31e7c89",
+      "privileged_geometry.py": "5e73322a5e2cf5825e6a287f7db090b271acb91a7039183ee5d8ea345af02260",
+      "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "route_prompts.py": "4b798bc4607e50bf0546ca31bd9270550b03b14c2ba632d97d05fe47eadaa36a",
+      "risk_review.py": "23cf162b545113d0c93021acf2e5dd5d253ff459576ca4e99d3ec07a762297d1",
+      "dataset.py": "b351f5a373c3580e13649c4498dfabcaf6757d671ef5a36e97b9e244111ab345",
+      "candidate_pool.py": "b6511f80eaf7390d91d4768d27d6211e5784594c22c098e22db8c8b764fdb393",
+      "preflight.py": "dc4bb130dc5d9da57bbf5b728900cdc7cbf9e43c188ca577a68d217388fa3d3d",
+      "evaluate.py": "79cc5abcd9506a75adfe4749f70715c8ca2161450406c76155c7961f30cc9ee8",
+      "identity.py": "61988c26c19f3fb332e3e0011f3b935ab0d5d4f083f49ddad9d57d26896f299f"
+    }
+  },
+  "rules": [],
+  "status": "no_independent_rule_approval_yet"
+}

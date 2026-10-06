@@ -1,0 +1,587 @@
+{
+  "train_only_groups": [
+    "DynamicObjectCrossing/Town12_2309_0",
+    "DynamicObjectCrossing/Town12_2675_0",
+    "DynamicObjectCrossing/Town12_2994_0",
+    "DynamicObjectCrossing/Town12_3380_0",
+    "DynamicObjectCrossing/Town12_6_0",
+    "MergerIntoSlowTrafficV2/Town12_968_24",
+    "MergerIntoSlowTrafficV2/Town12_968_31",
+    "MergerIntoSlowTrafficV2/Town12_968_32",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001040",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001041",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001042",
+    "ParkedObstacle/Town06_route_001920",
+    "ParkedObstacle/Town06_route_001921",
+    "ParkedObstacle/Town06_route_001927",
+    "ParkedObstacle/Town06_route_001934",
+    "ParkedObstacle/Town06_route_001944",
+    "ParkedObstacle/Town06_route_001952"
+  ],
+  "new_train_only_groups": [
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001040",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001041"
+  ],
+  "new_group_previous_split": {
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001040": "train",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001041": "val"
+  },
+  "calibration_risks": [
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001927_route0_01_11_10_46_03",
+      "physical_group": "ParkedObstacle/Town06_route_001927",
+      "audit_id": "000",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–175帧。右侧静止红SUV；65–83附近等待左侧连续来车，84–92附近左绕，96–103附近右返；104以后普通行驶不延长旧状态补问。",
+        "原尺寸确认7→8本车道前车突变消失。90/92相机拼接处车辆重叠不能据此判碰撞。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 7,
+          "path": "ParkedObstacle/Town06_Rep0_route_001927_route0_01_11_10_46_03/rgb/0007.jpg",
+          "sha256": "c9ed398dd096bf54b92885711a410605983e82a0f8d36d379ec9b50cf2b11f8b"
+        },
+        {
+          "frame": 8,
+          "path": "ParkedObstacle/Town06_Rep0_route_001927_route0_01_11_10_46_03/rgb/0008.jpg",
+          "sha256": "3859b20674c64fe0934141c348ac2d0b3650a8f983918edd333127d001498505"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001934_route0_01_10_08_57_06",
+      "physical_group": "ParkedObstacle/Town06_route_001934",
+      "audit_id": "003",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–187帧，夜雨。左侧车道停黑Mini，80–86附近向右绕行，89–98附近向左返回。不能硬编码所有UE2先左后右。",
+        "原尺寸确认5→6本车道前车突变消失；99以后普通行驶不属于无限catchup。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 5,
+          "path": "ParkedObstacle/Town06_Rep0_route_001934_route0_01_10_08_57_06/rgb/0005.jpg",
+          "sha256": "e5f20843cc3df00e7a53f0007af38c421639af8ad2243cdb79b28e9bbb98ccfd"
+        },
+        {
+          "frame": 6,
+          "path": "ParkedObstacle/Town06_Rep0_route_001934_route0_01_10_08_57_06/rgb/0006.jpg",
+          "sha256": "6362518abfa7949cf0c523373fddf7312539fd4969fcdf4ec514515bf80f7980"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001920_route0_01_09_10_49_27",
+      "physical_group": "ParkedObstacle/Town06_route_001920",
+      "audit_id": "004",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–101帧。右侧停警车，32–36附近左移，36–39通过，40–49附近返回，50后普通行驶。",
+        "原尺寸确认6→7本车道前车突变消失。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 6,
+          "path": "ParkedObstacle/Town06_Rep0_route_001920_route0_01_09_10_49_27/rgb/0006.jpg",
+          "sha256": "11e23021e10c4eb61c46428a0f079fdd0d8051a029feee2c51cccd13281a6f58"
+        },
+        {
+          "frame": 7,
+          "path": "ParkedObstacle/Town06_Rep0_route_001920_route0_01_09_10_49_27/rgb/0007.jpg",
+          "sha256": "64df58ff5fc0cef6fa05187172017661b8215a81353fa9db0a29ef8250eeff78"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town06_Rep0_route_001921_route0_01_10_21_18_51",
+      "physical_group": "ParkedObstacle/Town06_route_001921",
+      "audit_id": "005",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–106帧，雨天。左侧警车，32–38附近向右绕行，42–45通过，46–55附近左返。",
+        "37/40/43原尺寸确认右侧绿SUV接近并行，几何通过不代表独立纵向/间隙约束消失；相机拼接重复不作为碰撞判断。6→7前车突变消失。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 6,
+          "path": "ParkedObstacle/Town06_Rep0_route_001921_route0_01_10_21_18_51/rgb/0006.jpg",
+          "sha256": "99c74cee6e7b46a1c3f86d505750a5965855e4bf99dfdea9233235b3173f5775"
+        },
+        {
+          "frame": 7,
+          "path": "ParkedObstacle/Town06_Rep0_route_001921_route0_01_10_21_18_51/rgb/0007.jpg",
+          "sha256": "8874e5e3164a5a93f215cb4a1c1217f72b9470c6d52c1ca9f3184e0c71cbc28e"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_3380_0_route0_01_10_03_31_54",
+      "physical_group": "DynamicObjectCrossing/Town12_3380_0",
+      "audit_id": "006",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–168帧，雾天乡路。首个RE5路口等待23–37、38–55附近左转；之后过街人86–96右向左；下一路口约128–149等待、150–160附近右转。两次RE5不能合并成同一无限补问实例。",
+        "96→97原尺寸确认步行者消失；不能从97自车恢复推出YES。67→68远处前车疑似变化，原尺寸距离/雾限制，未确认为风险点。",
+        "UE3候选108–110附近同时存在近路口对向/转入车辆；须核对具体冲突对象及路径，不从event元信息直接形成切入许可真值。UE4提示词允许行人，不应因为这里是步行者而误报事件定义错误。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 96,
+          "path": "DynamicObjectCrossing/Town12_Rep0_3380_0_route0_01_10_03_31_54/rgb/0096.jpg",
+          "sha256": "f137a81a446b2068ca47a62251da5152eb8d1be91dcbfcdf8b6c0a19fbe12a36"
+        },
+        {
+          "frame": 97,
+          "path": "DynamicObjectCrossing/Town12_Rep0_3380_0_route0_01_10_03_31_54/rgb/0097.jpg",
+          "sha256": "66a11783a3efc61b51d63fcc82a4d431a95afbc07d9274ca235b048246ce0344"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2994_0_route0_01_10_09_28_37",
+      "physical_group": "DynamicObjectCrossing/Town12_2994_0",
+      "audit_id": "007",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–113帧，极暗雨夜。UE4候选59–75期间目标细节不足；原尺寸65/70/75/76仍不能可靠判断行人是否离开自车通道，应UNKNOWN。",
+        "原尺寸75→76右侧白色遮挡物突变不见；只能确认视觉不连续，目标身份仍不明确。17→18前车候选因暗光不作确认结论。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 75,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2994_0_route0_01_10_09_28_37/rgb/0075.jpg",
+          "sha256": "1abebe028d156653e98a1d9cde64d404253c5b8ba18b5004cec6d9b05d891c4b"
+        },
+        {
+          "frame": 76,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2994_0_route0_01_10_09_28_37/rgb/0076.jpg",
+          "sha256": "7ec4452a4b13490068d41a9a86f94edb13b377889469121f4b2edf583047b1a6"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_6_0_route0_01_10_07_42_19",
+      "physical_group": "DynamicObjectCrossing/Town12_6_0",
+      "audit_id": "008",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–193帧，住宅路。橙色步行者31–41从右至左；40/41仍可见、42突然消失，同时右侧广告/遮挡物消失。原尺寸纠正缩略图初读：该物为广告设施，不称白色厢式车。",
+        "15→16前车突变消失，41→42人及广告设施消失。不可由目标消失补YES。",
+        "UE3候选121–123原尺寸主要看到对向车转入对向车道，自车前方另有等候车；不能仅按元信息认定目标切入本车道，需对象/冲突范围复核。后续RE5等待约164–175，176–188附近左转，与前面的过街/排队分别建实例。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 15,
+          "path": "DynamicObjectCrossing/Town12_Rep0_6_0_route0_01_10_07_42_19/rgb/0015.jpg",
+          "sha256": "cc5c6513c5d0763ace20c0f1623ccc20e6cc7fdd16a9df3731519aaf872b6156"
+        },
+        {
+          "frame": 16,
+          "path": "DynamicObjectCrossing/Town12_Rep0_6_0_route0_01_10_07_42_19/rgb/0016.jpg",
+          "sha256": "12548071e940c7e9232097eee376f9349c72f6d71426aff0952fb76cab57f688"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_6_0_route0_01_10_07_42_19",
+      "physical_group": "DynamicObjectCrossing/Town12_6_0",
+      "audit_id": "008",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–193帧，住宅路。橙色步行者31–41从右至左；40/41仍可见、42突然消失，同时右侧广告/遮挡物消失。原尺寸纠正缩略图初读：该物为广告设施，不称白色厢式车。",
+        "15→16前车突变消失，41→42人及广告设施消失。不可由目标消失补YES。",
+        "UE3候选121–123原尺寸主要看到对向车转入对向车道，自车前方另有等候车；不能仅按元信息认定目标切入本车道，需对象/冲突范围复核。后续RE5等待约164–175，176–188附近左转，与前面的过街/排队分别建实例。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 41,
+          "path": "DynamicObjectCrossing/Town12_Rep0_6_0_route0_01_10_07_42_19/rgb/0041.jpg",
+          "sha256": "d681688ff383d1301bb7980c7f04d8076745f7ebe5519eba592b521b291ec17d"
+        },
+        {
+          "frame": 42,
+          "path": "DynamicObjectCrossing/Town12_Rep0_6_0_route0_01_10_07_42_19/rgb/0042.jpg",
+          "sha256": "3ad520faba45c18bcb3e96722739f684be644012d054d7a166607023feb53b26"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2675_0_route0_01_10_06_56_09",
+      "physical_group": "DynamicObjectCrossing/Town12_2675_0",
+      "audit_id": "009",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–183帧，暗夜住宅路。原尺寸确认18→19本车道前车消失，33→34近处对向红车消失。",
+        "UE4候选33–50目标暗光不可充分辨认，不生成YES。后续跟车78–135，前车140–147右转，自车148–164附近等待、166–177附近左转，178后普通行驶。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 18,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2675_0_route0_01_10_06_56_09/rgb/0018.jpg",
+          "sha256": "6b9c6239a440ba3f1707c03c50614db052278d343d9711f913d6ef86979bf045"
+        },
+        {
+          "frame": 19,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2675_0_route0_01_10_06_56_09/rgb/0019.jpg",
+          "sha256": "b7934dd7a5771c186cfc150681a4e91857be7b5d2b11be482642306b7beffad9"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2675_0_route0_01_10_06_56_09",
+      "physical_group": "DynamicObjectCrossing/Town12_2675_0",
+      "audit_id": "009",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–183帧，暗夜住宅路。原尺寸确认18→19本车道前车消失，33→34近处对向红车消失。",
+        "UE4候选33–50目标暗光不可充分辨认，不生成YES。后续跟车78–135，前车140–147右转，自车148–164附近等待、166–177附近左转，178后普通行驶。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 33,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2675_0_route0_01_10_06_56_09/rgb/0033.jpg",
+          "sha256": "c105f09ea6850ea6654e9c1eedf3ed4866a58146a423374c8a48353da419f9d2"
+        },
+        {
+          "frame": 34,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2675_0_route0_01_10_06_56_09/rgb/0034.jpg",
+          "sha256": "da2d0263f4da498d0d1d48bf76c114162ef31dcc49d0f6cee1443542bd0fc9ed"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2309_0_route0_01_09_11_34_05",
+      "physical_group": "DynamicObjectCrossing/Town12_2309_0",
+      "audit_id": "010",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–90帧，城市白天。原尺寸确认17→18前车消失；步行者38–51右向左，49/51已在自车通道左侧但仍可见；51→52行人及右侧公交站亭一起消失。",
+        "49–51是可进一步因果逐帧审核的readiness候选，不能把52消失作为通道解除依据；52–55自车仍未明显前进也不能自动标NO。未批准新标签或精确YES区间。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2309_0_route0_01_09_11_34_05/rgb/0017.jpg",
+          "sha256": "9330181bae9847484e8c1266b8026a89f35bf2dad219d09fd7cf0629082295c9"
+        },
+        {
+          "frame": 18,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2309_0_route0_01_09_11_34_05/rgb/0018.jpg",
+          "sha256": "bfce24e24cea234bb3407e3eef8d432d19020398df2d27bdb7065bc1a8a830ff"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town12_Rep0_2309_0_route0_01_09_11_34_05",
+      "physical_group": "DynamicObjectCrossing/Town12_2309_0",
+      "audit_id": "010",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–90帧，城市白天。原尺寸确认17→18前车消失；步行者38–51右向左，49/51已在自车通道左侧但仍可见；51→52行人及右侧公交站亭一起消失。",
+        "49–51是可进一步因果逐帧审核的readiness候选，不能把52消失作为通道解除依据；52–55自车仍未明显前进也不能自动标NO。未批准新标签或精确YES区间。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 51,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2309_0_route0_01_09_11_34_05/rgb/0051.jpg",
+          "sha256": "54b8bfdd5b4481a4c7095a2c4fe186113e7480bbeeae015eeeeeac8486f30676"
+        },
+        {
+          "frame": 52,
+          "path": "DynamicObjectCrossing/Town12_Rep0_2309_0_route0_01_09_11_34_05/rgb/0052.jpg",
+          "sha256": "c2a40533ea92fe3daa7b51d74857f978359978d50ad0ac8b94a1ce6666ee1aa5"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_24_route0_01_11_00_26_58",
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_24",
+      "audit_id": "011",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–207帧，雾雨高速出口。原尺寸确认14→15整组车消失、198→199出口前车消失。",
+        "约134–143进入第一相邻车道，右侧红车148–153经过，153–159附近再向外一条车道；174–190出口。每段重新WAIT/enter，第一次YES不授权连续跨两车道。132–139右车暂时出画后重现属于可见性限制，不按突变消失处理。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_24_route0_01_11_00_26_58/rgb/0014.jpg",
+          "sha256": "3bb45f1e0bfea3cd23c9bfba105789354cb2e31db1e771cdd2b2bafd1711c6b5"
+        },
+        {
+          "frame": 15,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_24_route0_01_11_00_26_58/rgb/0015.jpg",
+          "sha256": "6424dfff9c004c592d03b9b3c95193a3b6b2ac6abf100f39af066b78cdc866b4"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_24_route0_01_11_00_26_58",
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_24",
+      "audit_id": "011",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–207帧，雾雨高速出口。原尺寸确认14→15整组车消失、198→199出口前车消失。",
+        "约134–143进入第一相邻车道，右侧红车148–153经过，153–159附近再向外一条车道；174–190出口。每段重新WAIT/enter，第一次YES不授权连续跨两车道。132–139右车暂时出画后重现属于可见性限制，不按突变消失处理。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 198,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_24_route0_01_11_00_26_58/rgb/0198.jpg",
+          "sha256": "4d58fb50222fba42323bd33deacca2d8b21beca3ff942f7c2c88336956421dea"
+        },
+        {
+          "frame": 199,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_24_route0_01_11_00_26_58/rgb/0199.jpg",
+          "sha256": "ab235c2b45c7026ce8bd22c44f5749ad68ae95d946b670fde4fcc744b65873b9"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_32_route0_01_10_12_48_16",
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_32",
+      "audit_id": "012",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–216帧，夜雨同出口。14→15整组车消失、207→208出口前车消失均原尺寸确认。",
+        "第一段约134–143，右侧黑/红/黑车依次经过140–164，第二段约166–171，明显晚于011；不能共享固定前后半秒窗口。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_32_route0_01_10_12_48_16/rgb/0014.jpg",
+          "sha256": "ca3e8b0956ef3816201f1f6de317138b7e2d62fb34ac80511918921759f8769b"
+        },
+        {
+          "frame": 15,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_32_route0_01_10_12_48_16/rgb/0015.jpg",
+          "sha256": "54fe2098d5ad069737404e2124ae261cb835c605987932b735413f17ee967dbb"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_32_route0_01_10_12_48_16",
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_32",
+      "audit_id": "012",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–216帧，夜雨同出口。14→15整组车消失、207→208出口前车消失均原尺寸确认。",
+        "第一段约134–143，右侧黑/红/黑车依次经过140–164，第二段约166–171，明显晚于011；不能共享固定前后半秒窗口。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 207,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_32_route0_01_10_12_48_16/rgb/0207.jpg",
+          "sha256": "8b8ca4919a2fbe6c0e83d832ab682f6a1cd03537d9f99bc72fa4903212b2cfbb"
+        },
+        {
+          "frame": 208,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_32_route0_01_10_12_48_16/rgb/0208.jpg",
+          "sha256": "22209af96e2a0ce1dff130daceb689143046a2784208ef04ab16eff8c8124aad"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_31_route0_01_08_13_47_09",
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_31",
+      "audit_id": "013",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–207帧，白天大雨同出口。14→15整组车消失、199→200出口前车消失均原尺寸确认。",
+        "第一段约135–142，右侧黑车143–148、灰车149–154，第二段155–160，176–190驶出。视觉时间只是复核定位，不作为正式许可标签。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_31_route0_01_08_13_47_09/rgb/0014.jpg",
+          "sha256": "508bfac36831c288a3d25a01fdd1b4c4ebeaeb2770427cbedd6b0b0d60722f58"
+        },
+        {
+          "frame": 15,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_31_route0_01_08_13_47_09/rgb/0015.jpg",
+          "sha256": "0f546765b5cb1207ff08d5af1d1ce61c8cd9f1200c1b780df9a8ae2620d2b37c"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_31_route0_01_08_13_47_09",
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_31",
+      "audit_id": "013",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–207帧，白天大雨同出口。14→15整组车消失、199→200出口前车消失均原尺寸确认。",
+        "第一段约135–142，右侧黑车143–148、灰车149–154，第二段155–160，176–190驶出。视觉时间只是复核定位，不作为正式许可标签。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 199,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_31_route0_01_08_13_47_09/rgb/0199.jpg",
+          "sha256": "30842e19989289e229d4aa93759967b64873154e995992da5b302bab7210ed5a"
+        },
+        {
+          "frame": 200,
+          "path": "MergerIntoSlowTrafficV2/Town12_Rep0_968_31_route0_01_08_13_47_09/rgb/0200.jpg",
+          "sha256": "d154d69f5d3f45045b5746808817e08025abdca34c9807bce112fdd0c224430d"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town03_Rep0_route_001041_route0_01_11_11_11_51",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001041",
+      "audit_id": "015",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–137帧，雾/反光左转。16–107长时间等待连续对向左转车，33–37曾爬行又等待，108起前移，114–118白SUV通过后118–123附近自车转入。",
+        "原尺寸125–129纠正初筛帧号：白SUV最后可见127，128消失，即127→128（不是128→129）；右侧黑车随后出画不单独判消失。",
+        "此前未曝光物理组NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001041，本轮已作开发审计曝光，应后续登记train-only；不在冻结holdout、当前四个题池均0题。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 127,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_001041_route0_01_11_11_11_51/rgb/0127.jpg",
+          "sha256": "b09eac8c0d911d0570a1ddda00f3d167c78bddcde4dc2c761697766342184b0c"
+        },
+        {
+          "frame": 128,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_001041_route0_01_11_11_11_51/rgb/0128.jpg",
+          "sha256": "073e58d3e6a7885aac099d5bf45aee9cdea4a696096ec619442984988120bf4e"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town03_Rep0_route_001040_route0_01_10_11_15_07",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001040",
+      "audit_id": "016",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "完整0–74帧，夜雨左转。13–28等待，29–36爬行，37–49附近左转跟随白车，50后行驶。原尺寸确认52→53白色前车突变消失。",
+        "暗光/雨水限制精确间隙判断，不从事后转弯成功反推整段许可。此前未曝光物理组NonSignalizedJunctionLeftTurnEnterFlow/Town03_route_001040，应后续登记train-only；不在冻结holdout、当前四个题池均0题。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 52,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_001040_route0_01_10_11_15_07/rgb/0052.jpg",
+          "sha256": "f2eb116d9275c2306e622db905da1994b55ea10c9a319aae45dd603f52660960"
+        },
+        {
+          "frame": 53,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town03_Rep0_route_001040_route0_01_10_11_15_07/rgb/0053.jpg",
+          "sha256": "46fe5de5741b2d65b52e56349b1a2bb090e70ee2187ca24ae70eb1cad4a1ef51"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    }
+  ],
+  "source_files": {
+    "/tmp/phase4_seventeenth_readonly_20261001/REPORT.txt": "cc88cd3cbb14e8e15218518d92073e8d540634f8c91f65a8c8bb1abcc906192e",
+    "/tmp/phase4_seventeenth_readonly_20261001/selected.json": "da85a5d50b22fdb8b358e1771482c8df42baf707c6a98969e70266848a3475e8",
+    "/tmp/phase4_seventeenth_readonly_20261001/observations.json": "b64384ed2212c8e8ea32f78dfdd0153f8f6a097d68ac06e14c2de582a159a608",
+    "/tmp/phase4_seventeenth_readonly_20261001/originals.json": "6ab6ea7755ec7264635db9c006a746ec73d64408d178ae065ea4f3feacddd2f9",
+    "/tmp/phase4_seventeenth_readonly_20261001/new_risks.json": "541bbde909fd8916f2ae51b6f4e0f85e5c63fdb17fad152e4d620d9b443e28f7",
+    "/tmp/phase4_seventeenth_readonly_20261001/coverage_progress.json": "1d3eecc83ff13e929d89bcb0fe362bfb4fa9ad2e3b674a1d3baafb538bbc01c2",
+    "/tmp/phase4_seventeenth_readonly_20261001/exposure_and_dataset_overlap.json": "67bab20b69fcfa5b42ed6e57215bd36e2f83f9fb9c81cc14b7cb71e3bd689398"
+  },
+  "local_review": {
+    "new_labels": 0,
+    "new_complete_sequences": 0,
+    "new_visual_frames": 0,
+    "rgb_hash_checks": 40
+  },
+  "reported_coverage": {
+    "new_sequences": 17,
+    "new_distinct_rgb": 2415,
+    "contact_sheets": 110,
+    "original_resolution_rechecks": 64,
+    "cumulative_sequences": 432,
+    "cumulative_frames": 52344,
+    "reviewed_cells": 205,
+    "meets_three_ids": 180,
+    "total_cells": 278,
+    "shortfall_cells": 18,
+    "remaining_selected_sequences": 268,
+    "remaining_selected_rgb": 46324,
+    "all_requested_rgb_audit_complete": false,
+    "prior_counts_are_inherited": true
+  },
+  "scope": "Register prior audit evidence. Visual discontinuity is not evidence of conflict resolution or a diagnosis of actor removal. Uncertain actor identity remains uncertain; sequence-end completion requires right censoring. No new label intervals."
+}

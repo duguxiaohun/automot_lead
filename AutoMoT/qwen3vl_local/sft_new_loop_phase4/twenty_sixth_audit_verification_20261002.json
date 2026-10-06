@@ -1,0 +1,2274 @@
+{
+  "version": "phase4_v26",
+  "teacher": {
+    "version": "ue1_ue4_causal_teacher_v1",
+    "parameters": {
+      "local_horizon_m": 18.0,
+      "vru_margin_m": 1.0,
+      "boundary_band_m": 0.25,
+      "lead_growth_m": 1.0,
+      "lead_min_gap_m": 3.0,
+      "min_pixel_change": 6.0,
+      "stable_gap_m": 5.0,
+      "stable_time_gap_s": 1.2,
+      "relative_speed_mps": 1.0,
+      "receipt_displacement_m": 0.75
+    },
+    "sources": {
+      "teacher_rules.py": "7117392947c906050591f8bbbf5656ce7ec5e84fcc15dbf596704d6a6cfb727e",
+      "teacher_replay.py": "0bd98cbb12da57645b90d73f0930dee9d5073f8b972bd8d0524cac6e219cf7c6",
+      "teacher_approval.py": "ea5dba7479ad041d1314b4a8018664a25fcc5c609d2f512cc49da03c384e5503",
+      "teacher_data.py": "f76fb7d7c920475a8dc61fb2d7ace08522828c10deb4a6bb65da4ddea31e7c89",
+      "privileged_geometry.py": "5e73322a5e2cf5825e6a287f7db090b271acb91a7039183ee5d8ea345af02260",
+      "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "route_prompts.py": "4b798bc4607e50bf0546ca31bd9270550b03b14c2ba632d97d05fe47eadaa36a",
+      "risk_review.py": "23cf162b545113d0c93021acf2e5dd5d253ff459576ca4e99d3ec07a762297d1",
+      "dataset.py": "b351f5a373c3580e13649c4498dfabcaf6757d671ef5a36e97b9e244111ab345",
+      "candidate_pool.py": "b6511f80eaf7390d91d4768d27d6211e5784594c22c098e22db8c8b764fdb393",
+      "preflight.py": "dc4bb130dc5d9da57bbf5b728900cdc7cbf9e43c188ca577a68d217388fa3d3d",
+      "evaluate.py": "79cc5abcd9506a75adfe4749f70715c8ca2161450406c76155c7961f30cc9ee8",
+      "identity.py": "61988c26c19f3fb332e3e0011f3b935ab0d5d4f083f49ddad9d57d26896f299f"
+    }
+  },
+  "tests": {
+    "passed": 703,
+    "log_sha256": "8bb7f037f71dee23ab6b2253e0be1731929a34cc6035a96a1ed79cdc57caf4b6"
+  },
+  "inventory": {
+    "routes": 9712,
+    "rgb_frames": 1637680,
+    "split_routes": {
+      "train": 8166,
+      "val": 765,
+      "test": 781
+    }
+  },
+  "production": {
+    "processed_routes": 17,
+    "processed_frames": 1615,
+    "dispositions": {
+      "abstained": 1503,
+      "questions": 112
+    },
+    "rule_targets": {
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/UNKNOWN": 43,
+      "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/UNKNOWN": 39,
+      "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/UNKNOWN": 39,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/UNKNOWN": 43,
+      "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/UNKNOWN": 39,
+      "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/UNKNOWN": 39,
+      "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/NO": 8,
+      "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb2/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb2/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/NO": 8,
+      "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb4/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb4/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/UNKNOWN": 4,
+      "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/UNKNOWN": 4,
+      "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/YES": 10,
+      "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/YES": 10,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/NO": 34,
+      "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/NO": 34,
+      "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/YES": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/catchup/UNKNOWN": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/catchup/UNKNOWN": 1,
+      "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb2/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb2/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb2/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb2/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb4/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb4/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb4/readiness/NO": 11,
+      "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb4/readiness/NO": 11
+    },
+    "complete_causal_production": false,
+    "index_sha256": "b4b2c78560e2c2dfe9c2e157e74fc3958134a01cef1829c42eb9c8f2af84dcb8",
+    "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+  },
+  "approval": {
+    "approved": {},
+    "decisions": {},
+    "registry_sha256": "d1c4c804f0e95ba00daccdab6edaf9ce57c9cab239e90d2f13e47439798dfaeb",
+    "teacher_sha256": "83a469a46b55e3f584ef4164c71ffe84e13ae469850ff0fe3f79aeb10d318e75"
+  },
+  "pipeline": {
+    "2": {
+      "dataset": "/tmp/phase4_v26_work/final_data2",
+      "counts": {
+        "train": 443,
+        "val": 273,
+        "test": 186
+      },
+      "train_routes": 45,
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 902,
+      "pending_rgb_verified": 539,
+      "jsonl_byte_identical_to_v25": {
+        "train.jsonl": true,
+        "val.jsonl": true,
+        "test.jsonl": true,
+        "review_queue.jsonl": true
+      },
+      "production_coverage": {
+        "candidate_routes": 9712,
+        "candidate_rgb_frames": 1637680,
+        "frames_with_questions": 1088,
+        "frames_with_supervision": 702,
+        "frames_without_questions": 1636592,
+        "complete_causal_production": false,
+        "accounting": {
+          "processed_routes": 17,
+          "processed_frames": 1615,
+          "dispositions": {
+            "abstained": 1503,
+            "questions": 112
+          },
+          "rule_targets": {
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb4/readiness/NO": 11
+          },
+          "complete_causal_production": false,
+          "index_sha256": "b4b2c78560e2c2dfe9c2e157e74fc3958134a01cef1829c42eb9c8f2af84dcb8",
+          "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+        },
+        "approved_rule_classes": [],
+        "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+      },
+      "teacher_compilation": {
+        "counts": {
+          "route_budget_excluded": 0,
+          "considered": 238,
+          "rule_abstained": 126,
+          "rule_class_not_approved": 112,
+          "compiled": 0
+        },
+        "approval": {
+          "approved": {},
+          "decisions": {},
+          "registry_sha256": "d1c4c804f0e95ba00daccdab6edaf9ce57c9cab239e90d2f13e47439798dfaeb",
+          "teacher_sha256": "83a469a46b55e3f584ef4164c71ffe84e13ae469850ff0fe3f79aeb10d318e75"
+        },
+        "production": {
+          "processed_routes": 17,
+          "processed_frames": 1615,
+          "dispositions": {
+            "abstained": 1503,
+            "questions": 112
+          },
+          "rule_targets": {
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb4/readiness/NO": 11
+          },
+          "complete_causal_production": false,
+          "index_sha256": "b4b2c78560e2c2dfe9c2e157e74fc3958134a01cef1829c42eb9c8f2af84dcb8",
+          "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+        },
+        "rgb_mode": 2,
+        "max_per_route": 100,
+        "automatic_catchup_limit": 0,
+        "evaluation_scope": "teacher consistency only; manual reserved routes excluded"
+      },
+      "seven_epoch_coverage": {
+        "1": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 1,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 346,
+              "missing": 97,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 45
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 45
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 436,
+              "missing": 7,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 90
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        },
+        "4": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 4,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 348,
+              "missing": 95,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 46
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 46
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 438,
+              "missing": 5,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 92
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        }
+      }
+    },
+    "4": {
+      "dataset": "/tmp/phase4_v26_work/final_data4",
+      "counts": {
+        "train": 443,
+        "val": 273,
+        "test": 186
+      },
+      "train_routes": 45,
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 902,
+      "pending_rgb_verified": 539,
+      "jsonl_byte_identical_to_v25": {
+        "train.jsonl": true,
+        "val.jsonl": true,
+        "test.jsonl": true,
+        "review_queue.jsonl": true
+      },
+      "production_coverage": {
+        "candidate_routes": 9712,
+        "candidate_rgb_frames": 1637680,
+        "frames_with_questions": 1088,
+        "frames_with_supervision": 702,
+        "frames_without_questions": 1636592,
+        "complete_causal_production": false,
+        "accounting": {
+          "processed_routes": 17,
+          "processed_frames": 1615,
+          "dispositions": {
+            "abstained": 1503,
+            "questions": 112
+          },
+          "rule_targets": {
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb4/readiness/NO": 11
+          },
+          "complete_causal_production": false,
+          "index_sha256": "b4b2c78560e2c2dfe9c2e157e74fc3958134a01cef1829c42eb9c8f2af84dcb8",
+          "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+        },
+        "approved_rule_classes": [],
+        "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+      },
+      "teacher_compilation": {
+        "counts": {
+          "route_budget_excluded": 0,
+          "considered": 238,
+          "rule_abstained": 126,
+          "rule_class_not_approved": 112,
+          "compiled": 0
+        },
+        "approval": {
+          "approved": {},
+          "decisions": {},
+          "registry_sha256": "d1c4c804f0e95ba00daccdab6edaf9ce57c9cab239e90d2f13e47439798dfaeb",
+          "teacher_sha256": "83a469a46b55e3f584ef4164c71ffe84e13ae469850ff0fe3f79aeb10d318e75"
+        },
+        "production": {
+          "processed_routes": 17,
+          "processed_frames": 1615,
+          "dispositions": {
+            "abstained": 1503,
+            "questions": 112
+          },
+          "rule_targets": {
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/UNKNOWN": 43,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/UNKNOWN": 39,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/NO": 8,
+            "ue1_ue4_causal_teacher_v1/U-E4/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/UNKNOWN": 4,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb2/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E4/proceed/rgb4/readiness/YES": 10,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/NO": 34,
+            "ue1_ue4_causal_teacher_v1/U-E1/restrict/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/readiness/YES": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb2/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/proceed/rgb4/catchup/UNKNOWN": 1,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb2/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/re_yield/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/hold/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/stable/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/renewed_restriction/rgb4/readiness/NO": 11,
+            "ue1_ue4_causal_teacher_v1/U-E1/recover_follow/rgb4/readiness/NO": 11
+          },
+          "complete_causal_production": false,
+          "index_sha256": "b4b2c78560e2c2dfe9c2e157e74fc3958134a01cef1829c42eb9c8f2af84dcb8",
+          "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+        },
+        "rgb_mode": 4,
+        "max_per_route": 100,
+        "automatic_catchup_limit": 0,
+        "evaluation_scope": "teacher consistency only; manual reserved routes excluded"
+      },
+      "seven_epoch_coverage": {
+        "1": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 1,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 346,
+              "missing": 97,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 45
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 45
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 436,
+              "missing": 7,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 90
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        },
+        "4": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 4,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 348,
+              "missing": 95,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 46
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 46
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 438,
+              "missing": 5,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 92
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        }
+      }
+    }
+  },
+  "development_reference_comparison": {
+    "2": {
+      "counts": {
+        "correct": 10,
+        "abstained": 5,
+        "unresolved_human_reference": 2
+      },
+      "matches": [
+        {
+          "question_id": "6330fdf8eb80ff9dc8a4fa975e87c88644f477a0424d08f20786dc186f5b6819",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 47,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "6be33c609c733cfb30989cd1503bd439690175876a55ac134ec353f29ccca734",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 48,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "1b2e76e5e23c6af7438490db0cc931a56dd7638cca0b3e27d71462f5ca0556e7",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 50,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "b29cfea1d03f0f4ff34846aeded914432434dddd7bfe45e1cbd1e06bb77eef22",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 51,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "ec2435106902b607869d7c16cc8adeacd658e5209fa4605f0941b64d476edb13",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 52,
+          "edge": "proceed",
+          "rule_target": "YES",
+          "reference": "UNKNOWN",
+          "status": "unresolved_human_reference"
+        },
+        {
+          "question_id": "445545ee094eb697a0e8a0e2513b59c850a411633a695de40d9717e705e927c5",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 42,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "6cd35f03ba76835ec2c97c4df67c6cdb6036f0218656689467167c7c0d9668ba",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 43,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "fd67e2b73f0ca0c366e1ce2796ac99c2eb8d7f013e93883e91343ab117d69f99",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 44,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "f4890817a6b0d24f6d01f3a1c33f787f59fb1ab2c10e5ac9c400147a25d86b5e",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 45,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "476ac3f727ceddb0f9579c6157bf2827ce2d86f21e6da2af2f3db8666f3172a7",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 46,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "5f335d80857ce69b60d5386dbc3ae7b318549bfb938c759f792a00db8634c471",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 47,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "f7268435df02f515da236995d3e0711c9f704b7b1cfee924b17909b5d0f66bb0",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 48,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "d8c3836da6f6038a897c81e7d0c05f7222f55823f6810cb8ef68edd31748547b",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 49,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "c4757daf86c6ee36079405ee53fa9834c2512812a3a3434549fec580bf4d084d",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 70,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "903b863ed0054612abac365ffac2dc5c04d24d755524a0fcc58d4ce4c32af2fe",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 71,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "2d7c72b08850401bab36ca1e34db56fc1888246764697703e465f4c0292eed1f",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 72,
+          "edge": "proceed",
+          "rule_target": "YES",
+          "reference": "UNKNOWN",
+          "status": "unresolved_human_reference"
+        },
+        {
+          "question_id": "2b75ab563ee464f515bb34c8ffbfb64397c613400a88ba9732759a25e8eb5ede",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 73,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "YES",
+          "status": "abstained"
+        }
+      ],
+      "scope": "overlapping exact RGB/state-pair development references; not independent error estimate"
+    },
+    "4": {
+      "counts": {
+        "correct": 10,
+        "abstained": 5,
+        "unresolved_human_reference": 2
+      },
+      "matches": [
+        {
+          "question_id": "2b679f770caa61d3f24f35daf77f28a63ac6e1647f6bf7714a609cabb886b25a",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 47,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "d31ad1cb28e601015b14fe150406d15c60cc69bdc4eba1e3627df56ec8c9b91b",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 48,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "fa98953869cc0ff9ec8c15f2623f3c31e1aae66442acbcb2948860e37a4491cf",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 50,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "a9486f5877133189db280e646e90e0fbbb4a75889d48c872a3fb9c9d1f4b4d5d",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 51,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "24e1bc7ba962fc87beed71a3b510e7dc85007d5c36ffbc19c70b2480d4cc1acd",
+          "scenario": "DynamicObjectCrossing",
+          "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+          "frame_id": 52,
+          "edge": "proceed",
+          "rule_target": "YES",
+          "reference": "UNKNOWN",
+          "status": "unresolved_human_reference"
+        },
+        {
+          "question_id": "1326b875eeccc5da882be8772af105ccb459ef5d11e32da2f04a37f0923aea22",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 42,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "175820372f09a06bfd7cb91068a6f581ef4be0ba6050fa87b86b1a3243459361",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 43,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "1de3d1971cc5d923228a52feb7f361a6fecd405b5f1c9fb78f0585aaa0ab87fb",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 44,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "873d86f02ae6bbb5f812f84ac550248c51a101be8ebeb06c2a9cb5f3e77b51d5",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 45,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "f5115acbd62d1318af48e94ede46328870c3809d35774b65cbabf67bad89f791",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 46,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "8a7dffc95761a59ef8ce58fb9e9ce13da5f15962f4d68e7ba2181a23a05d4d48",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 47,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "93fa6aefcb4424fe66d35499f8410dae29e1fd8e2976f490f3334a630e48f440",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 48,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "a3bc12becba870711857c2a4f8da6ed1a384db00690a37d31a13f168fd681a73",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 49,
+          "edge": "proceed",
+          "rule_target": "NO",
+          "reference": "NO",
+          "status": "correct"
+        },
+        {
+          "question_id": "cb7bc006a7fbb6b30be1d7f11d0199a1628b98dbc31c321cfec65beba299775d",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 70,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "13f65fdc387b446365e3c5976d00d441e9fc7420135287159cac73d6d12bde9b",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 71,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "UNKNOWN",
+          "status": "abstained"
+        },
+        {
+          "question_id": "ac4eb783b57c6ff39375257d3e10f251add3b65b26b557e2247468cddfbe284c",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 72,
+          "edge": "proceed",
+          "rule_target": "YES",
+          "reference": "UNKNOWN",
+          "status": "unresolved_human_reference"
+        },
+        {
+          "question_id": "c692b75982ef40441ebf9e7bdcb60128d9382d3d349154ee81c071f32412f3b6",
+          "scenario": "HardBreakRoute",
+          "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+          "frame_id": 73,
+          "edge": "proceed",
+          "rule_target": "UNKNOWN",
+          "reference": "YES",
+          "status": "abstained"
+        }
+      ],
+      "scope": "overlapping exact RGB/state-pair development references; not independent error estimate"
+    }
+  },
+  "actual_rgb_review": [
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 68,
+      "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+      "scope": "existing train-only development RGB re-view, no new label"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 70,
+      "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+      "scope": "existing train-only development RGB re-view, no new label"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 72,
+      "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562",
+      "scope": "existing train-only development RGB re-view, no new label"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 48,
+      "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+      "scope": "existing train-only development RGB re-view, no new label"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 52,
+      "sha256": "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5",
+      "scope": "existing train-only development RGB re-view, no new label"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 56,
+      "sha256": "039e07e326eddf7d9aff66560321cacc8e30dc18a715aa98ef76753b69d109fd",
+      "scope": "existing train-only development RGB re-view, no new label"
+    }
+  ],
+  "limitations": [
+    "17 development routes only, not full corpus production",
+    "no real rule approval; independent 40-route sample remains unaudited",
+    "no automatic supervised catchup",
+    "eight other event teachers unsupported",
+    "no real recover_follow YES in these 17 routes; synthetic path tested",
+    "no GPU/4B/DDP/CARLA acceptance"
+  ],
+  "raw_targets_per_mode": {
+    "2": {
+      "UNKNOWN": 126,
+      "NO": 97,
+      "YES": 15
+    },
+    "4": {
+      "UNKNOWN": 126,
+      "NO": 97,
+      "YES": 15
+    }
+  },
+  "raw_proceed_yes": [
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 52,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 53,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 54,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 55,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 56,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 57,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 58,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 59,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 60,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 62,
+      "event": "U-E4"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 72,
+      "event": "U-E1"
+    }
+  ],
+  "new_complete_sequences": 0,
+  "new_exposure_groups": 0,
+  "new_real_supervised_questions": 0,
+  "protected_files_unchanged": {
+    "taxonomy.py": true,
+    "prompts.py": true,
+    "calibration.py": true,
+    "observation.py": true,
+    "controller.py": true,
+    "maneuver_safety.py": true,
+    "sampling.py": true,
+    "train.py": true,
+    "selection.py": true,
+    "reviewed_state_pairs_v9.json": true,
+    "formal_holdout_plan_20260930.json": true
+  }
+}

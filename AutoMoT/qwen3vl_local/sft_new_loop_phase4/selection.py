@@ -30,6 +30,9 @@ def select_best(run,base_assets):
                     or report.get('count')!=report.get('expected_count')
                     or report.get('dataset')!=recorded['dataset']):
                 raise ValueError('missing complete validation')
+            if (report.get('selection_metric')!='event_macro_accuracy_observed_v1'
+                    or report['macro_score']!=report.get('event_macro_accuracy_observed')):
+                raise ValueError('candidate was not scored by event macro accuracy')
             candidates.append((report['macro_score'],path.name,path))
         except (ValueError,KeyError,FileNotFoundError) as ex:
             errors.append((str(path),str(ex)))

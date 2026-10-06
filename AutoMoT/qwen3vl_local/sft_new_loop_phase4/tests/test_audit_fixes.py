@@ -1,6 +1,8 @@
+from qwen3vl_local.sft_new_loop_phase4.tests.safety_fixtures import clearances, loop_clearances
 import copy
 import json
 from types import SimpleNamespace
+from qwen3vl_local.sft_new_loop_phase4.route_context import RECOVER_FOLLOW
 import pytest
 from qwen3vl_local.sft_new_loop_phase4.controller import Episode,combine_priors
 from qwen3vl_local.sft_new_loop_phase4.dataset import coverage_report
@@ -11,7 +13,7 @@ from qwen3vl_local.sft_new_loop_phase4.observation import observation_contract,v
 
 
 def step(ep,frame,*yes,**kw):
-    return ep.advance(frame,{e.key:'YES' if e.key in yes else 'NO' for e in ep.questions()},**kw)
+    return ep.advance(frame,{e.key:'YES' if e.key in yes else 'NO' for e in ep.questions()},maneuver_clearances=clearances(ep,frame,*yes),**kw)
 
 
 def all_support(include_common=False):
@@ -20,7 +22,7 @@ def all_support(include_common=False):
         ('U-E4','cyclist_follow',False),('U-E4','cyclist_bypass',True),('U-E4','cyclist_bypass',False)]
     for split in ('train','val','test'):
         for event,branch,ret in variants:
-            edges=(*event_edges(template_for(event,branch),ret),*(COMMON if include_common else ()))
+            edges=(*event_edges(template_for(event,branch),ret),*((*COMMON, RECOVER_FOLLOW) if include_common else ()))
             for edge in edges:
                 for target in ('YES','NO'):
                     rows.append(dict(split=split,episode=dict(event=event,branch=branch,return_required=ret),
@@ -33,7 +35,9 @@ def test_event_only_coverage_can_never_be_ready():
     assert not report['ready']
     for edge in COMMON:
         assert any(k.endswith('/'+edge.key) for k in report['missing_transition_edges'])
-    assert coverage_report(all_support(True))['ready']
+    full=coverage_report(all_support(True))
+    assert not full['missing_transition_edges'] and not full['missing_event_support']
+    assert len(full['missing_segmented_route_support'])==12 and not full['ready']
     rows=all_support(True)
     for r in rows:
         if r['edge']=='stable' and r['target']=='YES':r['slice']='catchup'
@@ -111,7 +115,7 @@ def receipt(frame,started=9):
 
 
 def test_repeated_yes_is_not_zero_execution_delay():
-    observations=[dict(frame_id=f,truth={'depart':'YES'}) for f in (10,11,12)]
+    observations=[dict(visible_truth_scope='visible_maneuver_conditions_v1',frame_id=f,truth={'depart':'YES'},maneuver_clearances=clearances(Episode(**initial()),f,'depart')) for f in (10,11,12)]
     r=replay(initial(),observations,predictor)
     assert r['missed_answers']==0 and r['missed_execution']==3
     assert r['answer_delay_frames']==[0] and r['accepted_delay_frames']==[0]
@@ -125,17 +129,17 @@ def test_repeated_yes_is_not_zero_execution_delay():
 def test_rejected_yes_never_counts_as_accepted_or_executed():
     def conflict(ep,key,obs):return 'YES' if key in ('depart','hold') else 'NO'
     init=initial();init['longitudinal']='STABLE'
-    r=replay(init,[dict(frame_id=10,truth={'depart':'YES'})],conflict)
+    r=replay(init,[dict(visible_truth_scope='visible_maneuver_conditions_v1',frame_id=10,truth={'depart':'YES'})],conflict)
     assert r['answer_delay_frames']==[0] and r['accepted_delay_frames']==[]
     assert r['execution_delay_frames']==[] and r['needs_recheck']
 
 
 def test_catchup_receipt_after_restore_binds_current_edge_not_new_command():
     loop=Phase4Loop(rgb_mode=2);loop.establish(Episode(**initial()),verified=True)
-    loop.tick(dict(frame_id=10,history_frames=[6,10],speed_mps=0),[None]*2,predictor)
+    loop.tick(dict(frame_id=10,history_frames=[6,10],speed_mps=0),[None]*2,predictor,maneuver_clearances=loop_clearances(loop,10,'depart'))
     loop=Phase4Loop.restore(loop.snapshot())
     loop.tick(dict(frame_id=11,history_frames=[7,11],speed_mps=0),[None]*2,predictor,
-              execution_receipts=[receipt(11)])
+              execution_receipts=[receipt(11)],maneuver_clearances=loop_clearances(loop,11,'depart'))
     assert loop.episodes['x'].state=='DEPART'
     assert 'pass' in {e.key for e in loop.episodes['x'].questions()}
     assert loop.episodes['x'].history[-1]['execution_receipt']['started_frame']==9
@@ -232,13 +236,17 @@ if '-c' in sys.argv:
  else:print(str(Path(os.environ['OUTPUT_DIR'])/'epoch_000'))
 ''')
     wrapper.chmod(0o755)
-    env=dict(os.environ,PYTHON=str(wrapper),CALL_LOG=str(log),OUTPUT_DIR=str(tmp_path/'run'),
-             DATASET=str(tmp_path/'data'),MODE='single')
+    model=tmp_path/'model';model.mkdir();(model/'config.json').write_text('{}');(model/'model.safetensors').touch()
+    env=dict(os.environ,PYTHON=str(wrapper),MODEL_DIR=str(model),CALL_LOG=str(log),OUTPUT_DIR=str(tmp_path/'run'),
+             DATA_DIR=str(tmp_path/'data'),PIPELINE_ROOT=str(tmp_path/'pipeline'),MODE='single')
+    env.pop('ANNOTATIONS',None)
     subprocess.run(['bash',str(ROOT/'run_full_pipeline.sh')],env=env,check=True,capture_output=True)
     calls=[json.loads(line) for line in log.read_text().splitlines()]
     modules=[c[1] for c in calls if c[0]=='-m']
     assert modules==['qwen3vl_local.sft_new_loop_phase4.'+n for n in
-                     ('dataset','preflight','train','evaluate','audit_bundle')]
+                     ('full_pipeline','launch','preflight','train','evaluate','audit_bundle')]
+    construction=next(c for c in calls if 'qwen3vl_local.sft_new_loop_phase4.full_pipeline' in c)
+    assert construction[construction.index('--annotations')+1]==str(ROOT/'reviewed_state_pairs_v9.json')
     evaluation=next(c for c in calls if 'qwen3vl_local.sft_new_loop_phase4.evaluate' in c)
     assert evaluation[evaluation.index('--split')+1]=='test'
     assert evaluation[evaluation.index('--output-dir')+1]==str(tmp_path/'run'/'test')

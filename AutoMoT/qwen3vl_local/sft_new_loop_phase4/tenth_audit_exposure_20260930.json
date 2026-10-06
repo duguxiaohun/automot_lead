@@ -1,0 +1,248 @@
+{
+  "train_only_groups": [
+    "AccidentTwoWays/Town07_route_001446",
+    "NonSignalizedJunctionLeftTurn/Town07_route_000913",
+    "noScenarios/Town04_route_000531",
+    "noScenarios/Town05_Town05_rl_10"
+  ],
+  "reason": "第十轮完整RGB审阅已曝光，后续独立val/test必须排除",
+  "source_files": {
+    "/tmp/phase4_tenth_audit_20260930/REPORT.md": "c8aa719c6b329525cf0ab9db8aa87350ed9aa8ebdbf97de81f55901b958d54ac",
+    "/tmp/phase4_tenth_audit_20260930/train_only_exposure_to_register.json": "7129d568dccd6851c5524f780ba22f29c4c3865fa4b1dde6d8539660db801fb1",
+    "/tmp/phase4_tenth_audit_20260930/visual_notes.json": "c4864f33255569a4dc38d0cc5b6c117a27b39daf0cc280134e8482824039bf83",
+    "/tmp/phase4_tenth_audit_20260930/rgb_risk_overlap.json": "a16cfc27742543a6dc603ee57c5956675e83451183a8fb1cc129905daa4de763"
+  },
+  "routes": [
+    {
+      "scenario": "noScenarios",
+      "route_id": "Town05_Rep0_Town05_rl_10_route0_01_08_19_09_35",
+      "physical_group": "noScenarios/Town05_Town05_rl_10",
+      "manifest_id": "197",
+      "reported_review_scope": "complete_sequence_every_frame_contact_sheet"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town07_Rep0_route_000913_route0_01_09_15_54_15",
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town07_route_000913",
+      "manifest_id": "328",
+      "reported_review_scope": "complete_sequence_every_frame_contact_sheet"
+    },
+    {
+      "scenario": "noScenarios",
+      "route_id": "Town04_Rep0_route_000531_route0_01_08_14_45_05",
+      "physical_group": "noScenarios/Town04_route_000531",
+      "manifest_id": "429",
+      "reported_review_scope": "complete_sequence_every_frame_contact_sheet"
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town07_Rep0_route_001446_route0_01_10_06_16_32",
+      "physical_group": "AccidentTwoWays/Town07_route_001446",
+      "manifest_id": "030",
+      "reported_review_scope": "complete_sequence_every_frame_contact_sheet"
+    }
+  ],
+  "reported_coverage": {
+    "complete_sequences": 311,
+    "rgb_frames": 35059,
+    "meets_three_ids": 137,
+    "total_cells": 278,
+    "remaining_selected_sequences": 389,
+    "remaining_selected_rgb": 63609,
+    "source_shortfalls": 18,
+    "all_requested_rgb_audit_complete": false
+  },
+  "local_review": {
+    "new_complete_sequences": 0,
+    "new_labels": 0,
+    "existing_rgb_frames": 72,
+    "panels": [
+      {
+        "path": "/tmp/phase4_tenth_audit_20260930/panels/596/003.jpg",
+        "sha256": "3a055d465c288637e25bd7282e99358465062acc622eddecaed4f241f66babe5"
+      },
+      {
+        "path": "/tmp/phase4_tenth_audit_20260930/panels/597/003.jpg",
+        "sha256": "9680e18b554ee042c250e7c1dc283671cfde9e5dba51ff46ea7345d5871db7b1"
+      },
+      {
+        "path": "/tmp/phase4_tenth_audit_20260930/panels/516/003.jpg",
+        "sha256": "5048e7efdd40a1c81473edbfe648e24f78f5cb2fa54e881d6556557b0ed9dfeb"
+      }
+    ]
+  },
+  "calibration_risks": [
+    {
+      "manifest_id": "597",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town02_Rep0_Town02_Scenario4_28_route0_01_08_15_44_55",
+      "frames": [
+        90,
+        92
+      ],
+      "reason": "collision then tumbling vehicle",
+      "default_annotations": 0,
+      "default_train_rows": 0,
+      "default_review_queue_rows": 0,
+      "reported_observations": "晴湿路面f1–20接近红灯，f21–56等待；f57转绿，约f60起步，f65–74右转。骑行者f78–91从右横穿，黑车f79–88迎面通过，后续蓝车f89–91与骑行者接触附近后在f92–97剧烈翻滚腾空，f98–105自车继续且其他车辆经过。事故/仿真异常应在发生处截止常规转移带，不能将骑行者突然不可见当作正常冲突解除YES；已复看f89/90/91/92/94/97原图，接触和翻滚异常成立；不能把f92以后作为正常proceed释放证据。",
+      "rgb_evidence": [
+        {
+          "frame": 90,
+          "path": "VehicleTurningRoute/Town02_Rep0_Town02_Scenario4_28_route0_01_08_15_44_55/rgb/0090.jpg",
+          "sha256": "5ca803aa45731dc804578a3a05dabdebafcdac96cbe3b0b6249b82f3a6bb090b"
+        },
+        {
+          "frame": 92,
+          "path": "VehicleTurningRoute/Town02_Rep0_Town02_Scenario4_28_route0_01_08_15_44_55/rgb/0092.jpg",
+          "sha256": "e79962e0fe23ac3b6b7de24b932ff378023a281d21f41abbd45f1a95f39983b8"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "manifest_id": "596",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town02_Rep0_Town02_Scenario4_0_route0_01_10_17_53_34",
+      "frames": [
+        89,
+        90
+      ],
+      "reason": "cyclist disappears between adjacent frames",
+      "default_annotations": 0,
+      "default_train_rows": 0,
+      "default_review_queue_rows": 0,
+      "reported_observations": "雨雾f1–20接近红灯路口，f21–56等待；f57绿灯，约f60起步，f64–74右转。f73–89骑行者从右向左横穿。复看f83–91全部原图：f83–85自行车仍接近/跨越本车通道，f86–89逐渐移至左侧，后方迎面车逼近；f89自行车仍在图中左前位置，f90突变消失，不能写成正常离开画面或已上人行道。条件是否在消失之前已经成立需另标安全余量，f90起常规完成带必须因异常截止，不批准YES。",
+      "rgb_evidence": [
+        {
+          "frame": 89,
+          "path": "VehicleTurningRoute/Town02_Rep0_Town02_Scenario4_0_route0_01_10_17_53_34/rgb/0089.jpg",
+          "sha256": "b4e7ed6797c12c0083fe503f9facc3a4cbeafb685847aedec3dd30f26754968d"
+        },
+        {
+          "frame": 90,
+          "path": "VehicleTurningRoute/Town02_Rep0_Town02_Scenario4_0_route0_01_10_17_53_34/rgb/0090.jpg",
+          "sha256": "e204a061d3fca03e6e359e28c519a41bcadc7656fb6740b92da2243a4bcad960"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "manifest_id": "101",
+      "scenario": "HighwayCutIn",
+      "route_id": "Town12_Rep0_2457_0_route0_01_09_06_17_46",
+      "frames": [
+        47,
+        48,
+        56,
+        57
+      ],
+      "reason": "vehicles disappear between adjacent frames",
+      "default_annotations": 0,
+      "default_train_rows": 0,
+      "default_review_queue_rows": 0,
+      "reported_observations": "f1–17多车并行，自车约f18–23右移进入右侧车道，f24–47前方有红车。f47至48前方红车突变不可见，左后黑车f48–56超越，f57–60又突变消失。f61–91接近右侧车，f92–105该车逐步左向并入前方。前半段不可将群车突然消失作为clear/proceed YES，后半段须区分切入进行和可稳定跟随。 原尺寸f47/48、56/57确认红车及左侧黑车分别突变消失，不能解释为正常驶离。",
+      "rgb_evidence": [
+        {
+          "frame": 47,
+          "path": "HighwayCutIn/Town12_Rep0_2457_0_route0_01_09_06_17_46/rgb/0047.jpg",
+          "sha256": "1d9f9b8ec8021af37fb95fd3ffd17f331ddca02d4278cb60c2811d1375a6cbc9"
+        },
+        {
+          "frame": 48,
+          "path": "HighwayCutIn/Town12_Rep0_2457_0_route0_01_09_06_17_46/rgb/0048.jpg",
+          "sha256": "f2a075fd7fe645f3374508c5df70089ecce30fabd8ca82e69231cf70c2e69fe4"
+        },
+        {
+          "frame": 56,
+          "path": "HighwayCutIn/Town12_Rep0_2457_0_route0_01_09_06_17_46/rgb/0056.jpg",
+          "sha256": "2a38a69379443bd2cc4ef9498b222204bb404bf1d838bde5c956d7686edc8d4c"
+        },
+        {
+          "frame": 57,
+          "path": "HighwayCutIn/Town12_Rep0_2457_0_route0_01_09_06_17_46/rgb/0057.jpg",
+          "sha256": "3874af9e698f1b76d43af6cdb87f8d6d368de7ca11ef1c21b7c4a0ee64418da8"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "manifest_id": "102",
+      "scenario": "HighwayCutIn",
+      "route_id": "Town12_Rep0_2457_3_route0_01_11_03_54_13",
+      "frames": [
+        50,
+        51,
+        59,
+        60
+      ],
+      "reason": "vehicles disappear between adjacent frames",
+      "default_annotations": 0,
+      "default_train_rows": 0,
+      "default_review_queue_rows": 0,
+      "reported_observations": "相似路线不同ID。f1–17多车并行，f18–24右移到黑车后跟随；f35–45左后红车贴侧经过，f46–59又有黑车并行。f50–51前方蓝车突然消失（黑车在f51仍可见），f59–60侧车消失；f61–97接近右侧蓝车，f98–110蓝车逐步左向并入。与101的消失帧不一样，禁止固定时间窗口；常规转移带需在异常处明确截止。 原尺寸f50/51及59/60确认蓝车及侧前黑车分别消失。",
+      "rgb_evidence": [
+        {
+          "frame": 50,
+          "path": "HighwayCutIn/Town12_Rep0_2457_3_route0_01_11_03_54_13/rgb/0050.jpg",
+          "sha256": "98a4996e654c08abfe7c2d7893a4ea2231d7ecff13cbd74da167e7ef0ee9ab63"
+        },
+        {
+          "frame": 51,
+          "path": "HighwayCutIn/Town12_Rep0_2457_3_route0_01_11_03_54_13/rgb/0051.jpg",
+          "sha256": "4044212281296e9bca009fc33ade15f6d050e2eff3b7886b9c3114445b19ea5e"
+        },
+        {
+          "frame": 59,
+          "path": "HighwayCutIn/Town12_Rep0_2457_3_route0_01_11_03_54_13/rgb/0059.jpg",
+          "sha256": "db29798f1e62442d853c029d4c7417452ed7555c7a81e0a33ba630948d4764db"
+        },
+        {
+          "frame": 60,
+          "path": "HighwayCutIn/Town12_Rep0_2457_3_route0_01_11_03_54_13/rgb/0060.jpg",
+          "sha256": "accd66c688aa9aa7b3c34daf186f67191b515ecdb7c4e3824c31789630120f43"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "manifest_id": "516",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20",
+      "frames": [
+        84,
+        85,
+        86,
+        87
+      ],
+      "reason": "pedestrian remains roadside then leaves right FOV; no complete crossing observed",
+      "default_annotations": 0,
+      "default_train_rows": 0,
+      "default_review_queue_rows": 0,
+      "reported_observations": "雨雾f1–33沿路跟车，f34–35左侧远处有横向车辆，f36–50顺左弯跟随前车；f51–83持续迎面交通。f84–86右侧售货机旁行人临近自车，f87后落出右侧视野，原始UE4标记仅f84–86，未见行人横穿完整轨迹，不能从标签结束推断行人已安全通过。f87–128继续正常行驶，精确冲突位置需原图核对。 原尺寸f84–87确认行人从售货机旁出现、仍在人行道临路侧，随后随自车前进从右侧出视野；不是完整横穿后到达对侧。",
+      "rgb_evidence": [
+        {
+          "frame": 84,
+          "path": "DynamicObjectCrossing/Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20/rgb/0084.jpg",
+          "sha256": "9a6a295081e905d13ea95c7a5aecc3e8bfaf1a5d143d5937cbc2c14dbd42b2cf"
+        },
+        {
+          "frame": 85,
+          "path": "DynamicObjectCrossing/Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20/rgb/0085.jpg",
+          "sha256": "555e7504ae8a3a6bb8f945982f784ed82f16c3c3e4e4610430e821a360020bcc"
+        },
+        {
+          "frame": 86,
+          "path": "DynamicObjectCrossing/Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20/rgb/0086.jpg",
+          "sha256": "a0f92541b72640ae766d7c662f256ed7569973c0db5a79640fd1e9f02cfd321d"
+        },
+        {
+          "frame": 87,
+          "path": "DynamicObjectCrossing/Town01_Rep0_Town01_Scenario3_0_route0_01_09_17_24_20/rgb/0087.jpg",
+          "sha256": "952975e8ba42c5a542b9dbd6e4406d158cd480f228a7022f729e6fd9c037dd4a"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    }
+  ],
+  "risk_policy": "人工复审线索，不是自动排除表或已批准转移区间；异常截止须逐帧取证，出画/消失不能单独证明通道清空或几何完成。"
+}

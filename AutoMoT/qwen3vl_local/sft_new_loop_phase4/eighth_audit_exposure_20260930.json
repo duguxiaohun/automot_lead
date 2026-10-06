@@ -1,0 +1,52 @@
+{
+  "train_only_groups": [
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town04_route_001046"
+  ],
+  "reason": "eighth audit developer RGB exposure; must register before future split build",
+  "project_registered": true,
+  "sequence": {
+    "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+    "route_id": "Town04_Rep0_route_001046_route0_01_11_01_51_57",
+    "town": "Town04",
+    "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town04_route_001046",
+    "previously_exposed": false,
+    "frame_count": 71,
+    "first_frame": 0,
+    "last_frame": 70,
+    "missing_frames": [],
+    "abnormal": false,
+    "events": {
+      "R-E5": {
+        "count": 59,
+        "first": 0,
+        "last": 58
+      }
+    },
+    "coverage_cells": [
+      [
+        "R-E5",
+        "NonSignalizedJunctionLeftTurnEnterFlow",
+        "Town04"
+      ]
+    ],
+    "review_status": "pending"
+  },
+  "source": "/tmp/phase4_eighth_audit_20260930/new_exposure_train_only.json",
+  "source_sha256": "75e8849fcc14b236ab2519ae0de81e6b24c3479f45dd627ac8698e1bf5b2e496",
+  "reported_coverage": {
+    "meets_three_ids": 107,
+    "total_cells": 278,
+    "remaining_selected_sequences": 441,
+    "all_requested_rgb_audit_complete": false
+  },
+  "local_review": {
+    "new_complete_sequences": 0,
+    "existing_rgb_frames": 71,
+    "panels": [
+      "340/001.jpg",
+      "340/002.jpg",
+      "604/002.jpg"
+    ],
+    "notes": "复看既有面板，未新增标注；不将部分复看计为完整序列。"
+  }
+}

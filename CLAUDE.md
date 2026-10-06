@@ -1,5 +1,320 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-07 Phase4 无参数一行入口
+
+新增 `Phase4/run.sh` + `auto_run.py`：自动选择兼容训练环境、模型及匹配的全量配对题库，按四图→两图串行完成训练/测试/打包；用户无需 DATA_DIR/MODEL_DIR/SKIP_BUILD 参数。缺题库自动生成，源码变化自动另选内容寻址目录，匹配 v38 时直接复用。
+缺基座时仅准备阶段从 Qwen/Qwen3.5-4B 固定 revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a 下载模型资产（不下载远程代码）；本地缓存优先、训练评估继续离线、telemetry/隐式token禁用。已有不兼容模型不覆盖。
+每轮全覆盖、严格事件呈现1:1、七轮和两图配对沿用已验收 v38；两个实验分目录，失败立即停止。外层只处理主机配置，单独记录启动源码 SHA，不改标签生产/源合同/旧manifest。实测现有 v38 request 与冻结源码保持一致。
+15 项入口专项通过，含进程模拟与真实只读目录选择；本轮无权重下载、GPU训练或新RGB审计。日常命令：在 AutoMoT 下 `bash qwen3vl_local/sft_new_loop_phase4/run.sh`。见 Phase4/QUICKSTART.md。
+
+
+### 2026-10-07 Phase4 v38 一条命令全量流水线
+
+run_full_pipeline默认全量配对建库→train_full严格事件呈现1:1→完整人工test→audit.zip；HISTORY_RGB_MODE=4rgb/2rgb_endpoints、SKIP_BUILD/SKIP_TRAIN/SKIP_EVAL、TRAIN_MODE/EPOCHS/ACCUMULATION兼容Phase3用法。Phase4仅binary，拒绝choice及路径/采样策略覆盖。
+首次自动回放全部合格路线并生成data2/data4；源码绑定请求/完成回执、目录锁、完整配对与不截断校验。模型缺失在昂贵建库前失败；check/preflight/host-preflight不读取best或测试旧adapter。
+全8614路线1062401帧实回放；split7268/658/688、2/4各88986题、443人工及val273/test186/review539保持，v37题ID全保留。每轮793040次、十事件各79304次；两模式真实七轮及world4七轮100%覆盖。预算10000拒绝。
+972专项通过；已实际验证首次建库/两图SKIP_BUILD复用。模型缺失，未GPU训练/真实测试/打包/CARLA；这些阶段只验证编排边界。无新增人工标签/RGB目视/独立评估，弱监督范围与关键覆盖缺口保持。
+合同v38、老师v8规则未改、预约v18同隔离、严格registry v13为空；新产物checkpoints/phase4_v38_full，旧v37保持。详见Phase4/PIPELINE_V38.md及pipeline_v38_verification_20261007.json。
+
+
+### 2026-10-06 Phase4 v37 全量训练与严格事件1:1
+
+用户明确选择全量合格监督每轮全覆盖、呈现次数事件1:1，接受大量重复。新增full_event_equal/专用train_full.sh 2/4；不应用旧cap4/cap8，最小预算由最大事件题池和DDP整除决定，过小预算拒绝。
+建库max-teacher-questions-per-route=0，manifest记录无路线截断；全量入口拒绝截断库或配对丢题。checkpoint绑定全量采样历史；主机预检报告重复量/实际world/优化步数。
+全8614路线1062401帧重放，split7268/658/688保持；2/4各88986题且全部配对，v36所有题ID保留，新增13497题；443人工及val273/test186/review539保持。
+941专项通过，真实pipeline/RGB/world1-4七轮全覆盖及题序配对通过；world4每轮793040次、各事件79304次，每轮100%覆盖；7轮5551280呈现。预算10000拒绝，缺4B未GPU/CARLA。
+老师v8、合同v37、预约v17、严格批准0；关键监督/六事件人工评估缺口保留，无新增人工标签或目视审计，不把全量弱监督称为驾驶认证。
+产物AutoMoT/checkpoints/phase4_v37_full，旧v36保持。见Phase4/FULL_TRAINING_V37.md及full_training_v37_verification_20261006.json。
+
+### 2026-10-06 Phase4 v36 稳定选题、配对训练与异常起点
+
+按不含图数/源码的语义身份稳定选题；显式paired-with核对双库合同/状态/答案/共享RGB，训练交集重算准入，恢复绑定双方manifest；val/test完整保留。
+全8614路线/1062401帧重放，split7268/658/688保持；2/4训练75489/75489，配对75489，原443人工及val273/test186/review539保持。
+920专项通过，实际pipeline/全部RGB/配对启动及world1-4七轮通过；两模式每轮题序一致，400次/轮、七轮705题；预算10000拒绝，缺4B未GPU/CARLA。
+9精确风险、6新曝光训练组接入；新确认相邻异常按首次受影响帧生效，旧审核约束保持。97帧YES因果证据止于97，98消失不反向否决；新窗口旧库题重叠0。
+实际仅1训练路线2原图，无新完整序列/人工标签/独立RGB；继承229/278格三ID筛查、140条待审、18源不足。
+老师v8、合同v36、预约v16、严格批准0、formal_data_ready=false；关键转移/六事件评估/八事件老师缺口保持，1037盲审卡未填。
+新产物AutoMoT/checkpoints/phase4_v36_full，旧v35保持。见Phase4/PAIRED_TRAINING_V36.md及thirty_sixth_audit_verification_20261006.json。
+
+### 2026-10-06 Phase4 v35 局部控制、弯道骑行与采样准入
+
+局部释放排除有范围证据的远处控制，当前hazard/近处红灯/STOP义务仍约束；骑行按当前路线切线判断，同向跟随不授权绕行。
+采样预算/cap/重复/seed/epochs/world贯通预检，require-trainable拒绝不可行计划；直接训练在模型加载前检查容量。
+全8614路线/1062401帧重放，train7268/val658/test688保持；2/4训练75488/75489，443人工及val273/test186/review539保持。
+900专项通过，2/4真实pipeline/全部RGB/world1-4七轮通过；预算10000预检均退出2。默认每轮400，七轮覆盖705/75489；缺模型未GPU/CARLA训练。
+17精确风险接入，旧库每模式11弱题重叠排除，人工/留出无重叠；本轮实际3训练路线6原图，无新增完整序列/人工标签/独立RGB。
+继承216/278三ID筛查、166待审及18源不足。老师v8、合同v35、预约v15、严格批准0、formal_data_ready=false；八事件老师/六事件评估/关键转移仍缺。
+2/4模式独有8141/8142题，当前训练不是严格配对图数消融；question_id绑定图数/源码造成逐路线限额重选，已记录未改。
+新产物AutoMoT/checkpoints/phase4_v35_full，旧v34不变。见Phase4/LOCAL_SCOPE_AND_PREFLIGHT_V35.md及thirty_fifth_audit_verification_20261006.json。
+
+### 2026-10-06 Phase4 v34 参数缩写、主机预检退出与依赖重建
+
+train/preflight/launch禁用参数缩写，shell提前拒绝路径参数全部前缀；pipeline的host-preflight成功后退出，不读best或评估旧adapter。
+合同错误列出具体源码/依赖及新旧SHA；保留当前Phase3开发组隔离修改，按最终依赖重建v34，不修改v33 manifest。
+新增13实际已看训练组、11精确不连续窗口，未看val组不曝光。新窗口覆盖完整人工因果包络含图间隔；旧整路线审核约束保持，卡/编译/加载范围一致。
+新增风险逐题检查：每模式相关18训练/3待审题与11窗口重叠0，没有据源异常撤回标签。本轮2训练路线4原图复核，无新完整序列/标签/独立RGB。
+全8614路线/1062401帧重放，train7268/val658/test688保持；2/4训练75373/75373，原443人工及val273/test186/review539保持。
+878专项通过，2/4真实pipeline、全部RGB、world1/4七轮通过；最终默认2/4启动再验通过，验收时间/SHA保存。默认MODEL_DIR仍缺4B，host-preflight明确失败，未GPU/CARLA训练。
+默认每轮400，七轮覆盖705（0.9353%）；关键边/六事件评估/八事件老师缺口保持；严格批准0，盲审961卡未填，formal_data_ready=false。
+继承筛查203/278格三ID、余215条及18格源不足，非逐题认证。合同v34/data_v34、老师规则v7保持、预约v14，新产物AutoMoT/checkpoints/phase4_v34_full。
+见Phase4/LAUNCH_AND_RISK_V34.md及thirty_fourth_audit_verification_20261006.json；final_source_acceptance只证明记录时点，后续依赖修改须重新验收。
+
+### 2026-10-06 Phase4 v33 分支覆盖、配对评估与启动检查
+
+逐分支/返回策略/边/阶段/答案/split计数，零样本分支显式列出；补问题不填readiness缺额，新增补标任务清单与七轮覆盖比例，无新增准入硬门。
+evaluate输出绑定完整因果输入和参考的paired_identity；paired_eval拒绝漏题/重复/换图/换答案，人工准确率与老师一致率分报。
+启动默认使用v33全量弱库；缺模型/数据在GPU前明确报错，路径覆盖不能绕过预检；构建区分审核题模式与全量老师模式。
+全8614路线/1062401帧重放，物理train7268/val658/test688保持；2/4训练75373/75373题，原443人工及val273/test186/review539保持。
+850专项通过，2/4真实pipeline check、全部RGB核验及world1/4七轮通过；默认每轮400，七轮覆盖705，比例0.9353%。
+12既有训练曝光组及7确认消失窗口接入，撤回/未确认猜测不升级。本轮3训练路线8帧/3缩放联系表，无新完整序列/人工标签/独立RGB。
+继承筛查199/278格，剩228选定序列；筛查不作标签认证。关键绕行/进入/返回和六事件独立评估仍缺，八事件老师仍缺。
+新盲审961卡/56路线未填，严格批准0；弱trainable=true、formal_data_ready=false。默认模型仍缺，Action/CARLA在线提供者未接通，未GPU训练/CARLA验收。
+合同v33/data_v33、老师规则v7未改、预约v13；新产物AutoMoT/checkpoints/phase4_v33_full，v32保留。见Phase4/AUDIT_COVERAGE_V33.md及thirty_third_audit_verification_20261006.json。
+
+### 2026-10-05 Phase4 v32 过期等待截止与静止正例诊断
+
+UE1在已观察停车后持续实际前向运动而仍YIELD时截止旧实例，不造YES/complete，不放宽运行时执行许可；前车连续可见超30m范围同样截止。
+全8614路线/1062401帧重放，train7268/val658/test688保持；2/4弱库训练75373/75373题，原443人工及val273/test186/review539保持。
+已定位VehicleTurningRoute错误静止YES实际19道，均清除；其他旧静止YES18道逐项保留；821 f167–175旧proceed清零。
+预检按事件/边列静止readiness YES缺额，仅报警；cyclist_follow提示明确允许继续跟随，不要求骑车人消失，不授权超车。
+新增至少500帧全程静止的元数据证据过滤；具名BlockedIntersection四路实际起末均行驶，保留并记录反证，本轮无新剔除。
+833专项通过，2/4真实pipeline check、全部RGB核验、world1/4七轮通过；默认每轮400，七轮覆盖705，八事件老师仍缺。
+弱试训trainable=true，formal_data_ready=false，严格批准0。新盲审961卡/56路线全部待审，无独立准确率。
+本轮仅两训练路线10RGB关键帧联系表复核，无新增完整序列/人工标签/独立RGB/GPU训练；八个具名曝光组及两条用户报告行人消失窗口登记。
+合同v32/data_v32、老师v7、预约v12；新产物AutoMoT/checkpoints/phase4_v32_full，v31保留。见Phase4/TEACHER_LIFECYCLE_V32.md及thirty_second_audit_verification_20261005.json。
+
+### 2026-10-05 Phase4 v31 实例范围、运动偏差与弱监督重建
+
+UE1旧前车连续可见离开走廊/被正常移动前车替换后截止；普通跟车不作为额外堵塞，1765_0 f158–180旧实例错NO清零。
+新增保留图像变化门槛的静止释放路径；运动后UE1 proceed原始YES保留回放但不进弱readiness，自动视觉catchup未批准；人工UNKNOWN否决弱覆盖。
+同向骑行者用cyclist_follow分支，横穿转跟随须新实例；不凭场景名猜绕行许可。可见删除仍异常，已完成实例不被下一帧删除改写。
+弱restrict排除；单答案边权重降1；事件等额/边内答案等额/重复cap4/帧cap8保持，readiness:catchup权重4:1、内部运动分层并报告容量回退。
+全8614路线/1062401帧重放，物理train7268/val658/test688保持。2/4弱库训练76871/76871题；原443人工题及val273/test186/review539保持。
+UE1静止proceed弱YES=37，运动弱readinessYES=0；默认每轮400次，七轮覆盖708/708，八事件老师仍缺，不声称全池已训练。
+813项不同专项测试通过；2/4真实pipeline check、world1/4七轮和全部RGB身份核验通过。严格批准0，formal_data_ready=false，弱实验trainable=true。
+93活动/16退役独立预约保持，新盲审945卡/56路线全部未填；未看独立RGB。实际5联系表/24训练帧，无新增完整序列/人工监督/GPU训练。
+用户6精确训练物理组登记，4_47 f51→52可见骑行者消失登记窗口；未具名的额外6条UE1路线未猜ID。
+合同v31/data_v31、老师v6、预约v11，新产物AutoMoT/checkpoints/phase4_v31_full，v30保留；见Phase4/TEACHER_SCOPE_V31.md及thirty_first_audit_verification_20261005.json。
+
+### 2026-10-05 Phase4 v30 全量弱监督、时长过滤与加权采样
+
+过滤963异常时长及135额外无metas路线，合格8614路线/1062401帧，train7268/val658/test688；原物理split保持，排除明细留账。
+独立预约109→93，16条退役仍保留val/test隔离；新2图盲审933卡/57路线，全部未填，12类最佳情形仍0批准。
+风险按登记帧包络核对完整因果历史及STOP证据，窗口外仍过统一自动检查；人工逐帧风险审核保持。
+最终全量老师回放、账本、2/4弱库及留出一致率参考均完成。train2=81377/train4=81377，弱题80934/80934，训练物理组1914/1914；原443题逐行保持，val273/test186/review539逐字节保持。
+新event_weighted：事件等额→主边权重8/恢复跟车4/其他1→边内YES/NO等额，先不同题后重复，单题cap4、共享帧cap8；预算按实际容量计算。
+每轮400次受RE5仅5道YES限制，七轮world1覆盖711/711，未覆盖80666/80666；不声称全池学完。
+795专项通过；2/4真实pipeline check、world1/4七轮及各82375/82375题RGB身份核验。初版重复分配缺陷已修正并重新生产，旧产物及绑定源码保留作对照。
+留出老师参考每模式val8736/test8369，仅一致率，人工指标选优保持；其他8类仍无老师。弱trainable=true，严格formal_data_ready=false。
+合同v30/data_v30、老师v5、抽检v10；阈值/冻结语义/人工标签未改。实际新目视0、独立人工参考0、GPU训练0、CARLA验收0。
+用户3个精确曝光组已train-only，第4个OppositeVehicleRunningRedLight/Town01缺ID待补；旧逐帧审计覆盖缺口保持。
+产物AutoMoT/checkpoints/phase4_v30_full；详见Phase4/FULL_WEAK_TEACHER_V30.md及thirtieth_audit_verification_20261005.json。
+
+### 2026-10-05 Phase4 v29 弱监督实验入口、限制证据与停车义务
+
+复核v28独立池12个2图规则类，假设全对仍0类可达严格批准；新增best_case_feasibility明确判断/路线/转移缺额。
+保留严格批准v2，新增显式命名/逐类白名单/源码绑定的weak_experiment_train_only；弱题仅train、label_basis=weak_rule_teacher，不能冒充已批准或人工准确率。
+实例创建须先观察本事件自身限制，3_26首帧即YES实例已排除；新增StopDutyTracker与当前速度横穿检查，记录带SHA的连续停稳历史，断档/换ID/车道清除。
+STOP框是停止控制区域代理而非已标注停止线；2858_0 f50/2679_1 f48仍距区域13.55/16.30m，提前等行人不能算履行停车。真实停车释放正例尚未确认。
+23开发路线2598帧每模式57YES/170NO/68UNKNOWN，proceed37、恢复跟车YES1、完成YES1，完成实例1。
+过滤风险后实际新增73弱监督（18YES/55NO），train443→516/45物理组；原443题保持，val273/test186/review539与v28逐字节相同。
+新增event_edge_answer：事件等额、事件内边×答案等额、共享帧cap8、缺额不借NO、恢复绑定历史。弱库默认该政策；原人工库仍event_equal。
+782专项通过；2/4实际完整构建/check及975监督+539待审RGB核验；预算100、world1/4七轮采样357/516，159未覆盖。默认整池预算520不满足稀缺格容量，须指定已验证预算。
+同109独立路线21608帧重放生成963张2图盲审卡，均未填写/未目视独立RGB；本轮无新人工标签/RGB目视/完整序列/曝光组。
+合同v29/data_v29、老师v4、抽检v9同预约同split；严格注册表v4为空，弱实验可训但formal_data_ready=false。9712仅全目录清点，非全量标签生产。
+八类老师/独立误差/十事件评估仍缺；未GPU/4B/DDP/CARLA验收。控制器/冻结规则/安全/选优/人工标签/Phase3/Action未改，采样及训练入口按本版修改。
+详见Phase4/WEAK_TEACHER_V29.md及twenty_ninth_audit_verification_20261005.json；产物/tmp/phase4_v29_final，训练须--epoch-samples 100。
+
+### 2026-10-05 Phase4 v28 局部异常、释放回放与独立池扩充
+
+异常按参与者/局部走廊删失，干净历史后可重建同ID；自车已动不再抹掉readiness YES，修复旧推进回执重复提交。
+5观察跟车恢复含间距/相对速度/闭合约束；0.5s仅待校准状态阈值，不是认证安全距离。本车道控制替代路口距离一刀切，红灯仍hold；候选30m及减速前车召回。
+原17开发路线1615帧每模式18YES/55NO/125UNKNOWN、proceed12、完成1；扩展23路线2598帧60YES/264NO/697UNKNOWN、proceed41、完成1。
+1030_0 f72–73推进、f75恢复跟车、f76完成；3_26仍无可靠UE4、暗图/决定性异常仍弃答，不宣称所有实例可完成。
+按有实例而非答案筛384留出路线，新增69物理组，UE1/UE4各40条；原40预约及split保留，共109路线。19260次帧源异常未当标签。
+实回放独立109路线21608帧，仅程序处理；2图开发240卡/独立1485卡全未填写，独立RGB/逐题答案未用于调规则，4图不继承批准。
+766专项通过，2/4图真实pipeline check及902监督+539待审RGB核验；四JSONL与v27相同，train443/45路线、val273/test186。
+实复看3既有训练路线8原图，无新完整序列/曝光组/人工标签；批准0、自动监督0，formal_data_ready=false、有限trainable=true。
+合同v28/data_v28、老师v3、抽检v8、注册表v3空；新增批准预算和采样重复诊断，旧标注/冻结状态规则/控制器/安全/采样/训练/选优保持。
+未全9712生产或GPU/4B/DDP/CARLA验收，八类老师/视觉catchup/独立准确率仍缺，Phase3/Action未改。详见Phase4/TEACHER_RELEASE_V28.md及twenty_eighth_audit_verification_20261005.json。
+
+### 2026-10-04 Phase4 v27 运动证据修复与可执行盲审包
+
+UE1间距增长需前车前向运动；执行回执需车体前向位移/侧移及朝向约束，倒退/侧移不能确认纵向起步。
+严格bool/None条件与来源SHA；完成实例经连续可见解冲突观察可重开同ID，缺图/消失/待复核不重开，终止原因登记。
+新增teacher_review prepare/import/assemble：分层限额选题、公开包隐藏老师答案、全样本逐项审核导入、逐类组合批准。
+去重不含源路径/帧号；YES/NO各需20物理路线，未知参考计错误分母，漏题/空证据/身份状态未确认的二元参考拒绝。
+实跑17开发路线1615帧生成212卡；40冻结独立路线9759帧生成152卡，仅程序生成，未看独立RGB/参考/调规则，全部待填写。
+736专项通过，2/4图真实pipeline check及902监督+539待审RGB核验；四JSONL与v26逐字节相同，train443/45路线、val273/test186。
+真实批准0、新标签0、新RGB目视0，formal_data_ready=false、有限trainable=true；8事件老师/视觉catchup/真实恢复正例仍缺。
+合同v27/data_v27、老师v2、批准政策v2、抽检v7同40路线同split；标注v9、快照v11、冻结规则/控制器/安全/采样/训练/选优保持。
+未全9712路线生产或GPU/4B/DDP/CARLA验收，Phase3/Action未改。详见Phase4/TEACHER_REVIEW_V27.md及twenty_seventh_audit_verification_20261004.json。
+
+### 2026-10-02 Phase4 v26 因果规则老师与逐类批准链路
+
+新增teacher_rules/replay/approval/data：先支持UE1/UE4，参与者身份提示+可见局部冲突建实例，真实Episode逐帧提问/推进/运动回执。
+规则原始YES/NO/UNKNOWN与批准监督分离；每题绑定老师源码及因果输入，独立开发/留出参考、Wilson下界和不同路线数逐类批准。
+实际17开发路线1615帧，2/4图各238提议：15YES/97NO/126UNKNOWN；其中proceed正例11（UE1一帧、UE4十帧），均未批准监督。
+精确开发参考每模式17题：10一致/5弃答/2人工参考UNKNOWN；对应1030_0 f72和Town07 3_1 f52，不声称100%准确或独立认证。
+修复+inf路口距离哨兵、三值未知传播、已在走廊外停下的行人；最近前车筛选，冲突可见输入排除/重复审核不重复计数。
+完整生产按全路线逐帧处置索引计算，不再硬编码False；全UNKNOWN不能过正式准入。按路线并行/完整产物续跑可用，未跑9712条全量。
+真实规则批准清单为空，自动catchup无监督，其他八事件老师未实现；40抽检v6保留同路线同split未审，20路线/规则要求仍需前瞻扩样。
+703专项通过；2/4图真实pipeline check及902监督+539待审RGB核验；四JSONL与v25逐字节一致，训练443/45路线、val273/test186。
+实际仅复看2既有训练路线6原图，无新完整序列/曝光组/人工标签；recover_follow真实正例仍缺，合成状态路径通过不算真实支持。
+合同v26/data_v26、默认标注v9、快照v11；评估老师一致率与人工准确率分列，正式formal_data_ready=false，有限训练trainable=true。
+冻结四规则/标注/holdout/状态机/安全许可/采样/训练/选优不变，Phase3/Action未改，无4B/GPU/DDP/CARLA验收。
+详见Phase4/RULE_TEACHER_V26.md及twenty_sixth_audit_verification_20261002.json。
+
+### 2026-10-02 Phase4 v25 实际输入证据、弱标签撤回与分层审核
+
+UE1 f70–72及UE4 f50–52六题退为UNKNOWN；保留v24增量8题，训练443/45路线，待审539，旧435训练题及val/test保持。
+新增逐模式visual_review：精确2/4RGB与SHA、可定位当前证据、补问后继视觉证明；4图支持/2图未知可分流，构建加载均检查。
+1m完整轮廓余量/6px可见变化等为保守开发口径，未认证驾驶阈值；规则作者复核不冒充独立盲审。
+抽卡按事件×场景×Town×边×建议答案平衡并优先不同物理路线，隐藏逐卡建议；独立val/test包不经开发编译，排除40生产者抽检。
+17路线1615帧3700常规题+4身份提示，分层79卡/117层，45层未选；UE7源场景仅检索身份卡，不能确认为故障或监督。
+实际看5路线87RGB/20面板含7原图，002053完整45帧为既有路线复核；灯色非始终绿色，适用灯头匹配/故障身份待审，无新曝光组。
+653专项通过，2/4图真实check及902监督+539待审RGB核验；world1/4七轮第三轮覆盖443，恢复历史一致。
+合同v25/data_v25、默认标注v9、快照v11，须新产物新run；40抽检v5同路线同split未审，独立任务清单仅待分配。
+预检新增每边每答案20不同路线/每评估事件5路线缺额；关键边、六事件独立评估、全量可靠监督仍缺，formal_data_ready=false。
+旧冻结规则/标注/holdout/状态机/安全许可/采样/训练/选优及Phase3/Action保持；未4B/GPU/DDP/CARLA验收，继承192/278格余约240序列。
+详见Phase4/TWENTY_FIFTH_AUDIT_FIXES_20261002.md与twenty_fifth_audit_verification_20261002.json。
+
+### 2026-10-02 Phase4 v24 半自动转移审核与首批监督增量
+
+选择方案B：局部释放建议与稳定跟车分开，当前参与者附近走廊排除下一路口远车污染；缺证据仍UNKNOWN，自动建议不作监督。
+路口候选要求当前冲突/适用停车标志/待核异常灯态，已过车仅短暂延续；17路线1615帧候选6066→3700，局部释放76真仍待审。
+新增有预算的转折审核队列、显式目标请求、带相机分界的因果RGB面板及逐项审核编译；缺审核/SHA/风险/可见范围证据拒绝。
+真实复看6路线局部84张不同RGB/20面板，其中4原图，无新完整序列/曝光组；疑似双行人与相机重叠吻合，1150_0后段存在新车辆。
+原v7的152条记录保持；v8新增14题：6readiness YES、4readiness NO、4catchup YES。训练449/45路线，RE3 enter新增2YES、UE2 depart新增2NO。
+630专项通过；2/4图真实check及908监督+533待审RGB核验，旧435训练题不变，val/test/review逐字节保持；七轮world1/4第三轮覆盖449。
+合同v24/data_v24、快照v11，须新候选/数据/run；40条抽检v4保留同路线同split，尚未审核，无独立教师准确率。
+return/recover_follow及UE2 depart YES、UE7 proceed YES等仍缺，评估仅四事件，formal_data_ready=false；未完整4B/GPU/DDP/CARLA验收。
+原标注/holdout/状态机/安全许可/采样/训练/选优SHA保持，Phase3/Action未改；继承192/278格与余约240序列。
+详见Phase4/TWENTY_FOURTH_AUDIT_FIXES_20261002.md及twenty_fourth_audit_verification_20261002.json。
+
+### 2026-10-02 Phase4 v23 静态冲突、跟车语义与自动上下文
+
+静态障碍不再因语义像素0被跳过；未解决占据使间隙UNKNOWN；正常跟车可作为UE1/UE3推进，行人等待不再限2m。
+缺失/跳变区分RGB可能可见与相机外清单风险，后者仍拒绝安全许可；跳变两端任一可能入镜均保留RGB风险。
+当前未改规划路线逐段几何接入，UE5的1150_0第127–151帧召回，676_0第57–87仍无误候选。
+新增路口UE6/UE7/RE5假设、交通控制/连续身份过车部分上下文；不把红灯当故障、绿灯当完整优先权或过车当事件完成。
+负static_prop_car extent保留诊断且拒绝许可，两个Town05样本114帧受影响；交通控制代理框与物理碰撞检查分开，仍须优先权凭据。
+17路线1615帧6066候选全待审；1465帧有当前未改导航；133异常中64可能RGB/69清单风险，均非全部目视确认。
+实际复看5路线局部82张RGB、其中4原图，无新完整序列；5曝光组train-only、4风险记录接入，继承192/278格与余约240序列。
+610专项通过；2/4RGB真实check及894监督+533待审核验、四JSONL与v22相同，七轮world1/4第3轮覆盖435题。
+合同v23/data_v23，快照v11；需新产物新run。40留出抽检v3保留同路线/原split，尚无审核标签或独立准确率。
+自动可靠实例/优先权/可见性/完整机动导航与安全三前提仍缺，无新增监督；训练435/42路线、关键四边0、评估仅四事件。
+formal_data_ready=false，无完整4B/GPU/DDP/CARLA验收；Phase3/Action与冻结标注/采样/选优不变。详见Phase4/TWENTY_THIRD_AUDIT_FIXES_20261002.md。
+
+### 2026-10-02 Phase4 v22 瞬移检测、可见性与上下文接线
+
+同ID跳变用ego_matrix补偿自车运动，146_1 18→19的3824/3823实测位移约59.4/59.9m；缺位姿安全许可拒绝。
+保留base_type/type_id，自行车/摩托车归UE4、静态障碍归UE2候选；弯道正常对向车不凭直线带判侵入，676_0 57–87误候选为0。
+投影RGB亮度/对比度/过曝门槛只作开发筛查，未认证可见性；来源绑定的当帧状态/导航/场景contexts接入生产，新范围横向参考可校准。
+缺上下文时假设状态target仍UNKNOWN，几何结果单列；默认12路线1087帧2462候选全待审，68缺失ID+4跳变未逐一确认。
+旧校准仍320参考311弃答/8对/1错；全量可靠上下文及安全三前提的自动来源未实现，无新增监督。
+九组显式train-only、五风险记录；仅复看3原图，001997人形无对应walker记录仍身份待核，无新完整序列目视。
+40条留出路线冻结生产者人工抽检v2计划，保持原split并禁止开发/选优用途；只是预约，尚无人审标签或十事件评估。
+592专项通过；2/4RGB真实check及894监督+533待审核验，四JSONL与v21相同；七轮world1/4第3轮覆盖435题。
+合同v22/data_v22/快照v11，须新候选/数据/run；训练435/42路线，关键四边0、val/test仅四事件，formal_data_ready=false。
+冻结四规则/旧标注/旧holdout/采样/训练/选优SHA保持，Phase3/Action默认未改；无完整4B/GPU/DDP/CARLA验收。
+见Phase4/TWENTY_SECOND_AUDIT_FIXES_20261002.md与twenty_second_audit_verification_20261002.json；继承192/278格及余约240序列。
+
+
+### 2026-10-01 Phase4 v21 因果候选生产与离线安全适配
+
+新增白名单bboxes/metas因果几何、逐帧候选/异常生产与开发校准，排除未来数组/专家动作；候选不作监督。
+实扫六路线712帧，26个ID缺失候选；320有效readiness参考311弃答/8对/1错，排除98旧横向范围参考，未批准自动标签。
+离线回放接上当前导航包络＋全参与者运动几何安全适配，仍须真实覆盖/可行驶空间/通行权证据；不是CARLA适配验收。
+明确安全拒绝正常等待、缺信息仍未知；新增矛盾/缺许可/拒绝统计，修复旧范围编译题隔离后加载来源核对。
+六组显式train-only、七风险记录接入；仅复看2954_1五张原图，无新完整RGB序列/训练标签，146_1沿用v20不重复。
+567专项通过；2/4RGB真实check及各894监督+533待审RGB通过，四JSONL与v20逐字节一致，七轮world1/4覆盖435题。
+合同v21/data_v21/快照v11，须新候选/数据/run；冻结四规则/标签/holdout/采样/训练/选优SHA保持，Phase3/Action默认未改。
+train435/42路线、val273/test186仅四事件，关键depart/enter/return/recover_follow仍0，formal_data_ready=false；无完整4B/GPU/DDP/CARLA验收。
+继承192/278格、余约240序列，不将程序读取计作目视；见Phase4/TWENTY_FIRST_AUDIT_FIXES_20261001.md及twenty_first_audit_verification_20261001.json。
+
+
+### 2026-10-01 Phase4 v20 跟车恢复与可见范围安全准入
+
+RECOVER新增recover_follow到FOLLOW，不再伪造renewed_restriction完成正常跟车；新边真实监督仍0。
+depart/enter/return仅判断可见范围，接受机动另需当前规划器/BEV全走廊及后侧许可，绑定实例/帧/边/目标/分段；缺失不授权，执行回执不能替代，整帧事务保持。
+旧横向题须逐帧新范围复审，128监督转待审；两RGB现train435/val273/test186、待审533，训练42路线，val/test仍仅四事件。
+15物理组显式train-only、10风险路线登记；仅复看146_1两张原图确认18→19消失，其余疑似不升级确认，无新标签/完整序列审计。
+529专项通过；原标注/四冻结规则/采样/训练/选优不变，Phase3/Action默认未改。合同v20/data_v20/快照v10，须新候选/数据/run。
+缺415转移格、12分段格、9环岛格；formal_data_ready=false，未真实BEV适配器/4B/GPU/DDP/CARLA验收，未放宽HOLD为蠕行。
+详见Phase4/TWENTIETH_AUDIT_FIXES_20261001.md与twentieth_audit_verification_20261001.json。
+
+
+### 2026-09-30 Phase4 将审计风险接入构建准入
+
+新增risk_review.py，十/十一轮12条风险路线必须逐帧复审并覆盖全部因果输入RGB，旧整段/缺审核/过期风险ID拒绝。
+usable要求身份/转移范围/实例边界复核及本帧SHA；任一历史图uncertain/excluded则整题UNKNOWN待审，不作YES/NO监督。
+加载再次校验，manifest/preflight记录处置；新增待填写审核模板CLI，内部证据不进入模型提示词。
+任务v11/data_v11，需新产物新run；prompt v6/快照v8/标注v4/标定v5不变，Phase3/Action稳定默认未改。
+311项专项通过（新增20）；两模式实际check、各453题RGB、14整池计划及cap1小预算各453轮覆盖通过。
+四个JSONL与第十一轮逐字节一致，453题/133待审；无新人工标签/目视审阅，风险机制不自动识别异常或替代人工证据。
+ready=false，仍缺389转移格/12分段格及独立val/test/完整4B；覆盖155/278格，剩361条，未正式GPU/DDP/CARLA验收。
+详见Phase4/RISK_ADMISSION_20260930.md。
+
+### 2026-09-30 Phase4 第十一轮曝光与证据登记
+
+ParkedObstacleTwoWays/Town12_4608_0显式登记train-only，不能依赖默认seed恰好分train；七条重点路线/16张定位RGB摘要保存复审线索。
+仅改曝光合并/合同资产绑定及说明，不改控制器/采样/提示词/标定/人工标签；569消失点保留原图纠正的f74→75。
+任务名v10、提示词v6、快照v8、标注v4保持，源码/曝光摘要更新须新产物新run；Phase3/Action默认未改。
+291项专项通过；2/4RGB实际pipeline check、各453题RGB与14整池计划、cap1小预算各453轮覆盖通过。
+四个JSONL与第十轮登记产物逐字节一致；453题/133待审，val/test空，缺389转移格及12分段格，ready=false。
+本轮复看2面板34张既有RGB，无新增完整序列/标签；报告累计339条/38369帧、155/278格三ID、剩361条，18格源不足。
+完整审计及正式4B/GPU/DDP/CARLA仍未验收，本机默认完整模型缺失。见Phase4/ELEVENTH_AUDIT_REGISTRATION_20260930.md。
+
+### 2026-09-30 Phase4 第十轮曝光与风险登记
+
+四个新增曝光物理组正式登记train-only；五条消失/碰撞/出画风险保存关键帧SHA及报告来源，均未入默认题库。
+仅修改曝光合并/合同资产绑定与说明，不改状态机/采样/提示词/标定/人工标签；风险表不自动生成标签或排除样本。
+任务名v10/提示词v6/快照v8/标注v4保持，但源码及曝光摘要改变，须新产物新run，旧manifest不可改hash复用。
+289项专项通过；2/4RGB实际pipeline check、各453题全量RGB、14整池采样及cap1小预算各453轮全覆盖通过。
+四个JSONL与此前v10逐字节一致，453题/133待审、val/test空，缺389转移单元及12分段单元，ready=false。
+本轮复看三面板72张既有RGB，无新增完整序列/标注；报告累计311条/35059帧，137/278格三ID，剩389条、18格源不足。
+完整审计和正式4B/GPU/DDP/CARLA未验收，本机默认4B目录仍缺；Phase3/Action稳定默认未改。
+详见Phase4/TENTH_AUDIT_REGISTRATION_20260930.md。
+
+### 2026-09-30 Phase4 第九轮采样与RE3分段修复
+
+小预算改为固定题目交错队列只轮转一次；四题budget1十二轮各三次，固定池可行正预算N轮覆盖每题。
+RE3提供相邻route_segments，复用WAIT/CROSS逐段接续，每段新观察重新问enter；保留纵向约束，末段稳定才退出。
+提示词仅当前段状态对，执行回执绑定segment_id；错段/缺段拒绝且tick原子回滚；回放真值跨段删失。
+任务v10/data_v10、提示词v6、快照v8、采样v2，须新产物新run；人工标注v4/标定v5保持，Phase3/Action默认未动。
+284项专项通过；2/4RGB实际check、各453题RGB核验、各14整池采样计划及453轮budget1覆盖通过。
+原453题/133待审除模型输入身份摘要外逐行一致；原389转移格缺额保持，新增12项分段支持检查全缺，ready=false。
+登记第九轮两个PedestrianCrossing/Town13曝光组train-only；本轮复看四面板96张既有RGB，无新增完整序列/标注。
+报告累计283条/32537帧、120/278格三ID，剩417条，18格源不足；完整逐帧审计未完成。
+默认4B目录不存在，无正式GPU/DDP/CARLA验收；邻接关系须上游导航确认，不从RGB自动生成完整计划。
+详见Phase4/NINTH_AUDIT_FIXES_20260930.md。
+
+### 2026-09-30 Phase4 第八轮审计修复
+
+UNKNOWN/缺答不再吞掉有效上下文中同帧明确的hold；仅接纳独立收紧约束，保留UNKNOWN/STOP，
+不授予推进许可；显式矛盾仍复核，已有HOLD不因再次让行或不确定超时丢失。
+构建/加载按有序解码RGB和实际system/状态对消息核对相反答案，隐藏instance ID不能区分；
+load_images核对像素身份。新增输入身份字段，任务合同v9/data_v9/快照v7，须新数据新run。
+256项专项通过；2/4RGB实际pipeline check、各453题全量RGB核验和各14采样计划通过。
+默认453题/133待审，除两项身份字段外逐行保留，无实际输入冲突；标注v4/提示词v5/标定规则v5未改。
+第八轮新增曝光组Town04_route_001046已登记train-only；本轮只复看3面板71张既有RGB，新增完整序列0。
+审计报告累计259条/29698帧，107/278格三ID，剩441条，18格来源不足；全覆盖未完成。
+ready=false，仍缺389转移支持格/独立holdout/完整4B，无正式GPU/DDP/CARLA验收；Phase3/Action默认未改。
+详见Phase4/EIGHTH_AUDIT_FIXES_20260930.md。
+
+### 2026-09-30 Phase4 第六/七轮候选标注接入
+
+四段proceed候选逐帧复核后纳入reviewed_state_pairs_v4.json，默认完整流水线更新；原v3的57条逐条保留。
+新增24题、12UNKNOWN、4截止排除，开发库453题/133待审；UE4条件已成立但尚未起步仍YES，突变消失不生成YES。
+本次实际复看7面板、43原尺寸，去重169张既有RGB；无新增完整序列/曝光组，增量证据SHA绑定。
+230项专项通过，默认入口新断言单独通过；2/4图默认pipeline check、全453题哈希和各14个采样计划通过。
+原429题/121待审逐行保留，新库逐行等于第七轮候选；曝光集合不变，全部train-only。
+任务合同v8/data_v8/标注v4，提示词v5/标定规则v5/快照v6保持；新数据新run，Phase3/Action默认未动。
+ready=false；缺389转移格（119/135/135，其中270公共纵向）、独立holdout及完整4B，无正式GPU/DDP/CARLA验收。
+第七轮报告累计238条/27633帧、97/278格三ID，剩462条，18格源不足；完整审计未完成。
+详见Phase4/RGB_CANDIDATE_INTEGRATION_20260930.md。
+
 ### 2026-09-30 Phase4 第四轮部分审计修复
 
 旧per_frame_conditions仅保留readiness；legacy catchup构建和直接helper均拒绝，须逐帧复审为reviewed_transition_band。
@@ -1327,7 +1642,7 @@ Phase3当前prompt为 `v7_compact_observed_forecast`，system 120→12英文词�
 ### 2026-09-14 Phase3 binary/choice 全错例 RGB 审计
 
 20260911_174046 包：binary production 373/552=67.57%，choice在306个单动作题上241/306=78.76%；同题binary203/306。choice不评NONE/INVALID/联合动作，不当完整任务替代品。
-本次逐帧复核202题、122个run、2566个不同主审计帧，覆盖binary179及choice65个production错例的193题并集，另9题正确对照；不是全数据随机噪声调查，自动源规则命中不得记作人工确认。
+本次逐帧复核202题、122个run、2567个不同主审计帧，覆盖binary179及choice65个production错例的193题并集，另9题正确对照；不是全数据随机噪声调查，自动源规则命中不得记作人工确认。
 当前默认索引v9、split seed20260914、prompt v8_shared_temporal_rules；STOP两帧≤0.5m/s都须在1.5s内，普通速度变化窗口2s、首次越线窗口3s，+3.25s仅确认末端越线。数值动作规则仍v7，没有为模型答案调阈值。
 collector的R4恢复逐帧要求局部路口空间证据；Phase3只撤回有明确R1来源的stable_meta_light_with_untrusted_xodr弱恢复，保留独立事件。DynamicObjectCrossing hazard-only切入标待审，不整类改NO；精确RGB排除两条U-E3帧段、隔离两条局部RS帧段及一处lane_id/视觉跨线未确认转移。
 原collection与原audit bundle不回写；精确修订通过Phase3映射层，Phase1/2既有权重不会自动更正。所有已暴露test的191个物理路线组加入train-only开发集合，累计709组；新holdout不得复用。

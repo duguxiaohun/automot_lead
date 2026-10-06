@@ -1,0 +1,921 @@
+{
+  "version": "v36",
+  "acceptance": {
+    "utc": "2026-10-06T14:06:16Z",
+    "contract_sha256": "b3d08f22703da7e0e2339ea75d3402bc199ba00632d51154cdfbdbf9d68a084e",
+    "checks": {
+      "paired_schedule": {
+        "exit_code": 0,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "/tmp/phase4_v36_work/verify_pairs.py"
+        ]
+      },
+      "paired_preflight2": {
+        "exit_code": 0,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data2",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data4",
+          "--require-trainable"
+        ]
+      },
+      "budget10000_2": {
+        "exit_code": 2,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data2",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data4",
+          "--epoch-samples",
+          "10000",
+          "--require-trainable"
+        ]
+      },
+      "paired_startup2": {
+        "exit_code": 0,
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train.sh",
+          "check",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data4"
+        ]
+      },
+      "paired_preflight4": {
+        "exit_code": 0,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data4",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data2",
+          "--require-trainable"
+        ]
+      },
+      "budget10000_4": {
+        "exit_code": 2,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data4",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data2",
+          "--epoch-samples",
+          "10000",
+          "--require-trainable"
+        ]
+      },
+      "paired_startup4": {
+        "exit_code": 0,
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train.sh",
+          "check",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v36_full/data2"
+        ]
+      },
+      "host": {
+        "exit_code": 2,
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train.sh",
+          "host-preflight"
+        ]
+      }
+    },
+    "tests": "920 passed in 80.35s (0:01:20)",
+    "blind_cards": 1037,
+    "independent_images_viewed": 0,
+    "gpu_training": false,
+    "carla_validation": false
+  },
+  "verification": {
+    "2": {
+      "mode": 2,
+      "train": 75489,
+      "training_routes": 1837,
+      "weak": 75046,
+      "weak_routes": 1808,
+      "weak_answers": {
+        "YES": 4149,
+        "NO": 70897
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 91,
+          "routes": 29
+        },
+        "U-E1/complete/YES": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/hold/NO": {
+          "questions": 646,
+          "routes": 154
+        },
+        "U-E1/hold/YES": {
+          "questions": 1604,
+          "routes": 1390
+        },
+        "U-E1/proceed/NO": {
+          "questions": 59714,
+          "routes": 1387
+        },
+        "U-E1/proceed/YES": {
+          "questions": 55,
+          "routes": 46
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 718,
+          "routes": 167
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 1244,
+          "routes": 159
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 119,
+          "routes": 105
+        },
+        "U-E1/release/NO": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/release/YES": {
+          "questions": 22,
+          "routes": 22
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 716,
+          "routes": 167
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/stable/NO": {
+          "questions": 536,
+          "routes": 154
+        },
+        "U-E4/complete/NO": {
+          "questions": 75,
+          "routes": 11
+        },
+        "U-E4/hold/NO": {
+          "questions": 86,
+          "routes": 11
+        },
+        "U-E4/hold/YES": {
+          "questions": 869,
+          "routes": 783
+        },
+        "U-E4/proceed/NO": {
+          "questions": 6910,
+          "routes": 780
+        },
+        "U-E4/proceed/YES": {
+          "questions": 1314,
+          "routes": 276
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 75,
+          "routes": 11
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 67
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76487,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74784,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74784,
+          "seen": 705,
+          "complete": false
+        }
+      }
+    },
+    "4": {
+      "mode": 4,
+      "train": 75489,
+      "training_routes": 1837,
+      "weak": 75046,
+      "weak_routes": 1808,
+      "weak_answers": {
+        "YES": 4149,
+        "NO": 70897
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 91,
+          "routes": 29
+        },
+        "U-E1/complete/YES": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/hold/NO": {
+          "questions": 646,
+          "routes": 154
+        },
+        "U-E1/hold/YES": {
+          "questions": 1604,
+          "routes": 1390
+        },
+        "U-E1/proceed/NO": {
+          "questions": 59714,
+          "routes": 1387
+        },
+        "U-E1/proceed/YES": {
+          "questions": 55,
+          "routes": 46
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 718,
+          "routes": 167
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 1244,
+          "routes": 159
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 119,
+          "routes": 105
+        },
+        "U-E1/release/NO": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/release/YES": {
+          "questions": 22,
+          "routes": 22
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 716,
+          "routes": 167
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/stable/NO": {
+          "questions": 536,
+          "routes": 154
+        },
+        "U-E4/complete/NO": {
+          "questions": 75,
+          "routes": 11
+        },
+        "U-E4/hold/NO": {
+          "questions": 86,
+          "routes": 11
+        },
+        "U-E4/hold/YES": {
+          "questions": 869,
+          "routes": 783
+        },
+        "U-E4/proceed/NO": {
+          "questions": 6910,
+          "routes": 780
+        },
+        "U-E4/proceed/YES": {
+          "questions": 1314,
+          "routes": 276
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 75,
+          "routes": 11
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 67
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76487,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74784,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74784,
+          "seen": 705,
+          "complete": false
+        }
+      }
+    }
+  },
+  "pairing": {
+    "pairing": {
+      "policy": "paired_causal_training_intersection_v1",
+      "pairs": 75489,
+      "semantic_sha256": "f099556c5fa9ab5c7837560ea5e9fea2b3cf5f95fa3712b279b781fe8d6f29c2",
+      "exclusions": {},
+      "scope": "training intersection only; full val/test retained; not proof of label accuracy"
+    },
+    "unpaired_counts": {
+      "2": 0,
+      "4": 0
+    },
+    "schedules": {
+      "1": [
+        {
+          "epoch": 0,
+          "presentations": 400,
+          "seen": 272,
+          "paired_sequence_sha256": "388f37dcf7f25a55855b2c5a9e01f7bdec8e39725ddb90c37c701400ec1dc4ac"
+        },
+        {
+          "epoch": 1,
+          "presentations": 400,
+          "seen": 373,
+          "paired_sequence_sha256": "e858a10157010ae4084b0219d9d176221841e08258896c038be9ea9de9bada10"
+        },
+        {
+          "epoch": 2,
+          "presentations": 400,
+          "seen": 449,
+          "paired_sequence_sha256": "0c54d9c32b29042387bd0dfe2cbd105ac910cc779163492af69291c29925694a"
+        },
+        {
+          "epoch": 3,
+          "presentations": 400,
+          "seen": 516,
+          "paired_sequence_sha256": "416f66cc013d4f336c52f701c249888bad80e3d2287a73fe9d25eafa79bc9a24"
+        },
+        {
+          "epoch": 4,
+          "presentations": 400,
+          "seen": 579,
+          "paired_sequence_sha256": "6d1fe3112ccc50249adab4a819ac982f9afbbdb68e70e3ec478951a8ee9a040e"
+        },
+        {
+          "epoch": 5,
+          "presentations": 400,
+          "seen": 643,
+          "paired_sequence_sha256": "056227c4f74adf7722312f437fc45093740f2e93fb0ab1d1ce32ed866ce6d397"
+        },
+        {
+          "epoch": 6,
+          "presentations": 400,
+          "seen": 705,
+          "paired_sequence_sha256": "474689a9f6aa5c62e293314ed295830d802989e3565152bce01f08304ea4f412"
+        }
+      ],
+      "4": [
+        {
+          "epoch": 0,
+          "presentations": 400,
+          "seen": 272,
+          "paired_sequence_sha256": "388f37dcf7f25a55855b2c5a9e01f7bdec8e39725ddb90c37c701400ec1dc4ac"
+        },
+        {
+          "epoch": 1,
+          "presentations": 400,
+          "seen": 373,
+          "paired_sequence_sha256": "e858a10157010ae4084b0219d9d176221841e08258896c038be9ea9de9bada10"
+        },
+        {
+          "epoch": 2,
+          "presentations": 400,
+          "seen": 449,
+          "paired_sequence_sha256": "0c54d9c32b29042387bd0dfe2cbd105ac910cc779163492af69291c29925694a"
+        },
+        {
+          "epoch": 3,
+          "presentations": 400,
+          "seen": 516,
+          "paired_sequence_sha256": "416f66cc013d4f336c52f701c249888bad80e3d2287a73fe9d25eafa79bc9a24"
+        },
+        {
+          "epoch": 4,
+          "presentations": 400,
+          "seen": 579,
+          "paired_sequence_sha256": "6d1fe3112ccc50249adab4a819ac982f9afbbdb68e70e3ec478951a8ee9a040e"
+        },
+        {
+          "epoch": 5,
+          "presentations": 400,
+          "seen": 643,
+          "paired_sequence_sha256": "056227c4f74adf7722312f437fc45093740f2e93fb0ab1d1ce32ed866ce6d397"
+        },
+        {
+          "epoch": 6,
+          "presentations": 400,
+          "seen": 705,
+          "paired_sequence_sha256": "474689a9f6aa5c62e293314ed295830d802989e3565152bce01f08304ea4f412"
+        }
+      ]
+    },
+    "pre_disappearance_preserved": {
+      "2": {
+        "id": "5cb15b34935f1b2d6c597c924b8ef28ccdcc9e655635be56a85c3a69d56797b4",
+        "history": [
+          93,
+          97
+        ],
+        "max_causal_frame": 97
+      },
+      "4": {
+        "id": "5cb15b34935f1b2d6c597c924b8ef28ccdcc9e655635be56a85c3a69d56797b4",
+        "history": [
+          91,
+          93,
+          95,
+          97
+        ],
+        "max_causal_frame": 97
+      }
+    },
+    "new_risk_impact": {
+      "2": {
+        "related_old_train_rows": 180,
+        "overlapping_after_onset": []
+      },
+      "4": {
+        "related_old_train_rows": 180,
+        "overlapping_after_onset": []
+      }
+    },
+    "evaluation_unchanged": true
+  },
+  "production": {
+    "routes": {
+      "train": 7268,
+      "val": 658,
+      "test": 688
+    },
+    "frames": {
+      "train": 904802,
+      "val": 78072,
+      "test": 79527
+    },
+    "cells": {
+      "test/U-E1/complete/YES": {
+        "judgments": 8,
+        "routes": 8
+      },
+      "test/U-E1/hold/NO": {
+        "judgments": 40,
+        "routes": 11
+      },
+      "test/U-E1/hold/UNKNOWN": {
+        "judgments": 122,
+        "routes": 9
+      },
+      "test/U-E1/hold/YES": {
+        "judgments": 136,
+        "routes": 111
+      },
+      "test/U-E1/proceed/NO": {
+        "judgments": 6521,
+        "routes": 110
+      },
+      "test/U-E1/proceed/UNKNOWN": {
+        "judgments": 1137,
+        "routes": 107
+      },
+      "test/U-E1/proceed/YES": {
+        "judgments": 33,
+        "routes": 18
+      },
+      "test/U-E1/re_yield/NO": {
+        "judgments": 52,
+        "routes": 11
+      },
+      "test/U-E1/re_yield/UNKNOWN": {
+        "judgments": 134,
+        "routes": 10
+      },
+      "test/U-E1/re_yield/YES": {
+        "judgments": 4,
+        "routes": 4
+      },
+      "test/U-E1/recover_follow/NO": {
+        "judgments": 131,
+        "routes": 12
+      },
+      "test/U-E1/recover_follow/UNKNOWN": {
+        "judgments": 20,
+        "routes": 2
+      },
+      "test/U-E1/recover_follow/YES": {
+        "judgments": 8,
+        "routes": 8
+      },
+      "test/U-E1/release/NO": {
+        "judgments": 31,
+        "routes": 9
+      },
+      "test/U-E1/renewed_restriction/NO": {
+        "judgments": 41,
+        "routes": 11
+      },
+      "test/U-E1/renewed_restriction/UNKNOWN": {
+        "judgments": 122,
+        "routes": 9
+      },
+      "test/U-E1/renewed_restriction/YES": {
+        "judgments": 4,
+        "routes": 4
+      },
+      "test/U-E1/restrict/YES": {
+        "judgments": 131,
+        "routes": 111
+      },
+      "test/U-E1/stable/NO": {
+        "judgments": 32,
+        "routes": 11
+      },
+      "test/U-E1/stable/UNKNOWN": {
+        "judgments": 127,
+        "routes": 11
+      },
+      "test/U-E4/hold/UNKNOWN": {
+        "judgments": 243,
+        "routes": 6
+      },
+      "test/U-E4/hold/YES": {
+        "judgments": 71,
+        "routes": 65
+      },
+      "test/U-E4/proceed/NO": {
+        "judgments": 594,
+        "routes": 65
+      },
+      "test/U-E4/proceed/UNKNOWN": {
+        "judgments": 610,
+        "routes": 69
+      },
+      "test/U-E4/proceed/YES": {
+        "judgments": 130,
+        "routes": 26
+      },
+      "test/U-E4/restrict/UNKNOWN": {
+        "judgments": 243,
+        "routes": 6
+      },
+      "test/U-E4/restrict/YES": {
+        "judgments": 71,
+        "routes": 65
+      },
+      "train/U-E1/complete/NO": {
+        "judgments": 91,
+        "routes": 29
+      },
+      "train/U-E1/complete/UNKNOWN": {
+        "judgments": 46,
+        "routes": 4
+      },
+      "train/U-E1/complete/YES": {
+        "judgments": 86,
+        "routes": 86
+      },
+      "train/U-E1/hold/NO": {
+        "judgments": 654,
+        "routes": 154
+      },
+      "train/U-E1/hold/UNKNOWN": {
+        "judgments": 1224,
+        "routes": 106
+      },
+      "train/U-E1/hold/YES": {
+        "judgments": 1605,
+        "routes": 1391
+      },
+      "train/U-E1/proceed/NO": {
+        "judgments": 73180,
+        "routes": 1387
+      },
+      "train/U-E1/proceed/UNKNOWN": {
+        "judgments": 13338,
+        "routes": 1323
+      },
+      "train/U-E1/proceed/YES": {
+        "judgments": 421,
+        "routes": 288
+      },
+      "train/U-E1/re_yield/NO": {
+        "judgments": 726,
+        "routes": 167
+      },
+      "train/U-E1/re_yield/UNKNOWN": {
+        "judgments": 1152,
+        "routes": 105
+      },
+      "train/U-E1/re_yield/YES": {
+        "judgments": 40,
+        "routes": 39
+      },
+      "train/U-E1/recover_follow/NO": {
+        "judgments": 1270,
+        "routes": 159
+      },
+      "train/U-E1/recover_follow/UNKNOWN": {
+        "judgments": 306,
+        "routes": 23
+      },
+      "train/U-E1/recover_follow/YES": {
+        "judgments": 119,
+        "routes": 105
+      },
+      "train/U-E1/release/NO": {
+        "judgments": 86,
+        "routes": 86
+      },
+      "train/U-E1/release/UNKNOWN": {
+        "judgments": 115,
+        "routes": 9
+      },
+      "train/U-E1/release/YES": {
+        "judgments": 22,
+        "routes": 22
+      },
+      "train/U-E1/renewed_restriction/NO": {
+        "judgments": 726,
+        "routes": 167
+      },
+      "train/U-E1/renewed_restriction/UNKNOWN": {
+        "judgments": 1152,
+        "routes": 105
+      },
+      "train/U-E1/renewed_restriction/YES": {
+        "judgments": 40,
+        "routes": 39
+      },
+      "train/U-E1/restrict/YES": {
+        "judgments": 1565,
+        "routes": 1391
+      },
+      "train/U-E1/stable/NO": {
+        "judgments": 546,
+        "routes": 154
+      },
+      "train/U-E1/stable/UNKNOWN": {
+        "judgments": 1149,
+        "routes": 105
+      },
+      "train/U-E4/complete/NO": {
+        "judgments": 75,
+        "routes": 11
+      },
+      "train/U-E4/complete/UNKNOWN": {
+        "judgments": 356,
+        "routes": 11
+      },
+      "train/U-E4/hold/NO": {
+        "judgments": 86,
+        "routes": 11
+      },
+      "train/U-E4/hold/UNKNOWN": {
+        "judgments": 4478,
+        "routes": 86
+      },
+      "train/U-E4/hold/YES": {
+        "judgments": 882,
+        "routes": 785
+      },
+      "train/U-E4/proceed/NO": {
+        "judgments": 8055,
+        "routes": 783
+      },
+      "train/U-E4/proceed/UNKNOWN": {
+        "judgments": 8647,
+        "routes": 803
+      },
+      "train/U-E4/proceed/YES": {
+        "judgments": 1336,
+        "routes": 283
+      },
+      "train/U-E4/re_yield/NO": {
+        "judgments": 75,
+        "routes": 11
+      },
+      "train/U-E4/re_yield/UNKNOWN": {
+        "judgments": 356,
+        "routes": 11
+      },
+      "train/U-E4/restrict/NO": {
+        "judgments": 86,
+        "routes": 11
+      },
+      "train/U-E4/restrict/UNKNOWN": {
+        "judgments": 4478,
+        "routes": 86
+      },
+      "train/U-E4/restrict/YES": {
+        "judgments": 882,
+        "routes": 785
+      },
+      "val/U-E1/complete/NO": {
+        "judgments": 6,
+        "routes": 4
+      },
+      "val/U-E1/complete/UNKNOWN": {
+        "judgments": 38,
+        "routes": 1
+      },
+      "val/U-E1/complete/YES": {
+        "judgments": 6,
+        "routes": 6
+      },
+      "val/U-E1/hold/NO": {
+        "judgments": 49,
+        "routes": 12
+      },
+      "val/U-E1/hold/UNKNOWN": {
+        "judgments": 141,
+        "routes": 8
+      },
+      "val/U-E1/hold/YES": {
+        "judgments": 147,
+        "routes": 138
+      },
+      "val/U-E1/proceed/NO": {
+        "judgments": 6612,
+        "routes": 138
+      },
+      "val/U-E1/proceed/UNKNOWN": {
+        "judgments": 1063,
+        "routes": 131
+      },
+      "val/U-E1/proceed/YES": {
+        "judgments": 23,
+        "routes": 18
+      },
+      "val/U-E1/re_yield/NO": {
+        "judgments": 60,
+        "routes": 13
+      },
+      "val/U-E1/re_yield/UNKNOWN": {
+        "judgments": 130,
+        "routes": 8
+      },
+      "val/U-E1/re_yield/YES": {
+        "judgments": 2,
+        "routes": 2
+      },
+      "val/U-E1/recover_follow/NO": {
+        "judgments": 94,
+        "routes": 15
+      },
+      "val/U-E1/recover_follow/UNKNOWN": {
+        "judgments": 37,
+        "routes": 1
+      },
+      "val/U-E1/recover_follow/YES": {
+        "judgments": 11,
+        "routes": 9
+      },
+      "val/U-E1/release/NO": {
+        "judgments": 6,
+        "routes": 6
+      },
+      "val/U-E1/release/UNKNOWN": {
+        "judgments": 41,
+        "routes": 1
+      },
+      "val/U-E1/release/YES": {
+        "judgments": 3,
+        "routes": 3
+      },
+      "val/U-E1/renewed_restriction/NO": {
+        "judgments": 60,
+        "routes": 13
+      },
+      "val/U-E1/renewed_restriction/UNKNOWN": {
+        "judgments": 130,
+        "routes": 8
+      },
+      "val/U-E1/renewed_restriction/YES": {
+        "judgments": 2,
+        "routes": 2
+      },
+      "val/U-E1/restrict/YES": {
+        "judgments": 145,
+        "routes": 138
+      },
+      "val/U-E1/stable/NO": {
+        "judgments": 40,
+        "routes": 12
+      },
+      "val/U-E1/stable/UNKNOWN": {
+        "judgments": 102,
+        "routes": 7
+      },
+      "val/U-E4/hold/UNKNOWN": {
+        "judgments": 90,
+        "routes": 2
+      },
+      "val/U-E4/hold/YES": {
+        "judgments": 92,
+        "routes": 78
+      },
+      "val/U-E4/proceed/NO": {
+        "judgments": 988,
+        "routes": 78
+      },
+      "val/U-E4/proceed/UNKNOWN": {
+        "judgments": 442,
+        "routes": 75
+      },
+      "val/U-E4/proceed/YES": {
+        "judgments": 116,
+        "routes": 28
+      },
+      "val/U-E4/restrict/UNKNOWN": {
+        "judgments": 90,
+        "routes": 2
+      },
+      "val/U-E4/restrict/YES": {
+        "judgments": 92,
+        "routes": 78
+      }
+    }
+  },
+  "replay_semantic_comparison": {
+    "routes": 8614,
+    "frames": 1062401,
+    "questions": 302210,
+    "teacher_questions_equal": true,
+    "frame_dispositions_equal": true,
+    "compared_question_fields": [
+      "episode",
+      "edge",
+      "rgb_mode",
+      "slice",
+      "rule_target",
+      "facts",
+      "reasons",
+      "history_frames",
+      "ego_motion",
+      "near_transition"
+    ],
+    "scope": "all raw frame dispositions and causal teacher task/answer/facts; provenance hashes change with the build; selection and risk admission compared separately"
+  },
+  "production_seconds": 1298.815910712001,
+  "old_v35_artifact_hashes_preserved": true,
+  "original_manual_rows_preserved": 443,
+  "heldout_and_review_bytes_preserved": true,
+  "inherited_rgb_audit": {
+    "three_id_cells": 229,
+    "total_cells": 278,
+    "remaining_sequences": 140,
+    "remaining_frames": 27082,
+    "insufficient_source_cells": 18
+  },
+  "current_agent_visual_audit": {
+    "original_images": 2,
+    "training_routes": 1,
+    "new_complete_sequences": 0,
+    "independent_images": 0
+  },
+  "new_exposure_groups": 6,
+  "new_registered_risks": 9,
+  "strict_approved_rule_classes": 0,
+  "formal_data_ready": false,
+  "restrictions": [
+    "default local Qwen3.5-4B missing",
+    "six events absent from manual val/test",
+    "eight event teachers absent",
+    "critical transition/branch support gaps remain",
+    "no GPU or CARLA validation"
+  ]
+}

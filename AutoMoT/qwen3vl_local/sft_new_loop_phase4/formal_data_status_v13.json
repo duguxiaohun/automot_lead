@@ -1,0 +1,1105 @@
+{
+  "status": "partial_formal_data_completion_not_training_ready",
+  "task": "phase4_state_pair_binary_v13",
+  "default_annotations": "reviewed_state_pairs_v6.json",
+  "counts": {
+    "train": 563,
+    "val": 163,
+    "test": 149
+  },
+  "unknown_queue_count": 352,
+  "missing_transition_edges": [
+    "train/U-E1/default/re_yield",
+    "train/U-E1/default/release",
+    "train/U-E1/default/stable",
+    "train/U-E1/default/renewed_restriction",
+    "train/U-E2/default/return/return",
+    "train/U-E2/default/return/restrict",
+    "train/U-E2/default/return/settle",
+    "train/U-E2/default/return/release",
+    "train/U-E2/default/return/stable",
+    "train/U-E2/default/return/renewed_restriction",
+    "train/U-E3/default/complete",
+    "train/U-E3/default/re_yield",
+    "train/U-E3/default/restrict",
+    "train/U-E3/default/settle",
+    "train/U-E3/default/hold",
+    "train/U-E3/default/release",
+    "train/U-E3/default/stable",
+    "train/U-E3/default/renewed_restriction",
+    "train/U-E4/default/complete",
+    "train/U-E4/default/re_yield",
+    "train/U-E4/default/restrict",
+    "train/U-E4/default/settle",
+    "train/U-E4/default/hold",
+    "train/U-E4/default/release",
+    "train/U-E4/default/stable",
+    "train/U-E4/default/renewed_restriction",
+    "train/U-E5/default/complete",
+    "train/U-E5/default/re_yield",
+    "train/U-E5/default/restrict",
+    "train/U-E5/default/settle",
+    "train/U-E5/default/hold",
+    "train/U-E5/default/release",
+    "train/U-E5/default/stable",
+    "train/U-E5/default/renewed_restriction",
+    "train/U-E6/default/complete",
+    "train/U-E6/default/re_yield",
+    "train/U-E6/default/restrict",
+    "train/U-E6/default/settle",
+    "train/U-E6/default/hold",
+    "train/U-E6/default/release",
+    "train/U-E6/default/stable",
+    "train/U-E6/default/renewed_restriction",
+    "train/U-E7/default/proceed",
+    "train/U-E7/default/re_yield",
+    "train/U-E7/default/restrict",
+    "train/U-E7/default/settle",
+    "train/U-E7/default/hold",
+    "train/U-E7/default/release",
+    "train/U-E7/default/stable",
+    "train/U-E7/default/renewed_restriction",
+    "train/R-E2/default/restrict",
+    "train/R-E2/default/settle",
+    "train/R-E2/default/hold",
+    "train/R-E2/default/release",
+    "train/R-E2/default/stable",
+    "train/R-E2/default/renewed_restriction",
+    "train/R-E3/default/enter",
+    "train/R-E3/default/restrict",
+    "train/R-E3/default/settle",
+    "train/R-E3/default/hold",
+    "train/R-E3/default/release",
+    "train/R-E3/default/stable",
+    "train/R-E3/default/renewed_restriction",
+    "train/R-E5/default/complete",
+    "train/R-E5/default/re_yield",
+    "train/R-E5/default/restrict",
+    "train/R-E5/default/settle",
+    "train/R-E5/default/hold",
+    "train/R-E5/default/release",
+    "train/R-E5/default/stable",
+    "train/R-E5/default/renewed_restriction",
+    "train/U-E2/default/no_return/depart",
+    "train/U-E2/default/no_return/pass",
+    "train/U-E2/default/no_return/complete",
+    "train/U-E2/default/no_return/restrict",
+    "train/U-E2/default/no_return/settle",
+    "train/U-E2/default/no_return/hold",
+    "train/U-E2/default/no_return/release",
+    "train/U-E2/default/no_return/stable",
+    "train/U-E2/default/no_return/renewed_restriction",
+    "train/U-E2/in_lane_pass/proceed",
+    "train/U-E2/in_lane_pass/complete",
+    "train/U-E2/in_lane_pass/re_yield",
+    "train/U-E2/in_lane_pass/restrict",
+    "train/U-E2/in_lane_pass/settle",
+    "train/U-E2/in_lane_pass/hold",
+    "train/U-E2/in_lane_pass/release",
+    "train/U-E2/in_lane_pass/stable",
+    "train/U-E2/in_lane_pass/renewed_restriction",
+    "train/U-E4/cyclist_follow/proceed",
+    "train/U-E4/cyclist_follow/complete",
+    "train/U-E4/cyclist_follow/re_yield",
+    "train/U-E4/cyclist_follow/restrict",
+    "train/U-E4/cyclist_follow/settle",
+    "train/U-E4/cyclist_follow/hold",
+    "train/U-E4/cyclist_follow/release",
+    "train/U-E4/cyclist_follow/stable",
+    "train/U-E4/cyclist_follow/renewed_restriction",
+    "train/U-E4/cyclist_bypass/return/restrict",
+    "train/U-E4/cyclist_bypass/return/settle",
+    "train/U-E4/cyclist_bypass/return/hold",
+    "train/U-E4/cyclist_bypass/return/release",
+    "train/U-E4/cyclist_bypass/return/stable",
+    "train/U-E4/cyclist_bypass/return/renewed_restriction",
+    "train/U-E4/cyclist_bypass/no_return/depart",
+    "train/U-E4/cyclist_bypass/no_return/pass",
+    "train/U-E4/cyclist_bypass/no_return/complete",
+    "train/U-E4/cyclist_bypass/no_return/restrict",
+    "train/U-E4/cyclist_bypass/no_return/settle",
+    "train/U-E4/cyclist_bypass/no_return/hold",
+    "train/U-E4/cyclist_bypass/no_return/release",
+    "train/U-E4/cyclist_bypass/no_return/stable",
+    "train/U-E4/cyclist_bypass/no_return/renewed_restriction",
+    "val/U-E1/default/re_yield",
+    "val/U-E1/default/restrict",
+    "val/U-E1/default/settle",
+    "val/U-E1/default/hold",
+    "val/U-E1/default/stable",
+    "val/U-E1/default/renewed_restriction",
+    "val/U-E2/default/return/depart",
+    "val/U-E2/default/return/pass",
+    "val/U-E2/default/return/return",
+    "val/U-E2/default/return/complete",
+    "val/U-E2/default/return/restrict",
+    "val/U-E2/default/return/settle",
+    "val/U-E2/default/return/hold",
+    "val/U-E2/default/return/release",
+    "val/U-E2/default/return/stable",
+    "val/U-E2/default/return/renewed_restriction",
+    "val/U-E3/default/proceed",
+    "val/U-E3/default/complete",
+    "val/U-E3/default/re_yield",
+    "val/U-E3/default/restrict",
+    "val/U-E3/default/settle",
+    "val/U-E3/default/hold",
+    "val/U-E3/default/release",
+    "val/U-E3/default/stable",
+    "val/U-E3/default/renewed_restriction",
+    "val/U-E4/default/proceed",
+    "val/U-E4/default/complete",
+    "val/U-E4/default/re_yield",
+    "val/U-E4/default/restrict",
+    "val/U-E4/default/settle",
+    "val/U-E4/default/hold",
+    "val/U-E4/default/release",
+    "val/U-E4/default/stable",
+    "val/U-E4/default/renewed_restriction",
+    "val/U-E5/default/proceed",
+    "val/U-E5/default/complete",
+    "val/U-E5/default/re_yield",
+    "val/U-E5/default/restrict",
+    "val/U-E5/default/settle",
+    "val/U-E5/default/hold",
+    "val/U-E5/default/release",
+    "val/U-E5/default/stable",
+    "val/U-E5/default/renewed_restriction",
+    "val/U-E6/default/re_yield",
+    "val/U-E6/default/restrict",
+    "val/U-E6/default/settle",
+    "val/U-E6/default/hold",
+    "val/U-E6/default/renewed_restriction",
+    "val/U-E7/default/proceed",
+    "val/U-E7/default/re_yield",
+    "val/U-E7/default/restrict",
+    "val/U-E7/default/settle",
+    "val/U-E7/default/hold",
+    "val/U-E7/default/release",
+    "val/U-E7/default/stable",
+    "val/U-E7/default/renewed_restriction",
+    "val/R-E2/default/enter",
+    "val/R-E2/default/complete",
+    "val/R-E2/default/restrict",
+    "val/R-E2/default/settle",
+    "val/R-E2/default/hold",
+    "val/R-E2/default/release",
+    "val/R-E2/default/stable",
+    "val/R-E2/default/renewed_restriction",
+    "val/R-E3/default/enter",
+    "val/R-E3/default/complete",
+    "val/R-E3/default/restrict",
+    "val/R-E3/default/settle",
+    "val/R-E3/default/hold",
+    "val/R-E3/default/release",
+    "val/R-E3/default/stable",
+    "val/R-E3/default/renewed_restriction",
+    "val/R-E5/default/proceed",
+    "val/R-E5/default/complete",
+    "val/R-E5/default/re_yield",
+    "val/R-E5/default/restrict",
+    "val/R-E5/default/settle",
+    "val/R-E5/default/hold",
+    "val/R-E5/default/release",
+    "val/R-E5/default/stable",
+    "val/R-E5/default/renewed_restriction",
+    "val/U-E2/default/no_return/depart",
+    "val/U-E2/default/no_return/pass",
+    "val/U-E2/default/no_return/complete",
+    "val/U-E2/default/no_return/restrict",
+    "val/U-E2/default/no_return/settle",
+    "val/U-E2/default/no_return/hold",
+    "val/U-E2/default/no_return/release",
+    "val/U-E2/default/no_return/stable",
+    "val/U-E2/default/no_return/renewed_restriction",
+    "val/U-E2/in_lane_pass/proceed",
+    "val/U-E2/in_lane_pass/complete",
+    "val/U-E2/in_lane_pass/re_yield",
+    "val/U-E2/in_lane_pass/restrict",
+    "val/U-E2/in_lane_pass/settle",
+    "val/U-E2/in_lane_pass/hold",
+    "val/U-E2/in_lane_pass/release",
+    "val/U-E2/in_lane_pass/stable",
+    "val/U-E2/in_lane_pass/renewed_restriction",
+    "val/U-E4/cyclist_follow/proceed",
+    "val/U-E4/cyclist_follow/complete",
+    "val/U-E4/cyclist_follow/re_yield",
+    "val/U-E4/cyclist_follow/restrict",
+    "val/U-E4/cyclist_follow/settle",
+    "val/U-E4/cyclist_follow/hold",
+    "val/U-E4/cyclist_follow/release",
+    "val/U-E4/cyclist_follow/stable",
+    "val/U-E4/cyclist_follow/renewed_restriction",
+    "val/U-E4/cyclist_bypass/return/depart",
+    "val/U-E4/cyclist_bypass/return/pass",
+    "val/U-E4/cyclist_bypass/return/return",
+    "val/U-E4/cyclist_bypass/return/complete",
+    "val/U-E4/cyclist_bypass/return/restrict",
+    "val/U-E4/cyclist_bypass/return/settle",
+    "val/U-E4/cyclist_bypass/return/hold",
+    "val/U-E4/cyclist_bypass/return/release",
+    "val/U-E4/cyclist_bypass/return/stable",
+    "val/U-E4/cyclist_bypass/return/renewed_restriction",
+    "val/U-E4/cyclist_bypass/no_return/depart",
+    "val/U-E4/cyclist_bypass/no_return/pass",
+    "val/U-E4/cyclist_bypass/no_return/complete",
+    "val/U-E4/cyclist_bypass/no_return/restrict",
+    "val/U-E4/cyclist_bypass/no_return/settle",
+    "val/U-E4/cyclist_bypass/no_return/hold",
+    "val/U-E4/cyclist_bypass/no_return/release",
+    "val/U-E4/cyclist_bypass/no_return/stable",
+    "val/U-E4/cyclist_bypass/no_return/renewed_restriction",
+    "test/U-E1/default/re_yield",
+    "test/U-E1/default/restrict",
+    "test/U-E1/default/settle",
+    "test/U-E1/default/hold",
+    "test/U-E1/default/stable",
+    "test/U-E1/default/renewed_restriction",
+    "test/U-E2/default/return/depart",
+    "test/U-E2/default/return/pass",
+    "test/U-E2/default/return/return",
+    "test/U-E2/default/return/complete",
+    "test/U-E2/default/return/restrict",
+    "test/U-E2/default/return/settle",
+    "test/U-E2/default/return/hold",
+    "test/U-E2/default/return/release",
+    "test/U-E2/default/return/stable",
+    "test/U-E2/default/return/renewed_restriction",
+    "test/U-E3/default/proceed",
+    "test/U-E3/default/complete",
+    "test/U-E3/default/re_yield",
+    "test/U-E3/default/restrict",
+    "test/U-E3/default/settle",
+    "test/U-E3/default/hold",
+    "test/U-E3/default/release",
+    "test/U-E3/default/stable",
+    "test/U-E3/default/renewed_restriction",
+    "test/U-E4/default/proceed",
+    "test/U-E4/default/complete",
+    "test/U-E4/default/re_yield",
+    "test/U-E4/default/restrict",
+    "test/U-E4/default/settle",
+    "test/U-E4/default/hold",
+    "test/U-E4/default/release",
+    "test/U-E4/default/stable",
+    "test/U-E4/default/renewed_restriction",
+    "test/U-E5/default/proceed",
+    "test/U-E5/default/complete",
+    "test/U-E5/default/re_yield",
+    "test/U-E5/default/restrict",
+    "test/U-E5/default/settle",
+    "test/U-E5/default/hold",
+    "test/U-E5/default/release",
+    "test/U-E5/default/stable",
+    "test/U-E5/default/renewed_restriction",
+    "test/U-E6/default/re_yield",
+    "test/U-E6/default/restrict",
+    "test/U-E6/default/settle",
+    "test/U-E6/default/hold",
+    "test/U-E6/default/renewed_restriction",
+    "test/U-E7/default/proceed",
+    "test/U-E7/default/re_yield",
+    "test/U-E7/default/restrict",
+    "test/U-E7/default/settle",
+    "test/U-E7/default/hold",
+    "test/U-E7/default/release",
+    "test/U-E7/default/stable",
+    "test/U-E7/default/renewed_restriction",
+    "test/R-E2/default/enter",
+    "test/R-E2/default/complete",
+    "test/R-E2/default/restrict",
+    "test/R-E2/default/settle",
+    "test/R-E2/default/hold",
+    "test/R-E2/default/release",
+    "test/R-E2/default/stable",
+    "test/R-E2/default/renewed_restriction",
+    "test/R-E3/default/enter",
+    "test/R-E3/default/complete",
+    "test/R-E3/default/restrict",
+    "test/R-E3/default/settle",
+    "test/R-E3/default/hold",
+    "test/R-E3/default/release",
+    "test/R-E3/default/stable",
+    "test/R-E3/default/renewed_restriction",
+    "test/R-E5/default/proceed",
+    "test/R-E5/default/complete",
+    "test/R-E5/default/re_yield",
+    "test/R-E5/default/restrict",
+    "test/R-E5/default/settle",
+    "test/R-E5/default/hold",
+    "test/R-E5/default/release",
+    "test/R-E5/default/stable",
+    "test/R-E5/default/renewed_restriction",
+    "test/U-E2/default/no_return/depart",
+    "test/U-E2/default/no_return/pass",
+    "test/U-E2/default/no_return/complete",
+    "test/U-E2/default/no_return/restrict",
+    "test/U-E2/default/no_return/settle",
+    "test/U-E2/default/no_return/hold",
+    "test/U-E2/default/no_return/release",
+    "test/U-E2/default/no_return/stable",
+    "test/U-E2/default/no_return/renewed_restriction",
+    "test/U-E2/in_lane_pass/proceed",
+    "test/U-E2/in_lane_pass/complete",
+    "test/U-E2/in_lane_pass/re_yield",
+    "test/U-E2/in_lane_pass/restrict",
+    "test/U-E2/in_lane_pass/settle",
+    "test/U-E2/in_lane_pass/hold",
+    "test/U-E2/in_lane_pass/release",
+    "test/U-E2/in_lane_pass/stable",
+    "test/U-E2/in_lane_pass/renewed_restriction",
+    "test/U-E4/cyclist_follow/proceed",
+    "test/U-E4/cyclist_follow/complete",
+    "test/U-E4/cyclist_follow/re_yield",
+    "test/U-E4/cyclist_follow/restrict",
+    "test/U-E4/cyclist_follow/settle",
+    "test/U-E4/cyclist_follow/hold",
+    "test/U-E4/cyclist_follow/release",
+    "test/U-E4/cyclist_follow/stable",
+    "test/U-E4/cyclist_follow/renewed_restriction",
+    "test/U-E4/cyclist_bypass/return/depart",
+    "test/U-E4/cyclist_bypass/return/pass",
+    "test/U-E4/cyclist_bypass/return/return",
+    "test/U-E4/cyclist_bypass/return/complete",
+    "test/U-E4/cyclist_bypass/return/restrict",
+    "test/U-E4/cyclist_bypass/return/settle",
+    "test/U-E4/cyclist_bypass/return/hold",
+    "test/U-E4/cyclist_bypass/return/release",
+    "test/U-E4/cyclist_bypass/return/stable",
+    "test/U-E4/cyclist_bypass/return/renewed_restriction",
+    "test/U-E4/cyclist_bypass/no_return/depart",
+    "test/U-E4/cyclist_bypass/no_return/pass",
+    "test/U-E4/cyclist_bypass/no_return/complete",
+    "test/U-E4/cyclist_bypass/no_return/restrict",
+    "test/U-E4/cyclist_bypass/no_return/settle",
+    "test/U-E4/cyclist_bypass/no_return/hold",
+    "test/U-E4/cyclist_bypass/no_return/release",
+    "test/U-E4/cyclist_bypass/no_return/stable",
+    "test/U-E4/cyclist_bypass/no_return/renewed_restriction"
+  ],
+  "missing_segmented_route_support": [
+    "train/R-E3/intermediate/enter",
+    "train/R-E3/intermediate/complete",
+    "train/R-E3/final/enter",
+    "train/R-E3/final/complete",
+    "val/R-E3/intermediate/enter",
+    "val/R-E3/intermediate/complete",
+    "val/R-E3/final/enter",
+    "val/R-E3/final/complete",
+    "test/R-E3/intermediate/enter",
+    "test/R-E3/intermediate/complete",
+    "test/R-E3/final/enter",
+    "test/R-E3/final/complete"
+  ],
+  "missing_event_support": [
+    "val/U-E2",
+    "val/U-E3",
+    "val/U-E4",
+    "val/U-E5",
+    "val/R-E2",
+    "val/R-E3",
+    "val/R-E5",
+    "test/U-E2",
+    "test/U-E3",
+    "test/U-E4",
+    "test/U-E5",
+    "test/R-E2",
+    "test/R-E3",
+    "test/R-E5"
+  ],
+  "verification": {
+    "2": {
+      "counts": {
+        "train": 563,
+        "val": 163,
+        "test": 149
+      },
+      "queue": 352,
+      "ready": false,
+      "missing_transition_edges": 367,
+      "missing_edges_by_split": {
+        "train": 113,
+        "val": 127,
+        "test": 127
+      },
+      "missing_segmented": 12,
+      "image_presentations_verified": 2454,
+      "full_sampling": [
+        {
+          "world_size": 1,
+          "epochs": 7,
+          "coverage": 563
+        },
+        {
+          "world_size": 4,
+          "epochs": 7,
+          "coverage": 563
+        }
+      ],
+      "budget1_epochs": 563,
+      "budget1_coverage": 563,
+      "pre_holdout_train_rows_identical": true,
+      "manifest_sha256": "a032f9a736a1fa64f1b20ea135dd2ddbb1a92dfaf02903f85d0630dd4feba57e"
+    },
+    "4": {
+      "counts": {
+        "train": 563,
+        "val": 163,
+        "test": 149
+      },
+      "queue": 352,
+      "ready": false,
+      "missing_transition_edges": 367,
+      "missing_edges_by_split": {
+        "train": 113,
+        "val": 127,
+        "test": 127
+      },
+      "missing_segmented": 12,
+      "image_presentations_verified": 4908,
+      "full_sampling": [
+        {
+          "world_size": 1,
+          "epochs": 7,
+          "coverage": 563
+        },
+        {
+          "world_size": 4,
+          "epochs": 7,
+          "coverage": 563
+        }
+      ],
+      "budget1_epochs": 563,
+      "budget1_coverage": 563,
+      "pre_holdout_train_rows_identical": true,
+      "manifest_sha256": "1ddccf1de7f608f15359780907e2cac08357ea4ba14cb37bcb04a0f4b84e51c2"
+    }
+  },
+  "tests": {
+    "passed": 332,
+    "log": "/tmp/phase4_formal_data_round2_20260930/tests_final.log",
+    "sha256": "e908fd7f541c6bc113118c0fe07e0c96f0ac3c9d4d07deabad512846f2562538"
+  },
+  "audit_increment": {
+    "full_sequences": 12,
+    "unique_rgb": 662,
+    "native_resolution_rgb": 244,
+    "annotation_records": 36,
+    "binary_labelled_sequences": 10,
+    "context_unconfirmed_sequences": 2,
+    "development_three_id_coverage_increment": 0
+  },
+  "evaluation_review_totals": {
+    "full_sequences": 16,
+    "unique_rgb": 1210,
+    "native_resolution_rgb": 312,
+    "unviewed_reserved_groups": 35
+  },
+  "context_unconfirmed_evaluation_groups": [
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002137",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002137_route0_01_08_14_52_20",
+      "town": "Town03",
+      "split": "test",
+      "frame_count": 32,
+      "candidate_events": [
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town04_route_002177",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002177_route0_01_10_07_08_45",
+      "town": "Town04",
+      "split": "test",
+      "frame_count": 22,
+      "candidate_events": [
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    }
+  ],
+  "pending_reserved_evaluation_groups": [
+    {
+      "physical_group": "AccidentTwoWays/Town13_1402_0",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town13_Rep0_1402_0_route0_01_10_14_24_39",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 131,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "BlockedIntersection/Town13_27_0",
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_27_0_route0_01_09_11_45_35",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 183,
+      "candidate_events": [
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ConstructionObstacleTwoWays/Town12_route_001128",
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town12_Rep0_route_001128_route0_01_09_23_32_19",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 139,
+      "candidate_events": [
+        "R-E2",
+        "R-E5",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "DynamicObjectCrossing/Town05_Town05_Scenario3_3",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_3_route0_01_09_07_18_44",
+      "town": "Town05",
+      "split": "test",
+      "frame_count": 199,
+      "candidate_events": [
+        "U-E3",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "DynamicObjectCrossing/Town06_Town06_Scenario3_24",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town06_Rep0_Town06_Scenario3_24_route0_01_08_08_43_58",
+      "town": "Town06",
+      "split": "test",
+      "frame_count": 100,
+      "candidate_events": [
+        "U-E3",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "EnterActorFlow/Town12_4378_2",
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_4378_2_route0_01_08_21_50_08",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 72,
+      "candidate_events": [
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "HardBreakRoute/Town13_1196_0",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1196_0_route0_01_08_10_58_06",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 258,
+      "candidate_events": [
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_1520_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1520_0_route0_01_10_04_48_36",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 137,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_3000_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_3000_0_route0_01_10_20_01_38",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 74,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_518_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_518_0_route0_01_09_02_51_35",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 108,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_30",
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_30_route0_01_11_01_32_47",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 200,
+      "candidate_events": [
+        "R-E2",
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town12_2529_0",
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town12_Rep0_2529_0_route0_01_10_13_00_29",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 77,
+      "candidate_events": [
+        "R-E5"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town07_route_001032",
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town07_Rep0_route_001032_route0_01_11_02_08_23",
+      "town": "Town07",
+      "split": "test",
+      "frame_count": 35,
+      "candidate_events": [
+        "R-E5"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkedObstacle/Town13_1263_3",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town13_Rep0_1263_3_route0_01_10_04_35_08",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 79,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingCrossingPedestrian/Town12_1667_0",
+      "scenario": "ParkingCrossingPedestrian",
+      "route_id": "Town12_Rep0_1667_0_route0_01_08_11_31_51",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 179,
+      "candidate_events": [
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingCutIn/Town12_196_0",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town12_Rep0_196_0_route0_01_10_06_36_30",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 169,
+      "candidate_events": [
+        "U-E3"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "noScenarios/Town05_Town05_lr_0",
+      "scenario": "noScenarios",
+      "route_id": "Town05_Rep0_Town05_lr_0_route0_01_08_21_31_08",
+      "town": "Town05",
+      "split": "test",
+      "frame_count": 55,
+      "candidate_events": [
+        "R-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "AccidentTwoWays/Town07_route_001441",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town07_Rep0_route_001441_route0_01_09_03_04_44",
+      "town": "Town07",
+      "split": "val",
+      "frame_count": 92,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "AccidentTwoWays/Town12_route_002743",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_route_002743_route0_01_09_02_31_47",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 87,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ConstructionObstacleTwoWays/Town12_route_002820",
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town12_Rep0_route_002820_route0_01_10_05_08_01",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 318,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_29",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_29_route0_01_09_20_06_51",
+      "town": "Town04",
+      "split": "val",
+      "frame_count": 170,
+      "candidate_events": [
+        "U-E3",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "EnterActorFlow/Town13_1661_11",
+      "scenario": "EnterActorFlow",
+      "route_id": "Town13_Rep0_1661_11_route0_01_10_10_57_04",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 80,
+      "candidate_events": [
+        "R-E2",
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "EnterActorFlowV2/Town12_975_1",
+      "scenario": "EnterActorFlowV2",
+      "route_id": "Town12_Rep0_975_1_route0_01_09_16_04_19",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 124,
+      "candidate_events": [
+        "R-E2",
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_3077_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_3077_0_route0_01_09_19_30_54",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 94,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_4195_0_route0_01_09_08_28_04",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 167,
+      "candidate_events": [
+        "R-E5",
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_78_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_78_0_route0_01_09_12_29_40",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 108,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town13_1205_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1205_0_route0_01_08_21_23_12",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 123,
+      "candidate_events": [
+        "R-E5",
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1337_0_route0_01_10_22_00_49",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 84,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town13_1353_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1353_0_route0_01_09_16_25_18",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 189,
+      "candidate_events": [
+        "R-E5",
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town12_1614_0",
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town12_Rep0_1614_0_route0_01_09_09_08_30",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 80,
+      "candidate_events": [
+        "R-E5"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingCutIn/Town13_100_0",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_100_0_route0_01_10_10_51_47",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 72,
+      "candidate_events": [
+        "U-E3"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingExit/Town03_route_001731",
+      "scenario": "ParkingExit",
+      "route_id": "Town03_Rep0_route_001731_route0_01_09_13_54_20",
+      "town": "Town03",
+      "split": "val",
+      "frame_count": 86,
+      "candidate_events": [
+        "R-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "VehicleTurningRoute/Town07_Town07_Scenario4_58",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town07_Rep0_Town07_Scenario4_58_route0_01_09_09_29_09",
+      "town": "Town07",
+      "split": "val",
+      "frame_count": 104,
+      "candidate_events": [
+        "R-E5",
+        "U-E4"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "VehicleTurningRoute/Town07_Town07_Scenario4_82",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town07_Rep0_Town07_Scenario4_82_route0_01_09_23_36_57",
+      "town": "Town07",
+      "split": "val",
+      "frame_count": 61,
+      "candidate_events": [
+        "R-E5",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "VehicleTurningRoutePedestrian/Town12_1754_0",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1754_0_route0_01_10_20_36_07",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 268,
+      "candidate_events": [
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    }
+  ],
+  "original_development_audit": {
+    "three_id_cells_completed": 155,
+    "total_cells": 278,
+    "remaining_sequences": 361,
+    "source_insufficient_cells": 18,
+    "complete": false
+  },
+  "code_fixes": [
+    "Build/load enforce frozen evaluation rubric and explicit label-only protocol.",
+    "Load verifies reserved/seed split ownership for binary rows and UNKNOWN queue, including rehashed datasets."
+  ],
+  "training_rows_changed_from_v12": false,
+  "next_work": [
+    "按冻结规则继续标注35个尚未查看的预留评估组；两条UE7实例上下文未确认的路线保留待审，不能把目录名当事件。",
+    "训练集113个转移支持缺格需要新的readiness正负证据；本轮评估图像及标签不能转用于训练/规则开发。",
+    "验证/测试各127个转移支持缺格仍未补齐；已有事件级支持不等于全部分支/转移齐备。",
+    "RE3的12个分段支持缺格需要因果导航段身份与相邻关系；不能从RGB捏造导航计划。",
+    "原开发三ID计划仍剩361条序列，18格来源不足须补源。",
+    "完整本地Qwen3.5-4B目录缺失；正式GPU/DDP/CARLA未验收。"
+  ],
+  "preflight": {
+    "path": "/tmp/phase4_formal_data_round2_20260930/preflight_final4.json",
+    "sha256": "5602a4427952c26561e4bffcaf9baa7efb2e1d035ad21d4babe3266440990355",
+    "ready": false,
+    "model_errors": [
+      "Missing local Qwen3.5 model directory: /home/codon/automot_lead/AutoMoT/checkpoints/Qwen3.5-4B; runtime never downloads files"
+    ]
+  },
+  "formal_training_started": false,
+  "full_gpu_ddp_carla_validated": false
+}

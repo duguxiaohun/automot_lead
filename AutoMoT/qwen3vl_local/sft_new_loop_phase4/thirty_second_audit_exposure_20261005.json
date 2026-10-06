@@ -1,0 +1,92 @@
+{
+  "train_only_groups": [
+    "ParkingCrossingPedestrian/Town12_1794_0",
+    "PedestrianCrossing/Town13_1000_0",
+    "VehicleTurningRoute/Town03_Town03_Scenario4_121",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_117",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_21",
+    "VehicleTurningRoute/Town13_1003_1",
+    "VehicleTurningRoute/Town13_1050_1",
+    "noScenarios/Town06_route_000821"
+  ],
+  "source": "user v31 audit; seven named RGB routes plus named noScenarios 821 numeric audit; implementation rechecked ten training RGB frames from 1050_1 and 1003_1",
+  "unresolved_exposure": "other unnamed UE1 spot-check routes cannot be inferred",
+  "calibration_risks": [
+    {
+      "scenario": "ParkingCrossingPedestrian",
+      "route_id": "Town12_Rep0_1794_0_route0_01_10_23_43_01",
+      "physical_group": "ParkingCrossingPedestrian/Town12_1794_0",
+      "kind": "reported_visible_pedestrian_disappearance",
+      "reported_status": "user_rgb_audit_with_automatic_boundary_check",
+      "reported_observations": [
+        "User reports visible pedestrian deletion around f48; automatic scoped discontinuity begins f47; exact actor/boundary not newly visually verified."
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 46,
+          "path": "ParkingCrossingPedestrian/Town12_Rep0_1794_0_route0_01_10_23_43_01/rgb/0046.jpg",
+          "sha256": "d0d68ab911d112c37193c533d7981b90f42bebcaec117ec53ab6baa64b20b457"
+        },
+        {
+          "frame": 47,
+          "path": "ParkingCrossingPedestrian/Town12_Rep0_1794_0_route0_01_10_23_43_01/rgb/0047.jpg",
+          "sha256": "ed6b216023189bbd196fd993454aebf71c41bd7d684b6804bc8c35ac283f1728"
+        },
+        {
+          "frame": 48,
+          "path": "ParkingCrossingPedestrian/Town12_Rep0_1794_0_route0_01_10_23_43_01/rgb/0048.jpg",
+          "sha256": "9d95700ae8d9958eecf639ef4fda5cd3ec19fedfd6a6de5557940f536491003b"
+        },
+        {
+          "frame": 49,
+          "path": "ParkingCrossingPedestrian/Town12_Rep0_1794_0_route0_01_10_23_43_01/rgb/0049.jpg",
+          "sha256": "f108b37dc90f2fac53574549bae534d6ceda624fd5ecdbce3aa94956ee0de944"
+        }
+      ]
+    },
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town13_Rep0_1000_0_route0_01_09_00_05_44",
+      "physical_group": "PedestrianCrossing/Town13_1000_0",
+      "kind": "reported_visible_pedestrian_disappearance",
+      "reported_status": "user_rgb_audit_with_automatic_boundary_check",
+      "reported_observations": [
+        "User reports visible pedestrian deletions f64–68; automatic instance censoring at f64 and f68; no completion inferred."
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 63,
+          "path": "PedestrianCrossing/Town13_Rep0_1000_0_route0_01_09_00_05_44/rgb/0063.jpg",
+          "sha256": "6092a21eec0e21ccf02936f411157596984cbc4f33b48cb52311d2f50e16b3ff"
+        },
+        {
+          "frame": 64,
+          "path": "PedestrianCrossing/Town13_Rep0_1000_0_route0_01_09_00_05_44/rgb/0064.jpg",
+          "sha256": "ff5795dd8aa9ab1845bd2ccdde84d75725f433ab4c392f83c0f076667ce86622"
+        },
+        {
+          "frame": 65,
+          "path": "PedestrianCrossing/Town13_Rep0_1000_0_route0_01_09_00_05_44/rgb/0065.jpg",
+          "sha256": "4644d3746a83ac03a344f945c07a2aa0973febd3d34ffbc114319091379c240e"
+        },
+        {
+          "frame": 66,
+          "path": "PedestrianCrossing/Town13_Rep0_1000_0_route0_01_09_00_05_44/rgb/0066.jpg",
+          "sha256": "d287e751579449249c47cad205444eda24a5b2c222f323fd219da1371f26d618"
+        },
+        {
+          "frame": 67,
+          "path": "PedestrianCrossing/Town13_Rep0_1000_0_route0_01_09_00_05_44/rgb/0067.jpg",
+          "sha256": "ad3f711000e6bfe1f4a6aa456075cb638c066645854b9e6f3e65bee7518a96bf"
+        },
+        {
+          "frame": 68,
+          "path": "PedestrianCrossing/Town13_Rep0_1000_0_route0_01_09_00_05_44/rgb/0068.jpg",
+          "sha256": "5294ca991b05517099f1b571072077c863e5040080915b53053526cae10fb75c"
+        }
+      ]
+    }
+  ]
+}

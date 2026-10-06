@@ -1,0 +1,4711 @@
+[
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002138_route0_01_08_13_15_20",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002138_route0_01_08_13_15_20/U-E7/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_1_U-E7_proceed_30",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 30,
+      "review_end": 40,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 40,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "readiness",
+          "observed_until": 32,
+          "observation": "f32: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "33": {
+          "phase": "readiness",
+          "observed_until": 33,
+          "observation": "f33: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "38": {
+          "phase": "uncertain",
+          "observed_until": 38,
+          "observation": "f38: 黄车尾部离开本侧，但两侧交通接续边界不确定。"
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 黄车尾部离开本侧，但两侧交通接续边界不确定。"
+        },
+        "40": {
+          "phase": "excluded",
+          "observed_until": 40,
+          "observation": "f40: 自车已在路口中，停止延长旧等待窗口。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "30": "d38cac4b89acf3b48a6464a13097861202ef012d452465741e9cc4e7f69a87e2",
+      "31": "1ad9115dcc4afd4825878dc238a42fa4fda6bc831f509de7fec28bdf7b5c37e9",
+      "32": "5bb66d8ed03bf16b80c02b78dd1d2abbdfbf1664fe1901c4a52910425c3a21af",
+      "33": "40ae98462e542e83397ab9f4d8bcb225729ed4247518659bfba18ad0b4ea5847",
+      "34": "0d166297c09ad31953a42bbe780da93fc662c3aa13d3df5652e5f348cf82054f",
+      "35": "4906371115b616789a6a82e5572578114d201f2da81f3a151e8f9ba6c95846c4",
+      "36": "433d9a9c24771b393f1fd8930010ec3e272310c0d5b6f034397386494f1e4a19",
+      "37": "dc16dff93d79096ccd4173bdff0c4ac3f1b1e490e5054f0a6c50c4aae2bd2301",
+      "38": "6b796bcbcc0904615513fcbb6e183a4bfe64e18be5483d64a69043c6e1b9ce91",
+      "39": "546d51facc0cbc893ca7d37efb702c42800ec3eac1b19b834b0e74f31a232fe6",
+      "40": "147fbff89060d102af195e49606f815986c4009ca382df84933cb6de17c3404b"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002138_route0_01_08_13_15_20",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002138_route0_01_08_13_15_20/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_1_U-E7_release_30",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 30,
+      "review_end": 40,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 40,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "readiness",
+          "observed_until": 32,
+          "observation": "f32: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "33": {
+          "phase": "readiness",
+          "observed_until": 33,
+          "observation": "f33: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 黄车仍横穿近处通道，左侧还有来车；绿灯不能消除当前冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "38": {
+          "phase": "uncertain",
+          "observed_until": 38,
+          "observation": "f38: 黄车尾部离开本侧，但两侧交通接续边界不确定。"
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 黄车尾部离开本侧，但两侧交通接续边界不确定。"
+        },
+        "40": {
+          "phase": "excluded",
+          "observed_until": 40,
+          "observation": "f40: 自车已在路口中，停止延长旧等待窗口。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "30": "d38cac4b89acf3b48a6464a13097861202ef012d452465741e9cc4e7f69a87e2",
+      "31": "1ad9115dcc4afd4825878dc238a42fa4fda6bc831f509de7fec28bdf7b5c37e9",
+      "32": "5bb66d8ed03bf16b80c02b78dd1d2abbdfbf1664fe1901c4a52910425c3a21af",
+      "33": "40ae98462e542e83397ab9f4d8bcb225729ed4247518659bfba18ad0b4ea5847",
+      "34": "0d166297c09ad31953a42bbe780da93fc662c3aa13d3df5652e5f348cf82054f",
+      "35": "4906371115b616789a6a82e5572578114d201f2da81f3a151e8f9ba6c95846c4",
+      "36": "433d9a9c24771b393f1fd8930010ec3e272310c0d5b6f034397386494f1e4a19",
+      "37": "dc16dff93d79096ccd4173bdff0c4ac3f1b1e490e5054f0a6c50c4aae2bd2301",
+      "38": "6b796bcbcc0904615513fcbb6e183a4bfe64e18be5483d64a69043c6e1b9ce91",
+      "39": "546d51facc0cbc893ca7d37efb702c42800ec3eac1b19b834b0e74f31a232fe6",
+      "40": "147fbff89060d102af195e49606f815986c4009ca382df84933cb6de17c3404b"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002144_route0_01_09_09_18_10",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002144_route0_01_09_09_18_10/U-E7/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_2_U-E7_proceed_16",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 16,
+      "review_end": 22,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 23,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "16": {
+          "phase": "readiness",
+          "observed_until": 16,
+          "observation": "f16: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "17": {
+          "phase": "readiness",
+          "observed_until": 17,
+          "observation": "f17: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "18": {
+          "phase": "readiness",
+          "observed_until": 18,
+          "observation": "f18: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "19": {
+          "phase": "readiness",
+          "observed_until": 19,
+          "observation": "f19: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "20": {
+          "phase": "readiness",
+          "observed_until": 20,
+          "observation": "f20: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "21": {
+          "phase": "uncertain",
+          "observed_until": 21,
+          "observation": "f21: 白车尾部逐渐离开，夜雨下后续来车与可用通道不能完整确认。"
+        },
+        "22": {
+          "phase": "uncertain",
+          "observed_until": 22,
+          "observation": "f22: 白车尾部逐渐离开，夜雨下后续来车与可用通道不能完整确认。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "16": "5d524c3a413f9b911ab117faed6427a7c217f9048292d0d14e46197090499b80",
+      "17": "87b318af9e12bcef352e5468bdfc45190efdb399184afc038145f50ece29ae24",
+      "18": "8f295436ab2145b7a2979f2ad60d318871c1050638dda04cb494c1bbede4cead",
+      "19": "58a5dc2fa666f11caf31871b1a3225264faffa105386b98dd2714f6c7233ee7d",
+      "20": "a9d7251444b83cfba964669ee2b36c322012022964b8bf61146531c2a101c7a7",
+      "21": "f151f1dfeda5277a66551d757648c947fa64096b05ce0aa549135fd34f602e7d",
+      "22": "8767911d22f31116db65fb8b23d44228a0efe55d4f514a9fa524cf423e78bc28"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002144_route0_01_09_09_18_10",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002144_route0_01_09_09_18_10/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_2_U-E7_release_16",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 16,
+      "review_end": 22,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 23,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "16": {
+          "phase": "readiness",
+          "observed_until": 16,
+          "observation": "f16: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "17": {
+          "phase": "readiness",
+          "observed_until": 17,
+          "observation": "f17: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "18": {
+          "phase": "readiness",
+          "observed_until": 18,
+          "observation": "f18: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "19": {
+          "phase": "readiness",
+          "observed_until": 19,
+          "observation": "f19: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "20": {
+          "phase": "readiness",
+          "observed_until": 20,
+          "observation": "f20: 白车从右向左横穿，自车前方仍有冲突。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "21": {
+          "phase": "uncertain",
+          "observed_until": 21,
+          "observation": "f21: 白车尾部逐渐离开，夜雨下后续来车与可用通道不能完整确认。"
+        },
+        "22": {
+          "phase": "uncertain",
+          "observed_until": 22,
+          "observation": "f22: 白车尾部逐渐离开，夜雨下后续来车与可用通道不能完整确认。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "16": "5d524c3a413f9b911ab117faed6427a7c217f9048292d0d14e46197090499b80",
+      "17": "87b318af9e12bcef352e5468bdfc45190efdb399184afc038145f50ece29ae24",
+      "18": "8f295436ab2145b7a2979f2ad60d318871c1050638dda04cb494c1bbede4cead",
+      "19": "58a5dc2fa666f11caf31871b1a3225264faffa105386b98dd2714f6c7233ee7d",
+      "20": "a9d7251444b83cfba964669ee2b36c322012022964b8bf61146531c2a101c7a7",
+      "21": "f151f1dfeda5277a66551d757648c947fa64096b05ce0aa549135fd34f602e7d",
+      "22": "8767911d22f31116db65fb8b23d44228a0efe55d4f514a9fa524cf423e78bc28"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002070_route0_01_09_22_49_09",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002070_route0_01_09_22_49_09/U-E7/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_4_U-E7_proceed_30",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 30,
+      "review_end": 39,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 40,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "readiness",
+          "observed_until": 32,
+          "observation": "f32: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "33": {
+          "phase": "readiness",
+          "observed_until": 33,
+          "observation": "f33: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "35": {
+          "phase": "uncertain",
+          "observed_until": 35,
+          "observation": "f35: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "36": {
+          "phase": "uncertain",
+          "observed_until": 36,
+          "observation": "f36: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "37": {
+          "phase": "uncertain",
+          "observed_until": 37,
+          "observation": "f37: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "38": {
+          "phase": "uncertain",
+          "observed_until": 38,
+          "observation": "f38: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "30": "ead41a8e0b45afa2d98924f31673d140ca6097869ca6b49a53c88dc04de0b9bf",
+      "31": "cea0b892d642f925ecce5ed6d2e3222dd2f54a433a07cef8f2fba8e2016c2726",
+      "32": "645726dd548fba9b9b131078eae5f9ea483c5a4c29bf3160a628c86b5d5db206",
+      "33": "fc0d37ea8b9813b55c92b2a1683db983f389035a91cf6d3261e48c1f0b4ea301",
+      "34": "83f55165578eea23830a76465cc08b3519ded5dad9aaa67195d4253fe6010e20",
+      "35": "99e0c133b5816207016e62694a781f921f00a6a6f2430760103a69b66a10ef94",
+      "36": "3c1e7c8e1459265fa3fbea95ae66a8e32a744ace910525837db65ed4f6fd09d0",
+      "37": "23c7cdb230a28959de20c9b5d77e837a4fabd7f31c64e24d64649720acdf90b3",
+      "38": "13ce60a59582807a4cff84c8d9b0b25357b46a7952a99abfea7701d920e883fa",
+      "39": "2692a9b4f5abac75dd7097f31beda35af14fbca4dc34f7ee6ca064424b37f549"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002070_route0_01_09_22_49_09",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002070_route0_01_09_22_49_09/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_4_U-E7_release_30",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 30,
+      "review_end": 39,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 40,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "readiness",
+          "observed_until": 32,
+          "observation": "f32: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "33": {
+          "phase": "readiness",
+          "observed_until": 33,
+          "observation": "f33: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 近处黑车从左向右横穿，尚不可释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "35": {
+          "phase": "uncertain",
+          "observed_until": 35,
+          "observation": "f35: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "36": {
+          "phase": "uncertain",
+          "observed_until": 36,
+          "observation": "f36: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "37": {
+          "phase": "uncertain",
+          "observed_until": 37,
+          "observation": "f37: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "38": {
+          "phase": "uncertain",
+          "observed_until": 38,
+          "observation": "f38: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 黑车向右出画，同时左侧及正前方有车灯；低照度下完整许可不确定。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "30": "ead41a8e0b45afa2d98924f31673d140ca6097869ca6b49a53c88dc04de0b9bf",
+      "31": "cea0b892d642f925ecce5ed6d2e3222dd2f54a433a07cef8f2fba8e2016c2726",
+      "32": "645726dd548fba9b9b131078eae5f9ea483c5a4c29bf3160a628c86b5d5db206",
+      "33": "fc0d37ea8b9813b55c92b2a1683db983f389035a91cf6d3261e48c1f0b4ea301",
+      "34": "83f55165578eea23830a76465cc08b3519ded5dad9aaa67195d4253fe6010e20",
+      "35": "99e0c133b5816207016e62694a781f921f00a6a6f2430760103a69b66a10ef94",
+      "36": "3c1e7c8e1459265fa3fbea95ae66a8e32a744ace910525837db65ed4f6fd09d0",
+      "37": "23c7cdb230a28959de20c9b5d77e837a4fabd7f31c64e24d64649720acdf90b3",
+      "38": "13ce60a59582807a4cff84c8d9b0b25357b46a7952a99abfea7701d920e883fa",
+      "39": "2692a9b4f5abac75dd7097f31beda35af14fbca4dc34f7ee6ca064424b37f549"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19/U-E6/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_5_U-E6_proceed_36",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 36,
+      "review_end": 53,
+      "reference_frame": 43,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 53,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 警车正穿过预定路口通道，需要继续让行。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 警车正穿过预定路口通道，需要继续让行。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 警车正穿过预定路口通道，需要继续让行。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "40": {
+          "phase": "uncertain",
+          "observed_until": 40,
+          "observation": "f40: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "41": {
+          "phase": "uncertain",
+          "observed_until": 41,
+          "observation": "f41: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "42": {
+          "phase": "uncertain",
+          "observed_until": 42,
+          "observation": "f42: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "43": {
+          "phase": "readiness",
+          "observed_until": 43,
+          "observation": "f43: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "44": {
+          "phase": "readiness",
+          "observed_until": 44,
+          "observation": "f44: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "45": {
+          "phase": "readiness",
+          "observed_until": 45,
+          "observation": "f45: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "46": {
+          "phase": "readiness",
+          "observed_until": 46,
+          "observation": "f46: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "49": {
+          "phase": "catchup",
+          "observed_until": 49,
+          "observation": "f49: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "50": {
+          "phase": "catchup",
+          "observed_until": 50,
+          "observation": "f50: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "51": {
+          "phase": "catchup",
+          "observed_until": 51,
+          "observation": "f51: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "52": {
+          "phase": "catchup",
+          "observed_until": 52,
+          "observation": "f52: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "53": {
+          "phase": "excluded",
+          "observed_until": 53,
+          "observation": "f53: 开始持续转弯穿越，切换后续完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "36": "bbb5adf53dca0bfbc2db5d3075a8d8fdff7becf9a9795e7c3befd6ab3d3e4fe1",
+      "37": "0e48e3d48a77c51ac68ff4248f5051631201363cd5299be3b016232c5e76cfc7",
+      "38": "74060614ebe14b66395d336295b7f8790fd693644e4b3265c12982227f17c64e",
+      "39": "9358a5c1930392328d0549fe8108678471feef929e95ce3f136eeb70412adb35",
+      "40": "14df42d5490915f89642b80e0fd009310804aa61144db1b7b7554b4ce979b413",
+      "41": "fae3b98545b6eddefedee5b111356d29da4dc4727d55ded09add4f8c44ce2282",
+      "42": "f20c569eb74eb074714fb3b020f57ff0522d6088c4e2d44cdc7131bc2713d2bc",
+      "43": "717b77d6f953127815a02b7859b8e5ac6b5acfe2881351c30a390b4f29a3336c",
+      "44": "83bc0c7a6b19ee7be9c0e7c899c06194d190df0005636f3bb1c505d73631dc51",
+      "45": "683f480efb0affe82e6969220bfbb2ec8f89be301192f703ec7f540b50caf1d0",
+      "46": "13c54d30194828281c42d154b01edfa7c0955293deb77045ea9e9ba0205a14c7",
+      "47": "8f4e021d9027c6587967f42166f6c4d00d80bd015416ea8a267eeb628b18bc4c",
+      "48": "46f8a529c6987b1d410901fc83dbfcf81235bc31f5dde3ce6f27af22d0e5b389",
+      "49": "7cb8a51bac783bd592f1f44410868a2f2a1aa274d9b833e73584a86eb34e252a",
+      "50": "eadcaa2aa5ff8edbfb81a1e5a0e951792c63b61ceb67f7764d787d3fa1c8944c",
+      "51": "0a002272abe0d157ceb77f9ee27eb19fbc641e34f327ef9b06a0d6fc79d0ebf4",
+      "52": "6a79d2e6a4b9999c7b608dae509b8eac704786e68e249f79d42db2bd94b94df4",
+      "53": "d79abc9a484dc0f06345cc6e5d09fe7b7b194ac1e9d0ddc28a900a3edd349278"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_5_U-E6_release_36",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 36,
+      "review_end": 53,
+      "reference_frame": 43,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 53,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 警车正穿过预定路口通道，需要继续让行。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 警车正穿过预定路口通道，需要继续让行。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 警车正穿过预定路口通道，需要继续让行。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "40": {
+          "phase": "uncertain",
+          "observed_until": 40,
+          "observation": "f40: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "41": {
+          "phase": "uncertain",
+          "observed_until": 41,
+          "observation": "f41: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "42": {
+          "phase": "uncertain",
+          "observed_until": 42,
+          "observation": "f42: 警车车尾正在驶出冲突范围，转折边界保留不确定。"
+        },
+        "43": {
+          "phase": "readiness",
+          "observed_until": 43,
+          "observation": "f43: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "44": {
+          "phase": "readiness",
+          "observed_until": 44,
+          "observation": "f44: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "45": {
+          "phase": "readiness",
+          "observed_until": 45,
+          "observation": "f45: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "46": {
+          "phase": "readiness",
+          "observed_until": 46,
+          "observation": "f46: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 警车已在左方驶离；近处穿越通道清楚，其他方向车列保持等待，正面通行信号有效；自车尚未明显起动即可释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "49": {
+          "phase": "catchup",
+          "observed_until": 49,
+          "observation": "f49: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "50": {
+          "phase": "catchup",
+          "observed_until": 50,
+          "observation": "f50: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "51": {
+          "phase": "catchup",
+          "observed_until": 51,
+          "observation": "f51: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "52": {
+          "phase": "catchup",
+          "observed_until": 52,
+          "observation": "f52: 路面与建筑相对位移确认开始恢复，通道仍可用；旧等待问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "53": {
+          "phase": "excluded",
+          "observed_until": 53,
+          "observation": "f53: 开始持续转弯穿越，切换后续完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "36": "bbb5adf53dca0bfbc2db5d3075a8d8fdff7becf9a9795e7c3befd6ab3d3e4fe1",
+      "37": "0e48e3d48a77c51ac68ff4248f5051631201363cd5299be3b016232c5e76cfc7",
+      "38": "74060614ebe14b66395d336295b7f8790fd693644e4b3265c12982227f17c64e",
+      "39": "9358a5c1930392328d0549fe8108678471feef929e95ce3f136eeb70412adb35",
+      "40": "14df42d5490915f89642b80e0fd009310804aa61144db1b7b7554b4ce979b413",
+      "41": "fae3b98545b6eddefedee5b111356d29da4dc4727d55ded09add4f8c44ce2282",
+      "42": "f20c569eb74eb074714fb3b020f57ff0522d6088c4e2d44cdc7131bc2713d2bc",
+      "43": "717b77d6f953127815a02b7859b8e5ac6b5acfe2881351c30a390b4f29a3336c",
+      "44": "83bc0c7a6b19ee7be9c0e7c899c06194d190df0005636f3bb1c505d73631dc51",
+      "45": "683f480efb0affe82e6969220bfbb2ec8f89be301192f703ec7f540b50caf1d0",
+      "46": "13c54d30194828281c42d154b01edfa7c0955293deb77045ea9e9ba0205a14c7",
+      "47": "8f4e021d9027c6587967f42166f6c4d00d80bd015416ea8a267eeb628b18bc4c",
+      "48": "46f8a529c6987b1d410901fc83dbfcf81235bc31f5dde3ce6f27af22d0e5b389",
+      "49": "7cb8a51bac783bd592f1f44410868a2f2a1aa274d9b833e73584a86eb34e252a",
+      "50": "eadcaa2aa5ff8edbfb81a1e5a0e951792c63b61ceb67f7764d787d3fa1c8944c",
+      "51": "0a002272abe0d157ceb77f9ee27eb19fbc641e34f327ef9b06a0d6fc79d0ebf4",
+      "52": "6a79d2e6a4b9999c7b608dae509b8eac704786e68e249f79d42db2bd94b94df4",
+      "53": "d79abc9a484dc0f06345cc6e5d09fe7b7b194ac1e9d0ddc28a900a3edd349278"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03/U-E6/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_6_U-E6_proceed_28",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 28,
+      "review_end": 41,
+      "reference_frame": 34,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 41,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "28": {
+          "phase": "readiness",
+          "observed_until": 28,
+          "observation": "f28: 消防车仍横穿并占据通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "29": {
+          "phase": "readiness",
+          "observed_until": 29,
+          "observation": "f29: 消防车仍横穿并占据通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 消防车仍横穿并占据通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "uncertain",
+          "observed_until": 31,
+          "observation": "f31: 消防车尾部沿左路驶离，完整清空边界尚不明确。"
+        },
+        "32": {
+          "phase": "uncertain",
+          "observed_until": 32,
+          "observation": "f32: 消防车尾部沿左路驶离，完整清空边界尚不明确。"
+        },
+        "33": {
+          "phase": "uncertain",
+          "observed_until": 33,
+          "observation": "f33: 消防车尾部沿左路驶离，完整清空边界尚不明确。"
+        },
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "38": {
+          "phase": "catchup",
+          "observed_until": 38,
+          "observation": "f38: 近处路缘位移显示刚恢复前进，已满足的通行条件仍保持。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "39": {
+          "phase": "catchup",
+          "observed_until": 39,
+          "observation": "f39: 近处路缘位移显示刚恢复前进，已满足的通行条件仍保持。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "40": {
+          "phase": "catchup",
+          "observed_until": 40,
+          "observation": "f40: 近处路缘位移显示刚恢复前进，已满足的通行条件仍保持。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "41": {
+          "phase": "excluded",
+          "observed_until": 41,
+          "observation": "f41: 进入持续穿越，停止旧等待补问。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "28": "db050aef304f1fd80913a26fe4ff3198ebda310aaa9ccd90bf317c86c3b2f86a",
+      "29": "ee3d04efbc98e27c23f62901867672281cebc70fab629b22ff5df3be972c06c1",
+      "30": "017d1d4c20b61db40f07897c79cfd0310e45178cca3e494f6e8eff927cf964a2",
+      "31": "9bff2c15204b1b9744de1e74343c50e7995467fdf0232243dd4e919362bd2735",
+      "32": "1f7e25e05982687d5bef3654f15bb49ae8e49d1a4e6873d5362a9ded8e9bf91f",
+      "33": "1bb5b2b722daffd312f74dd7e099983f61fe3b7730d3d2bd7095a5a16fa62e6c",
+      "34": "c48b2112342a4b8c01c1622780425b2e22341dd2090bd960f9b4598a83426172",
+      "35": "944d1cebe99ad39b9cc4b26081a97a0afd16b5dbcb4ba1252820187311792c9c",
+      "36": "baf0da56717931670914bbabc19133ad9b724ceb09a3cdf8efb44ad6186e3ab9",
+      "37": "d264d795973ed620ca6392987e0a9aa206f4e54545328c0a783db536195e6854",
+      "38": "50203fbadd2a44dc8f4f5a830b2b7a2c7b198fe5f40f68d5ba7a3f36b14abf46",
+      "39": "877bf953873b150947952f4f1dd249ca149d491fcefb2b1e09c0b6574cbba069",
+      "40": "e486dc4128f6a2c4a676808f98d06944630d8afa4b438cdce78ddad13533294b",
+      "41": "6492fd02322734ae17098619ff684423fbd6e70e061cf4178bb0d99eaad75126"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_6_U-E6_release_28",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 28,
+      "review_end": 41,
+      "reference_frame": 34,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 41,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "28": {
+          "phase": "readiness",
+          "observed_until": 28,
+          "observation": "f28: 消防车仍横穿并占据通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "29": {
+          "phase": "readiness",
+          "observed_until": 29,
+          "observation": "f29: 消防车仍横穿并占据通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 消防车仍横穿并占据通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "uncertain",
+          "observed_until": 31,
+          "observation": "f31: 消防车尾部沿左路驶离，完整清空边界尚不明确。"
+        },
+        "32": {
+          "phase": "uncertain",
+          "observed_until": 32,
+          "observation": "f32: 消防车尾部沿左路驶离，完整清空边界尚不明确。"
+        },
+        "33": {
+          "phase": "uncertain",
+          "observed_until": 33,
+          "observation": "f33: 消防车尾部沿左路驶离，完整清空边界尚不明确。"
+        },
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 消防车沿左方远离，近处通道空出，旁路车列停等且正面信号允许；自车尚未起步也应允许推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "38": {
+          "phase": "catchup",
+          "observed_until": 38,
+          "observation": "f38: 近处路缘位移显示刚恢复前进，已满足的通行条件仍保持。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "39": {
+          "phase": "catchup",
+          "observed_until": 39,
+          "observation": "f39: 近处路缘位移显示刚恢复前进，已满足的通行条件仍保持。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "40": {
+          "phase": "catchup",
+          "observed_until": 40,
+          "observation": "f40: 近处路缘位移显示刚恢复前进，已满足的通行条件仍保持。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "41": {
+          "phase": "excluded",
+          "observed_until": 41,
+          "observation": "f41: 进入持续穿越，停止旧等待补问。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "28": "db050aef304f1fd80913a26fe4ff3198ebda310aaa9ccd90bf317c86c3b2f86a",
+      "29": "ee3d04efbc98e27c23f62901867672281cebc70fab629b22ff5df3be972c06c1",
+      "30": "017d1d4c20b61db40f07897c79cfd0310e45178cca3e494f6e8eff927cf964a2",
+      "31": "9bff2c15204b1b9744de1e74343c50e7995467fdf0232243dd4e919362bd2735",
+      "32": "1f7e25e05982687d5bef3654f15bb49ae8e49d1a4e6873d5362a9ded8e9bf91f",
+      "33": "1bb5b2b722daffd312f74dd7e099983f61fe3b7730d3d2bd7095a5a16fa62e6c",
+      "34": "c48b2112342a4b8c01c1622780425b2e22341dd2090bd960f9b4598a83426172",
+      "35": "944d1cebe99ad39b9cc4b26081a97a0afd16b5dbcb4ba1252820187311792c9c",
+      "36": "baf0da56717931670914bbabc19133ad9b724ceb09a3cdf8efb44ad6186e3ab9",
+      "37": "d264d795973ed620ca6392987e0a9aa206f4e54545328c0a783db536195e6854",
+      "38": "50203fbadd2a44dc8f4f5a830b2b7a2c7b198fe5f40f68d5ba7a3f36b14abf46",
+      "39": "877bf953873b150947952f4f1dd249ca149d491fcefb2b1e09c0b6574cbba069",
+      "40": "e486dc4128f6a2c4a676808f98d06944630d8afa4b438cdce78ddad13533294b",
+      "41": "6492fd02322734ae17098619ff684423fbd6e70e061cf4178bb0d99eaad75126"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002062_route0_01_10_12_26_10",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002062_route0_01_10_12_26_10/U-E7/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_7_U-E7_proceed_26",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 26,
+      "review_end": 36,
+      "reference_frame": 34,
+      "reference_kind": "successor_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 36,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "26": {
+          "phase": "readiness",
+          "observed_until": 26,
+          "observation": "f26: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "27": {
+          "phase": "readiness",
+          "observed_until": 27,
+          "observation": "f27: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "28": {
+          "phase": "readiness",
+          "observed_until": 28,
+          "observation": "f28: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "29": {
+          "phase": "readiness",
+          "observed_until": 29,
+          "observation": "f29: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "uncertain",
+          "observed_until": 32,
+          "observation": "f32: 车尾接近通道边缘，余量转折不确定。"
+        },
+        "33": {
+          "phase": "uncertain",
+          "observed_until": 33,
+          "observation": "f33: 车尾接近通道边缘，余量转折不确定。"
+        },
+        "34": {
+          "phase": "catchup",
+          "observed_until": 34,
+          "observation": "f34: 黑车已让出本侧通道，其他方向车列保持等待，自车已穿越；旧等待状态可以同步，但不冒充起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "35": {
+          "phase": "catchup",
+          "observed_until": 35,
+          "observation": "f35: 黑车已让出本侧通道，其他方向车列保持等待，自车已穿越；旧等待状态可以同步，但不冒充起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "36": {
+          "phase": "excluded",
+          "observed_until": 36,
+          "observation": "f36: 接近出口，切换完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "26": "7c4a667a7d4e4fc9823d6f0890ed6901efd500fab22b96d22855c6a3e2adf63d",
+      "27": "e7df238021d0d1757d2d3a59f5589d2c31030de500cc59c58cea3317bb79fd70",
+      "28": "2db6be9a890dc2226bf7ad92614472556d32653b38d5b7ff4d59adaecc1c51d2",
+      "29": "c5e206e181cf235d8add215fcb4cbf93311e56a92a939384f48fe94626546ea7",
+      "30": "b759cf7f9565bbd94e44d116e72a6b86d38b456b63132503bbb417b257056685",
+      "31": "b54295f38de6bc54138795ade17d8fd5e65e36bd52d2aef9b42eff684c402108",
+      "32": "a3ea4287895ba717e650291cbff7fc045b9ad255a025b2058de29072ee1a45ec",
+      "33": "cdd17f84781caa0f707079d8b6096094663f322bb1fb42bb15727cbf0a0eebaf",
+      "34": "205bb46032d6370958a0d223152fa6740c853d11ed17dccec7c1893f1dfed393",
+      "35": "5b551e08c34309d122a71ea2a6f7ebf55386d65711a027e7b9cbae89cdf6bfcb",
+      "36": "e2e1c9e47a403bdb8214df94318311397875cd7b3d31f86aa927b7c72038e7c5"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002062_route0_01_10_12_26_10",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002062_route0_01_10_12_26_10/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_7_U-E7_release_26",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 26,
+      "review_end": 36,
+      "reference_frame": 34,
+      "reference_kind": "successor_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 36,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "26": {
+          "phase": "readiness",
+          "observed_until": 26,
+          "observation": "f26: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "27": {
+          "phase": "readiness",
+          "observed_until": 27,
+          "observation": "f27: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "28": {
+          "phase": "readiness",
+          "observed_until": 28,
+          "observation": "f28: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "29": {
+          "phase": "readiness",
+          "observed_until": 29,
+          "observation": "f29: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 黑车正从右向左横穿本侧通道，绿灯和自车已移动均不能授予许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "uncertain",
+          "observed_until": 32,
+          "observation": "f32: 车尾接近通道边缘，余量转折不确定。"
+        },
+        "33": {
+          "phase": "uncertain",
+          "observed_until": 33,
+          "observation": "f33: 车尾接近通道边缘，余量转折不确定。"
+        },
+        "34": {
+          "phase": "catchup",
+          "observed_until": 34,
+          "observation": "f34: 黑车已让出本侧通道，其他方向车列保持等待，自车已穿越；旧等待状态可以同步，但不冒充起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "35": {
+          "phase": "catchup",
+          "observed_until": 35,
+          "observation": "f35: 黑车已让出本侧通道，其他方向车列保持等待，自车已穿越；旧等待状态可以同步，但不冒充起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "36": {
+          "phase": "excluded",
+          "observed_until": 36,
+          "observation": "f36: 接近出口，切换完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "26": "7c4a667a7d4e4fc9823d6f0890ed6901efd500fab22b96d22855c6a3e2adf63d",
+      "27": "e7df238021d0d1757d2d3a59f5589d2c31030de500cc59c58cea3317bb79fd70",
+      "28": "2db6be9a890dc2226bf7ad92614472556d32653b38d5b7ff4d59adaecc1c51d2",
+      "29": "c5e206e181cf235d8add215fcb4cbf93311e56a92a939384f48fe94626546ea7",
+      "30": "b759cf7f9565bbd94e44d116e72a6b86d38b456b63132503bbb417b257056685",
+      "31": "b54295f38de6bc54138795ade17d8fd5e65e36bd52d2aef9b42eff684c402108",
+      "32": "a3ea4287895ba717e650291cbff7fc045b9ad255a025b2058de29072ee1a45ec",
+      "33": "cdd17f84781caa0f707079d8b6096094663f322bb1fb42bb15727cbf0a0eebaf",
+      "34": "205bb46032d6370958a0d223152fa6740c853d11ed17dccec7c1893f1dfed393",
+      "35": "5b551e08c34309d122a71ea2a6f7ebf55386d65711a027e7b9cbae89cdf6bfcb",
+      "36": "e2e1c9e47a403bdb8214df94318311397875cd7b3d31f86aa927b7c72038e7c5"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002066_route0_01_09_12_53_45/U-E7/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_8_U-E7_proceed_29",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 29,
+      "review_end": 35,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 36,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "29": {
+          "phase": "readiness",
+          "observed_until": 29,
+          "observation": "f29: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "readiness",
+          "observed_until": 32,
+          "observation": "f32: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "33": {
+          "phase": "uncertain",
+          "observed_until": 33,
+          "observation": "f33: 蓝车正在驶出，右方红车的接续优先关系尚不能确认。"
+        },
+        "34": {
+          "phase": "uncertain",
+          "observed_until": 34,
+          "observation": "f34: 蓝车正在驶出，右方红车的接续优先关系尚不能确认。"
+        },
+        "35": {
+          "phase": "uncertain",
+          "observed_until": 35,
+          "observation": "f35: 蓝车正在驶出，右方红车的接续优先关系尚不能确认。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "29": "70cad76ad2833c9e85b690f284e215abc5b92bde7d8e40eda80bd9a211319eeb",
+      "30": "e551d5aec5ef5736cbcdf6111d9a269499b055d2ce3701cac8f1cf931c835b6f",
+      "31": "ab8e9248feb6ea71a0bf902e2a5d0a5c989be1e722cf4ac9b9df90a513e90d6e",
+      "32": "f2a89c4b557b1915563a0bb60ee4b18587fed1104c3f8f1058e6e8ac0aa13383",
+      "33": "81dd23473d03934fd548cdc66d6011ed062b4cc6b4160b5584b72ce7f25aec5a",
+      "34": "967d0159eca8fe06975462f6a0e25d09d4864db846fcb88ea35f8c2aa1efc85f",
+      "35": "059b333ac7e211bdfa3a4b71e3f43813c4e17d3335cad307365c9d2bb3c19e4e"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002066_route0_01_09_12_53_45/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_8_U-E7_release_29",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 29,
+      "review_end": 35,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 36,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "29": {
+          "phase": "readiness",
+          "observed_until": 29,
+          "observation": "f29: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "30": {
+          "phase": "readiness",
+          "observed_until": 30,
+          "observation": "f30: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "31": {
+          "phase": "readiness",
+          "observed_until": 31,
+          "observation": "f31: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "32": {
+          "phase": "readiness",
+          "observed_until": 32,
+          "observation": "f32: 蓝车横穿近处通道，不能释放。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "33": {
+          "phase": "uncertain",
+          "observed_until": 33,
+          "observation": "f33: 蓝车正在驶出，右方红车的接续优先关系尚不能确认。"
+        },
+        "34": {
+          "phase": "uncertain",
+          "observed_until": 34,
+          "observation": "f34: 蓝车正在驶出，右方红车的接续优先关系尚不能确认。"
+        },
+        "35": {
+          "phase": "uncertain",
+          "observed_until": 35,
+          "observation": "f35: 蓝车正在驶出，右方红车的接续优先关系尚不能确认。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "29": "70cad76ad2833c9e85b690f284e215abc5b92bde7d8e40eda80bd9a211319eeb",
+      "30": "e551d5aec5ef5736cbcdf6111d9a269499b055d2ce3701cac8f1cf931c835b6f",
+      "31": "ab8e9248feb6ea71a0bf902e2a5d0a5c989be1e722cf4ac9b9df90a513e90d6e",
+      "32": "f2a89c4b557b1915563a0bb60ee4b18587fed1104c3f8f1058e6e8ac0aa13383",
+      "33": "81dd23473d03934fd548cdc66d6011ed062b4cc6b4160b5584b72ce7f25aec5a",
+      "34": "967d0159eca8fe06975462f6a0e25d09d4864db846fcb88ea35f8c2aa1efc85f",
+      "35": "059b333ac7e211bdfa3a4b71e3f43813c4e17d3335cad307365c9d2bb3c19e4e"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town15_Rep0_route_002097_route0_01_08_21_11_39/U-E7/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_9_U-E7_proceed_35",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 35,
+      "review_end": 43,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 44,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "39": {
+          "phase": "readiness",
+          "observed_until": 39,
+          "observation": "f39: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "40": {
+          "phase": "readiness",
+          "observed_until": 40,
+          "observation": "f40: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "41": {
+          "phase": "uncertain",
+          "observed_until": 41,
+          "observation": "f41: 红车尾部将离开，旁路车辆仍近，不能完整确认旧等待问题的许可。"
+        },
+        "42": {
+          "phase": "uncertain",
+          "observed_until": 42,
+          "observation": "f42: 红车尾部将离开，旁路车辆仍近，不能完整确认旧等待问题的许可。"
+        },
+        "43": {
+          "phase": "uncertain",
+          "observed_until": 43,
+          "observation": "f43: 红车尾部将离开，旁路车辆仍近，不能完整确认旧等待问题的许可。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "35": "ecbd8dffc841bca33b37db5c52e331c818a0e9a103fdd626f0be6955a8c1b5f7",
+      "36": "0d6250ef580daf17bef3bbc877ff22331a49ffcd860d916111ec0f2cf880b300",
+      "37": "baf5b4501e78b2fcd703185829f59a216f1f64f66abdc2fa78d00994312781e1",
+      "38": "deb2f99fd6856e7047c32155c76bacd375acd0d52232b112c3fad71eaa58a43f",
+      "39": "f1f7bac2c159bbaf8cc6b250c940c84696e00e190c40666be5c372f5191a60e0",
+      "40": "e3ff3d548bc47a986ea0981c79ba640c33035a21f973cf230e4a6685c81043a1",
+      "41": "27da32d6ff7c256c12f37c39f6d6933064fa6fb3559e85ffa8dadfb8a781b3db",
+      "42": "8595fe3ca551974e15f31749af7f10e4fe91ad2f796cb287caf6341d9c968b78",
+      "43": "3f2979b05d6f653a86dff3f2ef608d945004fb4f00de807a08d597be55c230f2"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town15_Rep0_route_002097_route0_01_08_21_11_39/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_9_U-E7_release_35",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 35,
+      "review_end": 43,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 44,
+        "kind": "review_end",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "39": {
+          "phase": "readiness",
+          "observed_until": 39,
+          "observation": "f39: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "40": {
+          "phase": "readiness",
+          "observed_until": 40,
+          "observation": "f40: 红车从右向左横穿，车体仍占本侧预定通道。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "41": {
+          "phase": "uncertain",
+          "observed_until": 41,
+          "observation": "f41: 红车尾部将离开，旁路车辆仍近，不能完整确认旧等待问题的许可。"
+        },
+        "42": {
+          "phase": "uncertain",
+          "observed_until": 42,
+          "observation": "f42: 红车尾部将离开，旁路车辆仍近，不能完整确认旧等待问题的许可。"
+        },
+        "43": {
+          "phase": "uncertain",
+          "observed_until": 43,
+          "observation": "f43: 红车尾部将离开，旁路车辆仍近，不能完整确认旧等待问题的许可。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "35": "ecbd8dffc841bca33b37db5c52e331c818a0e9a103fdd626f0be6955a8c1b5f7",
+      "36": "0d6250ef580daf17bef3bbc877ff22331a49ffcd860d916111ec0f2cf880b300",
+      "37": "baf5b4501e78b2fcd703185829f59a216f1f64f66abdc2fa78d00994312781e1",
+      "38": "deb2f99fd6856e7047c32155c76bacd375acd0d52232b112c3fad71eaa58a43f",
+      "39": "f1f7bac2c159bbaf8cc6b250c940c84696e00e190c40666be5c372f5191a60e0",
+      "40": "e3ff3d548bc47a986ea0981c79ba640c33035a21f973cf230e4a6685c81043a1",
+      "41": "27da32d6ff7c256c12f37c39f6d6933064fa6fb3559e85ffa8dadfb8a781b3db",
+      "42": "8595fe3ca551974e15f31749af7f10e4fe91ad2f796cb287caf6341d9c968b78",
+      "43": "3f2979b05d6f653a86dff3f2ef608d945004fb4f00de807a08d597be55c230f2"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42/U-E6/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_10_U-E6_proceed_38",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 38,
+      "review_end": 53,
+      "reference_frame": 47,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 53,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "39": {
+          "phase": "readiness",
+          "observed_until": 39,
+          "observation": "f39: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "40": {
+          "phase": "readiness",
+          "observed_until": 40,
+          "observation": "f40: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "41": {
+          "phase": "readiness",
+          "observed_until": 41,
+          "observation": "f41: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "42": {
+          "phase": "uncertain",
+          "observed_until": 42,
+          "observation": "f42: 警车远离但浓雾影响清空边界判断。"
+        },
+        "43": {
+          "phase": "uncertain",
+          "observed_until": 43,
+          "observation": "f43: 警车远离但浓雾影响清空边界判断。"
+        },
+        "44": {
+          "phase": "uncertain",
+          "observed_until": 44,
+          "observation": "f44: 警车远离但浓雾影响清空边界判断。"
+        },
+        "45": {
+          "phase": "uncertain",
+          "observed_until": 45,
+          "observation": "f45: 警车远离但浓雾影响清空边界判断。"
+        },
+        "46": {
+          "phase": "uncertain",
+          "observed_until": 46,
+          "observation": "f46: 警车远离但浓雾影响清空边界判断。"
+        },
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 警车已在左方车道远离，当前近距冲突区清楚，左右车列停等且通行信号有效；自车仍等待时已可开始通过。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 警车已在左方车道远离，当前近距冲突区清楚，左右车列停等且通行信号有效；自车仍等待时已可开始通过。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 警车已在左方车道远离，当前近距冲突区清楚，左右车列停等且通行信号有效；自车仍等待时已可开始通过。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "50": {
+          "phase": "catchup",
+          "observed_until": 50,
+          "observation": "f50: 近处路面位移确认开始恢复，当前穿越通道保持可用。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "51": {
+          "phase": "catchup",
+          "observed_until": 51,
+          "observation": "f51: 近处路面位移确认开始恢复，当前穿越通道保持可用。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "52": {
+          "phase": "catchup",
+          "observed_until": 52,
+          "observation": "f52: 近处路面位移确认开始恢复，当前穿越通道保持可用。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "53": {
+          "phase": "excluded",
+          "observed_until": 53,
+          "observation": "f53: 持续转弯阶段，截止旧等待问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "38": "87b48e930db1b3e21f298138f7f8e5450ba335523f1c5d794f5ddba69dd66be2",
+      "39": "90a8983da05b182c008db3f1cd468e26d928c00ffaa50a93c47e08df6f20e2f9",
+      "40": "1bb0e49cf6380c5373e05c3683f68a2140805e273dc42f56948613e90fe8c4cc",
+      "41": "000d8ebdd594b2960e6df44770161d045456c4692ee345ca5d10cf10811f1543",
+      "42": "644f5140d17c5fbabb09c097d97ef792cb31cf924ae503f746d5f2be1657b7f3",
+      "43": "401a0e8137f3755d0e51e5f1645ec7a9657e72ab20dd8d13c97dcd2ad321b7ee",
+      "44": "16d2c8b5ad32d9c226291de1a4575f32271c3e16c6f8d40a72eff422798477e0",
+      "45": "26e1af13c1470eb17b00819f4b62b6e0d878d0280548e36f94ea46fa5410054c",
+      "46": "34a8da128271e98cd904dfe80bdcf71708be34ed9aefdf33930cb2f851577538",
+      "47": "39e5d687546a8509a1c8359a83ba39030bedbd6d033f053f09c876ead9d698ba",
+      "48": "b898b1226fa82a58e620c9399d00845c504264466cf9ea9f1db264fc48144082",
+      "49": "c35d9b9eebc82e53631ddd1a81f22da16cabb785db367644f23c9955339fd649",
+      "50": "e7cf390721a7306ffb0049b3e316a0259e0b619113c9d11b28ba966e3ff0d8ff",
+      "51": "b576914a2c69fd39bacaf09e785b440b7c02b75365517970df0b00e671cc18fa",
+      "52": "8b83bb1a45bbe2e059a287895833a835e6dee518fe1e3c854ab428ec3c8cf118",
+      "53": "55878cf74f7cc66bbd549f9376942d805be13248926025909c4b2bae9038a390"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_10_U-E6_release_38",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 38,
+      "review_end": 53,
+      "reference_frame": 47,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 53,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "39": {
+          "phase": "readiness",
+          "observed_until": 39,
+          "observation": "f39: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "40": {
+          "phase": "readiness",
+          "observed_until": 40,
+          "observation": "f40: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "41": {
+          "phase": "readiness",
+          "observed_until": 41,
+          "observation": "f41: 警车在近处从右向左穿越。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "42": {
+          "phase": "uncertain",
+          "observed_until": 42,
+          "observation": "f42: 警车远离但浓雾影响清空边界判断。"
+        },
+        "43": {
+          "phase": "uncertain",
+          "observed_until": 43,
+          "observation": "f43: 警车远离但浓雾影响清空边界判断。"
+        },
+        "44": {
+          "phase": "uncertain",
+          "observed_until": 44,
+          "observation": "f44: 警车远离但浓雾影响清空边界判断。"
+        },
+        "45": {
+          "phase": "uncertain",
+          "observed_until": 45,
+          "observation": "f45: 警车远离但浓雾影响清空边界判断。"
+        },
+        "46": {
+          "phase": "uncertain",
+          "observed_until": 46,
+          "observation": "f46: 警车远离但浓雾影响清空边界判断。"
+        },
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 警车已在左方车道远离，当前近距冲突区清楚，左右车列停等且通行信号有效；自车仍等待时已可开始通过。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 警车已在左方车道远离，当前近距冲突区清楚，左右车列停等且通行信号有效；自车仍等待时已可开始通过。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 警车已在左方车道远离，当前近距冲突区清楚，左右车列停等且通行信号有效；自车仍等待时已可开始通过。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "50": {
+          "phase": "catchup",
+          "observed_until": 50,
+          "observation": "f50: 近处路面位移确认开始恢复，当前穿越通道保持可用。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "51": {
+          "phase": "catchup",
+          "observed_until": 51,
+          "observation": "f51: 近处路面位移确认开始恢复，当前穿越通道保持可用。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "52": {
+          "phase": "catchup",
+          "observed_until": 52,
+          "observation": "f52: 近处路面位移确认开始恢复，当前穿越通道保持可用。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "53": {
+          "phase": "excluded",
+          "observed_until": 53,
+          "observation": "f53: 持续转弯阶段，截止旧等待问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "38": "87b48e930db1b3e21f298138f7f8e5450ba335523f1c5d794f5ddba69dd66be2",
+      "39": "90a8983da05b182c008db3f1cd468e26d928c00ffaa50a93c47e08df6f20e2f9",
+      "40": "1bb0e49cf6380c5373e05c3683f68a2140805e273dc42f56948613e90fe8c4cc",
+      "41": "000d8ebdd594b2960e6df44770161d045456c4692ee345ca5d10cf10811f1543",
+      "42": "644f5140d17c5fbabb09c097d97ef792cb31cf924ae503f746d5f2be1657b7f3",
+      "43": "401a0e8137f3755d0e51e5f1645ec7a9657e72ab20dd8d13c97dcd2ad321b7ee",
+      "44": "16d2c8b5ad32d9c226291de1a4575f32271c3e16c6f8d40a72eff422798477e0",
+      "45": "26e1af13c1470eb17b00819f4b62b6e0d878d0280548e36f94ea46fa5410054c",
+      "46": "34a8da128271e98cd904dfe80bdcf71708be34ed9aefdf33930cb2f851577538",
+      "47": "39e5d687546a8509a1c8359a83ba39030bedbd6d033f053f09c876ead9d698ba",
+      "48": "b898b1226fa82a58e620c9399d00845c504264466cf9ea9f1db264fc48144082",
+      "49": "c35d9b9eebc82e53631ddd1a81f22da16cabb785db367644f23c9955339fd649",
+      "50": "e7cf390721a7306ffb0049b3e316a0259e0b619113c9d11b28ba966e3ff0d8ff",
+      "51": "b576914a2c69fd39bacaf09e785b440b7c02b75365517970df0b00e671cc18fa",
+      "52": "8b83bb1a45bbe2e059a287895833a835e6dee518fe1e3c854ab428ec3c8cf118",
+      "53": "55878cf74f7cc66bbd549f9376942d805be13248926025909c4b2bae9038a390"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town13_Rep0_1245_5_route0_01_10_01_12_10",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town13_Rep0_1245_5_route0_01_10_01_12_10/U-E6/reviewed_junction_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_11_U-E6_proceed_69",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 69,
+      "review_end": 86,
+      "reference_frame": 76,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 86,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "69": {
+          "phase": "readiness",
+          "observed_until": 69,
+          "observation": "f69: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "70": {
+          "phase": "readiness",
+          "observed_until": 70,
+          "observation": "f70: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "71": {
+          "phase": "readiness",
+          "observed_until": 71,
+          "observation": "f71: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "72": {
+          "phase": "readiness",
+          "observed_until": 72,
+          "observation": "f72: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "73": {
+          "phase": "uncertain",
+          "observed_until": 73,
+          "observation": "f73: 警车尾部驶离冲突区域，边界不确定。"
+        },
+        "74": {
+          "phase": "uncertain",
+          "observed_until": 74,
+          "observation": "f74: 警车尾部驶离冲突区域，边界不确定。"
+        },
+        "75": {
+          "phase": "uncertain",
+          "observed_until": 75,
+          "observation": "f75: 警车尾部驶离冲突区域，边界不确定。"
+        },
+        "76": {
+          "phase": "readiness",
+          "observed_until": 76,
+          "observation": "f76: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "77": {
+          "phase": "readiness",
+          "observed_until": 77,
+          "observation": "f77: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "78": {
+          "phase": "readiness",
+          "observed_until": 78,
+          "observation": "f78: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "79": {
+          "phase": "readiness",
+          "observed_until": 79,
+          "observation": "f79: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "80": {
+          "phase": "readiness",
+          "observed_until": 80,
+          "observation": "f80: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "81": {
+          "phase": "readiness",
+          "observed_until": 81,
+          "observation": "f81: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "82": {
+          "phase": "catchup",
+          "observed_until": 82,
+          "observation": "f82: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "83": {
+          "phase": "catchup",
+          "observed_until": 83,
+          "observation": "f83: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "84": {
+          "phase": "catchup",
+          "observed_until": 84,
+          "observation": "f84: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "85": {
+          "phase": "catchup",
+          "observed_until": 85,
+          "observation": "f85: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "86": {
+          "phase": "excluded",
+          "observed_until": 86,
+          "observation": "f86: 进入持续穿越，不再补问旧等待状态。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "69": "8f5a4c04a2f451acfeabc9129ec06e9ebfff8180b2dc0d66c6989023a16292b9",
+      "70": "a94abec4619c520ad25527effe65d4db29d79c673e431300b78a48cdc753d9bc",
+      "71": "1cbb82970478ab8237350fccd45c952a4252c5700ee19c549829131474871ef9",
+      "72": "e8e956b2183fbc899eac2ef9d3e2d8f868a8af5434af39986ec1df84f8406d39",
+      "73": "e499fa7ae133ca4c162b92de016da24aa0213db10bd83e4e28e1960006360d3b",
+      "74": "3a600b1ac93fb68231be4b63812a52ef0a03c753161b724d070ccaa2f0cd02ac",
+      "75": "978637d16c3e484184a39bf8dcf1e6886a18d9a755c502f634664dc324600d26",
+      "76": "f6414bd8478671c4407d029e138ce19b591178292b17f411a46001fa8e283b18",
+      "77": "1ae26e33bd212350c7c9053db97c5682d88f11dcfa6fb19097e9554df5c9c370",
+      "78": "bf192e8769bfbbdc5859de7c55b8c5ee56e4d38c550edb5c745e4b85b25ba252",
+      "79": "3106e81a4368a8d14f578ef9aa3ecc449693e964dbb1f6e14a0d33a5aacc1458",
+      "80": "223f2857deb1193a5d976e48726347aa326ea12eb78142e9619a9c97790edc84",
+      "81": "3c2d55290eb97bef8459e92b03c22a891103e20d546a1681f1266cf0b05b045e",
+      "82": "005487f684da1b212f6acc24aa759bc38321d4562ab9b4639a34a14bec26c368",
+      "83": "7ce90c1b1aa6178f718731f98118b645c14a0c75838025873856dd3c5767a079",
+      "84": "2ed650a11cdf33cc491c2348f2ba505161a110b21a2dd3f87bc30a6110b6116c",
+      "85": "d5300def7824d8c23277b0b60479339307c8e4c1b47eb0384d04bdfaa4d44b72",
+      "86": "6a7e80bfcc34ddf1a9ebc624dd939c8055d8b6b75825e81aad4f13bb5ca0dd20"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town13_Rep0_1245_5_route0_01_10_01_12_10",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town13_Rep0_1245_5_route0_01_10_01_12_10/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_11_U-E6_release_69",
+    "observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 69,
+      "review_end": 86,
+      "reference_frame": 76,
+      "reference_kind": "condition_onset",
+      "reference_observation": "冻结状态对规则下逐帧核对横穿目标、通道与优先权；自车运动与灯色均不能单独证明允许通行。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 86,
+        "kind": "next_stage",
+        "reason": "进入后续路口行进阶段后停止旧等待问题；审核末端之外不推断。"
+      },
+      "frames": {
+        "69": {
+          "phase": "readiness",
+          "observed_until": 69,
+          "observation": "f69: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "70": {
+          "phase": "readiness",
+          "observed_until": 70,
+          "observation": "f70: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "71": {
+          "phase": "readiness",
+          "observed_until": 71,
+          "observation": "f71: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "72": {
+          "phase": "readiness",
+          "observed_until": 72,
+          "observation": "f72: 警车从右侧进入并横穿近处路径，必须等待。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "73": {
+          "phase": "uncertain",
+          "observed_until": 73,
+          "observation": "f73: 警车尾部驶离冲突区域，边界不确定。"
+        },
+        "74": {
+          "phase": "uncertain",
+          "observed_until": 74,
+          "observation": "f74: 警车尾部驶离冲突区域，边界不确定。"
+        },
+        "75": {
+          "phase": "uncertain",
+          "observed_until": 75,
+          "observation": "f75: 警车尾部驶离冲突区域，边界不确定。"
+        },
+        "76": {
+          "phase": "readiness",
+          "observed_until": 76,
+          "observation": "f76: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "77": {
+          "phase": "readiness",
+          "observed_until": 77,
+          "observation": "f77: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "78": {
+          "phase": "readiness",
+          "observed_until": 78,
+          "observation": "f78: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "79": {
+          "phase": "readiness",
+          "observed_until": 79,
+          "observation": "f79: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "80": {
+          "phase": "readiness",
+          "observed_until": 80,
+          "observation": "f80: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "81": {
+          "phase": "readiness",
+          "observed_until": 81,
+          "observation": "f81: 警车沿左路远离，照明覆盖的近处路口与出口清楚，其他方向车列停等，正面信号允许；可在自车起步前释放。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          }
+        },
+        "82": {
+          "phase": "catchup",
+          "observed_until": 82,
+          "observation": "f82: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "83": {
+          "phase": "catchup",
+          "observed_until": 83,
+          "observation": "f83: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "84": {
+          "phase": "catchup",
+          "observed_until": 84,
+          "observation": "f84: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "85": {
+          "phase": "catchup",
+          "observed_until": 85,
+          "observation": "f85: 路缘与树木位移确认自车已恢复，路口通道仍可用；旧HOLD问题应推进。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "86": {
+          "phase": "excluded",
+          "observed_until": 86,
+          "observation": "f86: 进入持续穿越，不再补问旧等待状态。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "69": "8f5a4c04a2f451acfeabc9129ec06e9ebfff8180b2dc0d66c6989023a16292b9",
+      "70": "a94abec4619c520ad25527effe65d4db29d79c673e431300b78a48cdc753d9bc",
+      "71": "1cbb82970478ab8237350fccd45c952a4252c5700ee19c549829131474871ef9",
+      "72": "e8e956b2183fbc899eac2ef9d3e2d8f868a8af5434af39986ec1df84f8406d39",
+      "73": "e499fa7ae133ca4c162b92de016da24aa0213db10bd83e4e28e1960006360d3b",
+      "74": "3a600b1ac93fb68231be4b63812a52ef0a03c753161b724d070ccaa2f0cd02ac",
+      "75": "978637d16c3e484184a39bf8dcf1e6886a18d9a755c502f634664dc324600d26",
+      "76": "f6414bd8478671c4407d029e138ce19b591178292b17f411a46001fa8e283b18",
+      "77": "1ae26e33bd212350c7c9053db97c5682d88f11dcfa6fb19097e9554df5c9c370",
+      "78": "bf192e8769bfbbdc5859de7c55b8c5ee56e4d38c550edb5c745e4b85b25ba252",
+      "79": "3106e81a4368a8d14f578ef9aa3ecc449693e964dbb1f6e14a0d33a5aacc1458",
+      "80": "223f2857deb1193a5d976e48726347aa326ea12eb78142e9619a9c97790edc84",
+      "81": "3c2d55290eb97bef8459e92b03c22a891103e20d546a1681f1266cf0b05b045e",
+      "82": "005487f684da1b212f6acc24aa759bc38321d4562ab9b4639a34a14bec26c368",
+      "83": "7ce90c1b1aa6178f718731f98118b645c14a0c75838025873856dd3c5767a079",
+      "84": "2ed650a11cdf33cc491c2348f2ba505161a110b21a2dd3f87bc30a6110b6116c",
+      "85": "d5300def7824d8c23277b0b60479339307c8e4c1b47eb0384d04bdfaa4d44b72",
+      "86": "6a7e80bfcc34ddf1a9ebc624dd939c8055d8b6b75825e81aad4f13bb5ca0dd20"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002137_route0_01_08_14_52_20",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002137_route0_01_08_14_52_20/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_0_U-E7_complete_20",
+    "observation": "全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": null,
+    "transition_band": {
+      "review_start": 20,
+      "review_end": 29,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 29,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "20": {
+          "phase": "uncertain",
+          "observed_until": 20,
+          "observation": "f20: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "21": {
+          "phase": "uncertain",
+          "observed_until": 21,
+          "observation": "f21: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "22": {
+          "phase": "uncertain",
+          "observed_until": 22,
+          "observation": "f22: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "23": {
+          "phase": "uncertain",
+          "observed_until": 23,
+          "observation": "f23: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "24": {
+          "phase": "uncertain",
+          "observed_until": 24,
+          "observation": "f24: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "25": {
+          "phase": "uncertain",
+          "observed_until": 25,
+          "observation": "f25: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "26": {
+          "phase": "uncertain",
+          "observed_until": 26,
+          "observation": "f26: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "27": {
+          "phase": "uncertain",
+          "observed_until": 27,
+          "observation": "f27: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "28": {
+          "phase": "uncertain",
+          "observed_until": 28,
+          "observation": "f28: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "29": {
+          "phase": "excluded",
+          "observed_until": 29,
+          "observation": "f29: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "20": "e68e52e664d7744e10f509ef4a24959912a7d2c5a85286448d186657df619244",
+      "21": "2734bce0998f4a31b86341563062dbd904155365bcc8f85aa85adfdd8740bdbf",
+      "22": "90b453e83d4e603730a633195b9925ba8645c3742365584e1471bdbbc2df0b76",
+      "23": "5a48507da21857747ef7548e0e8eb865596e856ca5ccc30db5c7d108af953fc6",
+      "24": "beba70488a373bbd1a7fbbf2aa4c09a287ab7b94f8f81b422b9fb998ea563a5d",
+      "25": "240189baa95b519cfed57096bfa5754bb070080c49afb551f4acc5448428289a",
+      "26": "3fe0431d49de46fe1883037b51ba60850a8b9d0e4dbfc783a9aa927869f2a019",
+      "27": "97387c5cc549a375061d6c3f21c507ebb7c2ebac52c05d907bae31987ce2ecce",
+      "28": "b09e7dd340966311bf35efe83bb4bd8afa3235eefb8c904c823f79fa921c32ba",
+      "29": "f531f067a02ed3b5820c17b2f1843761812b58b17cfffc305bb4f32cb3c9205e"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002138_route0_01_08_13_15_20",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002138_route0_01_08_13_15_20/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_1_U-E7_complete_40",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 40,
+      "review_end": 48,
+      "reference_frame": 47,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 49,
+        "kind": "review_end",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "40": {
+          "phase": "readiness",
+          "observed_until": 40,
+          "observation": "f40: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "41": {
+          "phase": "readiness",
+          "observed_until": 41,
+          "observation": "f41: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "42": {
+          "phase": "readiness",
+          "observed_until": 42,
+          "observation": "f42: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "43": {
+          "phase": "readiness",
+          "observed_until": 43,
+          "observation": "f43: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "44": {
+          "phase": "readiness",
+          "observed_until": 44,
+          "observation": "f44: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "45": {
+          "phase": "uncertain",
+          "observed_until": 45,
+          "observation": "f45: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "46": {
+          "phase": "uncertain",
+          "observed_until": 46,
+          "observation": "f46: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "48": {
+          "phase": "catchup",
+          "observed_until": 48,
+          "observation": "f48: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        }
+      }
+    },
+    "frame_sha256": {
+      "40": "147fbff89060d102af195e49606f815986c4009ca382df84933cb6de17c3404b",
+      "41": "54dc36904ec7fb84fba3e81bc26494a68806afee6a04b7739f03fe48964e43b2",
+      "42": "6ab53393bc2cf5a4f2a1b4e1f59db24e89205d8b64339c421b2694779f60e5c7",
+      "43": "2d68d64f635b81c4afb927901282ccc9f3e677245128dd2202f411618350bfa2",
+      "44": "8a7fafa78e8881680c4610a473cae752568674d4b874cd0174f15665063ca584",
+      "45": "09e458a4fa56a7697e299be7950369820d57e546dcf84906229852f3f140cc91",
+      "46": "9f9301dea235deda00cc6ca28133113c8e6fe823b6e2979650c4b27e3326d246",
+      "47": "44448eb43fb75ef24b1ac3831c025d004db906359ec0d595e5b472ccd4285225",
+      "48": "db2c3ed98dc9f15387c8a9a7d2fad76fe7abea7b57e6a3502f7a432e0e58a5bd"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town03_Rep0_route_002144_route0_01_09_09_18_10",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town03_Rep0_route_002144_route0_01_09_09_18_10/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_2_U-E7_complete_34",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 34,
+      "review_end": 42,
+      "reference_frame": 40,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 43,
+        "kind": "review_end",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "34": {
+          "phase": "readiness",
+          "observed_until": 34,
+          "observation": "f34: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "37": {
+          "phase": "uncertain",
+          "observed_until": 37,
+          "observation": "f37: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "38": {
+          "phase": "uncertain",
+          "observed_until": 38,
+          "observation": "f38: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "40": {
+          "phase": "readiness",
+          "observed_until": 40,
+          "observation": "f40: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "41": {
+          "phase": "catchup",
+          "observed_until": 41,
+          "observation": "f41: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "42": {
+          "phase": "catchup",
+          "observed_until": 42,
+          "observation": "f42: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        }
+      }
+    },
+    "frame_sha256": {
+      "34": "fa9dde7021537fba55400966475a1f54698c0519702c92f46efd5c0decf867ed",
+      "35": "edb6e3bc213b2a3447b4e5c905037586e13a14e683d56d4d6874113f87e17cec",
+      "36": "1e434bf2ba6b08daa897a3cfe975187e54407984d03d62e3bbb41e4f0063fc15",
+      "37": "6750ec4dd9ee7a5977a3bdc50190229e806307e16a81de9500ff8aa02d3b348b",
+      "38": "5df33fec55180ae5f2bda24da0222373bc5580e9448f64e3d8a6c93127886f4d",
+      "39": "1c28c30a9f1527235e1cabffcd5f98e9b66a9b6146d45330c35829124852c841",
+      "40": "82961c4e104c599327ca85de4a7b07aed42294bde83dbd72c9711f4a275b0f9d",
+      "41": "d629908c4337a7895de71a35ebef95f1e4e2299f11d5a917ca700aa1ffe055fd",
+      "42": "5d394340b284004023e540a6c768c108606e9176352e2d27e9bdf04a1aff3516"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town04_Rep0_route_002177_route0_01_10_07_08_45",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town04_Rep0_route_002177_route0_01_10_07_08_45/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_3_U-E7_complete_10",
+    "observation": "全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": null,
+    "transition_band": {
+      "review_start": 10,
+      "review_end": 21,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 22,
+        "kind": "review_end",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "10": {
+          "phase": "uncertain",
+          "observed_until": 10,
+          "observation": "f10: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "11": {
+          "phase": "uncertain",
+          "observed_until": 11,
+          "observation": "f11: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "12": {
+          "phase": "uncertain",
+          "observed_until": 12,
+          "observation": "f12: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "13": {
+          "phase": "uncertain",
+          "observed_until": 13,
+          "observation": "f13: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "14": {
+          "phase": "uncertain",
+          "observed_until": 14,
+          "observation": "f14: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "15": {
+          "phase": "uncertain",
+          "observed_until": 15,
+          "observation": "f15: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "16": {
+          "phase": "uncertain",
+          "observed_until": 16,
+          "observation": "f16: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "17": {
+          "phase": "uncertain",
+          "observed_until": 17,
+          "observation": "f17: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "18": {
+          "phase": "uncertain",
+          "observed_until": 18,
+          "observation": "f18: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "19": {
+          "phase": "uncertain",
+          "observed_until": 19,
+          "observation": "f19: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "20": {
+          "phase": "uncertain",
+          "observed_until": 20,
+          "observation": "f20: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        },
+        "21": {
+          "phase": "uncertain",
+          "observed_until": 21,
+          "observation": "f21: 全序列RGB未确认UE7实例，逐帧current/previous_active_scenario_type均为空；场景目录名不能建立事件上下文。几何驶出不等于已完成已知UE7。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "10": "6bb949a5b801d7fda85617e0078a23b007dd227ccc8a12a2f97546f4736eef68",
+      "11": "c9d677e04037ebf0285f50cfd94029a2f415fbf6d3237bc8eeecd530ff9a73d1",
+      "12": "4c65cbd6f9519ff59812933cf98b1c790ea390d899af3ef5172af47d3a882c16",
+      "13": "c80b08832b2e9b679a2db3b11f43f0ae6621c27a0f62212dd6d31c06d30459fc",
+      "14": "36d5b3e97c0320f79d2b28b552f1e4c4b9348ae2b414480abca9cd6f27bc0d82",
+      "15": "8e5f7c9b38c84d9e789e81b50243b0fa13fa35a2649e941c80c532c46743566e",
+      "16": "07a5f0e36d2d6d8e3fb738a0cfe2f236703f859d986d86bf8b415f208455fecd",
+      "17": "9cacca8e10342801096f7290936d366a2029fecd03bd805b2d935538478ba957",
+      "18": "4bde995e4387da267b512587bdb09ce38b30e6652bbe65b0dc2ac9dd4468dec5",
+      "19": "85b79e62cff2d7cb5320778e7695170e3e4f6cbfce7d5857cc1dc57b5f8d6713",
+      "20": "e8cd1033b1de927477c12d6a455f90e564eec48c95c167dbf7c2147198331a06",
+      "21": "a1df0190e29cc87dd84cf0d4481a9de283aa45b25b3b5bfab3746b7d33eb374e"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002070_route0_01_09_22_49_09",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002070_route0_01_09_22_49_09/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_4_U-E7_complete_44",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 44,
+      "review_end": 51,
+      "reference_frame": 49,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 52,
+        "kind": "review_end",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "44": {
+          "phase": "readiness",
+          "observed_until": 44,
+          "observation": "f44: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "45": {
+          "phase": "readiness",
+          "observed_until": 45,
+          "observation": "f45: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "46": {
+          "phase": "uncertain",
+          "observed_until": 46,
+          "observation": "f46: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "47": {
+          "phase": "uncertain",
+          "observed_until": 47,
+          "observation": "f47: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "48": {
+          "phase": "uncertain",
+          "observed_until": 48,
+          "observation": "f48: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "50": {
+          "phase": "catchup",
+          "observed_until": 50,
+          "observation": "f50: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "51": {
+          "phase": "catchup",
+          "observed_until": 51,
+          "observation": "f51: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        }
+      }
+    },
+    "frame_sha256": {
+      "44": "b2dcb19e2532903141026acacad450ac3b7e53bc7ecfa2d1d70f05d8eb7a9533",
+      "45": "85902aa9118550a9a0febdd461988b8bafac60433ce0b6161f650956be66c57d",
+      "46": "356657103977c9cb07b8cb0347799499446a4a5126a969a81edd8597ee395400",
+      "47": "88b6cc40a8d0c48fcdafa3a6ef2f64d6d0b5059f581fdc144e236bbe2f9d99c5",
+      "48": "757a4dd1313db47fd7575737a94879f4f5ca300e268dc1c960647201daa7541a",
+      "49": "71ad00a403c11523d2eefb8d60a0bef2f234faa50a15352d85bffc9308a2b7a0",
+      "50": "20c76eb27abf2627857ac03652144fd8bcb96821a683c136b50e2a32568df918",
+      "51": "300951eb1f6ff5f38ba0251b144db6270607c4b2cb8621b60faac8a89b69c00e"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_5_U-E6_complete_58",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 58,
+      "review_end": 67,
+      "reference_frame": 65,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 67,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "58": {
+          "phase": "readiness",
+          "observed_until": 58,
+          "observation": "f58: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "59": {
+          "phase": "readiness",
+          "observed_until": 59,
+          "observation": "f59: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "60": {
+          "phase": "readiness",
+          "observed_until": 60,
+          "observation": "f60: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "61": {
+          "phase": "readiness",
+          "observed_until": 61,
+          "observation": "f61: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "62": {
+          "phase": "uncertain",
+          "observed_until": 62,
+          "observation": "f62: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "63": {
+          "phase": "uncertain",
+          "observed_until": 63,
+          "observation": "f63: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "64": {
+          "phase": "uncertain",
+          "observed_until": 64,
+          "observation": "f64: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "65": {
+          "phase": "readiness",
+          "observed_until": 65,
+          "observation": "f65: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "66": {
+          "phase": "catchup",
+          "observed_until": 66,
+          "observation": "f66: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "67": {
+          "phase": "excluded",
+          "observed_until": 67,
+          "observation": "f67: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "58": "7f23ded0ae9d168155f4c3b0da2c351857bde97b2f699906f9356643881bacac",
+      "59": "857c3e03197e8b31821409af716977b639bc40a3eb8146ccfe1912d0deec45fa",
+      "60": "a8456a76aebac1eaa2ddfdfc8fb5d1a07dd9504ff88c91b9adfca4d7ace6dc4a",
+      "61": "9340f408089db697ca27a0979ff8ecdc2249620c1ddc1f20cc9ebc00f83ec048",
+      "62": "7d139070666fb204d7b8195bca64ece45b7537430233db4eb994491b7a4c5f27",
+      "63": "fd41b18a524a651e5c5a603e8109c1904631bbd733353ee73327fc0183a1b3b5",
+      "64": "f09fb514d913b01170373b8fb253c4974d18ba2656a47018081244ea08519b2d",
+      "65": "a2be48916b0e8ed89b01392f444d03b26d29fe1def433190008761193f3c3c3c",
+      "66": "eb5cac8074ec37e93882cf4db64cb06f5df34ef32e640d5164765481a14f8cc1",
+      "67": "c1a4883f493d2d2a8e40ec909a9f0c5927280db15d89ad703e85647df32f08e4"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "RECOVER"
+    },
+    "edge": "stable",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_5_U-E6_stable_58",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 58,
+      "review_end": 67,
+      "reference_frame": 65,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 67,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "58": {
+          "phase": "readiness",
+          "observed_until": 58,
+          "observation": "f58: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "59": {
+          "phase": "readiness",
+          "observed_until": 59,
+          "observation": "f59: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "60": {
+          "phase": "readiness",
+          "observed_until": 60,
+          "observation": "f60: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "61": {
+          "phase": "readiness",
+          "observed_until": 61,
+          "observation": "f61: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "62": {
+          "phase": "uncertain",
+          "observed_until": 62,
+          "observation": "f62: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "63": {
+          "phase": "uncertain",
+          "observed_until": 63,
+          "observation": "f63: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "64": {
+          "phase": "uncertain",
+          "observed_until": 64,
+          "observation": "f64: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "65": {
+          "phase": "readiness",
+          "observed_until": 65,
+          "observation": "f65: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true
+          }
+        },
+        "66": {
+          "phase": "catchup",
+          "observed_until": 66,
+          "observation": "f66: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "67": {
+          "phase": "excluded",
+          "observed_until": 67,
+          "observation": "f67: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "58": "7f23ded0ae9d168155f4c3b0da2c351857bde97b2f699906f9356643881bacac",
+      "59": "857c3e03197e8b31821409af716977b639bc40a3eb8146ccfe1912d0deec45fa",
+      "60": "a8456a76aebac1eaa2ddfdfc8fb5d1a07dd9504ff88c91b9adfca4d7ace6dc4a",
+      "61": "9340f408089db697ca27a0979ff8ecdc2249620c1ddc1f20cc9ebc00f83ec048",
+      "62": "7d139070666fb204d7b8195bca64ece45b7537430233db4eb994491b7a4c5f27",
+      "63": "fd41b18a524a651e5c5a603e8109c1904631bbd733353ee73327fc0183a1b3b5",
+      "64": "f09fb514d913b01170373b8fb253c4974d18ba2656a47018081244ea08519b2d",
+      "65": "a2be48916b0e8ed89b01392f444d03b26d29fe1def433190008761193f3c3c3c",
+      "66": "eb5cac8074ec37e93882cf4db64cb06f5df34ef32e640d5164765481a14f8cc1",
+      "67": "c1a4883f493d2d2a8e40ec909a9f0c5927280db15d89ad703e85647df32f08e4"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_6_U-E6_complete_47",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 47,
+      "review_end": 55,
+      "reference_frame": 52,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 55,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "50": {
+          "phase": "uncertain",
+          "observed_until": 50,
+          "observation": "f50: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "51": {
+          "phase": "uncertain",
+          "observed_until": 51,
+          "observation": "f51: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "52": {
+          "phase": "readiness",
+          "observed_until": 52,
+          "observation": "f52: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "53": {
+          "phase": "catchup",
+          "observed_until": 53,
+          "observation": "f53: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "54": {
+          "phase": "catchup",
+          "observed_until": 54,
+          "observation": "f54: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "55": {
+          "phase": "excluded",
+          "observed_until": 55,
+          "observation": "f55: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "47": "f00ba75bec4b44087fde3ac00961ee14280c4e1a0b30ed5142d0c0a3a4a50f3f",
+      "48": "0b0b4508c2a64daefcdfc0e74ef7a66847553ee41bdf78a1cd79c90550fea818",
+      "49": "1ac3638fa446297fac9f168a4ef254902f68915ac5d7bb9fe54084079543dab0",
+      "50": "dc4bb27f43ae7a385e66dc2de0b12342e03cc7eb91fdb141dd7450c31968fa16",
+      "51": "b41b54c160e68c83676d705ee1c47e4351eeebdc0bd831e7c3824cdb22c7009a",
+      "52": "51a36d8449983625f2f5e6eb3b0f624bff27254e55930a5f516cfbd8724c67e0",
+      "53": "14dded3142df5574e9f63f4fee04046145aca593e1437bcc69aae7c8fac1c6f4",
+      "54": "cb2e8f61e5198d3c0d4c814df20467c1c1ecf61b1be8c147c715cbaebf50833f",
+      "55": "fc6eac4c1d758a2077f6b3875a5b658e6fb75d163afb91670d614a28a13536ca"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "RECOVER"
+    },
+    "edge": "stable",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_6_U-E6_stable_47",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 47,
+      "review_end": 55,
+      "reference_frame": 52,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 55,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "47": {
+          "phase": "readiness",
+          "observed_until": 47,
+          "observation": "f47: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "50": {
+          "phase": "uncertain",
+          "observed_until": 50,
+          "observation": "f50: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "51": {
+          "phase": "uncertain",
+          "observed_until": 51,
+          "observation": "f51: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "52": {
+          "phase": "readiness",
+          "observed_until": 52,
+          "observation": "f52: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true
+          }
+        },
+        "53": {
+          "phase": "catchup",
+          "observed_until": 53,
+          "observation": "f53: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "54": {
+          "phase": "catchup",
+          "observed_until": 54,
+          "observation": "f54: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "55": {
+          "phase": "excluded",
+          "observed_until": 55,
+          "observation": "f55: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "47": "f00ba75bec4b44087fde3ac00961ee14280c4e1a0b30ed5142d0c0a3a4a50f3f",
+      "48": "0b0b4508c2a64daefcdfc0e74ef7a66847553ee41bdf78a1cd79c90550fea818",
+      "49": "1ac3638fa446297fac9f168a4ef254902f68915ac5d7bb9fe54084079543dab0",
+      "50": "dc4bb27f43ae7a385e66dc2de0b12342e03cc7eb91fdb141dd7450c31968fa16",
+      "51": "b41b54c160e68c83676d705ee1c47e4351eeebdc0bd831e7c3824cdb22c7009a",
+      "52": "51a36d8449983625f2f5e6eb3b0f624bff27254e55930a5f516cfbd8724c67e0",
+      "53": "14dded3142df5574e9f63f4fee04046145aca593e1437bcc69aae7c8fac1c6f4",
+      "54": "cb2e8f61e5198d3c0d4c814df20467c1c1ecf61b1be8c147c715cbaebf50833f",
+      "55": "fc6eac4c1d758a2077f6b3875a5b658e6fb75d163afb91670d614a28a13536ca"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002062_route0_01_10_12_26_10",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002062_route0_01_10_12_26_10/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_7_U-E7_complete_35",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 35,
+      "review_end": 42,
+      "reference_frame": 41,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 43,
+        "kind": "review_end",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "35": {
+          "phase": "readiness",
+          "observed_until": 35,
+          "observation": "f35: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "36": {
+          "phase": "readiness",
+          "observed_until": 36,
+          "observation": "f36: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "37": {
+          "phase": "readiness",
+          "observed_until": 37,
+          "observation": "f37: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "38": {
+          "phase": "readiness",
+          "observed_until": 38,
+          "observation": "f38: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "39": {
+          "phase": "uncertain",
+          "observed_until": 39,
+          "observation": "f39: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "40": {
+          "phase": "uncertain",
+          "observed_until": 40,
+          "observation": "f40: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "41": {
+          "phase": "readiness",
+          "observed_until": 41,
+          "observation": "f41: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "42": {
+          "phase": "catchup",
+          "observed_until": 42,
+          "observation": "f42: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        }
+      }
+    },
+    "frame_sha256": {
+      "35": "5b551e08c34309d122a71ea2a6f7ebf55386d65711a027e7b9cbae89cdf6bfcb",
+      "36": "e2e1c9e47a403bdb8214df94318311397875cd7b3d31f86aa927b7c72038e7c5",
+      "37": "96f84cce10805808b6346a3ee27b886546ab626295c911104f28edf69c92183b",
+      "38": "ba1e6dbbef7da9e58a4a8cff8399056a9a3b63b96c7112bda40a8164eb1c9473",
+      "39": "413067d839b91451348cd0c03619a5be4da03022712191cefd5e594994ded123",
+      "40": "538107a9f2cd451cfebab2fd935dc844ad4dcb7f71b60639c6cb41fe04d946ba",
+      "41": "d1fd75bc573803716bf07b05f250591639c9cb4b7b33a2b420cfc533caaf295a",
+      "42": "b016c44afd3f873e3c1fdb4ecc8df7b719e94bc5e0adf52b8a78041114f6d8ee"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town05_Rep0_route_002066_route0_01_09_12_53_45/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_8_U-E7_complete_48",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 48,
+      "review_end": 56,
+      "reference_frame": 54,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 57,
+        "kind": "review_end",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "50": {
+          "phase": "readiness",
+          "observed_until": 50,
+          "observation": "f50: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "51": {
+          "phase": "readiness",
+          "observed_until": 51,
+          "observation": "f51: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "52": {
+          "phase": "uncertain",
+          "observed_until": 52,
+          "observation": "f52: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "53": {
+          "phase": "uncertain",
+          "observed_until": 53,
+          "observation": "f53: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "54": {
+          "phase": "readiness",
+          "observed_until": 54,
+          "observation": "f54: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "55": {
+          "phase": "catchup",
+          "observed_until": 55,
+          "observation": "f55: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "56": {
+          "phase": "catchup",
+          "observed_until": 56,
+          "observation": "f56: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        }
+      }
+    },
+    "frame_sha256": {
+      "48": "318767a8398a7006b307db8088745b63b2ec07d5164bc46e895b7225d714e0b8",
+      "49": "48e30dc27365b048b244fa6e1a3be4906c887182f6d1dcd8b1fa8336da64a2ed",
+      "50": "363f6d6e6972f05beecb962d2e00c4cee73d19036ca9ee198641f0f9daa45538",
+      "51": "29fd7bdc00988bf07104cb0716677f6cffe719c75bb69bc034e24ed124c0c603",
+      "52": "49a6c16fb031ed3268f1ea7e4aa4104ac45a8a3bc34cf7d1ec071a3228d26f93",
+      "53": "9c0324608f5db3bd62c194d3cea3a5491546c631bbfcd4a1a904bd80cc95aa7c",
+      "54": "7702c9af0ec2f413b385269c1fb23589fd277e01cd38edf1e201f02348fa1113",
+      "55": "ae27da52a17d0a9616e3f5530ed2f4cbdd4cc0e6f60cd79e83220e16f6f57ed3",
+      "56": "83144d07e50c5fcfca47b482b4d7449cffe2d16f86cb947db4bd04b31352905e"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "CrossJunctionDefectTrafficLight",
+    "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+    "episode": {
+      "event": "U-E7",
+      "instance_id": "CrossJunctionDefectTrafficLight/Town15_Rep0_route_002097_route0_01_08_21_11_39/U-E7/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_9_U-E7_complete_43",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 43,
+      "review_end": 53,
+      "reference_frame": 50,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 53,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "43": {
+          "phase": "readiness",
+          "observed_until": 43,
+          "observation": "f43: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "44": {
+          "phase": "readiness",
+          "observed_until": 44,
+          "observation": "f44: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "45": {
+          "phase": "readiness",
+          "observed_until": 45,
+          "observation": "f45: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "46": {
+          "phase": "readiness",
+          "observed_until": 46,
+          "observation": "f46: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "47": {
+          "phase": "uncertain",
+          "observed_until": 47,
+          "observation": "f47: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "48": {
+          "phase": "uncertain",
+          "observed_until": 48,
+          "observation": "f48: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "49": {
+          "phase": "uncertain",
+          "observed_until": 49,
+          "observation": "f49: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "50": {
+          "phase": "readiness",
+          "observed_until": 50,
+          "observation": "f50: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "51": {
+          "phase": "catchup",
+          "observed_until": 51,
+          "observation": "f51: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "52": {
+          "phase": "catchup",
+          "observed_until": 52,
+          "observation": "f52: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "53": {
+          "phase": "excluded",
+          "observed_until": 53,
+          "observation": "f53: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "43": "3f2979b05d6f653a86dff3f2ef608d945004fb4f00de807a08d597be55c230f2",
+      "44": "08459dad9a870267239f975bd6ac6ec4fcf4de9a8a56d80505ce6019b53e403c",
+      "45": "ce46113f92babf8b24b9a0b76a6df2f72aed27dcd1545adbd5f86fab7c1f7b0d",
+      "46": "6c8b046df7f644c228774bd46a0dacddb4b4fed1a0c21468e210381ac709f5ea",
+      "47": "060d03558abb3d2d48b9135ed074ee60c833b906c37f0058ca0aed9ccbacd1ae",
+      "48": "384baf398675e1cfb7c431d9fe2fbee3edd1c84b4651cbba935ce35eef113bac",
+      "49": "21200ecf0fb2ad0c11f8d52bb62b3767bec2ca74dbc8ed84f068a6c883578103",
+      "50": "16a9958c9b9028530e06b9bf0ae95b79ac1101e38eff59f47f0eb5bb66562949",
+      "51": "a1060eae921df23810ea321b22ee8fd24e6ae4f6efdcb3ec847d8dd348cf7bb7",
+      "52": "ea9d3ad2c8070c09f730ad5c16e833d94463bfbb7042606869495c9e1040b2cf",
+      "53": "7ab4e33e6d36dc5af029b88d3e72fbbf409a1e6e3303ccc995cbc17ce0d6bb19"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_10_U-E6_complete_53",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 53,
+      "review_end": 62,
+      "reference_frame": 59,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 62,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "53": {
+          "phase": "readiness",
+          "observed_until": 53,
+          "observation": "f53: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "54": {
+          "phase": "readiness",
+          "observed_until": 54,
+          "observation": "f54: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "55": {
+          "phase": "readiness",
+          "observed_until": 55,
+          "observation": "f55: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "56": {
+          "phase": "uncertain",
+          "observed_until": 56,
+          "observation": "f56: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "57": {
+          "phase": "uncertain",
+          "observed_until": 57,
+          "observation": "f57: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "58": {
+          "phase": "uncertain",
+          "observed_until": 58,
+          "observation": "f58: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "59": {
+          "phase": "readiness",
+          "observed_until": 59,
+          "observation": "f59: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "60": {
+          "phase": "catchup",
+          "observed_until": 60,
+          "observation": "f60: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "61": {
+          "phase": "catchup",
+          "observed_until": 61,
+          "observation": "f61: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "62": {
+          "phase": "excluded",
+          "observed_until": 62,
+          "observation": "f62: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "53": "55878cf74f7cc66bbd549f9376942d805be13248926025909c4b2bae9038a390",
+      "54": "9cd6d9af728e2fd4279d06135b7b35df5f7c7d40509637e06e9452b7202c4957",
+      "55": "db2f245740b075e2436fa491a345591557ad41a3163821311fd579d39e89e114",
+      "56": "6b9e473a0c7d659105f29222acfcb89d2f577d9b72472f354e36fd6a1c1d5607",
+      "57": "ef8e1146e8c2fd6e901c643f85bb4456c8f62b3308ee509adbb83922387e825d",
+      "58": "5d17604581e2f6004a5b10eb7126e24ee8da77c6b1cc7afbe8de08ac05c07abe",
+      "59": "fadaa2be49b25203cf7b1bb1e758095885e9d18e4d67160c9c963d16741a6366",
+      "60": "5e4a3361d9aec47c6798a0015d003da055b16279e72d519a5ab655b028ad3145",
+      "61": "63ee46efa2da9b2393ec94cf079f2eeaf48856c195bd9769f6291ff192993ccb",
+      "62": "381a00d993f0c1024368601cefec73f64b4c573d36662d8f2e494bd370701aef"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "RECOVER"
+    },
+    "edge": "stable",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_10_U-E6_stable_53",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 53,
+      "review_end": 62,
+      "reference_frame": 59,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 62,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "53": {
+          "phase": "readiness",
+          "observed_until": 53,
+          "observation": "f53: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "54": {
+          "phase": "readiness",
+          "observed_until": 54,
+          "observation": "f54: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "55": {
+          "phase": "readiness",
+          "observed_until": 55,
+          "observation": "f55: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "56": {
+          "phase": "uncertain",
+          "observed_until": 56,
+          "observation": "f56: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "57": {
+          "phase": "uncertain",
+          "observed_until": 57,
+          "observation": "f57: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "58": {
+          "phase": "uncertain",
+          "observed_until": 58,
+          "observation": "f58: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "59": {
+          "phase": "readiness",
+          "observed_until": 59,
+          "observation": "f59: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true
+          }
+        },
+        "60": {
+          "phase": "catchup",
+          "observed_until": 60,
+          "observation": "f60: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "61": {
+          "phase": "catchup",
+          "observed_until": 61,
+          "observation": "f61: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "62": {
+          "phase": "excluded",
+          "observed_until": 62,
+          "observation": "f62: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "53": "55878cf74f7cc66bbd549f9376942d805be13248926025909c4b2bae9038a390",
+      "54": "9cd6d9af728e2fd4279d06135b7b35df5f7c7d40509637e06e9452b7202c4957",
+      "55": "db2f245740b075e2436fa491a345591557ad41a3163821311fd579d39e89e114",
+      "56": "6b9e473a0c7d659105f29222acfcb89d2f577d9b72472f354e36fd6a1c1d5607",
+      "57": "ef8e1146e8c2fd6e901c643f85bb4456c8f62b3308ee509adbb83922387e825d",
+      "58": "5d17604581e2f6004a5b10eb7126e24ee8da77c6b1cc7afbe8de08ac05c07abe",
+      "59": "fadaa2be49b25203cf7b1bb1e758095885e9d18e4d67160c9c963d16741a6366",
+      "60": "5e4a3361d9aec47c6798a0015d003da055b16279e72d519a5ab655b028ad3145",
+      "61": "63ee46efa2da9b2393ec94cf079f2eeaf48856c195bd9769f6291ff192993ccb",
+      "62": "381a00d993f0c1024368601cefec73f64b4c573d36662d8f2e494bd370701aef"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town13_Rep0_1245_5_route0_01_10_01_12_10",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town13_Rep0_1245_5_route0_01_10_01_12_10/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_11_U-E6_complete_87",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 87,
+      "review_end": 97,
+      "reference_frame": 94,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 97,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "87": {
+          "phase": "readiness",
+          "observed_until": 87,
+          "observation": "f87: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "88": {
+          "phase": "readiness",
+          "observed_until": 88,
+          "observation": "f88: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "89": {
+          "phase": "readiness",
+          "observed_until": 89,
+          "observation": "f89: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "90": {
+          "phase": "readiness",
+          "observed_until": 90,
+          "observation": "f90: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "91": {
+          "phase": "uncertain",
+          "observed_until": 91,
+          "observation": "f91: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "92": {
+          "phase": "uncertain",
+          "observed_until": 92,
+          "observation": "f92: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "93": {
+          "phase": "uncertain",
+          "observed_until": 93,
+          "observation": "f93: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "94": {
+          "phase": "readiness",
+          "observed_until": 94,
+          "observation": "f94: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          }
+        },
+        "95": {
+          "phase": "catchup",
+          "observed_until": 95,
+          "observation": "f95: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "96": {
+          "phase": "catchup",
+          "observed_until": 96,
+          "observation": "f96: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true,
+            "event_resolved": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "97": {
+          "phase": "excluded",
+          "observed_until": 97,
+          "observation": "f97: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "87": "cf618b8f2de1414d9417a75b412f4c1b6653db2b72dab9fd81bd8b7232770c87",
+      "88": "209662f422b00f6dd729e884c1c514dca6f1fd417bba636aa2e151012fa377ce",
+      "89": "623d77f1e6015b4596ebbcac58a4feae1d04633ca0e7995e8e6c62e029800305",
+      "90": "6d33757254ae4fed79d77597a38fb1cd0f4e88b12c94a425ee919594472f0199",
+      "91": "bf54ca4f8e2edb60cc6f3eda28f74e023df14d2bec2148785bdee971f994e3a1",
+      "92": "33a1a9e5c247c695429a11249c276bb9b2a9d0bbf79f80b0fddfd11181761405",
+      "93": "9aa53d4e799d6ebef9f8cbbbfa098306aaca3dcc3c6328eacf1d311a00ffe302",
+      "94": "d5c384189d6af575703406afc288385e1ad5dacef86155a761080952cf6886e3",
+      "95": "dbcd0f188baedeeef564ba65e0db05fca9d992db493465626435c3d8258b262c",
+      "96": "b3b2ae30eebdbe1270f50826ebc7901d223c1480cc7aeb71f6e3f83f4212ff41",
+      "97": "712eb36cfd5b0ec546536be87930c86bbfcf9550cced4f19439f2126d100abe2"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "OppositeVehicleRunningRedLight",
+    "route_id": "Town13_Rep0_1245_5_route0_01_10_01_12_10",
+    "episode": {
+      "event": "U-E6",
+      "instance_id": "OppositeVehicleRunningRedLight/Town13_Rep0_1245_5_route0_01_10_01_12_10/U-E6/reviewed_junction_instance",
+      "state": "PROCEED",
+      "longitudinal": "RECOVER"
+    },
+    "edge": "stable",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v2_formal_data_11_U-E6_stable_87",
+    "observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 87,
+      "review_end": 97,
+      "reference_frame": 94,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧以路口出口几何、车道对齐、路缘位移判断完成；不得因启动、灯绿或横穿车刚消失而提前完成。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 97,
+        "kind": "stable_successor",
+        "reason": "普通行进截止；源序列末端右删失，不外推下一帧。"
+      },
+      "frames": {
+        "87": {
+          "phase": "readiness",
+          "observed_until": 87,
+          "observation": "f87: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "88": {
+          "phase": "readiness",
+          "observed_until": 88,
+          "observation": "f88: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "89": {
+          "phase": "readiness",
+          "observed_until": 89,
+          "observation": "f89: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "90": {
+          "phase": "readiness",
+          "observed_until": 90,
+          "observation": "f90: 仍在路口出口线/转弯范围内，尚未建立驶出后的稳定行进。",
+          "facts": {
+            "stable_progress_established": false
+          }
+        },
+        "91": {
+          "phase": "uncertain",
+          "observed_until": 91,
+          "observation": "f91: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "92": {
+          "phase": "uncertain",
+          "observed_until": 92,
+          "observation": "f92: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "93": {
+          "phase": "uncertain",
+          "observed_until": 93,
+          "observation": "f93: 出口边界、车道对齐和稳定性正在变化，完成起点不确定。"
+        },
+        "94": {
+          "phase": "readiness",
+          "observed_until": 94,
+          "observation": "f94: 截至当前帧，因果RGB中的出口边界已在后方，本侧车道线及路缘连续对齐；横穿冲突已离开本侧，稳定行进已建立。",
+          "facts": {
+            "stable_progress_established": true
+          }
+        },
+        "95": {
+          "phase": "catchup",
+          "observed_until": 95,
+          "observation": "f95: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "96": {
+          "phase": "catchup",
+          "observed_until": 96,
+          "observation": "f96: 刚完成驶出并稳定行进后的旧状态补问仍应推进；旁侧车辆存在不否定本侧已完成。",
+          "facts": {
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "97": {
+          "phase": "excluded",
+          "observed_until": 97,
+          "observation": "f97: 已经进入普通道路行进，停止旧完成问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "87": "cf618b8f2de1414d9417a75b412f4c1b6653db2b72dab9fd81bd8b7232770c87",
+      "88": "209662f422b00f6dd729e884c1c514dca6f1fd417bba636aa2e151012fa377ce",
+      "89": "623d77f1e6015b4596ebbcac58a4feae1d04633ca0e7995e8e6c62e029800305",
+      "90": "6d33757254ae4fed79d77597a38fb1cd0f4e88b12c94a425ee919594472f0199",
+      "91": "bf54ca4f8e2edb60cc6f3eda28f74e023df14d2bec2148785bdee971f994e3a1",
+      "92": "33a1a9e5c247c695429a11249c276bb9b2a9d0bbf79f80b0fddfd11181761405",
+      "93": "9aa53d4e799d6ebef9f8cbbbfa098306aaca3dcc3c6328eacf1d311a00ffe302",
+      "94": "d5c384189d6af575703406afc288385e1ad5dacef86155a761080952cf6886e3",
+      "95": "dbcd0f188baedeeef564ba65e0db05fca9d992db493465626435c3d8258b262c",
+      "96": "b3b2ae30eebdbe1270f50826ebc7901d223c1480cc7aeb71f6e3f83f4212ff41",
+      "97": "712eb36cfd5b0ec546536be87930c86bbfcf9550cced4f19439f2126d100abe2"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  }
+]

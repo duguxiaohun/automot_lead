@@ -1,0 +1,9 @@
+{
+  "train_only_groups": [
+    "ControlLoss/Town03_Town03_Scenario1_10",
+    "ParkingCrossingPedestrian/Town13_91_0",
+    "HardBreakRoute/Town12_707_0"
+  ],
+  "source": "user v29 audit; 24 frames over 4 routes, not inspected again by this implementation turn",
+  "unresolved_exposure": "OppositeVehicleRunningRedLight/Town01: exact route ID not supplied; all stated train, do not guess identity"
+}

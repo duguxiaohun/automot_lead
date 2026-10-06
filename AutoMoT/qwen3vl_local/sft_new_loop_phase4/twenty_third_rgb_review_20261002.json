@@ -1,0 +1,496 @@
+{
+  "policy": "development_rgb_component_review_v1",
+  "reviews": [
+    {
+      "audit_id": "CO1",
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_002000_route0_01_09_12_27_42",
+      "rgb_evidence": [
+        {
+          "frame": 33,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0033.jpg",
+          "sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+        },
+        {
+          "frame": 34,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0034.jpg",
+          "sha256": "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c"
+        },
+        {
+          "frame": 35,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0035.jpg",
+          "sha256": "376c91e79febe2febd08b408170de1a29f3058ce883150e97f8e69ca060e42b0"
+        },
+        {
+          "frame": 36,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0036.jpg",
+          "sha256": "5054562e96886cfdb64918a293d4523c6223c2712b3db1cf04abb7bb89902113"
+        },
+        {
+          "frame": 37,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0037.jpg",
+          "sha256": "15547b946e74eb7db12ca51a7f257d0299932256ee748a15023b044c6e2eee63"
+        },
+        {
+          "frame": 38,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0038.jpg",
+          "sha256": "fc3674e52e53148fe5780b4ff41e47f3a5c425f2f191569188152d8e30b6f191"
+        },
+        {
+          "frame": 39,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0039.jpg",
+          "sha256": "f888b4277b45694aa2b4a0e6b5e751b0a3d76a5fc96aca641a13529edd5b7707"
+        },
+        {
+          "frame": 40,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0040.jpg",
+          "sha256": "46d296d3e5abdcdeb881db26ba234505f5f1a289e6ad27c3f667820fc4838ce5"
+        },
+        {
+          "frame": 41,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0041.jpg",
+          "sha256": "f3398b662bc06e8d973a5265910596148baf15deb35b3de32e4d8779592092ae"
+        }
+      ],
+      "observation": "拖车和锥桶在前方可辨；相邻车辆连续出现。语义零计数不是不可见；不批准depart YES。",
+      "reviewer": "Codex current-turn RGB inspection",
+      "training_label_approved": false
+    },
+    {
+      "audit_id": "RE3x",
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_1388_4_route0_01_09_12_19_20",
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0014.jpg",
+          "sha256": "f6bac3d240e2867a463a69b30da37ff44fb87da40d22e70e353c94b6de2cdf2c"
+        },
+        {
+          "frame": 15,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0015.jpg",
+          "sha256": "9e6d0f97c540bb876dc5ec2c49abe58d636605c1b46247ce8d16592039c30b8e"
+        },
+        {
+          "frame": 16,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0016.jpg",
+          "sha256": "22fafae235d2a1411d3cdecdf27c2ef0e3b427c4b99cdeb78297b5dbd6877849"
+        },
+        {
+          "frame": 17,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0017.jpg",
+          "sha256": "c8017f90ec624b8a4607aaffb1fe3ebd986ed4aa748dd3c7151ba0c44d4eb344"
+        },
+        {
+          "frame": 18,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0018.jpg",
+          "sha256": "e9a94510052b8ba3886f30888a4fc58721ad76eb8de0ff47262e98f8ad045df7"
+        },
+        {
+          "frame": 55,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0055.jpg",
+          "sha256": "40ab3e7545e09b8d1a70fb267cd926a3f7072902eb87da4229b8ecf94216ad63"
+        },
+        {
+          "frame": 56,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0056.jpg",
+          "sha256": "00ff56491880a6c48ef4ea824518d7d79ee49975a8066de2875fe24c1bd0851c"
+        },
+        {
+          "frame": 57,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0057.jpg",
+          "sha256": "7681a394bfcdba28ea9dd2fac551256539de4d55e251042c2d04e8f388c25b37"
+        },
+        {
+          "frame": 58,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0058.jpg",
+          "sha256": "419acc89c555b3e6aab019b26a470670f13c1d8fe19287755be996a57d3611c8"
+        },
+        {
+          "frame": 59,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0059.jpg",
+          "sha256": "66793e81043dcc1d8611833b83092213f9fc0cd007f7a248430aae45ab71260e"
+        },
+        {
+          "frame": 60,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0060.jpg",
+          "sha256": "821682a5ddebd2947d2b2343f55f1fdfd0dd3de13c34cc41e9684944675caf90"
+        },
+        {
+          "frame": 61,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0061.jpg",
+          "sha256": "3c7942914913118613889616333a8729113429ce8e492a62263bf8853bcd0ba0"
+        },
+        {
+          "frame": 62,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0062.jpg",
+          "sha256": "5b8902ca705b022680784b6f2dd80571b93df26ddea264fbfdc52b54f67da29e"
+        },
+        {
+          "frame": 63,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0063.jpg",
+          "sha256": "16e6ab299c13f8dba1d00813a37a050acec2701fd1f67a0d68f788a8a5b3bcfe"
+        },
+        {
+          "frame": 64,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0064.jpg",
+          "sha256": "50d311285d48be0ed45c3dc07c4794a14e2041a7e6085a854192cf2450ff800a"
+        },
+        {
+          "frame": 65,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0065.jpg",
+          "sha256": "e3ead12f453c0b5e1cdfb9beeea32fbfa7ddeba535ca87c6dce5c25ac7731705"
+        },
+        {
+          "frame": 66,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0066.jpg",
+          "sha256": "1156f1c7f80b1c2994b28362099a84137b4550773b67fad240d5fc4368a3930b"
+        },
+        {
+          "frame": 67,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0067.jpg",
+          "sha256": "17e612b5b16538f0b2d47714056d966730b9ec38cc08180dc2911353c01f3efc"
+        },
+        {
+          "frame": 68,
+          "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0068.jpg",
+          "sha256": "44550908168b40dd8e1b0e274c044d8c9bf033b3763795cb6229f33effad2268"
+        }
+      ],
+      "observation": "16→17黄车及远处红车消失；63→64前方绿车、65→66左侧黑车、66→67左侧白车在面板中消失；逐实例复审，不能据此complete。",
+      "reviewer": "Codex current-turn RGB inspection",
+      "training_label_approved": false
+    },
+    {
+      "audit_id": "UE5x",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1150_0_route0_01_09_20_35_02",
+      "rgb_evidence": [
+        {
+          "frame": 124,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0124.jpg",
+          "sha256": "872e40b0ec74205319a3711961665e47678e340630984a8d2beb023d78a3b137"
+        },
+        {
+          "frame": 125,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0125.jpg",
+          "sha256": "b32908acea57574d34cf64e3bcbf02d2303ade34d9382e1295d9501b81624f78"
+        },
+        {
+          "frame": 126,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0126.jpg",
+          "sha256": "cd19dcbee40057893abd966fd37af70ef6c9992b8245434699d330bdb146c06d"
+        },
+        {
+          "frame": 127,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0127.jpg",
+          "sha256": "12132f882047da6c9277d5a74ada141cf6726dc1d82375b9f3396296db576f89"
+        },
+        {
+          "frame": 128,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0128.jpg",
+          "sha256": "69ce5557705ef56c09a8e4e805004ad2c391515cf66fc77181ade007f9a098eb"
+        },
+        {
+          "frame": 129,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0129.jpg",
+          "sha256": "a52ba38505425c99237ddc34de96849d398564c5023adbbfe9348597928a6b49"
+        },
+        {
+          "frame": 130,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0130.jpg",
+          "sha256": "d91f6edc9bb1fd34ff6b21991327f3efda76dec28b7f553e87e3cd7de0a4e74e"
+        },
+        {
+          "frame": 131,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0131.jpg",
+          "sha256": "69d2c4617f800eee369d9724267a1ac1cd818bb24c0ab7d0f8d5863cc56e4694"
+        },
+        {
+          "frame": 132,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0132.jpg",
+          "sha256": "574b1124ae6d51a2ba60da729824e3303146b5ee101b508eda205e718e47c34e"
+        },
+        {
+          "frame": 133,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0133.jpg",
+          "sha256": "e1ac43456b647d1b128a8fbdd1e793c34946e105187a1dcb6ebed453d4ed534c"
+        },
+        {
+          "frame": 134,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0134.jpg",
+          "sha256": "af46b114349cc7da838c7814155e73f356fe5c9d908b89bd87d20276ca60f48c"
+        },
+        {
+          "frame": 135,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0135.jpg",
+          "sha256": "c4cbd9368e1436ccf3deac3b68057b23e304535e5e2d08fe60fd5e6324f042b8"
+        },
+        {
+          "frame": 136,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0136.jpg",
+          "sha256": "3a695dcfa0675094b74d65b79db43df4f9537741f4d47a5b03eaff32e9bf74e6"
+        },
+        {
+          "frame": 137,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0137.jpg",
+          "sha256": "9990f5045b8c0d97717d6900d7f304092d579711223be1d6e17521b8bce41460"
+        },
+        {
+          "frame": 138,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0138.jpg",
+          "sha256": "2161b3e187f446b44aa3bf52c2a8a7473de0d0a9903bd96e53c9e126c959f161"
+        },
+        {
+          "frame": 139,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0139.jpg",
+          "sha256": "33bdd9ee19fdfe5a242e55a99ff72d33ada2442d6e725bccbb7f52b9881edd3a"
+        },
+        {
+          "frame": 140,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0140.jpg",
+          "sha256": "bc9fae79d0f628d9c207fc70e4f1c2c5eb93a351f83e7943782cf8ad46291be7"
+        },
+        {
+          "frame": 141,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0141.jpg",
+          "sha256": "fc06818ac424d81bc37a1b845ea0a79ab08a68721f836418db5330ddb2fccfb6"
+        },
+        {
+          "frame": 142,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0142.jpg",
+          "sha256": "0d50768469aef78de71ee29d0710b2e0358923d0fcc0a419c08011daef9c3123"
+        },
+        {
+          "frame": 143,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0143.jpg",
+          "sha256": "497a6380cc2a71c5779fb718682790eaa9dbd4312ea0a830d7ba99e74a80f375"
+        },
+        {
+          "frame": 144,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0144.jpg",
+          "sha256": "3ce7c62712d3c01246c81359102b75be7c2296d7098cd3db7b325ed626a1f3d4"
+        },
+        {
+          "frame": 145,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0145.jpg",
+          "sha256": "b6ef08066e0018aa3a47ad3be8d4bb285de8a1205ff5f901cbde1e848b34e830"
+        },
+        {
+          "frame": 146,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0146.jpg",
+          "sha256": "5301226860c555659cbc22f1509ff7413aa377e849bf18af24ced5d0ec8283d8"
+        },
+        {
+          "frame": 147,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0147.jpg",
+          "sha256": "ca3d905d39c8e443b6f7ed32fcf99d7adceb1aaf905a104794ecc7dc91df816e"
+        },
+        {
+          "frame": 148,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0148.jpg",
+          "sha256": "d9c600da6f5db657acf9700e93dd0a6e93afc3a562e249ea53f66a051a6772e0"
+        },
+        {
+          "frame": 149,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0149.jpg",
+          "sha256": "982bf56f9c1df9461bce4f9b122d2320bdfacb878f72fdd570cd4df6c0f636f0"
+        },
+        {
+          "frame": 150,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0150.jpg",
+          "sha256": "7d3af5eda6e4a4d49263bbd7452a0f5fe8721093e1598cfa93e4e19cc0c6dd42"
+        },
+        {
+          "frame": 151,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0151.jpg",
+          "sha256": "4d731cbfc94cd7672047c7860b9a43e207fcf0d55c13c14ce6edb1aa414a60ef"
+        }
+      ],
+      "observation": "蓝/红/黄对向车贴近中心线依次通过；几何0.5m余量只召回待审，不能证明侵入。",
+      "reviewer": "Codex current-turn RGB inspection",
+      "training_label_approved": false
+    },
+    {
+      "audit_id": "HX1",
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_route_000839_route0_01_08_10_26_04",
+      "rgb_evidence": [
+        {
+          "frame": 43,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0043.jpg",
+          "sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc"
+        },
+        {
+          "frame": 44,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0044.jpg",
+          "sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+        },
+        {
+          "frame": 45,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0045.jpg",
+          "sha256": "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17"
+        },
+        {
+          "frame": 46,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0046.jpg",
+          "sha256": "6c67d3688355e0cce6b7ab11dc6ec560ed64380887503bbda315ca5e730a88d9"
+        },
+        {
+          "frame": 47,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0047.jpg",
+          "sha256": "e1e694845fd7ec7128c9bfbcb15c60a0dfc04f0e64c371edb1694ae23e416044"
+        },
+        {
+          "frame": 48,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0048.jpg",
+          "sha256": "395674fdd02ae407517e152cc73ff7d24918ca9d4fea679f2df9b2c60e2ff08d"
+        },
+        {
+          "frame": 49,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0049.jpg",
+          "sha256": "3db41cdeca649b9f2da7e80de4c7f463263db54bee408eeba80bd640e4ef9596"
+        },
+        {
+          "frame": 50,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0050.jpg",
+          "sha256": "3b993cf34fdf4632f983fe87e25f433021332fc9b80f91d90833c58617d36f26"
+        },
+        {
+          "frame": 51,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0051.jpg",
+          "sha256": "279b3b5ee66b9549283a725db1203b527efbd96f9ac909c50c6907d13e39ac22"
+        },
+        {
+          "frame": 52,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0052.jpg",
+          "sha256": "1281bd047c92b858f788a46a28affeb559a0fe2cbcad34da0256d494a0544b25"
+        },
+        {
+          "frame": 53,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0053.jpg",
+          "sha256": "2eda83ce0d3c4282c6addc684fccc7f8c784b53e96e2ae44fb3c0c2356dbca26"
+        },
+        {
+          "frame": 54,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0054.jpg",
+          "sha256": "be2d183c88cd2eb2d575ce435125e5ec45f15c5626ed099c73bac6ee6a896826"
+        },
+        {
+          "frame": 55,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0055.jpg",
+          "sha256": "a922f5d59d4e4ae8fed17da2674911397ac65112db8fc94d727b488cfdaa0db8"
+        },
+        {
+          "frame": 56,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0056.jpg",
+          "sha256": "aa7961b8ea1bb61a781c5b4371484d742ce4b7202412d82eef9a3150bec8bc75"
+        },
+        {
+          "frame": 57,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0057.jpg",
+          "sha256": "fd6cad9763b7805bc794d1bb5771c0c5d2d95635808bf3f849aac65f41864856"
+        },
+        {
+          "frame": 58,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0058.jpg",
+          "sha256": "0283f446389c7d1b2057be5252f7c683b8c63b4d0df94caa56f539df77fc53a5"
+        }
+      ],
+      "observation": "沿左分支进入，未观察到必须跨车道线；雾中远处可见性不充分，不新增enter标签。",
+      "reviewer": "Codex current-turn RGB inspection",
+      "training_label_approved": false
+    },
+    {
+      "audit_id": "VD1",
+      "scenario": "VehicleOpensDoorTwoWays",
+      "route_id": "Town12_Rep0_552_0_route0_01_09_23_49_02",
+      "rgb_evidence": [
+        {
+          "frame": 60,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0060.jpg",
+          "sha256": "d4caddaeff2280001c545ab30c6ee88abc64877372a5441142acd44740666265"
+        },
+        {
+          "frame": 61,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0061.jpg",
+          "sha256": "58a4ac8aec90bc1f6e9bcf1b374018d82a7b6de33b0e88bcd4a2496882c2a50f"
+        },
+        {
+          "frame": 62,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0062.jpg",
+          "sha256": "8c8490535eea3829a55a306bb37c39fcabbc7c0893a30bc8fa0391238c7d6afc"
+        },
+        {
+          "frame": 63,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0063.jpg",
+          "sha256": "8df533b0e86c7f35e3c6c2139bb0b81583c78d1af6c21be7efabfb2f431aa80b"
+        },
+        {
+          "frame": 64,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0064.jpg",
+          "sha256": "533f9ed5d459a24589ba2b5ece3cfb27e36b3efbaf409d796f6a3748a9dedf91"
+        },
+        {
+          "frame": 65,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0065.jpg",
+          "sha256": "45792e85cb1da51ce943758c562cb1910fed52a192cfb5b276dc8890f50f306e"
+        },
+        {
+          "frame": 66,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0066.jpg",
+          "sha256": "b1d5a882def5f9ddffe1a97e6da70383d935a5b18ba1d5c2ff8c81e0a9ef356a"
+        },
+        {
+          "frame": 67,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0067.jpg",
+          "sha256": "283139f5ed5f7d3720487d7023823ba649bf38e5bf32966cc890cdf137e81603"
+        },
+        {
+          "frame": 68,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0068.jpg",
+          "sha256": "73053d9f89c74699d5ecd463d6a5a40208b0b2311762aabe6f2d8f6271d09c3a"
+        },
+        {
+          "frame": 69,
+          "path": "VehicleOpensDoorTwoWays/Town12_Rep0_552_0_route0_01_09_23_49_02/rgb/0069.jpg",
+          "sha256": "f154d67a443f1f7abd8cf71c3679464d62be6ef6b7fcedfdc8663cab85c91274"
+        }
+      ],
+      "observation": "车门侵入、向左绕过后回归，前方对向灯光仍需判断，不新增许可。",
+      "reviewer": "Codex current-turn RGB inspection",
+      "training_label_approved": false
+    }
+  ],
+  "unique_rgb": 82,
+  "contact_sheets_viewed": 13,
+  "originals_viewed": [
+    {
+      "audit_id": "CO1",
+      "frame": 35,
+      "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0035.jpg",
+      "sha256": "376c91e79febe2febd08b408170de1a29f3058ce883150e97f8e69ca060e42b0"
+    },
+    {
+      "audit_id": "RE3x",
+      "frame": 16,
+      "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0016.jpg",
+      "sha256": "22fafae235d2a1411d3cdecdf27c2ef0e3b427c4b99cdeb78297b5dbd6877849"
+    },
+    {
+      "audit_id": "RE3x",
+      "frame": 17,
+      "path": "EnterActorFlow/Town12_Rep0_1388_4_route0_01_09_12_19_20/rgb/0017.jpg",
+      "sha256": "c8017f90ec624b8a4607aaffb1fe3ebd986ed4aa748dd3c7151ba0c44d4eb344"
+    },
+    {
+      "audit_id": "UE5x",
+      "frame": 130,
+      "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0130.jpg",
+      "sha256": "d91f6edc9bb1fd34ff6b21991327f3efda76dec28b7f553e87e3cd7de0a4e74e"
+    }
+  ],
+  "complete_sequences": 0,
+  "independent_reserved_routes_viewed": 0,
+  "supervision_approved": false
+}

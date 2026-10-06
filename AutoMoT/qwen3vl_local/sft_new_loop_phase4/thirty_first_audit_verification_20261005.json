@@ -1,0 +1,1207 @@
+{
+  "version": "v31",
+  "contract_sha256": "62a17cb51961c4987eeca4998829666ed79f69fc021de7d003c970dfc29e1ddb",
+  "artifact_root": "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v31_full",
+  "tests": {
+    "full_suite": 811,
+    "subsequent_v31_regressions": 18,
+    "distinct_tests_passed": 813
+  },
+  "data": {
+    "2": {
+      "mode": 2,
+      "train": 76871,
+      "training_routes": 1837,
+      "weak": 76428,
+      "weak_routes": 1809,
+      "weak_answers": {
+        "YES": 3472,
+        "NO": 72956
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 114,
+          "routes": 30
+        },
+        "U-E1/complete/YES": {
+          "questions": 111,
+          "routes": 110
+        },
+        "U-E1/hold/NO": {
+          "questions": 680,
+          "routes": 173
+        },
+        "U-E1/hold/YES": {
+          "questions": 1468,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 61089,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 37,
+          "routes": 19
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 746,
+          "routes": 175
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 15,
+          "routes": 15
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 974,
+          "routes": 116
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 150,
+          "routes": 135
+        },
+        "U-E1/release/NO": {
+          "questions": 195,
+          "routes": 116
+        },
+        "U-E1/release/YES": {
+          "questions": 21,
+          "routes": 21
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 724,
+          "routes": 175
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/stable/NO": {
+          "questions": 546,
+          "routes": 173
+        },
+        "U-E4/complete/NO": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES": {
+          "questions": 879,
+          "routes": 792
+        },
+        "U-E4/proceed/NO": {
+          "questions": 7659,
+          "routes": 790
+        },
+        "U-E4/proceed/YES": {
+          "questions": 777,
+          "routes": 161
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 73
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 77869,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 76163,
+          "seen": 708,
+          "complete": false
+        },
+        "4": {
+          "missing": 76163,
+          "seen": 708,
+          "complete": false
+        }
+      },
+      "weak_motion_cells": {
+        "U-E1/complete/NO/moving": {
+          "questions": 114,
+          "routes": 30
+        },
+        "U-E1/complete/YES/moving": {
+          "questions": 111,
+          "routes": 110
+        },
+        "U-E1/hold/NO/moving": {
+          "questions": 680,
+          "routes": 173
+        },
+        "U-E1/hold/YES/moving": {
+          "questions": 1291,
+          "routes": 1228
+        },
+        "U-E1/hold/YES/stationary": {
+          "questions": 177,
+          "routes": 176
+        },
+        "U-E1/proceed/NO/moving": {
+          "questions": 5730,
+          "routes": 1263
+        },
+        "U-E1/proceed/NO/stationary": {
+          "questions": 55359,
+          "routes": 1206
+        },
+        "U-E1/proceed/YES/stationary": {
+          "questions": 37,
+          "routes": 19
+        },
+        "U-E1/re_yield/NO/moving": {
+          "questions": 746,
+          "routes": 175
+        },
+        "U-E1/re_yield/YES/moving": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/re_yield/YES/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/recover_follow/NO/moving": {
+          "questions": 974,
+          "routes": 116
+        },
+        "U-E1/recover_follow/YES/moving": {
+          "questions": 150,
+          "routes": 135
+        },
+        "U-E1/release/NO/moving": {
+          "questions": 194,
+          "routes": 116
+        },
+        "U-E1/release/NO/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/release/YES/moving": {
+          "questions": 21,
+          "routes": 21
+        },
+        "U-E1/renewed_restriction/NO/moving": {
+          "questions": 724,
+          "routes": 175
+        },
+        "U-E1/renewed_restriction/YES/moving": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/stable/NO/moving": {
+          "questions": 546,
+          "routes": 173
+        },
+        "U-E4/complete/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO/moving": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES/moving": {
+          "questions": 104,
+          "routes": 99
+        },
+        "U-E4/hold/YES/stationary": {
+          "questions": 775,
+          "routes": 696
+        },
+        "U-E4/proceed/NO/moving": {
+          "questions": 292,
+          "routes": 105
+        },
+        "U-E4/proceed/NO/stationary": {
+          "questions": 7367,
+          "routes": 750
+        },
+        "U-E4/proceed/YES/moving": {
+          "questions": 10,
+          "routes": 10
+        },
+        "U-E4/proceed/YES/stationary": {
+          "questions": 767,
+          "routes": 151
+        },
+        "U-E4/re_yield/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "weak_branch_cells": {
+        "U-E1/default/hold/YES": 1468,
+        "U-E1/default/proceed/NO": 61089,
+        "U-E1/default/complete/YES": 111,
+        "U-E1/default/hold/NO": 680,
+        "U-E1/default/re_yield/NO": 746,
+        "U-E1/default/recover_follow/YES": 150,
+        "U-E1/default/release/NO": 195,
+        "U-E1/default/renewed_restriction/NO": 724,
+        "U-E1/default/stable/NO": 546,
+        "U-E1/default/recover_follow/NO": 974,
+        "U-E1/default/complete/NO": 114,
+        "U-E1/default/release/YES": 21,
+        "U-E1/default/re_yield/YES": 15,
+        "U-E1/default/renewed_restriction/YES": 14,
+        "U-E4/cyclist_follow/hold/YES": 29,
+        "U-E4/cyclist_follow/proceed/NO": 168,
+        "U-E4/default/hold/YES": 850,
+        "U-E4/default/proceed/NO": 7491,
+        "U-E4/default/proceed/YES": 767,
+        "U-E1/default/proceed/YES": 37,
+        "U-E4/cyclist_follow/complete/NO": 73,
+        "U-E4/cyclist_follow/hold/NO": 83,
+        "U-E4/cyclist_follow/proceed/YES": 10,
+        "U-E4/cyclist_follow/re_yield/NO": 73
+      },
+      "compiled_exclusions": {
+        "route_budget_excluded": 14475,
+        "considered": 182243,
+        "restriction_seed_tautology": 2430,
+        "duplicate_observable_questions_excluded": 1044,
+        "rule_abstained": 70252,
+        "weak_teacher_train_only": 17047,
+        "moving_proceed_requires_visual_catchup": 282,
+        "known_risk_window_requires_separate_review": 212,
+        "compiled": 76501
+      }
+    },
+    "4": {
+      "mode": 4,
+      "train": 76871,
+      "training_routes": 1837,
+      "weak": 76428,
+      "weak_routes": 1809,
+      "weak_answers": {
+        "YES": 3472,
+        "NO": 72956
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 114,
+          "routes": 30
+        },
+        "U-E1/complete/YES": {
+          "questions": 111,
+          "routes": 110
+        },
+        "U-E1/hold/NO": {
+          "questions": 680,
+          "routes": 173
+        },
+        "U-E1/hold/YES": {
+          "questions": 1468,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 61089,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 37,
+          "routes": 19
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 746,
+          "routes": 175
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 15,
+          "routes": 15
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 974,
+          "routes": 116
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 150,
+          "routes": 135
+        },
+        "U-E1/release/NO": {
+          "questions": 195,
+          "routes": 116
+        },
+        "U-E1/release/YES": {
+          "questions": 21,
+          "routes": 21
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 724,
+          "routes": 175
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/stable/NO": {
+          "questions": 546,
+          "routes": 173
+        },
+        "U-E4/complete/NO": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES": {
+          "questions": 879,
+          "routes": 792
+        },
+        "U-E4/proceed/NO": {
+          "questions": 7659,
+          "routes": 790
+        },
+        "U-E4/proceed/YES": {
+          "questions": 777,
+          "routes": 161
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 73
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 77869,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 76163,
+          "seen": 708,
+          "complete": false
+        },
+        "4": {
+          "missing": 76163,
+          "seen": 708,
+          "complete": false
+        }
+      },
+      "weak_motion_cells": {
+        "U-E1/complete/NO/moving": {
+          "questions": 114,
+          "routes": 30
+        },
+        "U-E1/complete/YES/moving": {
+          "questions": 111,
+          "routes": 110
+        },
+        "U-E1/hold/NO/moving": {
+          "questions": 680,
+          "routes": 173
+        },
+        "U-E1/hold/YES/moving": {
+          "questions": 1291,
+          "routes": 1228
+        },
+        "U-E1/hold/YES/stationary": {
+          "questions": 177,
+          "routes": 176
+        },
+        "U-E1/proceed/NO/moving": {
+          "questions": 5730,
+          "routes": 1263
+        },
+        "U-E1/proceed/NO/stationary": {
+          "questions": 55359,
+          "routes": 1206
+        },
+        "U-E1/proceed/YES/stationary": {
+          "questions": 37,
+          "routes": 19
+        },
+        "U-E1/re_yield/NO/moving": {
+          "questions": 746,
+          "routes": 175
+        },
+        "U-E1/re_yield/YES/moving": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/re_yield/YES/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/recover_follow/NO/moving": {
+          "questions": 974,
+          "routes": 116
+        },
+        "U-E1/recover_follow/YES/moving": {
+          "questions": 150,
+          "routes": 135
+        },
+        "U-E1/release/NO/moving": {
+          "questions": 194,
+          "routes": 116
+        },
+        "U-E1/release/NO/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/release/YES/moving": {
+          "questions": 21,
+          "routes": 21
+        },
+        "U-E1/renewed_restriction/NO/moving": {
+          "questions": 724,
+          "routes": 175
+        },
+        "U-E1/renewed_restriction/YES/moving": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/stable/NO/moving": {
+          "questions": 546,
+          "routes": 173
+        },
+        "U-E4/complete/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO/moving": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES/moving": {
+          "questions": 104,
+          "routes": 99
+        },
+        "U-E4/hold/YES/stationary": {
+          "questions": 775,
+          "routes": 696
+        },
+        "U-E4/proceed/NO/moving": {
+          "questions": 292,
+          "routes": 105
+        },
+        "U-E4/proceed/NO/stationary": {
+          "questions": 7367,
+          "routes": 750
+        },
+        "U-E4/proceed/YES/moving": {
+          "questions": 10,
+          "routes": 10
+        },
+        "U-E4/proceed/YES/stationary": {
+          "questions": 767,
+          "routes": 151
+        },
+        "U-E4/re_yield/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "weak_branch_cells": {
+        "U-E1/default/hold/YES": 1468,
+        "U-E1/default/proceed/NO": 61089,
+        "U-E1/default/complete/YES": 111,
+        "U-E1/default/hold/NO": 680,
+        "U-E1/default/re_yield/NO": 746,
+        "U-E1/default/recover_follow/YES": 150,
+        "U-E1/default/release/NO": 195,
+        "U-E1/default/renewed_restriction/NO": 724,
+        "U-E1/default/stable/NO": 546,
+        "U-E1/default/recover_follow/NO": 974,
+        "U-E1/default/complete/NO": 114,
+        "U-E1/default/release/YES": 21,
+        "U-E1/default/re_yield/YES": 15,
+        "U-E1/default/renewed_restriction/YES": 14,
+        "U-E4/cyclist_follow/hold/YES": 29,
+        "U-E4/cyclist_follow/proceed/NO": 168,
+        "U-E4/default/hold/YES": 850,
+        "U-E4/default/proceed/NO": 7491,
+        "U-E4/default/proceed/YES": 767,
+        "U-E1/default/proceed/YES": 37,
+        "U-E4/cyclist_follow/complete/NO": 73,
+        "U-E4/cyclist_follow/hold/NO": 83,
+        "U-E4/cyclist_follow/proceed/YES": 10,
+        "U-E4/cyclist_follow/re_yield/NO": 73
+      },
+      "compiled_exclusions": {
+        "route_budget_excluded": 14475,
+        "considered": 182243,
+        "restriction_seed_tautology": 2430,
+        "duplicate_observable_questions_excluded": 1044,
+        "rule_abstained": 70252,
+        "weak_teacher_train_only": 17047,
+        "moving_proceed_requires_visual_catchup": 282,
+        "known_risk_window_requires_separate_review": 212,
+        "compiled": 76501
+      }
+    }
+  },
+  "baseline_v30_weak_motion_cells": {
+    "2": {
+      "U-E1/complete/NO/moving": {
+        "questions": 118,
+        "routes": 31
+      },
+      "U-E1/complete/YES/moving": {
+        "questions": 119,
+        "routes": 118
+      },
+      "U-E1/hold/NO/moving": {
+        "questions": 707,
+        "routes": 183
+      },
+      "U-E1/hold/YES/moving": {
+        "questions": 1289,
+        "routes": 1228
+      },
+      "U-E1/hold/YES/stationary": {
+        "questions": 176,
+        "routes": 175
+      },
+      "U-E1/proceed/NO/moving": {
+        "questions": 5361,
+        "routes": 1248
+      },
+      "U-E1/proceed/NO/stationary": {
+        "questions": 55401,
+        "routes": 1206
+      },
+      "U-E1/proceed/YES/moving": {
+        "questions": 290,
+        "routes": 208
+      },
+      "U-E1/proceed/YES/stationary": {
+        "questions": 30,
+        "routes": 12
+      },
+      "U-E1/re_yield/NO/moving": {
+        "questions": 773,
+        "routes": 185
+      },
+      "U-E1/re_yield/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/re_yield/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/recover_follow/NO/moving": {
+        "questions": 1009,
+        "routes": 119
+      },
+      "U-E1/recover_follow/YES/moving": {
+        "questions": 159,
+        "routes": 144
+      },
+      "U-E1/release/NO/moving": {
+        "questions": 202,
+        "routes": 124
+      },
+      "U-E1/release/NO/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/release/YES/moving": {
+        "questions": 21,
+        "routes": 21
+      },
+      "U-E1/renewed_restriction/NO/moving": {
+        "questions": 753,
+        "routes": 185
+      },
+      "U-E1/renewed_restriction/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/restrict/YES/moving": {
+        "questions": 1268,
+        "routes": 1225
+      },
+      "U-E1/restrict/YES/stationary": {
+        "questions": 176,
+        "routes": 175
+      },
+      "U-E1/stable/NO/moving": {
+        "questions": 567,
+        "routes": 183
+      },
+      "U-E4/hold/YES/moving": {
+        "questions": 280,
+        "routes": 214
+      },
+      "U-E4/hold/YES/stationary": {
+        "questions": 774,
+        "routes": 695
+      },
+      "U-E4/proceed/NO/moving": {
+        "questions": 2090,
+        "routes": 218
+      },
+      "U-E4/proceed/NO/stationary": {
+        "questions": 7517,
+        "routes": 779
+      },
+      "U-E4/proceed/YES/moving": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E4/proceed/YES/stationary": {
+        "questions": 769,
+        "routes": 152
+      },
+      "U-E4/restrict/YES/moving": {
+        "questions": 280,
+        "routes": 214
+      },
+      "U-E4/restrict/YES/stationary": {
+        "questions": 774,
+        "routes": 695
+      }
+    },
+    "4": {
+      "U-E1/complete/NO/moving": {
+        "questions": 118,
+        "routes": 31
+      },
+      "U-E1/complete/YES/moving": {
+        "questions": 119,
+        "routes": 118
+      },
+      "U-E1/hold/NO/moving": {
+        "questions": 707,
+        "routes": 183
+      },
+      "U-E1/hold/YES/moving": {
+        "questions": 1289,
+        "routes": 1228
+      },
+      "U-E1/hold/YES/stationary": {
+        "questions": 176,
+        "routes": 175
+      },
+      "U-E1/proceed/NO/moving": {
+        "questions": 5426,
+        "routes": 1253
+      },
+      "U-E1/proceed/NO/stationary": {
+        "questions": 55336,
+        "routes": 1206
+      },
+      "U-E1/proceed/YES/moving": {
+        "questions": 290,
+        "routes": 208
+      },
+      "U-E1/proceed/YES/stationary": {
+        "questions": 30,
+        "routes": 12
+      },
+      "U-E1/re_yield/NO/moving": {
+        "questions": 773,
+        "routes": 185
+      },
+      "U-E1/re_yield/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/re_yield/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/recover_follow/NO/moving": {
+        "questions": 1009,
+        "routes": 119
+      },
+      "U-E1/recover_follow/YES/moving": {
+        "questions": 159,
+        "routes": 144
+      },
+      "U-E1/release/NO/moving": {
+        "questions": 202,
+        "routes": 124
+      },
+      "U-E1/release/NO/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/release/YES/moving": {
+        "questions": 21,
+        "routes": 21
+      },
+      "U-E1/renewed_restriction/NO/moving": {
+        "questions": 753,
+        "routes": 185
+      },
+      "U-E1/renewed_restriction/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/restrict/YES/moving": {
+        "questions": 1268,
+        "routes": 1225
+      },
+      "U-E1/restrict/YES/stationary": {
+        "questions": 176,
+        "routes": 175
+      },
+      "U-E1/stable/NO/moving": {
+        "questions": 567,
+        "routes": 183
+      },
+      "U-E4/hold/YES/moving": {
+        "questions": 280,
+        "routes": 214
+      },
+      "U-E4/hold/YES/stationary": {
+        "questions": 774,
+        "routes": 695
+      },
+      "U-E4/proceed/NO/moving": {
+        "questions": 2090,
+        "routes": 218
+      },
+      "U-E4/proceed/NO/stationary": {
+        "questions": 7517,
+        "routes": 779
+      },
+      "U-E4/proceed/YES/moving": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E4/proceed/YES/stationary": {
+        "questions": 769,
+        "routes": 152
+      },
+      "U-E4/restrict/YES/moving": {
+        "questions": 280,
+        "routes": 214
+      },
+      "U-E4/restrict/YES/stationary": {
+        "questions": 774,
+        "routes": 695
+      }
+    }
+  },
+  "references": {
+    "2": {
+      "val": 8597,
+      "test": 8185
+    },
+    "4": {
+      "val": 8597,
+      "test": 8185
+    }
+  },
+  "independent_review": {
+    "cards": 945,
+    "routes": 56,
+    "reviewed": 0,
+    "best_case_passable": 0
+  },
+  "strict_approved_classes": 0,
+  "production": {
+    "candidate_routes": 8614,
+    "candidate_rgb_frames": 1062401,
+    "frames_with_questions": 71918,
+    "frames_with_supervision": 71534,
+    "frames_without_questions": 990483,
+    "complete_causal_production": true,
+    "accounting": {
+      "processed_routes": 8614,
+      "processed_frames": 1062401,
+      "dispositions": {
+        "abstained": 904900,
+        "questions": 157501
+      },
+      "rule_targets": {
+        "ue1_ue4_causal_teacher_v6/U-E1/proceed/rgb2/readiness/NO": 89117,
+        "ue1_ue4_causal_teacher_v6/U-E1/restrict/rgb2/readiness/YES": 1709,
+        "ue1_ue4_causal_teacher_v6/U-E1/hold/rgb2/readiness/YES": 1731,
+        "ue1_ue4_causal_teacher_v6/U-E1/proceed/rgb4/readiness/NO": 89117,
+        "ue1_ue4_causal_teacher_v6/U-E1/restrict/rgb4/readiness/YES": 1709,
+        "ue1_ue4_causal_teacher_v6/U-E1/hold/rgb4/readiness/YES": 1731,
+        "ue1_ue4_causal_teacher_v6/U-E1/proceed/rgb2/readiness/UNKNOWN": 48774,
+        "ue1_ue4_causal_teacher_v6/U-E1/proceed/rgb4/readiness/UNKNOWN": 48774,
+        "ue1_ue4_causal_teacher_v6/U-E1/proceed/rgb2/readiness/YES": 365,
+        "ue1_ue4_causal_teacher_v6/U-E1/proceed/rgb4/readiness/YES": 365,
+        "ue1_ue4_causal_teacher_v6/U-E1/re_yield/rgb2/readiness/NO": 867,
+        "ue1_ue4_causal_teacher_v6/U-E1/hold/rgb2/readiness/NO": 789,
+        "ue1_ue4_causal_teacher_v6/U-E1/stable/rgb2/readiness/NO": 635,
+        "ue1_ue4_causal_teacher_v6/U-E1/renewed_restriction/rgb2/readiness/NO": 836,
+        "ue1_ue4_causal_teacher_v6/U-E1/recover_follow/rgb2/readiness/NO": 1257,
+        "ue1_ue4_causal_teacher_v6/U-E1/re_yield/rgb4/readiness/NO": 867,
+        "ue1_ue4_causal_teacher_v6/U-E1/hold/rgb4/readiness/NO": 789,
+        "ue1_ue4_causal_teacher_v6/U-E1/stable/rgb4/readiness/NO": 635,
+        "ue1_ue4_causal_teacher_v6/U-E1/renewed_restriction/rgb4/readiness/NO": 836,
+        "ue1_ue4_causal_teacher_v6/U-E1/recover_follow/rgb4/readiness/NO": 1257,
+        "ue1_ue4_causal_teacher_v6/U-E1/recover_follow/rgb2/readiness/YES": 173,
+        "ue1_ue4_causal_teacher_v6/U-E1/recover_follow/rgb4/readiness/YES": 173,
+        "ue1_ue4_causal_teacher_v6/U-E1/complete/rgb2/readiness/YES": 130,
+        "ue1_ue4_causal_teacher_v6/U-E1/release/rgb2/readiness/NO": 323,
+        "ue1_ue4_causal_teacher_v6/U-E1/complete/rgb4/readiness/YES": 130,
+        "ue1_ue4_causal_teacher_v6/U-E1/release/rgb4/readiness/NO": 323,
+        "ue1_ue4_causal_teacher_v6/U-E1/re_yield/rgb2/readiness/UNKNOWN": 1171,
+        "ue1_ue4_causal_teacher_v6/U-E1/hold/rgb2/readiness/UNKNOWN": 1033,
+        "ue1_ue4_causal_teacher_v6/U-E1/stable/rgb2/readiness/UNKNOWN": 905,
+        "ue1_ue4_causal_teacher_v6/U-E1/renewed_restriction/rgb2/readiness/UNKNOWN": 993,
+        "ue1_ue4_causal_teacher_v6/U-E1/re_yield/rgb4/readiness/UNKNOWN": 1171,
+        "ue1_ue4_causal_teacher_v6/U-E1/hold/rgb4/readiness/UNKNOWN": 1033,
+        "ue1_ue4_causal_teacher_v6/U-E1/stable/rgb4/readiness/UNKNOWN": 905,
+        "ue1_ue4_causal_teacher_v6/U-E1/renewed_restriction/rgb4/readiness/UNKNOWN": 993,
+        "ue1_ue4_causal_teacher_v6/U-E1/complete/rgb2/readiness/NO": 140,
+        "ue1_ue4_causal_teacher_v6/U-E1/release/rgb2/readiness/YES": 24,
+        "ue1_ue4_causal_teacher_v6/U-E1/complete/rgb4/readiness/NO": 140,
+        "ue1_ue4_causal_teacher_v6/U-E1/release/rgb4/readiness/YES": 24,
+        "ue1_ue4_causal_teacher_v6/U-E1/recover_follow/rgb2/readiness/UNKNOWN": 110,
+        "ue1_ue4_causal_teacher_v6/U-E1/recover_follow/rgb4/readiness/UNKNOWN": 110,
+        "ue1_ue4_causal_teacher_v6/U-E1/re_yield/rgb2/readiness/YES": 16,
+        "ue1_ue4_causal_teacher_v6/U-E1/renewed_restriction/rgb2/readiness/YES": 15,
+        "ue1_ue4_causal_teacher_v6/U-E1/re_yield/rgb4/readiness/YES": 16,
+        "ue1_ue4_causal_teacher_v6/U-E1/renewed_restriction/rgb4/readiness/YES": 15,
+        "ue1_ue4_causal_teacher_v6/U-E4/proceed/rgb2/readiness/NO": 10453,
+        "ue1_ue4_causal_teacher_v6/U-E4/restrict/rgb2/readiness/UNKNOWN": 3532,
+        "ue1_ue4_causal_teacher_v6/U-E4/hold/rgb2/readiness/YES": 1055,
+        "ue1_ue4_causal_teacher_v6/U-E4/proceed/rgb4/readiness/NO": 10453,
+        "ue1_ue4_causal_teacher_v6/U-E4/restrict/rgb4/readiness/UNKNOWN": 3532,
+        "ue1_ue4_causal_teacher_v6/U-E4/hold/rgb4/readiness/YES": 1055,
+        "ue1_ue4_causal_teacher_v6/U-E4/proceed/rgb2/readiness/UNKNOWN": 9335,
+        "ue1_ue4_causal_teacher_v6/U-E4/proceed/rgb4/readiness/UNKNOWN": 9335,
+        "ue1_ue4_causal_teacher_v6/U-E4/restrict/rgb2/readiness/YES": 1049,
+        "ue1_ue4_causal_teacher_v6/U-E4/restrict/rgb4/readiness/YES": 1049,
+        "ue1_ue4_causal_teacher_v6/U-E4/hold/rgb2/readiness/UNKNOWN": 3542,
+        "ue1_ue4_causal_teacher_v6/U-E4/hold/rgb4/readiness/UNKNOWN": 3542,
+        "ue1_ue4_causal_teacher_v6/U-E4/restrict/rgb2/readiness/NO": 99,
+        "ue1_ue4_causal_teacher_v6/U-E4/restrict/rgb4/readiness/NO": 99,
+        "ue1_ue4_causal_teacher_v6/U-E4/proceed/rgb2/readiness/YES": 979,
+        "ue1_ue4_causal_teacher_v6/U-E4/proceed/rgb4/readiness/YES": 979,
+        "ue1_ue4_causal_teacher_v6/U-E1/complete/rgb2/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v6/U-E1/release/rgb2/readiness/UNKNOWN": 167,
+        "ue1_ue4_causal_teacher_v6/U-E1/complete/rgb4/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v6/U-E1/release/rgb4/readiness/UNKNOWN": 167,
+        "ue1_ue4_causal_teacher_v6/U-E4/hold/rgb2/readiness/NO": 83,
+        "ue1_ue4_causal_teacher_v6/U-E4/hold/rgb4/readiness/NO": 83,
+        "ue1_ue4_causal_teacher_v6/U-E4/complete/rgb2/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v6/U-E4/re_yield/rgb2/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v6/U-E4/complete/rgb4/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v6/U-E4/re_yield/rgb4/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v6/U-E4/complete/rgb2/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v6/U-E4/re_yield/rgb2/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v6/U-E4/complete/rgb4/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v6/U-E4/re_yield/rgb4/readiness/UNKNOWN": 328
+      },
+      "complete_causal_production": true,
+      "index_sha256": "420de0f95bda78c9eafac92f49f1c44752963a5bb73c72aaa7682f46f824f766",
+      "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+    },
+    "approved_rule_classes": [],
+    "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+  },
+  "production_seconds": 1242.5,
+  "rgb_review": {
+    "contact_sheets": 5,
+    "frames": 24,
+    "training_routes": 5,
+    "new_full_sequences": 0,
+    "new_human_supervision": 0,
+    "independent_rgb_viewed": 0
+  },
+  "explicit_training_exposure_groups": 6,
+  "protected_case_checks": {
+    "stale_lead_1765_f158_180_weak_no": 0,
+    "weak_restrict": 0,
+    "ue1_moving_proceed_weak_readiness_yes": 0,
+    "hardbreak_1030_f70_weak_yes": 0
+  },
+  "remaining_limits": [
+    "eight event teachers absent",
+    "automatic visual catchup not approved",
+    "visible actor deletion stays censored unless already complete",
+    "event-equal budget limited by sparse manual events",
+    "weak labels lack independent accuracy measurement"
+  ],
+  "gpu_training_executed": false,
+  "protected_sources_unchanged": [
+    "controller.py",
+    "taxonomy.py",
+    "prompts.py",
+    "route_prompts.py",
+    "calibration.py",
+    "observation.py",
+    "maneuver_safety.py",
+    "sampling.py",
+    "train.py",
+    "selection.py",
+    "teacher_controls.py"
+  ],
+  "phase3_bound_dependencies_unchanged": true,
+  "training_lifecycle": {
+    "raw_question_cells": {
+      "U-E1/default/proceed/NO/moving": {
+        "questions": 5734,
+        "routes": 1264
+      },
+      "U-E1/default/restrict/YES/moving": {
+        "questions": 1271,
+        "routes": 1226
+      },
+      "U-E1/default/hold/YES/moving": {
+        "questions": 1291,
+        "routes": 1228
+      },
+      "U-E1/default/proceed/NO/stationary": {
+        "questions": 69954,
+        "routes": 1206
+      },
+      "U-E1/default/proceed/UNKNOWN/stationary": {
+        "questions": 10280,
+        "routes": 1221
+      },
+      "U-E1/default/proceed/UNKNOWN/moving": {
+        "questions": 31156,
+        "routes": 1299
+      },
+      "U-E1/default/restrict/YES/stationary": {
+        "questions": 177,
+        "routes": 176
+      },
+      "U-E1/default/hold/YES/stationary": {
+        "questions": 177,
+        "routes": 176
+      },
+      "U-E1/default/proceed/YES/moving": {
+        "questions": 282,
+        "routes": 198
+      },
+      "U-E1/default/re_yield/NO/moving": {
+        "questions": 754,
+        "routes": 175
+      },
+      "U-E1/default/hold/NO/moving": {
+        "questions": 688,
+        "routes": 173
+      },
+      "U-E1/default/stable/NO/moving": {
+        "questions": 556,
+        "routes": 173
+      },
+      "U-E1/default/renewed_restriction/NO/moving": {
+        "questions": 734,
+        "routes": 175
+      },
+      "U-E1/default/recover_follow/YES/moving": {
+        "questions": 150,
+        "routes": 135
+      },
+      "U-E1/default/complete/YES/moving": {
+        "questions": 111,
+        "routes": 110
+      },
+      "U-E1/default/release/NO/moving": {
+        "questions": 194,
+        "routes": 116
+      },
+      "U-E1/default/recover_follow/NO/moving": {
+        "questions": 994,
+        "routes": 116
+      },
+      "U-E1/default/re_yield/UNKNOWN/moving": {
+        "questions": 813,
+        "routes": 67
+      },
+      "U-E1/default/hold/UNKNOWN/moving": {
+        "questions": 792,
+        "routes": 68
+      },
+      "U-E1/default/stable/UNKNOWN/moving": {
+        "questions": 685,
+        "routes": 64
+      },
+      "U-E1/default/renewed_restriction/UNKNOWN/moving": {
+        "questions": 752,
+        "routes": 67
+      },
+      "U-E1/default/complete/NO/moving": {
+        "questions": 114,
+        "routes": 30
+      },
+      "U-E1/default/release/YES/moving": {
+        "questions": 21,
+        "routes": 21
+      },
+      "U-E1/default/recover_follow/UNKNOWN/moving": {
+        "questions": 97,
+        "routes": 8
+      },
+      "U-E1/default/re_yield/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/default/renewed_restriction/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E4/cyclist_follow/proceed/NO/stationary": {
+        "questions": 73,
+        "routes": 6
+      },
+      "U-E4/cyclist_follow/restrict/UNKNOWN/stationary": {
+        "questions": 114,
+        "routes": 11
+      },
+      "U-E4/cyclist_follow/hold/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E4/cyclist_follow/proceed/NO/moving": {
+        "questions": 97,
+        "routes": 29
+      },
+      "U-E4/cyclist_follow/proceed/UNKNOWN/moving": {
+        "questions": 3663,
+        "routes": 101
+      },
+      "U-E4/cyclist_follow/restrict/UNKNOWN/moving": {
+        "questions": 3136,
+        "routes": 100
+      },
+      "U-E4/cyclist_follow/hold/YES/moving": {
+        "questions": 29,
+        "routes": 28
+      },
+      "U-E4/default/proceed/NO/stationary": {
+        "questions": 8408,
+        "routes": 746
+      },
+      "U-E4/default/restrict/YES/stationary": {
+        "questions": 785,
+        "routes": 696
+      },
+      "U-E4/default/hold/YES/stationary": {
+        "questions": 785,
+        "routes": 696
+      },
+      "U-E4/default/proceed/UNKNOWN/stationary": {
+        "questions": 3578,
+        "routes": 584
+      },
+      "U-E4/default/proceed/UNKNOWN/moving": {
+        "questions": 514,
+        "routes": 52
+      },
+      "U-E4/default/proceed/NO/moving": {
+        "questions": 205,
+        "routes": 77
+      },
+      "U-E4/default/restrict/YES/moving": {
+        "questions": 76,
+        "routes": 72
+      },
+      "U-E4/default/hold/YES/moving": {
+        "questions": 76,
+        "routes": 72
+      },
+      "U-E4/cyclist_follow/hold/UNKNOWN/moving": {
+        "questions": 3145,
+        "routes": 97
+      },
+      "U-E4/cyclist_follow/restrict/NO/moving": {
+        "questions": 97,
+        "routes": 15
+      },
+      "U-E4/cyclist_follow/restrict/YES/moving": {
+        "questions": 24,
+        "routes": 23
+      },
+      "U-E4/cyclist_follow/proceed/UNKNOWN/stationary": {
+        "questions": 563,
+        "routes": 18
+      },
+      "U-E4/cyclist_follow/hold/UNKNOWN/stationary": {
+        "questions": 113,
+        "routes": 10
+      },
+      "U-E4/default/proceed/YES/stationary": {
+        "questions": 780,
+        "routes": 155
+      },
+      "U-E1/default/complete/UNKNOWN/moving": {
+        "questions": 34,
+        "routes": 3
+      },
+      "U-E1/default/release/UNKNOWN/moving": {
+        "questions": 125,
+        "routes": 12
+      },
+      "U-E1/default/proceed/YES/stationary": {
+        "questions": 37,
+        "routes": 19
+      },
+      "U-E4/cyclist_follow/proceed/YES/moving": {
+        "questions": 10,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/hold/NO/moving": {
+        "questions": 83,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/complete/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/re_yield/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/complete/UNKNOWN/moving": {
+        "questions": 328,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/re_yield/UNKNOWN/moving": {
+        "questions": 328,
+        "routes": 10
+      },
+      "U-E1/default/re_yield/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/default/release/NO/stationary": {
+        "questions": 1,
+        "routes": 1
+      }
+    },
+    "instances": {
+      "U-E1/default": 1448,
+      "U-E4/cyclist_follow": 102,
+      "U-E4/default": 861
+    },
+    "ends": {
+      "U-E1/default/lead_visibly_left_event_corridor": 450,
+      "U-E1/default/instance_rgb_discontinuity": 204,
+      "U-E1/default/finished": 106,
+      "U-E1/default/lead_replaced_by_observed_moving_lead": 3,
+      "U-E1/default/identity_lost": 22,
+      "U-E4/cyclist_follow/instance_rgb_discontinuity": 24,
+      "U-E4/default/instance_rgb_discontinuity": 839,
+      "U-E4/default/identity_lost": 4,
+      "U-E4/default/cyclist_follow_branch_requires_new_instance": 16,
+      "U-E4/cyclist_follow/requires_recheck": 4,
+      "U-E4/cyclist_follow/identity_lost": 73,
+      "U-E1/default/requires_recheck": 15,
+      "U-E1/default/invalid_geometry_or_initialization": 7
+    },
+    "scope": "training routes only; raw rule outputs before supervision exclusions; no RGB viewed"
+  }
+}

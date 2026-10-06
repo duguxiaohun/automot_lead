@@ -1,3 +1,4 @@
+from qwen3vl_local.sft_new_loop_phase4.tests.safety_fixtures import clearances, loop_clearances
 import copy
 import json
 from pathlib import Path
@@ -7,7 +8,7 @@ from qwen3vl_local.sft_new_loop_phase4.taxonomy import EVENTS,template_for,get_e
 from qwen3vl_local.sft_new_loop_phase4.prompts import prompt,parse_answer
 from qwen3vl_local.sft_new_loop_phase4.calibration import label_condition,interval_facts,catchup_label
 from qwen3vl_local.sft_new_loop_phase4.runtime import Phase4Loop
-from qwen3vl_local.sft_new_loop_phase4.sampling import plan,frame_key
+from qwen3vl_local.sft_new_loop_phase4.sampling import legacy_plan as plan,frame_key
 from qwen3vl_local.sft_new_loop_phase4.evaluate import replay,metrics
 from qwen3vl_local.sft_new_loop_phase4.train import accumulation_size
 from qwen3vl_local.sft_new_loop_phase4.dataset import split_for,coverage_report
@@ -16,7 +17,7 @@ from qwen3vl_local.sft_new_loop_phase4.dataset import split_for,coverage_report
 def step(ep,frame,*yes,committed=True):
     answers={e.key:('YES' if e.key in yes else 'NO') for e in ep.questions()}
     assert set(yes)<=set(answers)
-    return ep.advance(frame,answers,execution_committed=committed)
+    return ep.advance(frame,answers,execution_committed=committed, maneuver_clearances=clearances(ep,frame,*yes))
 
 
 def bypass(**kw):
@@ -138,7 +139,7 @@ def test_concurrent_constraints_survive_primary_projection():
 def test_snapshot_and_loop_avoids_upstream_on_ordinary_progress():
     loop=Phase4Loop();loop.establish(bypass(),verified=True)
     obs=dict(frame_id=10,history_frames=[4,6,8,10],speed_mps=0.)
-    result=loop.tick(obs,[None]*4,lambda ep,key,obs,images:'YES' if key=='depart' else 'NO')
+    result=loop.tick(obs,[None]*4,lambda ep,key,obs,images:'YES' if key=='depart' else 'NO', maneuver_clearances=loop_clearances(loop,10,'depart'))
     assert not result['recheck_instances']
     loop.acknowledge('x',10)
     recovered=Phase4Loop.restore(loop.snapshot())
@@ -235,7 +236,7 @@ def test_replay_queries_predicted_state_not_teacher_state():
         calls.append((obs['frame_id'],ep.state,key))
         want={1:None,2:'depart',3:'pass',4:'stable',5:'complete'}[obs['frame_id']]
         return 'YES' if key==want else 'NO'
-    result=replay(initial,[dict(frame_id=f,execution_committed=True,truth={'depart':'YES'}) for f in range(1,6)],predictor)
+    result=replay(initial,[dict(visible_truth_scope='visible_maneuver_conditions_v1',frame_id=f,execution_committed=True,truth={'depart':'YES'}, maneuver_clearances=clearances(Episode(**initial),f,'depart') if f<=2 else []) for f in range(1,6)],predictor)
     assert result['completed']
     assert (2,'WAIT','depart') in calls and (3,'DEPART','pass') in calls
     assert result['uncovered_questions']>0

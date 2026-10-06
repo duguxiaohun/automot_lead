@@ -1,0 +1,188 @@
+{
+  "date": "2026-09-30",
+  "task": "phase4_state_pair_binary_v15",
+  "default_annotations": "reviewed_state_pairs_v7.json",
+  "training_data_admission": {
+    "policy": "phase4_training_admission_v1",
+    "trainable": true,
+    "errors": [],
+    "counts": {
+      "train": {
+        "rows": 563,
+        "answers": {
+          "NO": 325,
+          "YES": 238
+        }
+      },
+      "val": {
+        "rows": 273,
+        "answers": {
+          "NO": 155,
+          "YES": 118
+        }
+      },
+      "test": {
+        "rows": 186,
+        "answers": {
+          "NO": 113,
+          "YES": 73
+        }
+      }
+    },
+    "complete_coverage": false,
+    "coverage_role": "diagnostic; incomplete cells do not block training",
+    "evaluation_scope": "observed independent labelled subsets; not full-loop certification",
+    "missing_event_cells": 12,
+    "missing_transition_cells": 366,
+    "missing_segment_cells": 12
+  },
+  "ready_scope": "training_data",
+  "trainable": true,
+  "complete_coverage": false,
+  "change": "Separate training prerequisites from exhaustive event/branch/edge coverage; retain provenance, causal RGB, split isolation, risk and content checks.",
+  "verification": {
+    "2": {
+      "counts": {
+        "train": 563,
+        "val": 273,
+        "test": 186
+      },
+      "queue": 405,
+      "data_trainable": true,
+      "complete_coverage": false,
+      "prior_rows_unchanged": true,
+      "images_verified": 2854,
+      "sampling": [
+        {
+          "world": 1,
+          "epochs": 7,
+          "coverage": 563
+        },
+        {
+          "world": 4,
+          "epochs": 7,
+          "coverage": 563
+        }
+      ],
+      "budget1_coverage": 563,
+      "manifest_sha256": "4eb1b2ec46904a0b5189353c673c887791ce18698caa03c89f8e32121908b084"
+    },
+    "4": {
+      "counts": {
+        "train": 563,
+        "val": 273,
+        "test": 186
+      },
+      "queue": 405,
+      "data_trainable": true,
+      "complete_coverage": false,
+      "prior_rows_unchanged": true,
+      "images_verified": 5708,
+      "sampling": [
+        {
+          "world": 1,
+          "epochs": 7,
+          "coverage": 563
+        },
+        {
+          "world": 4,
+          "epochs": 7,
+          "coverage": 563
+        }
+      ],
+      "budget1_coverage": 563,
+      "manifest_sha256": "caa7707c9d137c86c03d2ab17b628e1af6d6e768041e972fd6eb483e0f007b03"
+    }
+  },
+  "rule_backtest": {
+    "scope": "archived reviewed readiness facts; no new visual review or raw RGB extraction",
+    "matched_answers": {
+      "NO": 570,
+      "YES": 151
+    },
+    "nonapplicable": []
+  },
+  "tests": {
+    "passed": 399,
+    "scope": "Phase4 CPU suite including lightweight torch training/save and standalone evaluation wiring; no full 4B or GPU run"
+  },
+  "host_validation": {
+    "server_training_started": false,
+    "full_model_checked": false,
+    "gpu_ddp_tested": false,
+    "local_missing_model_blocks_server": false,
+    "required_on_server": "Actual model assets, dependencies and RGB checked by normal single/ddp launcher; actual GPU initialization required."
+  },
+  "condition_compiler": {
+    "implemented": "Causal current-state facts to applicable binary questions using shared taxonomy; missing facts remain UNKNOWN. Sources and rubric are content-bound.",
+    "not_implemented": "General extraction of all required facts from arbitrary raw RGB or LEAD metadata.",
+    "default_training_rows_added": 0,
+    "upstream_fact_accuracy_certified": false
+  },
+  "visual_review_this_turn": {
+    "new_sequences": 0,
+    "new_rgb": 0,
+    "new_labels": 0
+  },
+  "preserved": {
+    "frozen_rubric_sha256": {
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994"
+    },
+    "historical_json_unchanged": true,
+    "four_dataset_jsonl_rows_unchanged_from_v14": true,
+    "phase3_action_modified_this_turn": false
+  },
+  "files_changed_from_turn_start": [
+    "identity.py",
+    "dataset.py",
+    "model.py",
+    "evaluate.py",
+    "train.py",
+    "README.md",
+    "run_full_pipeline.sh",
+    "train.sh",
+    "preflight.py",
+    "tests/test_formal_data_v6.py",
+    "tests/test_reviewed_candidates_v4.py",
+    "tests/test_pipeline.py",
+    "tests/test_formal_data_v5.py"
+  ],
+  "evidence": {
+    "tests_final.log": {
+      "path": "/tmp/phase4_general_pipeline_20260930/tests_final.log",
+      "sha256": "49414507348bee2d5c3bc7e94742489926b1e296d529bc2d4354b9407ec2ffef"
+    },
+    "final_pipeline2.log": {
+      "path": "/tmp/phase4_general_pipeline_20260930/final_pipeline2.log",
+      "sha256": "630c13ffad92e7ec3679f6831774e49d9a7014305764d3021e74a487c63ff13d"
+    },
+    "final_pipeline4.log": {
+      "path": "/tmp/phase4_general_pipeline_20260930/final_pipeline4.log",
+      "sha256": "630c13ffad92e7ec3679f6831774e49d9a7014305764d3021e74a487c63ff13d"
+    },
+    "verification.json": {
+      "path": "/tmp/phase4_general_pipeline_20260930/verification.json",
+      "sha256": "293c3abd3073467931e91e53199b7a44bfe18ee0f547cb4bb2bf0df33f52b703"
+    },
+    "rule_backtest.json": {
+      "path": "/tmp/phase4_general_pipeline_20260930/rule_backtest.json",
+      "sha256": "7a204256ac828181df4b583a5e3a71de974a4de646021a8c4e60407cb39d6834"
+    }
+  },
+  "limitations": [
+    "Incomplete coverage is diagnostic and is not certified by successful training.",
+    "Evaluation is limited to independently labelled observed subsets.",
+    "No new per-frame visual audit occurred in this turn.",
+    "Condition compilation does not verify semantic correctness of upstream perception."
+  ],
+  "files_added_this_turn": [
+    "admission.py",
+    "condition_builder.py",
+    "tests/test_training_admission.py",
+    "tests/test_condition_builder.py",
+    "training_admission_v15.json"
+  ]
+}

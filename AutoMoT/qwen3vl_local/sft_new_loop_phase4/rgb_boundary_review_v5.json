@@ -1,0 +1,3509 @@
+{
+  "version": "formal_training_data_increment_v1",
+  "reviewer": "Codex visual annotation 2026-09-30",
+  "annotation_sha256": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+  "parent_annotation_sha256": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+  "local_review": {
+    "re_reviewed_complete_sequences": 4,
+    "unique_existing_rgb_frames": 563,
+    "original_resolution_frames": 113,
+    "native_rgb_resolution": [
+      1152,
+      384
+    ],
+    "contact_sheets": 26,
+    "new_complete_sequences": 0,
+    "newly_exposed_groups": []
+  },
+  "train_only_groups": [
+    "HardBreakRoute/Town12_3452_0",
+    "ParkedObstacleTwoWays/Town13_1432_1",
+    "ParkedObstacleTwoWays/Town13_1748_1",
+    "ParkedObstacleTwoWays/Town13_1783_1"
+  ],
+  "reviews": [
+    {
+      "selection_id": 294,
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_3452_0_route0_01_09_04_20_19",
+      "physical_group": "HardBreakRoute/Town12_3452_0",
+      "frame_count": 98,
+      "whole_sequence_review": "every frame on chronological contact sheets, 576x192 tiles; displayed sheet resized 2304 to 2048 width",
+      "panel_evidence": [
+        {
+          "path": "/tmp/phase4_reaudit_20260929/panels/294/000.jpg",
+          "sha256": "8881421805c94b0f9679a06361a91e642041e388acbfe133e5b625aec86360a3"
+        },
+        {
+          "path": "/tmp/phase4_reaudit_20260929/panels/294/001.jpg",
+          "sha256": "f3ff2346c36723598380e21be0657bc2d63e0599089bca2e31eb8775b8b13251"
+        },
+        {
+          "path": "/tmp/phase4_reaudit_20260929/panels/294/002.jpg",
+          "sha256": "fb0efaffe04a4474e601a40684805b5ff0ed25e7f09ed1125884e95a88293253"
+        },
+        {
+          "path": "/tmp/phase4_reaudit_20260929/panels/294/003.jpg",
+          "sha256": "6d441d2cca9051018233503448b2ec3fc29bbe34dcdf6b9aaba2c1b26f865b19"
+        },
+        {
+          "path": "/tmp/phase4_reaudit_20260929/panels/294/004.jpg",
+          "sha256": "6fdb67986a56bfe9703b140a6e1d8ee396079caf82892801ddcfe4a36b10d282"
+        }
+      ],
+      "frames": [
+        {
+          "frame": 0,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0000.jpg",
+          "sha256": "4906fe4a88a5689f083beae02e69f30e529125d6704b3a46b2028913b21aa75c"
+        },
+        {
+          "frame": 1,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0001.jpg",
+          "sha256": "b777ae3ea692341fe29dde671d73829f3a99a9a82f314661243dcf7b91f0439d"
+        },
+        {
+          "frame": 2,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0002.jpg",
+          "sha256": "3d2da636bcecf32b70458c5602efc5f5c9200a19f5db8c67f23506099373e3c6"
+        },
+        {
+          "frame": 3,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0003.jpg",
+          "sha256": "bbc56e16960c21ba346ab74893e7af61c74db4f33814d6ee4b0b33abb0faceb0"
+        },
+        {
+          "frame": 4,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0004.jpg",
+          "sha256": "70e9490d3dfef354f8acba1ae35de09b78d4979631834a9c7c4f94329ef9b3a1"
+        },
+        {
+          "frame": 5,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0005.jpg",
+          "sha256": "5c9691a1fc587bd107fe8ed61602511f567ec628f1467499efb2b58b0355ab52"
+        },
+        {
+          "frame": 6,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0006.jpg",
+          "sha256": "f52fcf9377bbb6a793e60723dea6685eda1c4ccd464dc5a0d1d7aa06b572358e"
+        },
+        {
+          "frame": 7,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0007.jpg",
+          "sha256": "a2f49276b9212b987a899360edf9de4c7e16dfef20b5e7e6ffb66ba479449aff"
+        },
+        {
+          "frame": 8,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0008.jpg",
+          "sha256": "711d84974befce2d5cf9cfcf3e3596e8fbc79f69de9884b974bab16c90379d3d"
+        },
+        {
+          "frame": 9,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0009.jpg",
+          "sha256": "90eefbf4c5039b8f456f99bae00d6fac39b6cbd99bf5f69e2be4c79c98ff5c77"
+        },
+        {
+          "frame": 10,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0010.jpg",
+          "sha256": "559a7bad7f9b80485947d4cca57536979c4bf80bdc0c23c0d0a12f56e849791a"
+        },
+        {
+          "frame": 11,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0011.jpg",
+          "sha256": "5a8ca83cb87ff944af052ae7cdac605f99911b1f5e236dcf2ee086c9c870e4ea"
+        },
+        {
+          "frame": 12,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0012.jpg",
+          "sha256": "2862ac6ccb32d572587122916c0de587d5148b991bc53461ff6619c48f687b80"
+        },
+        {
+          "frame": 13,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0013.jpg",
+          "sha256": "2153b05bcf245309952412a50ade77fa3d16a5bc2fc6779f1e96a8f12ef707aa"
+        },
+        {
+          "frame": 14,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0014.jpg",
+          "sha256": "75fb0b5d5ef33c8ff59cb434ccee1a9bd8d43acd0cb1d45ea9237d785092af2d"
+        },
+        {
+          "frame": 15,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0015.jpg",
+          "sha256": "13b6da55b9c40e7318d85bf849b22e3918bba49bb284c555f945e8c754882e88"
+        },
+        {
+          "frame": 16,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0016.jpg",
+          "sha256": "03c80b980c40b987a586e8edac433ec08b237fba1879227ff5c7f06d1b19bdc7"
+        },
+        {
+          "frame": 17,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0017.jpg",
+          "sha256": "08f831912f98cb9edf39d9b0568cbbeec253782a696b5d8b2a82cc63ac372ece"
+        },
+        {
+          "frame": 18,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0018.jpg",
+          "sha256": "41c87a794e2aacd3fdc0fd5016a4987cef63fe10d3d2a13b87d56a7cbea3f971"
+        },
+        {
+          "frame": 19,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0019.jpg",
+          "sha256": "4803a96d5087db1a372b6dfdec6f7eb0b479c58e13a8f30b05bfea77c8f1ead2"
+        },
+        {
+          "frame": 20,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0020.jpg",
+          "sha256": "5482aaf8f911467a62682b08439d0359d5b35905e63862f6d8b55087d35cc131"
+        },
+        {
+          "frame": 21,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0021.jpg",
+          "sha256": "b9dc8d66db0baf5bc46cb76626903527531525daefc4553cb1dbca58673d50c8"
+        },
+        {
+          "frame": 22,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0022.jpg",
+          "sha256": "a61322e41500d78fcaeee74819f7781ff14185050bbd17cd1f0d0edafd4c05f9"
+        },
+        {
+          "frame": 23,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0023.jpg",
+          "sha256": "29ee96b863a6414699abb50681b7b685b72272060a44656b119184fc596facc5"
+        },
+        {
+          "frame": 24,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0024.jpg",
+          "sha256": "0d33c8224406dc1aec7a3a46598e69ec6c7ed9d04e095303670a06b82b2f8ef0"
+        },
+        {
+          "frame": 25,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0025.jpg",
+          "sha256": "5e60702b9bd2c8f818fb36aa107f0c31660187cad7bce24f50fc1fe27c3d1342"
+        },
+        {
+          "frame": 26,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0026.jpg",
+          "sha256": "5a5a7ab72743672e6ac1a487ae34b8eda49a40725cbef21eea17ebc832cc9197"
+        },
+        {
+          "frame": 27,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0027.jpg",
+          "sha256": "3dac607734e7fa1afed1a1f5957274e943d1ce56cde6c0a995ab42df437b2a25"
+        },
+        {
+          "frame": 28,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0028.jpg",
+          "sha256": "97494961e6ca20f95b6f67fca437b224b679a5a20666ceb6eeeecee79c2d5664"
+        },
+        {
+          "frame": 29,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0029.jpg",
+          "sha256": "2637f39579fabb1b17b4a3e429aa258ecc4c7ff90e964ef2a6e17bce44551bee"
+        },
+        {
+          "frame": 30,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0030.jpg",
+          "sha256": "05743d6807cf64c47027885e0db58ba16cd93b56025a31645ebfe22a89d8375e"
+        },
+        {
+          "frame": 31,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0031.jpg",
+          "sha256": "02e75991cc1085dc364944e72a58ecdbe69b25daaaeabd7751bd767132a5d120"
+        },
+        {
+          "frame": 32,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0032.jpg",
+          "sha256": "81a1fdb7f39349fb19cdec491114e5bea7cb4390b64cc33ed32af682f07ff74c"
+        },
+        {
+          "frame": 33,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0033.jpg",
+          "sha256": "aaf91f69efbbdcfc47bae4db5623530b29fc2890e7fc491a7e66278602bd29d8"
+        },
+        {
+          "frame": 34,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0034.jpg",
+          "sha256": "4baba8d931ad5e1092bfb50f22c0fb004a394ebb8678078fa635a73e633dbc09"
+        },
+        {
+          "frame": 35,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0035.jpg",
+          "sha256": "48b62b0f2f41a58af651c864f4ce17424a6e9b2ede25d7e6b85da4b3833ed14d"
+        },
+        {
+          "frame": 36,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0036.jpg",
+          "sha256": "252690f00954d3f4201709b7920ad6c5710c4dfc92fff63727df48d413dc7f5f"
+        },
+        {
+          "frame": 37,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0037.jpg",
+          "sha256": "dc051a303d0c4534080bd2625a4e79817f6c055680845a370aeff794d40e3d3c"
+        },
+        {
+          "frame": 38,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0038.jpg",
+          "sha256": "fac1be9f1a4740e9b7d429883830773ceabddb2210c9977b3031c8f7341d2250"
+        },
+        {
+          "frame": 39,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0039.jpg",
+          "sha256": "aa3ee8f90b7b96173cccef59ffcb38f089e5d64067a7bcbf370b3c8e13ca3cdc"
+        },
+        {
+          "frame": 40,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0040.jpg",
+          "sha256": "f2e13d1cd3924ba064138ce7f93434be686c940ec5d5600f3349164119884691"
+        },
+        {
+          "frame": 41,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0041.jpg",
+          "sha256": "80e94cdab33ef75189958b480e78063dd511c026cec63b408aa58eb72547cb00"
+        },
+        {
+          "frame": 42,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0042.jpg",
+          "sha256": "e1d3329f0d2a72d127aa2352bfef2b25063613a0edb7d3a084dc05058f6bb7c0"
+        },
+        {
+          "frame": 43,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0043.jpg",
+          "sha256": "d0c1b8893f20ef11761bf5e9443981e204d5ea3e9f19df2c2ba7b0ceb86f5e38"
+        },
+        {
+          "frame": 44,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0044.jpg",
+          "sha256": "d1f965ca78830cbabec918d72523de81e72934eef7b006dc0aa4513e92746e39"
+        },
+        {
+          "frame": 45,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0045.jpg",
+          "sha256": "52af4cbe723c6fb6cf0c4b3b91920c2626a079017eb9de82e374d34c737b65e5"
+        },
+        {
+          "frame": 46,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0046.jpg",
+          "sha256": "743643eb665b2e9300940490bc4ce502e0c2556c08f94c2e5645f4ddcc9dc840"
+        },
+        {
+          "frame": 47,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0047.jpg",
+          "sha256": "d877d99d914bfb3de9742f176bfe0525dffe429a6a75b7e84b33ab442dfb47c7"
+        },
+        {
+          "frame": 48,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0048.jpg",
+          "sha256": "446b2465220decb8a19436b993cb21a664eebf2a29d74cfb9aa1ccadb4e3fb94"
+        },
+        {
+          "frame": 49,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0049.jpg",
+          "sha256": "0fbb217ee617ed0bd31284ce4c484b2bfd611fbae98078d2f9102cd45cab37ec"
+        },
+        {
+          "frame": 50,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0050.jpg",
+          "sha256": "fafafea154ec1de3edda5ed17bae3fc401791d000316929669745a5cc6bb1c58"
+        },
+        {
+          "frame": 51,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0051.jpg",
+          "sha256": "c1f4735fcc0aa6b01a7ddf7dfbaa1490df12229a940e387ae20c381f8e883fa5"
+        },
+        {
+          "frame": 52,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0052.jpg",
+          "sha256": "dfd5af2f89de5bc0e63ce54196712b65d8507564a57e3b13466d03e5b3c567c4"
+        },
+        {
+          "frame": 53,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0053.jpg",
+          "sha256": "d4346c140e45653f7af6850d1b7c903ef60c6b160d26912b9ad52112d749d414"
+        },
+        {
+          "frame": 54,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0054.jpg",
+          "sha256": "2108ebea6dcf3ae47a9821e87c5ba47b1626cd7e730457ef99f29c3d42407bde"
+        },
+        {
+          "frame": 55,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0055.jpg",
+          "sha256": "5778127b50d4393cf466e34fc6e64a6614fc148d9977769bf2ce152eefd818e9"
+        },
+        {
+          "frame": 56,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0056.jpg",
+          "sha256": "6bd308fea3c15a00db6217f9de1137f72faf0c3f10c7ef9ee58d54bbdc65dbc1"
+        },
+        {
+          "frame": 57,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0057.jpg",
+          "sha256": "0f89eac0edc95d9f24f911804e2712de2cd236443c6fd32258e46c4a84986866"
+        },
+        {
+          "frame": 58,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0058.jpg",
+          "sha256": "5a1bec5249e3ca3ac7361fdc903210c7af74f6220b664c810f5597170f6ed2c2"
+        },
+        {
+          "frame": 59,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0059.jpg",
+          "sha256": "ad3d9fc6238518a47502f5491d78fe028ae63356138431893dd4b795364d9f9f"
+        },
+        {
+          "frame": 60,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0060.jpg",
+          "sha256": "a5483ceecde37cab0138d457a6be1db7bbe59751cdac5502715bc817e706622f"
+        },
+        {
+          "frame": 61,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0061.jpg",
+          "sha256": "1f60940167d0a05ab919b65722ce93950a46026828cc936af9186bae57558f1d"
+        },
+        {
+          "frame": 62,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0062.jpg",
+          "sha256": "7bb4bd824929a8ebd7728732a6deaa123a500e74e9bae94b883e377c78f5afb3"
+        },
+        {
+          "frame": 63,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0063.jpg",
+          "sha256": "a93416c6b96515cce95c742abba9eb6097c362884e6c991281516175f619ea3d"
+        },
+        {
+          "frame": 64,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0064.jpg",
+          "sha256": "a746d20fe9c60f51642018e1d5ef0297be88c6b498beb11087c232748915cbd1"
+        },
+        {
+          "frame": 65,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0065.jpg",
+          "sha256": "03e8ffa9341460c5a51e70a173fe120d906785599555e917754a6c864df6a08e"
+        },
+        {
+          "frame": 66,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0066.jpg",
+          "sha256": "e9015e047ca81242fe93bf17bf3beb32d8dc452da8267e2cfab760b1c04d042e"
+        },
+        {
+          "frame": 67,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0067.jpg",
+          "sha256": "824ac89fdbfe5608d4c13597b230f050e425141dc246fdfb9b12b8c4343727a9"
+        },
+        {
+          "frame": 68,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0068.jpg",
+          "sha256": "9d4476d911760eb2afa681ffed687237132d7fcdf534a6d8792d0cc634709cee"
+        },
+        {
+          "frame": 69,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0069.jpg",
+          "sha256": "dd54243bb10eae7a43c7bf91699976c17faabf934211fc454db6531730679124"
+        },
+        {
+          "frame": 70,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0070.jpg",
+          "sha256": "684cc040bf0c2f07e76b4997b5cf33a05a8521c36d46fbd10467278c6592647a"
+        },
+        {
+          "frame": 71,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0071.jpg",
+          "sha256": "dec691353953887c9cac6c4a08918ca2fba6a5168f256d2b839798c4d60ddc8e"
+        },
+        {
+          "frame": 72,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0072.jpg",
+          "sha256": "791fb9bd6258064066970c79c1d966ab5a50b73c25fdeae4b48c5eabf39453ca"
+        },
+        {
+          "frame": 73,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0073.jpg",
+          "sha256": "e8de8aecf2d23976ad2409bfacfaee4afa506aea938378779032a1bfd73e8dda"
+        },
+        {
+          "frame": 74,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0074.jpg",
+          "sha256": "a220a13ac44b14724150f44d25000fd99874ec91cd73fbadfc764c8a4fc44316"
+        },
+        {
+          "frame": 75,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0075.jpg",
+          "sha256": "96642df101a4d867b955547056ac2f69684148ac9a3c49473ca6050eb1fc3626"
+        },
+        {
+          "frame": 76,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0076.jpg",
+          "sha256": "f55b26f8f567a666b5857daa9b267fb3641df8eb896539567ad0675537e1061a"
+        },
+        {
+          "frame": 77,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0077.jpg",
+          "sha256": "493efe15ba3126a9edde1c10eeda6b3e4f1e337a214d6337ac2fff4146e62736"
+        },
+        {
+          "frame": 78,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0078.jpg",
+          "sha256": "5c22041f961a33c605c9067585e96d96da755c5ffd985d63ef6b751dfae076dd"
+        },
+        {
+          "frame": 79,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0079.jpg",
+          "sha256": "46046de3873aa6090b46eb7f99191b5d16ceb8ea69faaac928bcca8a7ebe1e41"
+        },
+        {
+          "frame": 80,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0080.jpg",
+          "sha256": "f3bdb5d87e04343022c07241c048c75a152e21c9c3f87f44e40e7077a93c8832"
+        },
+        {
+          "frame": 81,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0081.jpg",
+          "sha256": "f7ef334499d2811ecdbef430fdacb7457f69371bd844f3860ae256a8ff0f2add"
+        },
+        {
+          "frame": 82,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0082.jpg",
+          "sha256": "fda944ccbda80d46f2b76d3389d9e2500a87a9a355f1ec07a62d43a4300f4385"
+        },
+        {
+          "frame": 83,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0083.jpg",
+          "sha256": "c388036f1e97c58716ad7b0d440417627f33d64c202f7e90ba55c9e610277c5d"
+        },
+        {
+          "frame": 84,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0084.jpg",
+          "sha256": "9a366121e5332f06bfcd2ab103e9f905cab0b24033087abd1e95d3903a063dd1"
+        },
+        {
+          "frame": 85,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0085.jpg",
+          "sha256": "bf925eeb33fc4236933096d244fc6df5ea0c347365c8e0febc7857f27140f128"
+        },
+        {
+          "frame": 86,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0086.jpg",
+          "sha256": "0b2c5210cf46b206d083d509a3708f57f945a7a967e833b31928603b982a24b4"
+        },
+        {
+          "frame": 87,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0087.jpg",
+          "sha256": "befb36e60b2f5851208325e9be97e869c0af9979bc200258a1d64c1520f33212"
+        },
+        {
+          "frame": 88,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0088.jpg",
+          "sha256": "217e37b64358f742c7eb13b01aa17e0c9d52d88114c4e9920b9cbaa624266e0f"
+        },
+        {
+          "frame": 89,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0089.jpg",
+          "sha256": "f2ee6763c4f4ffbeb8b20c69d24431b0b4a92073de1e23623a8acda45e0b1a60"
+        },
+        {
+          "frame": 90,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0090.jpg",
+          "sha256": "7a9a8d4f7eec26734d02a509b2d2dc0ce69948b5630c38158c78f3504352b447"
+        },
+        {
+          "frame": 91,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0091.jpg",
+          "sha256": "2a41bfced60a0168e1e2391c410abc7c310db95b35acca1e694bc41098fe2af7"
+        },
+        {
+          "frame": 92,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0092.jpg",
+          "sha256": "239740705596a5d9de4bd27de1b5115fc4b178404369873599628b05c68a39e2"
+        },
+        {
+          "frame": 93,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0093.jpg",
+          "sha256": "5d647e855daafb7348dbc74aa8491603f7c780a7b2c6ef7b810434c7fb4230c6"
+        },
+        {
+          "frame": 94,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0094.jpg",
+          "sha256": "56c3b90701dc405bc09d79b6b04a8d062cba93885eaade9328712d6508037cb8"
+        },
+        {
+          "frame": 95,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0095.jpg",
+          "sha256": "9b9809a6fc9656d6af7da29f23ccc70ebff058cd2ffb260ec83b77c1d6cabfed"
+        },
+        {
+          "frame": 96,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0096.jpg",
+          "sha256": "e6d1f8da48d65bcc0be5a1109900ea616c7cbce80b2f12f2a0235cc2e662c9ef"
+        },
+        {
+          "frame": 97,
+          "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0097.jpg",
+          "sha256": "8712d12f9093cc592129d621d1d5890b3b05e68491b9b2506d9e48f7d0edb57e"
+        }
+      ]
+    },
+    {
+      "selection_id": 163,
+      "scenario": "ParkedObstacleTwoWays",
+      "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "physical_group": "ParkedObstacleTwoWays/Town13_1748_1",
+      "frame_count": 155,
+      "whole_sequence_review": "every frame on chronological contact sheets, 576x192 tiles; displayed sheet resized 2304 to 2048 width",
+      "panel_evidence": [
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/000.jpg",
+          "sha256": "47bbc918a711ead836b2331f155b9bf4c178d10b88b8a8d53e405d4ccd779ba5"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/001.jpg",
+          "sha256": "f06f0b776e65afcd78d1bd824d9bdbe3440c127f252030f376b402797ddda933"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/002.jpg",
+          "sha256": "26d88121bb179ea56d8b7beb3da460caa6b5e940e2a23f27e00b0fa5d1b1f7f3"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/003.jpg",
+          "sha256": "182a395b16620fd9215bedc0abd1cae303e3e833021ce09b479433eff55f2135"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/004.jpg",
+          "sha256": "6d44e7196baad0e7fd8598508f0c2d303a791c7ee5643f5cf6dd47d73b7fe46a"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/005.jpg",
+          "sha256": "f4e71fdfaccc9796b0c1efe39b0516bd66751dc8bc0dcc70eca6b182ab71ad8b"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/163/006.jpg",
+          "sha256": "a96e14046a913c4d9ac093e868be83defe3df2a4a361956089a5c0018d2b3d34"
+        }
+      ],
+      "frames": [
+        {
+          "frame": 0,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0000.jpg",
+          "sha256": "72586adbcfa7be452db8a272580f2118e31689e2ab914466b3ea11844782bf6a"
+        },
+        {
+          "frame": 1,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0001.jpg",
+          "sha256": "303169c97967a5e7f2eddcbccdf543eafb4daabc32e84ff384e2dc71aa4e4658"
+        },
+        {
+          "frame": 2,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0002.jpg",
+          "sha256": "ccbc8146f89fb62ba09cc0b9d42b7abffbedd4418a397e73743807cc8e48616c"
+        },
+        {
+          "frame": 3,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0003.jpg",
+          "sha256": "7ae50330728ed37b72d4ab9423900848e2d016d3e6d86b23d60d442d55846283"
+        },
+        {
+          "frame": 4,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0004.jpg",
+          "sha256": "f58c89e9fc5e0faabd2669b541a9ebfde323b75f5f748b876278abdd53fa035a"
+        },
+        {
+          "frame": 5,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0005.jpg",
+          "sha256": "be98cc93fcf7d0d20464ab32cd47b4005a84e7388d7541d3870c248c291598f9"
+        },
+        {
+          "frame": 6,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0006.jpg",
+          "sha256": "d28cfb888640e3ff882bf9e3249a3ec664d549b1edc0eb003402461b010835c7"
+        },
+        {
+          "frame": 7,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0007.jpg",
+          "sha256": "4d2adf283dbd1cd336f849bc263aa4f025f0b8215e61de953f56172c4b5f44d2"
+        },
+        {
+          "frame": 8,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0008.jpg",
+          "sha256": "89de9d9c4eb1205391f850d8b36c73c1e5f90823f814e4fd990bc1988effddc7"
+        },
+        {
+          "frame": 9,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0009.jpg",
+          "sha256": "ca2cefc5fad91d115009d01b242e0e4fdf318ffed2400d1944d48afe942100df"
+        },
+        {
+          "frame": 10,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0010.jpg",
+          "sha256": "1ff65a0bc1e917d2202f7ec14b9a1ccd8abf4b788093fb84dce5f31512744a85"
+        },
+        {
+          "frame": 11,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0011.jpg",
+          "sha256": "c3d523aa78aa9bcd1c7e40a2fd3463fc03d29dbd8538787b6e0d5fcb526cb591"
+        },
+        {
+          "frame": 12,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0012.jpg",
+          "sha256": "12897b273a797e698b976dae15a9ce5a9d62e53de3406efffc3ba4b53d76db12"
+        },
+        {
+          "frame": 13,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0013.jpg",
+          "sha256": "d66b571923fe6a32f3aa6bda27c483202f48804596dee37ab564096589d1cfac"
+        },
+        {
+          "frame": 14,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0014.jpg",
+          "sha256": "f9eb504eae445f0bcf3545a8e9f1d1ab1067dbfdf59fe0d60345bb7b92b773b6"
+        },
+        {
+          "frame": 15,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0015.jpg",
+          "sha256": "e7be676b19bcd93def6a25785114c43fe12f91110eaff3c72461b378fca44a6b"
+        },
+        {
+          "frame": 16,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0016.jpg",
+          "sha256": "01d44d2e24c523412dee91b8b2b454a74dfd4f1b6c9bdf6635156d87fefcfd6d"
+        },
+        {
+          "frame": 17,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0017.jpg",
+          "sha256": "7d562360de0cfac54ee83a91fca84e482687058c984630e3d50e9c2d11823575"
+        },
+        {
+          "frame": 18,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0018.jpg",
+          "sha256": "15c00ac84041b89c7595cc6e012dfe25bbaf27ad351fa37cc075bcb2dfe2c27d"
+        },
+        {
+          "frame": 19,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0019.jpg",
+          "sha256": "44623ba5aedb5c5652d2585196e5af3d8922e2d4bd77d41acb6eb325c1080ec7"
+        },
+        {
+          "frame": 20,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0020.jpg",
+          "sha256": "4e1d2b8f8c5e30510330956fa00da23bd1c67aa6b6720f0b6eecfe42c53d7bd4"
+        },
+        {
+          "frame": 21,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0021.jpg",
+          "sha256": "26e4245021d7289d3812990c066cc3f0f862acd2b189af7ccd6ebbbd73883d1c"
+        },
+        {
+          "frame": 22,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0022.jpg",
+          "sha256": "ec6924d4964f7402390f67588199852f27391f43dc0c114d4fba2db3034e8e4a"
+        },
+        {
+          "frame": 23,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0023.jpg",
+          "sha256": "221f9771dd72df2433735abf2bd5e49938a7e3a12c2b0af2591aa50566b50ea0"
+        },
+        {
+          "frame": 24,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0024.jpg",
+          "sha256": "6e225c03468fa723737dba88394603a3a3d16f0dbec480c55fb757dc70e39f5f"
+        },
+        {
+          "frame": 25,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0025.jpg",
+          "sha256": "f2523e3e083b34481a35fbd540fb643b32bb962cf2c159c593ba53de9846e8e1"
+        },
+        {
+          "frame": 26,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0026.jpg",
+          "sha256": "8fb2c69a5025632a951ed6f207d6704bb74d9b4cd06fc686052343583ec7881f"
+        },
+        {
+          "frame": 27,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0027.jpg",
+          "sha256": "8ae1db4095042b97cbf8f5b12e47374d4913ebfd63c93452ba4c533e16ef1aeb"
+        },
+        {
+          "frame": 28,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0028.jpg",
+          "sha256": "172d04300fa7f6a95d6346cd888f33450e1a706acfc7f7d611ccba04b029d549"
+        },
+        {
+          "frame": 29,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0029.jpg",
+          "sha256": "1bb710f9c0f81a3231b3e76dec5dc2774c49563f4f2416bbd72513413233e289"
+        },
+        {
+          "frame": 30,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0030.jpg",
+          "sha256": "c461cc5ff7ee0ca6ab97eb4a6a671f33cec4738a5d77dd0eb898eb14dddb23f4"
+        },
+        {
+          "frame": 31,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0031.jpg",
+          "sha256": "58ca99dd66dbb78f4c9f4eee0a385f16447c810164ef5b13742f59e55605be62"
+        },
+        {
+          "frame": 32,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0032.jpg",
+          "sha256": "1e8eb1f3977e9f13f917b2c93ba26d3f0adb27d1eb3addfac3cb9bbc7ba7d2dd"
+        },
+        {
+          "frame": 33,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0033.jpg",
+          "sha256": "cb4006b8815ffcab49fc291ee75fd132043947ce9e559871a1cdea814f603ef4"
+        },
+        {
+          "frame": 34,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0034.jpg",
+          "sha256": "fd0deac2f4c6239bf7e3c55ec3c7a1a8845a2b91479bd430db988fd81b83889e"
+        },
+        {
+          "frame": 35,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0035.jpg",
+          "sha256": "2f96dd6a2461a73e4af4e02996bbb3b5014cfd078ca2e4d7e7fe4f5da0af6c99"
+        },
+        {
+          "frame": 36,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0036.jpg",
+          "sha256": "efcc5283d7bf0e2e1ff3f6d3022a9f5a45813d72513bfa7ac4b920ff1cb8ba27"
+        },
+        {
+          "frame": 37,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0037.jpg",
+          "sha256": "7ed83eb571273f9f27a04322770e6adce000af2b45aa2a0795235e7430a31202"
+        },
+        {
+          "frame": 38,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0038.jpg",
+          "sha256": "425728a202728fb53ae2dab0a99a193e55091ac4d25752ec163a9208599d9e43"
+        },
+        {
+          "frame": 39,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0039.jpg",
+          "sha256": "60e04a6fc4d8db8e59220b8b8cc7bb43415c23fd629bdb39c47894d415a0328f"
+        },
+        {
+          "frame": 40,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0040.jpg",
+          "sha256": "10ccf6066d3273ca1dbfc6325b01d251ec2a152a2137ebda2d9db3c3ec88b47a"
+        },
+        {
+          "frame": 41,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0041.jpg",
+          "sha256": "d340ed6cc97baee5a6438c698334057067f42aa4bc44b1e215c911badb9625c0"
+        },
+        {
+          "frame": 42,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0042.jpg",
+          "sha256": "bf5088a4bfa4e58dc926678fce483abc982a098c596fb7a6fd8fcbad9f32e81c"
+        },
+        {
+          "frame": 43,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0043.jpg",
+          "sha256": "c03c90bb288e193530b2bf2c40b1013db6ffc9897de88347d4595abc387a7a39"
+        },
+        {
+          "frame": 44,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0044.jpg",
+          "sha256": "6508461ab29956659f653120927c8fcdbdbaed66e670c22a18030b78206e641a"
+        },
+        {
+          "frame": 45,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0045.jpg",
+          "sha256": "94cd88719527692a30103e0c9db229266cdc5efa26c76a314e2059eda4ac5ebf"
+        },
+        {
+          "frame": 46,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0046.jpg",
+          "sha256": "50d757f5d84ba24042aa2ab8c2efeccccc0458cd3494758da47859f92984d10c"
+        },
+        {
+          "frame": 47,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0047.jpg",
+          "sha256": "1de7a1d825ded00b199fd9a7b276397ce1b04c5865b1241dc22d9a7637ca9045"
+        },
+        {
+          "frame": 48,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0048.jpg",
+          "sha256": "d4852cd2de7dfbff32c98db86080dd81ea0c527d049b4d4c44aa843e1975700c"
+        },
+        {
+          "frame": 49,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0049.jpg",
+          "sha256": "a67d73f788b4e46f17e6c17251490d66303d20096f8f21a8e84261e7e28131ee"
+        },
+        {
+          "frame": 50,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0050.jpg",
+          "sha256": "3670f2e76691958f4c736232b224e42e7e8c1ee95bedfd5df0a596ed35eaab99"
+        },
+        {
+          "frame": 51,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0051.jpg",
+          "sha256": "45ec43362f18bc8ddba6a2990f509999a5ef844b6ecff209fd639217960f1347"
+        },
+        {
+          "frame": 52,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0052.jpg",
+          "sha256": "ca11d776dc7b91eab0f9c1903a33fb970e4b1825dca65e471b0f15560d15b7df"
+        },
+        {
+          "frame": 53,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0053.jpg",
+          "sha256": "d3e480d1d86c3dd1dc7d147e0b74ee56d90cedffd677fa4d7975cec31e372207"
+        },
+        {
+          "frame": 54,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0054.jpg",
+          "sha256": "5a6b0c7e207d9ca78aaa3852f3a968f8cbcdb634542fe5a906464784d3718ef6"
+        },
+        {
+          "frame": 55,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0055.jpg",
+          "sha256": "a071d96e4ff44fd2a40cdca2883e99725b9fcce04553a5ad68119fb81386f91f"
+        },
+        {
+          "frame": 56,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0056.jpg",
+          "sha256": "1266b2f035afbc663b3b4eedb4ee814e6e0f8cac508884892688d3bde64c7570"
+        },
+        {
+          "frame": 57,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0057.jpg",
+          "sha256": "711268624d4a8f41205cdb4cad432b531e0fb04ffc55d342fd1fe1befb331fe3"
+        },
+        {
+          "frame": 58,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0058.jpg",
+          "sha256": "8ab25e39ebe761f31c457a672b09775808b426553171c69f16bbe6850b860596"
+        },
+        {
+          "frame": 59,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0059.jpg",
+          "sha256": "d76169a5801a036a4a4052c9ead89e2edb54367588ddb9745217873c8d27b4bf"
+        },
+        {
+          "frame": 60,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0060.jpg",
+          "sha256": "345915963d90a0b880ea04a49e34b7cbbde4f7911df172d036c31c3c935ece5a"
+        },
+        {
+          "frame": 61,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0061.jpg",
+          "sha256": "df341911f372b92365f778405488bba95813668ac0f2fad4d95b57d60fadcfa7"
+        },
+        {
+          "frame": 62,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0062.jpg",
+          "sha256": "63d9c597c4b7bb2fd3817eb1c00b38fb70e659a1692fa3abaf4fd3c1bef9bd2a"
+        },
+        {
+          "frame": 63,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0063.jpg",
+          "sha256": "7cea3c369f53ca8ea8ad53ab01ed907863dee975bb225f9e05e62a49f7236290"
+        },
+        {
+          "frame": 64,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0064.jpg",
+          "sha256": "9c81cb84f6c8b73907ac82913264665bc2764cf60cc7145882f94a3d78a16a07"
+        },
+        {
+          "frame": 65,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0065.jpg",
+          "sha256": "8c95f04fbb1a109b7f7a734b5a581197beeabfa1002310027046f193a41be442"
+        },
+        {
+          "frame": 66,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0066.jpg",
+          "sha256": "7ccc119973b4e3de1181b488d66cc32d0a8f792d13d2798fb33ce64cf1b21bba"
+        },
+        {
+          "frame": 67,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0067.jpg",
+          "sha256": "6d3ae839005a318c1b0cffeae0c7f33979f51c05df612a866889feea32d581d5"
+        },
+        {
+          "frame": 68,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0068.jpg",
+          "sha256": "2694f45c9678d8e3718499935278deebb11ec7233ac2bb26f86314dd37bb70b3"
+        },
+        {
+          "frame": 69,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0069.jpg",
+          "sha256": "7958f074ec7ef962528cb82590295235acd802cc62f5013700c2371a9bbf9fa0"
+        },
+        {
+          "frame": 70,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0070.jpg",
+          "sha256": "5ec1a2a2d9375733e17015421b6bf0a64429e3b1e9c1357c81222074f3931788"
+        },
+        {
+          "frame": 71,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0071.jpg",
+          "sha256": "967bcff700a32d5a785726e8722b6f31231ac001acdfc195d6efd8adec4af6cd"
+        },
+        {
+          "frame": 72,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0072.jpg",
+          "sha256": "d1c8b28b47eb6529f3ca8dc9605f9b291ebfe55b220f12bae3ee47d7f7b70f9c"
+        },
+        {
+          "frame": 73,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0073.jpg",
+          "sha256": "9c0bc0b2a7766764a96abd3724f3b5e2bd27edc9f985b7571ed0d71ebace76a5"
+        },
+        {
+          "frame": 74,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0074.jpg",
+          "sha256": "ab0a19780dbb832bc61be61e498fd2dd3dbc901fe688cabf552e05067622a24a"
+        },
+        {
+          "frame": 75,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0075.jpg",
+          "sha256": "cd37062560785ee0f49a391a3d965a45516a99415dead9122819da2b785e5129"
+        },
+        {
+          "frame": 76,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0076.jpg",
+          "sha256": "5f37d2b5506eda2e68750b863f3bdfe73d9aae0f371d919fdd38cbcd1e629979"
+        },
+        {
+          "frame": 77,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0077.jpg",
+          "sha256": "28cb2adeb9a96a92abd1cd32f80a39f07139a1c1253ba998b923ccc49cd4c2d5"
+        },
+        {
+          "frame": 78,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0078.jpg",
+          "sha256": "f3f19a71bf0ec6fad87e364c1ac8fcbe09487dd4d4d2453fbfa04bc8c1f82360"
+        },
+        {
+          "frame": 79,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0079.jpg",
+          "sha256": "943468ec384cecd3b54b26c0720d202e19d375d728e1fb9b8a4dc05431b0bd38"
+        },
+        {
+          "frame": 80,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0080.jpg",
+          "sha256": "fb9409ec917bdfe5382674c21dbe16aebfb8772e5c22ad313cc6151ba2af0a01"
+        },
+        {
+          "frame": 81,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0081.jpg",
+          "sha256": "902a3fcbbdfbd4d6dc32c8827e159d1b850fbee25c399b66f3f8f989bb22787a"
+        },
+        {
+          "frame": 82,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0082.jpg",
+          "sha256": "fb9ba2b2c95b6fba9de3599097f85ff5f9a64a1fe5ff229732e6d92b1d7140d6"
+        },
+        {
+          "frame": 83,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0083.jpg",
+          "sha256": "07d034c74c4269be0a478973f85bb08be90da0ea73bedda14faf95284f6bb53e"
+        },
+        {
+          "frame": 84,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0084.jpg",
+          "sha256": "3fb94eb284a7b1b4080e4d0252e6a15e51fed12853dcb23fe29edeebf93032e7"
+        },
+        {
+          "frame": 85,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0085.jpg",
+          "sha256": "da5417e606f1574ef7ce7aef47e77a94a467211d82688e0cef30f18c6823fc0b"
+        },
+        {
+          "frame": 86,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0086.jpg",
+          "sha256": "b797888379ece94606de17b416661f7c2f4b9e7dc1bc786803a4561674b493ff"
+        },
+        {
+          "frame": 87,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0087.jpg",
+          "sha256": "be30a0bb476845e0408181c6d673c3e3f7c44beef7a922427c6d7c9a46ca80e5"
+        },
+        {
+          "frame": 88,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0088.jpg",
+          "sha256": "01f87f377f3a47c67dfe464a887221b572595198a079abfb8517969fa40d0970"
+        },
+        {
+          "frame": 89,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0089.jpg",
+          "sha256": "6648b8e34ab18e27f2f7c664a03dfefcb231b7b02c472a375518885e130d419e"
+        },
+        {
+          "frame": 90,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0090.jpg",
+          "sha256": "fcb34a027aec4163d6db6beedda77a87d8127609916799215db9f79e00f87030"
+        },
+        {
+          "frame": 91,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0091.jpg",
+          "sha256": "d783b76586d64ab9752200c4bf7a7e39aa90a817e3d123262d4feec05ef24d38"
+        },
+        {
+          "frame": 92,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0092.jpg",
+          "sha256": "28e2fd4be0c438d25fd02137f78a5dab73207760832f850f473656be505905ff"
+        },
+        {
+          "frame": 93,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0093.jpg",
+          "sha256": "f2b18df42dfc20d8d2adc883def61af93f4fd2caf544015dc4229df935c26128"
+        },
+        {
+          "frame": 94,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0094.jpg",
+          "sha256": "69d6ef543758a492be35c1f24153bc90cf15d65e51fa227f7a4a1dfa15fd868d"
+        },
+        {
+          "frame": 95,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0095.jpg",
+          "sha256": "dd3c5fc24cc57487544bf773de15362a9f860d9628e9c7b126ca1acb8b7d88de"
+        },
+        {
+          "frame": 96,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0096.jpg",
+          "sha256": "607b5617a1061275a98593525a07802e07003000594d693ce5d54abae180eebd"
+        },
+        {
+          "frame": 97,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0097.jpg",
+          "sha256": "132dc6d29677f63b1606f6f1c9f4fecc8ff92c089921c649d1555a0a70347bec"
+        },
+        {
+          "frame": 98,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0098.jpg",
+          "sha256": "6ba8d9a5c9e5885efde0eafc5c3dd06b4bed308e383e250d5937f8271abb15dc"
+        },
+        {
+          "frame": 99,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0099.jpg",
+          "sha256": "6963acef3019a884155a3684b4e300fb7fdc4329361733902fe8f2e47c7f2e14"
+        },
+        {
+          "frame": 100,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0100.jpg",
+          "sha256": "38954a85b3be0ed356c620b175e37ca0e4133cf7093406b06c8efe39a2e8c3ec"
+        },
+        {
+          "frame": 101,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0101.jpg",
+          "sha256": "9850066441e102c29564ba651f8a53735fda1fa928a3e5f95e8c4584bfc6280c"
+        },
+        {
+          "frame": 102,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0102.jpg",
+          "sha256": "2a4c855b14983574a442f61c7a1c38127902955d6e93d7a277e3c9078a8f9cdd"
+        },
+        {
+          "frame": 103,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0103.jpg",
+          "sha256": "e48c4d793b608cc96de1c290fa38eebdd126178b75cd376ae749966e765ee803"
+        },
+        {
+          "frame": 104,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0104.jpg",
+          "sha256": "e74ed0b3407bcd27b55d1837734b9ad68b512a21e88fe6fefc1eb55238898749"
+        },
+        {
+          "frame": 105,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0105.jpg",
+          "sha256": "504c9b21b418c40a39a270f297ecf4297117f35091d55c810f283156fd063873"
+        },
+        {
+          "frame": 106,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0106.jpg",
+          "sha256": "431ee3d1affd7922e92c2cfb262f59e5654690e5933f32b5269ccdb0b4b0f0e3"
+        },
+        {
+          "frame": 107,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0107.jpg",
+          "sha256": "2ea5ddb10740e17681e410a969a1a626559db6c21960efaf5ac1317678fee933"
+        },
+        {
+          "frame": 108,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0108.jpg",
+          "sha256": "cdd913cffc1b3d336acfd1acd4407433589530e074b3fa8aa69ae523e5f3661c"
+        },
+        {
+          "frame": 109,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0109.jpg",
+          "sha256": "df1fc8231d0f29a70faa0faa6b7c4843d415fb31ce9f48abaea21c6daab00d70"
+        },
+        {
+          "frame": 110,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0110.jpg",
+          "sha256": "da49b6b7414a72a3af355d908f78240f4cd1598d456d6663f7f1eca982c34798"
+        },
+        {
+          "frame": 111,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0111.jpg",
+          "sha256": "9ea266a249623c01e1b2955aa2bdcbd603de783b27491a2a4dc972e7df9a95c5"
+        },
+        {
+          "frame": 112,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0112.jpg",
+          "sha256": "0848603acaa5f26025b6cdebea201e322d6e454c0e29aef62f82eef216487479"
+        },
+        {
+          "frame": 113,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0113.jpg",
+          "sha256": "4a713b00b5cc53df63a892248ceae2978141df12ad4369ecaf15705d9d2e736a"
+        },
+        {
+          "frame": 114,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0114.jpg",
+          "sha256": "ae47a8c54172793a0ecd1df8f796f9a90c948c5f597ab3038c35fc23bdc2fca9"
+        },
+        {
+          "frame": 115,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0115.jpg",
+          "sha256": "fd480e25b42fb47862810170bf0489ed8698e13ca6c09acb2bd6a47d7468f5f5"
+        },
+        {
+          "frame": 116,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0116.jpg",
+          "sha256": "364cbf3a136c5eaa06d5c58ed13a933bc14948e2592021a4d0e4ee1b2c1bab6c"
+        },
+        {
+          "frame": 117,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0117.jpg",
+          "sha256": "81e7c588a7507b5fe0c12076a31c1a26d44a5d042d3cacffaf20aed112b59bc4"
+        },
+        {
+          "frame": 118,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0118.jpg",
+          "sha256": "b95fdb2c07b7942a6d2e4603dc4b0b134484028e5e78524e5daebb87ab0898cd"
+        },
+        {
+          "frame": 119,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0119.jpg",
+          "sha256": "f01b1b27030fb0cdfde0ee844ebd563f7ee1250d13fe366a27b00183f9b5d922"
+        },
+        {
+          "frame": 120,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0120.jpg",
+          "sha256": "6551ad2be1fda7355aa7b8c386ab1bbab9432c78813b0950ca03f05eff114147"
+        },
+        {
+          "frame": 121,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0121.jpg",
+          "sha256": "82e2dee8311756b89d5f4607320839880424c2e4944c880dbab39b6415a463e1"
+        },
+        {
+          "frame": 122,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0122.jpg",
+          "sha256": "3d9e4c84d99875d1b9f3bdd3cb88894e5c499a3b0a3809c57cab57db0d27c5cf"
+        },
+        {
+          "frame": 123,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0123.jpg",
+          "sha256": "0e48ab213e2e83eecd4b3a3bd48adfff74db54dd3772b0990337c29fc7aaf013"
+        },
+        {
+          "frame": 124,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0124.jpg",
+          "sha256": "4074ee70f01783e36efcf040d66a62ffde5bd3ffd0831ef43a116930c2cd417c"
+        },
+        {
+          "frame": 125,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0125.jpg",
+          "sha256": "9cb55a8b578ccb386d4c2d175403d855ad4b7d8b58ce14e47f210cfb4213a788"
+        },
+        {
+          "frame": 126,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0126.jpg",
+          "sha256": "949c5b208dd0fadf23cf18e63fb0b2d99f64bda8e8d070ad35103b8b17e9fbd3"
+        },
+        {
+          "frame": 127,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0127.jpg",
+          "sha256": "5d9144d17f471003a7a458c21577ec32ebb7fd79bc58ce67d0696be17f677869"
+        },
+        {
+          "frame": 128,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0128.jpg",
+          "sha256": "6858e1835b4ef42e61c6235fbcc5bcddde2cc980c737f5e3e176d1a0a084cdd7"
+        },
+        {
+          "frame": 129,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0129.jpg",
+          "sha256": "e0b5f4f571a2bb2b4bb399262ed71ba01297793cc626fb040e8b5b416dc95c89"
+        },
+        {
+          "frame": 130,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0130.jpg",
+          "sha256": "5ed0f713df04722b4ea0abf905a4ac1cc1e1fd5d368e9248a0d2bf2780bdb8f3"
+        },
+        {
+          "frame": 131,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0131.jpg",
+          "sha256": "7fe659bdd2aff383dc6471ed0f143dbaac7644cfe4f3f083700dba42bd64bd13"
+        },
+        {
+          "frame": 132,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0132.jpg",
+          "sha256": "282670ab81700dbd8dfffa6360a84f8ee30416e606e5a5c119a1eeb2fe8122c3"
+        },
+        {
+          "frame": 133,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0133.jpg",
+          "sha256": "0053853212468079e2d473de63cf163300c78241d361045d592dbcfaeb3b4f94"
+        },
+        {
+          "frame": 134,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0134.jpg",
+          "sha256": "86dab8921b30c5f337facf050475ea90e05cc2fabd9b36f4846f35f6ec0bb9d2"
+        },
+        {
+          "frame": 135,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0135.jpg",
+          "sha256": "84693ff259cde31573f85c3901b13fda636816815aad0876d53b65500bf1bd71"
+        },
+        {
+          "frame": 136,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0136.jpg",
+          "sha256": "240932899390544b213a9fe27b12fddd0896f0562b88106befe4fc5dbad6f484"
+        },
+        {
+          "frame": 137,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0137.jpg",
+          "sha256": "c87ab720a951a9891767b16cfb35b036ebfe1db29b62e5091a20a55789250da4"
+        },
+        {
+          "frame": 138,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0138.jpg",
+          "sha256": "e96a2689a3d30edd545e01d0027774fa4bd70927f6f8065fafee3252ec346b3c"
+        },
+        {
+          "frame": 139,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0139.jpg",
+          "sha256": "cfd0bee3a07ad48847237013dbfa5ffbbe86d92af0ff48839e0bb39e4223583a"
+        },
+        {
+          "frame": 140,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0140.jpg",
+          "sha256": "48c27803f8b4db2228ad650fcdfaa2256cd2366f1891e8693d423128bc5b5fcf"
+        },
+        {
+          "frame": 141,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0141.jpg",
+          "sha256": "1c7a435cdd469544e328ddbe5ecce25c4bd459621fbaf522c5828a7d325631db"
+        },
+        {
+          "frame": 142,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0142.jpg",
+          "sha256": "a20007f16d610a3de7ac42cdee1369da5eb04b25164abdd8250f41ad7589294c"
+        },
+        {
+          "frame": 143,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0143.jpg",
+          "sha256": "17e02fd01cd635cbca6ef2798962277284f463d66a78438a20a5b00f967c00f5"
+        },
+        {
+          "frame": 144,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0144.jpg",
+          "sha256": "0cb7fbd237649e4e62c3b97a5498f504e4d3e2550023821d10c12fde0b2a51c5"
+        },
+        {
+          "frame": 145,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0145.jpg",
+          "sha256": "09957e53594e844bcc973af14d86599cf846b84be7d127c9c0b8686144635603"
+        },
+        {
+          "frame": 146,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0146.jpg",
+          "sha256": "18bac9f0be77e67e1370f8b16bcfaef00236c197f75520be9233eafe2c53098c"
+        },
+        {
+          "frame": 147,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0147.jpg",
+          "sha256": "ded5418b2047397e9850100dc814deb7cae4e13dd80995abf39b5255f38aaa76"
+        },
+        {
+          "frame": 148,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0148.jpg",
+          "sha256": "46a5e44a326e2e44050bfee513ef05ebc2ff259d741283c747a23edac21dbb6b"
+        },
+        {
+          "frame": 149,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0149.jpg",
+          "sha256": "25d3c1c03ffe01dca5b0cd0dc265cfae38ac771359a7196ee5e05800d9a51f7a"
+        },
+        {
+          "frame": 150,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0150.jpg",
+          "sha256": "6e9582819bef1a07600270a876b129e1b7050aed8c95ca89b306afb0fddcb15f"
+        },
+        {
+          "frame": 151,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0151.jpg",
+          "sha256": "02cecd9de6e7d87cec21d430a36c0e33dc8f758616fa02807e8b0546fd5ac932"
+        },
+        {
+          "frame": 152,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0152.jpg",
+          "sha256": "e3909dd48e71c80bf437ebace7437ffdf2cbabd0da4e2ee8dd3d17545405ec5f"
+        },
+        {
+          "frame": 153,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0153.jpg",
+          "sha256": "f02db403c4692d0c2309ad26f09fb5c85f5a1ff72cc93cfbe75dc1103c3961de"
+        },
+        {
+          "frame": 154,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0154.jpg",
+          "sha256": "0903be6f8c168b4b41967c314a4881b9df9fe5645d9545dcb822ba1854b03f1b"
+        }
+      ]
+    },
+    {
+      "selection_id": 368,
+      "scenario": "ParkedObstacleTwoWays",
+      "route_id": "Town13_Rep0_1432_1_route0_01_10_14_36_02",
+      "physical_group": "ParkedObstacleTwoWays/Town13_1432_1",
+      "frame_count": 147,
+      "whole_sequence_review": "every frame on chronological contact sheets, 576x192 tiles; displayed sheet resized 2304 to 2048 width",
+      "panel_evidence": [
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/000.jpg",
+          "sha256": "06b17aa8d35cc1b5f5712965bd61119aa94478f962070d40f07ac0014bc77450"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/001.jpg",
+          "sha256": "bbae7178419199008f5d5b72f34e1aea675be0dd7215b9530063b07c87b712fa"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/002.jpg",
+          "sha256": "ac15f4016a3b17c38fe2b85710475609554175ad5c3dc83cd4f492ec06ecb59f"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/003.jpg",
+          "sha256": "b66d3a7dc18b1d1a93b9bfca642c3f1aa00289a8ae346ed2f15fa1b46ff2690f"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/004.jpg",
+          "sha256": "f1a863b6f1e43af352774235377fca455ff7a712e743fc46c3d0442d7c574426"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/005.jpg",
+          "sha256": "5b140a02bf997ead55172be4de9f70cce3a9e8bdced6cf96f699e318700eec50"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/368/006.jpg",
+          "sha256": "78ea3417088542aa69d3d14758af32789ec2f1f77e464d3f8fcb5b981a26866a"
+        }
+      ],
+      "frames": [
+        {
+          "frame": 0,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0000.jpg",
+          "sha256": "514801c1292e4e9410c805831fad64759489895868a40e3178d7c40e190a592f"
+        },
+        {
+          "frame": 1,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0001.jpg",
+          "sha256": "3277befd1fa54c6ba66e9a5be6c1dd5dd4b1a1378c944d6ab406ed29a364609d"
+        },
+        {
+          "frame": 2,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0002.jpg",
+          "sha256": "bd232ebfa18221c42e8ded2bfe05de6d8f1e6f43ea289733d7f9c5e7192c271b"
+        },
+        {
+          "frame": 3,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0003.jpg",
+          "sha256": "276061b33035c8b384c9a066c24a90b68609baf3686b24bde2285c477e9063fd"
+        },
+        {
+          "frame": 4,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0004.jpg",
+          "sha256": "4eaeb0d86e9560b9ed3d16fb8ba4f78c1dff1521ca71808105f867003192e8b9"
+        },
+        {
+          "frame": 5,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0005.jpg",
+          "sha256": "3e44b79da1ca83831ffd84d710b6ab07a1ed463db22528fdbb117bc27fe24b67"
+        },
+        {
+          "frame": 6,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0006.jpg",
+          "sha256": "e51397b2fc19541b66064ab9f6ba16e13b8b6f7b3507b88573ea39e5fbe4cd2f"
+        },
+        {
+          "frame": 7,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0007.jpg",
+          "sha256": "f88b0764a6a0b064b7b3d19565ba02719540bb0c533f20613d8211b6a66afd51"
+        },
+        {
+          "frame": 8,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0008.jpg",
+          "sha256": "1ea160fbc84448e01edbb957bab5aee23d45e856e3ca78dcb612c1a235939f6c"
+        },
+        {
+          "frame": 9,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0009.jpg",
+          "sha256": "7dbae658e7d9e7a703bd6148ca4aa42eb41287cb8f7b3e3adbd39f15c8332dd3"
+        },
+        {
+          "frame": 10,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0010.jpg",
+          "sha256": "238fdb9dc677aa5c49d91c3f4351faad7ae204608a52a2723adef6b683c2c5e6"
+        },
+        {
+          "frame": 11,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0011.jpg",
+          "sha256": "3c23dbc71690046990be77c14ea1fa19d034d05cebcc4d99bf886e61afe8d30e"
+        },
+        {
+          "frame": 12,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0012.jpg",
+          "sha256": "acbc72fc21ba66e655abe0cef6a9e51a138bf37693470878aa43138607aae1bc"
+        },
+        {
+          "frame": 13,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0013.jpg",
+          "sha256": "52ea8ef82a7a153a443c9d16d97b1c244bd7338d2a7ebbdbb54809161f77b820"
+        },
+        {
+          "frame": 14,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0014.jpg",
+          "sha256": "40021b0fbfde89f87143e85c8b1e4072cfe925fc69f9d01d44e9aa363b426a16"
+        },
+        {
+          "frame": 15,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0015.jpg",
+          "sha256": "6be58d9c9ec2f5c34cda0fbb5790e8f8e4e735a4fd8e5fea97fd943801552842"
+        },
+        {
+          "frame": 16,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0016.jpg",
+          "sha256": "8b09951cdbd9cb6b6a375cb9a75302f5029ac46932c28f08e6c6b64af4742171"
+        },
+        {
+          "frame": 17,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0017.jpg",
+          "sha256": "741e08408713950dd51255eb3e577cb6649e058498c69132471a4f4551511c5d"
+        },
+        {
+          "frame": 18,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0018.jpg",
+          "sha256": "2bfbc3a5edfba00ad10b585a9ed7555c526b28a3e35c27435d3d2d95d5ae5a1f"
+        },
+        {
+          "frame": 19,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0019.jpg",
+          "sha256": "109a2614da055479b3cac96ccdb3baffa23dc82aec4f135dabfaae714512c003"
+        },
+        {
+          "frame": 20,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0020.jpg",
+          "sha256": "5d2290fa2d3dc6a360afd5366ee4a4cf209be02560276a8bbd55981c7565025c"
+        },
+        {
+          "frame": 21,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0021.jpg",
+          "sha256": "bcdc1ec0b670a0e55cd6353df6f5930591fce3053d70a1f4f992788ceb597531"
+        },
+        {
+          "frame": 22,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0022.jpg",
+          "sha256": "68cd04ff87e68929bc21d34e9ab3e610dae3eaacc217bd264f79cd16eb05515d"
+        },
+        {
+          "frame": 23,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0023.jpg",
+          "sha256": "22a98b1435dc6d5c04bdfd2763bb2583e22e2116f326a9b73a060b64ce6b3351"
+        },
+        {
+          "frame": 24,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0024.jpg",
+          "sha256": "2dd74576189c561f72f2b9714ad79811c94bed33883dcbf58907d0970909ab00"
+        },
+        {
+          "frame": 25,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0025.jpg",
+          "sha256": "8328176669266f00fb96ca15b793f5c36127ed304e547ccb5c3616520e301b73"
+        },
+        {
+          "frame": 26,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0026.jpg",
+          "sha256": "a498f1367bfc109a199a9de0b9ad0aa5d831869d8f51c75fa2ab070ecc5fb3d0"
+        },
+        {
+          "frame": 27,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0027.jpg",
+          "sha256": "ec6afc35ef5016a619fca3a581dddee5e6905d9fa5d48a757245809ffe4a7053"
+        },
+        {
+          "frame": 28,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0028.jpg",
+          "sha256": "debe7c66a34adde47ff7eefee08ac9f4a6249c652310f2b32333034ef2033117"
+        },
+        {
+          "frame": 29,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0029.jpg",
+          "sha256": "7b6fce73a08f93b9cf549e6eb9bc9b0adc9733eff850ea8127752bdd938a9ff6"
+        },
+        {
+          "frame": 30,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0030.jpg",
+          "sha256": "a3d318f8edc1c942443c0486548b8fe348652316db347e546565ab723fd1142f"
+        },
+        {
+          "frame": 31,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0031.jpg",
+          "sha256": "4847af34e5d0b9c93853d9926dcd4e9c07b46fc868d740d713e979f17684b0f7"
+        },
+        {
+          "frame": 32,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0032.jpg",
+          "sha256": "1dcb3563173fd722e0ec50615d4651d4230fcb0830b2f861dbf4d607fc0e5dc4"
+        },
+        {
+          "frame": 33,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0033.jpg",
+          "sha256": "a6fa39cf890011e4bb20d2e45749e37157aa42605489bd76adeb7c18f4a47721"
+        },
+        {
+          "frame": 34,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0034.jpg",
+          "sha256": "53125b7305147e2ff59cd1ca234dd5ec639698cbd3d3c544103b4af4d522f28f"
+        },
+        {
+          "frame": 35,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0035.jpg",
+          "sha256": "0563e5eb7ed1c61c286fc3073c4e29977f9d1ebc5126e733ef61490b9ceb7cc1"
+        },
+        {
+          "frame": 36,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0036.jpg",
+          "sha256": "88d4ddd6d3de14be1b90adbde4a4243e892f5aebd30576d42dcfa912665ff5da"
+        },
+        {
+          "frame": 37,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0037.jpg",
+          "sha256": "90fee319ab05337f18f2fb2e4b9f64e3ae69c8d9ee44945e051bb2c0be6ac1b4"
+        },
+        {
+          "frame": 38,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0038.jpg",
+          "sha256": "fea80b01211105eb756520d787ec7f1eb9911fec59cdf7e879fa58eaa38457d3"
+        },
+        {
+          "frame": 39,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0039.jpg",
+          "sha256": "05aecf4b7afae22f53d06e801d7c56aeec02390de4405e2a76771681114ad24a"
+        },
+        {
+          "frame": 40,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0040.jpg",
+          "sha256": "b5f5d948fada2719d62fe900d3e614f4514946798872bedebe9412011a488e10"
+        },
+        {
+          "frame": 41,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0041.jpg",
+          "sha256": "d2d17c5f2fded14f0712f9898f618d87fd1ed1b110ace3b424420b85ec05d6b9"
+        },
+        {
+          "frame": 42,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0042.jpg",
+          "sha256": "7fb98ebb9a41cd026923b007bfba268d439aafd7eecb85add85f7e84bb117fb2"
+        },
+        {
+          "frame": 43,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0043.jpg",
+          "sha256": "444485d57c01fb6fca489985f439811dcfa703d5802fb4153a12dd0c9d175bd8"
+        },
+        {
+          "frame": 44,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0044.jpg",
+          "sha256": "7b72fd88b8086adf5113f37becc57924f897c10e2bb499d2eeec114d66c3ba66"
+        },
+        {
+          "frame": 45,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0045.jpg",
+          "sha256": "571d7564afd86bf9ed53d78c509383be98ab7cbbbeb576642bbe64f75bad7684"
+        },
+        {
+          "frame": 46,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0046.jpg",
+          "sha256": "3058b9d838c46c22701b90bfd021be9b0746cdff1ecc1a51709dce02d56a4053"
+        },
+        {
+          "frame": 47,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0047.jpg",
+          "sha256": "7acb6ba46d3d1a29970f8c0e24a51010d9ff2e295beb91da5dc3a14d370d3084"
+        },
+        {
+          "frame": 48,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0048.jpg",
+          "sha256": "700b917426e5ac9f104b21544b89612a1a84d76641ef5df99817fed7c71d3d90"
+        },
+        {
+          "frame": 49,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0049.jpg",
+          "sha256": "c8e0968f40f2c08a03f5e675f727569decdc7cb781435dea80e2d436ed26f2b5"
+        },
+        {
+          "frame": 50,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0050.jpg",
+          "sha256": "99dbe0adca1044d508c3c87be076b1f665dd1e41327eb5a1a5943b36e30eaff9"
+        },
+        {
+          "frame": 51,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0051.jpg",
+          "sha256": "ebf6b1e6dd98a51d8d318d51e06c85cfefc74dd00594e4ef566fc69611a29d0b"
+        },
+        {
+          "frame": 52,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0052.jpg",
+          "sha256": "af96e763ad9b2ad4bb13ebdbba7e0685b23c98a1176edd92e419bf59fb831d3d"
+        },
+        {
+          "frame": 53,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0053.jpg",
+          "sha256": "1520bf6364dff9f3cb88d3954ac8e16036c34c031a5272b2aa3cb956f75c538e"
+        },
+        {
+          "frame": 54,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0054.jpg",
+          "sha256": "cf4b6edbbfaee2c2674295c72a8bc59171f23e23a352e110850f020226bc76bf"
+        },
+        {
+          "frame": 55,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0055.jpg",
+          "sha256": "6a000e5cbd84831a5aa0074857da050c514c0653bc8081a6f3121fa6aae7d963"
+        },
+        {
+          "frame": 56,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0056.jpg",
+          "sha256": "760c034a78e4fb785754788d4802e56fb5a36c93a1153a95f68a7857d7608bbf"
+        },
+        {
+          "frame": 57,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0057.jpg",
+          "sha256": "050d1623ce8df5354165a982f56b4debe0b4d52cb4696c5fdaebd72ecda49b9d"
+        },
+        {
+          "frame": 58,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0058.jpg",
+          "sha256": "98773de11f5c819e884d39819fa67c5a831cffa326aafddfe70ba9482d7160b1"
+        },
+        {
+          "frame": 59,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0059.jpg",
+          "sha256": "ea27d1a10dd0c022e177388a2d2aa32bdcc50ef4ac9173200f966050c6a07586"
+        },
+        {
+          "frame": 60,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0060.jpg",
+          "sha256": "15c20a56047db5c6ad580f91a5fca472bec205d975a9f55e6dc607714d83443f"
+        },
+        {
+          "frame": 61,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0061.jpg",
+          "sha256": "33d7fd8eb04438510eee1f9e8438b643a35b8c954bc24d9e058cc4862ae85cd8"
+        },
+        {
+          "frame": 62,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0062.jpg",
+          "sha256": "b39642989cf22dc0be5076b3f7e901cb9d92eef82495769b0681b22b3503502a"
+        },
+        {
+          "frame": 63,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0063.jpg",
+          "sha256": "9831db034975ccdabe1c5f338389e4bc74134c673bf3e6d1b95a16c0c4835c53"
+        },
+        {
+          "frame": 64,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0064.jpg",
+          "sha256": "a1c05564b44614c66f9533075c27b06894fb569acd9f1aaf94a72a6a2bf64dca"
+        },
+        {
+          "frame": 65,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0065.jpg",
+          "sha256": "3ca80bfa162941a4ec8e0cbe72e8c234b6e24789fc8683aa28165fa33d9a5d3d"
+        },
+        {
+          "frame": 66,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0066.jpg",
+          "sha256": "a809bbc2c3754df88f149a3fee986c7545cbe29d535182413ddf84c4e7e3ea86"
+        },
+        {
+          "frame": 67,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0067.jpg",
+          "sha256": "642a78823d3e86f4295374f0f7ac59ad1e22a6d5b1131e6eac593e0c329dc3b1"
+        },
+        {
+          "frame": 68,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0068.jpg",
+          "sha256": "eb492a31e4c6be05781a3e72c7ef52a191379aad2fcf850c01cd7dd6d3946a01"
+        },
+        {
+          "frame": 69,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0069.jpg",
+          "sha256": "233777c2a837831118d44b8e0d6f2e893c7008ac5439c4b9a0d81395bf39a5c4"
+        },
+        {
+          "frame": 70,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0070.jpg",
+          "sha256": "8b80a8decdfeb26f0292cba36446a8b6b2b2f59f0a4acca113e69254a49b7fdd"
+        },
+        {
+          "frame": 71,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0071.jpg",
+          "sha256": "116ad44ea9fd047ce86df4b37e895a0af759b5b1ebb461fb4ce0f457686b20d5"
+        },
+        {
+          "frame": 72,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0072.jpg",
+          "sha256": "9741b9e66eff3d37deb47fe2ba6fdc2b5f66d336770857f0e814be1c24ef4724"
+        },
+        {
+          "frame": 73,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0073.jpg",
+          "sha256": "b5f10ae5f2b7cc1033cfad4daf83a1a42d0a193a383908e668c1c01989b10e2a"
+        },
+        {
+          "frame": 74,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0074.jpg",
+          "sha256": "f7a68ad67617fa47fd95c016648b9e17312ebbe67b2b70fa95833a05a580c507"
+        },
+        {
+          "frame": 75,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0075.jpg",
+          "sha256": "606c303f463abf17f8ed167d78dc792d26ed437b9840c0ffaf9fb39c80384233"
+        },
+        {
+          "frame": 76,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0076.jpg",
+          "sha256": "e88481c3ddd6206dc6f577feb64edad773e813d814127c9d3fa04b3de4428791"
+        },
+        {
+          "frame": 77,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0077.jpg",
+          "sha256": "26a0945ec6a385554c38e6321bcdffd595a9c9a1ceb8106959d0c932f967c7dd"
+        },
+        {
+          "frame": 78,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0078.jpg",
+          "sha256": "356a56422f48027717302adf470cce8cd0a06729ef570127bf6c55bc7c9ed1c4"
+        },
+        {
+          "frame": 79,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0079.jpg",
+          "sha256": "43b7437da40460173d8605c240edbfd31c608a2fd90e77e60987ec14beb32c92"
+        },
+        {
+          "frame": 80,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0080.jpg",
+          "sha256": "4cfd0f10604fe77341f1c5ee30d8d30c6cedcce916de3991fa0e4af85b201b52"
+        },
+        {
+          "frame": 81,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0081.jpg",
+          "sha256": "8e06bcdd92e9b738042914937a5848f824ad043b10f2d4ed57b19d5a15f70e78"
+        },
+        {
+          "frame": 82,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0082.jpg",
+          "sha256": "5f4b1802fb5d18dea9379a3cb124f98f636a1a8758a6f55cbd2efddcb3946ce5"
+        },
+        {
+          "frame": 83,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0083.jpg",
+          "sha256": "4cc2161db80b1dc5b4eb3701504f47a8e9a7ab4ecc2a00e6cf9b522cff213dd7"
+        },
+        {
+          "frame": 84,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0084.jpg",
+          "sha256": "be4dc114e88aa0a3cea160998395bf73b07a792d9e37aac115f1250377b467aa"
+        },
+        {
+          "frame": 85,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0085.jpg",
+          "sha256": "b1f79745ec6ba5eca61ffb46a5b4923b5cd4383dae6ec63c58c219bbb052db27"
+        },
+        {
+          "frame": 86,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0086.jpg",
+          "sha256": "2e7d2b000abd769a8358747893f9f73f6ac4efe7514542c6b09d9004a5d0c2a8"
+        },
+        {
+          "frame": 87,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0087.jpg",
+          "sha256": "7b5c1ad2a106740c343d27334028420c560808b155cb250cec033f7dbdcac6c0"
+        },
+        {
+          "frame": 88,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0088.jpg",
+          "sha256": "a31b5c8f3f51442f746edd5f3ed85ceed810d00861a15aaa4e14d865d40bf093"
+        },
+        {
+          "frame": 89,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0089.jpg",
+          "sha256": "491e1633989ffadf2550c32f1fbeae42688cb27961875bb09182730e427924dd"
+        },
+        {
+          "frame": 90,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0090.jpg",
+          "sha256": "c7d0b70e09527adcce89cfe934defd9e1d3f05e436cb811f06710700c0748574"
+        },
+        {
+          "frame": 91,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0091.jpg",
+          "sha256": "6344ab6e60ccd29266ced74ee8e2b70742105eae773a337e3f4028186688400c"
+        },
+        {
+          "frame": 92,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0092.jpg",
+          "sha256": "abd30d0a388bef5ee212abf54d6f901efb1874275c4d99ff2651e1ea12de3f9e"
+        },
+        {
+          "frame": 93,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0093.jpg",
+          "sha256": "9a18cb740a782f14765a1cd2fcb31b153210895dce31c0f18b5d6a0ae8110f7c"
+        },
+        {
+          "frame": 94,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0094.jpg",
+          "sha256": "ea5aea3dbe50e76b58a6f3a5f40f62d12db20222704ba0bbcad2cf080628e1f8"
+        },
+        {
+          "frame": 95,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0095.jpg",
+          "sha256": "dc9ca13e560ba03e22eabe66898b36f5f2b239fe2ad1135de44e17ac4719ba18"
+        },
+        {
+          "frame": 96,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0096.jpg",
+          "sha256": "d5fb13cdfc3d8034cd951489785acbc594b9b18325ae64a52de6a598669e8c8f"
+        },
+        {
+          "frame": 97,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0097.jpg",
+          "sha256": "330bcdbf6de0574cf2246c549d8decdcadd53abd3bf2db536679ae82e7972031"
+        },
+        {
+          "frame": 98,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0098.jpg",
+          "sha256": "218067c31e61cd9530e4852f6c62052adf253a9624462a4e9a0a735fdcf5e279"
+        },
+        {
+          "frame": 99,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0099.jpg",
+          "sha256": "b58f9d29184cdd5afae5725109dc77951fa99f2d58167d97f5a42b590ee578fb"
+        },
+        {
+          "frame": 100,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0100.jpg",
+          "sha256": "8b686a96cb4c7f5f43bda31f929f1e70b081f433792eaebea5ed25eae0bbf6d5"
+        },
+        {
+          "frame": 101,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0101.jpg",
+          "sha256": "2a41bdb977625a4e2f54dc9e1fe75e81120b07288dfb004596bdefb46dc61fea"
+        },
+        {
+          "frame": 102,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0102.jpg",
+          "sha256": "88ad55efff4986e3704c867ab9e2b4313c5cdff91d8582a28e864207ac00b074"
+        },
+        {
+          "frame": 103,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0103.jpg",
+          "sha256": "40b60725f9036e09f6b523d851847f1201758214951005f50e6317309c1c2f98"
+        },
+        {
+          "frame": 104,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0104.jpg",
+          "sha256": "8f6736635558d0d315c6e10684430230a1f420f72dbbb446d120e3f22c3405cc"
+        },
+        {
+          "frame": 105,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0105.jpg",
+          "sha256": "0e1cca702be3e472e5aebf4d2b387de3036a0c1253aac89fe2fa76f9f6b24f18"
+        },
+        {
+          "frame": 106,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0106.jpg",
+          "sha256": "f937cdaa708246770046814e6aaf73fec4ac15b3482ebc283fb019a4758327ff"
+        },
+        {
+          "frame": 107,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0107.jpg",
+          "sha256": "8454f5730edb25c73426e4b279bb0554370f748555d39d524cf880781e7575fe"
+        },
+        {
+          "frame": 108,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0108.jpg",
+          "sha256": "d89e5d5ba9557aa3feec5b5a3d72bb814d1084ac920769914841b7b2722d7df4"
+        },
+        {
+          "frame": 109,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0109.jpg",
+          "sha256": "2cac8afc77e193367bf5bda1cf8e148bfad32a5ee79a33752425423046313b66"
+        },
+        {
+          "frame": 110,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0110.jpg",
+          "sha256": "36e9b8559cdf9c63deeee2d4d84236c9a2b725c7907d8260c3961642297d4284"
+        },
+        {
+          "frame": 111,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0111.jpg",
+          "sha256": "e265c2b5843a6a8adf95635cb36e2874d31f21c5eb97f87eb47cd8a0505feeb8"
+        },
+        {
+          "frame": 112,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0112.jpg",
+          "sha256": "34412cd5de9cdc74a4286ccb833cde2d9c989424010f513abe6f1fa037ee0414"
+        },
+        {
+          "frame": 113,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0113.jpg",
+          "sha256": "a06dbb9280056bd7e2efa200bfb2213d6f5d15ff2ec1ff15d83ee5a51e31d46f"
+        },
+        {
+          "frame": 114,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0114.jpg",
+          "sha256": "ff2a9e1768b2cc2ffe35e7e233c310952fdc7ba7c1ae738e164aa2c646767cbb"
+        },
+        {
+          "frame": 115,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0115.jpg",
+          "sha256": "880b12e6fdcedf6ff6778560e0e2a6634bda3c42ecf441ed56d1de8d38fbd28b"
+        },
+        {
+          "frame": 116,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0116.jpg",
+          "sha256": "6b006f5fa2f27a93677e2e21dcd9638511a62358b769c17d67551d3a268ac0c7"
+        },
+        {
+          "frame": 117,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0117.jpg",
+          "sha256": "7766f17198475ead6f13330d3094a07cd493084a9565fa7029dcb8450d03e484"
+        },
+        {
+          "frame": 118,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0118.jpg",
+          "sha256": "785202f7df0996078eae83e8a8e37ddf47b46d510e7da928135f563505dc4601"
+        },
+        {
+          "frame": 119,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0119.jpg",
+          "sha256": "cb7713992c025b8827a63adb0adbb4b65ad4b8084deb2032d095a9c0aa82c806"
+        },
+        {
+          "frame": 120,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0120.jpg",
+          "sha256": "d25941550702d23bfad0aad327cccd04fe654c946b61c7e1574b78047bbd7754"
+        },
+        {
+          "frame": 121,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0121.jpg",
+          "sha256": "72a33ac4929d6761cc9b3624439155ead5208df6d7982d8651aa35bff544e122"
+        },
+        {
+          "frame": 122,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0122.jpg",
+          "sha256": "aae8129c3f90360c93cdbc62b409e03b75e36f1373ee0d054b22abab008cb2d9"
+        },
+        {
+          "frame": 123,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0123.jpg",
+          "sha256": "557cde1bc7df700f9aa07df35e61dab3aab9cb906fe3d03b70409ee77313e37d"
+        },
+        {
+          "frame": 124,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0124.jpg",
+          "sha256": "7ced758d4d4db42201cdcb685b4a877e0dbd2604f3de77107fe6203d7ad6a920"
+        },
+        {
+          "frame": 125,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0125.jpg",
+          "sha256": "884d543010b3296d024fde155326b3b4a27b932a4d5b3c94c96e01ace9e98047"
+        },
+        {
+          "frame": 126,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0126.jpg",
+          "sha256": "612f41e7c6ee82520533b5a4528de2b7b0a46c2ad19ad7c9d66b7574f2520a7d"
+        },
+        {
+          "frame": 127,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0127.jpg",
+          "sha256": "adea780ccd2b3aef16199cde2586acb9ed13b744ad25571200e9fceb3b6abadd"
+        },
+        {
+          "frame": 128,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0128.jpg",
+          "sha256": "4b12dce3e25ab4121a6eb0dd60c47f96ed470739b196bd3a5a72e38450a75443"
+        },
+        {
+          "frame": 129,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0129.jpg",
+          "sha256": "80af2f9ce6258ac1e5a9094ba721956c220188dea3f0b96ac75340ca61f78845"
+        },
+        {
+          "frame": 130,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0130.jpg",
+          "sha256": "4915a2aa933992604c479a6300ac2da09d69e51c531cb5ed30c16eb447700b7c"
+        },
+        {
+          "frame": 131,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0131.jpg",
+          "sha256": "9c9689bee2b11631d05b62fc13b7ff320d106da41ee1fd3d41a3a81d9043220a"
+        },
+        {
+          "frame": 132,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0132.jpg",
+          "sha256": "40a1ef8dd5b359d9986caeb8c13dcd2788a7f363301a7c0d576a60c9d724f301"
+        },
+        {
+          "frame": 133,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0133.jpg",
+          "sha256": "cfcb12f86820d7400665b8822208cc7c9a9e7085bee074691e2b28886d367dff"
+        },
+        {
+          "frame": 134,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0134.jpg",
+          "sha256": "5f2c4d5f699ea5cbe21c5016d0792d10291e9d33f0cfd5963f3cf74d59f46d2a"
+        },
+        {
+          "frame": 135,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0135.jpg",
+          "sha256": "0f63687b4a70789c6cdfcedc03aa972690b304472a6b909d4f67303c81ad36a1"
+        },
+        {
+          "frame": 136,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0136.jpg",
+          "sha256": "5ea3c2ccfcdee2f013c27478fe2b711dcb735253e7b951b00a6853ce9f9fd8de"
+        },
+        {
+          "frame": 137,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0137.jpg",
+          "sha256": "efee1b8f962fb2a937ca71a7ba008484f28d13dcb8e1290a695d3a83c88d3953"
+        },
+        {
+          "frame": 138,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0138.jpg",
+          "sha256": "2bc69cbaed71afd401e37af4827de087206fa33afe6c937ac34435d8e5c4ba29"
+        },
+        {
+          "frame": 139,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0139.jpg",
+          "sha256": "51f4961f5b7d4be0fda85c1aa44e0a894424074521cb998b1d1108e373dae29e"
+        },
+        {
+          "frame": 140,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0140.jpg",
+          "sha256": "2519d7df573c3e93246514b639f1820e0931c3d6f6ddabe9a3fc6689b28f2369"
+        },
+        {
+          "frame": 141,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0141.jpg",
+          "sha256": "108eee4ca2b2e69b34a0333a9f8d93e8106dc0a9bce4cc48d810e869e22ee15b"
+        },
+        {
+          "frame": 142,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0142.jpg",
+          "sha256": "8a17f952b9b2ef0c893f9d9b4791a2308728216238a628fdbc02bdc5299e5296"
+        },
+        {
+          "frame": 143,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0143.jpg",
+          "sha256": "5c180772dae065c6cacb28fdae97a32d6a328edcd9a8e058cacf9952ad908718"
+        },
+        {
+          "frame": 144,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0144.jpg",
+          "sha256": "a90f45026b8ad88a94627ff96ccf61a67b83b9176ce5c2b4af328b5582dc7376"
+        },
+        {
+          "frame": 145,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0145.jpg",
+          "sha256": "3d8ca5e74144cd589153dc2f35648cde560fe5714fbbcb8bb79afd6f9f8ef70f"
+        },
+        {
+          "frame": 146,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0146.jpg",
+          "sha256": "49e8a3767f30588642b3b7e2084891635f8b3d395f1d685c1b603c778c28c66a"
+        }
+      ]
+    },
+    {
+      "selection_id": 509,
+      "scenario": "ParkedObstacleTwoWays",
+      "route_id": "Town13_Rep0_1783_1_route0_01_09_13_46_42",
+      "physical_group": "ParkedObstacleTwoWays/Town13_1783_1",
+      "frame_count": 163,
+      "whole_sequence_review": "every frame on chronological contact sheets, 576x192 tiles; displayed sheet resized 2304 to 2048 width",
+      "panel_evidence": [
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/000.jpg",
+          "sha256": "8a4388524dd49f1cc7e048381349f9b384835b8dd03eafd59759dd1867a5b5bd"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/001.jpg",
+          "sha256": "c5e30041433213d56ca27044631dbcd9e6912f3615d883ae973d221b2738ee99"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/002.jpg",
+          "sha256": "c1113f4fae2c785b2f1efbdcf04a9bdf8b582626bf18afd96207fb45e669f25a"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/003.jpg",
+          "sha256": "039909e9285e83d9f83c8fb7ba6680c963fc991cac073727d553179fb9c19962"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/004.jpg",
+          "sha256": "c1faee543d6bf1eae40386cd318a8ed61cb9910dd5c057c7627704663342a394"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/005.jpg",
+          "sha256": "659c2e1620151780802f955b33be6c49aaf18b79ba10fc5523dcee627864f669"
+        },
+        {
+          "path": "/tmp/phase4_eleventh_audit_20260930/panels/509/006.jpg",
+          "sha256": "1548d9252a5d36a004d0b042af9ada343ce287df41c8b8c0547852aec24b6f50"
+        }
+      ],
+      "frames": [
+        {
+          "frame": 0,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0000.jpg",
+          "sha256": "2b7ea0e450b716f3a9a81ff41e71b9ec38ba1497f9af8f18177650ea854cfbb5"
+        },
+        {
+          "frame": 1,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0001.jpg",
+          "sha256": "fc08f42c541026616893c8d65cf97c2507fb838ed4ea0702809211c1d6a705c5"
+        },
+        {
+          "frame": 2,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0002.jpg",
+          "sha256": "fd40a040b6d2ed805e04ec723a43b100092d95b26c279a48dd6189c688549e51"
+        },
+        {
+          "frame": 3,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0003.jpg",
+          "sha256": "63b21c909cc856b6427838178653ceac191bb90ea6129ab59bc9e0c77e27a73f"
+        },
+        {
+          "frame": 4,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0004.jpg",
+          "sha256": "c72b1d3b8fe0c20c97cdf3236a07c6896be9cee6fdb5be1291388b471c28ca4b"
+        },
+        {
+          "frame": 5,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0005.jpg",
+          "sha256": "49411a73e809411bea8641b9bf3617e1f925fb840eaf45fe55ddd7fadb1b3ad7"
+        },
+        {
+          "frame": 6,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0006.jpg",
+          "sha256": "c4a4e0ca61fcaa45a21467c3dc198c4dc83d894d48f3ccec669ac70aaa0c790f"
+        },
+        {
+          "frame": 7,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0007.jpg",
+          "sha256": "30adfcf11ae0781a9695bbc9c8117d2968637a2c2c0bd8170da8178fc3bbad25"
+        },
+        {
+          "frame": 8,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0008.jpg",
+          "sha256": "16ef64dfa0f7a13b9585aa739d218eb79617b4cca910d1bb09097e1f8bcbdc31"
+        },
+        {
+          "frame": 9,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0009.jpg",
+          "sha256": "5840a7cebbe656a5e4578ae15d9bf80992d7f578151b4f3e343b58587f7cf8ae"
+        },
+        {
+          "frame": 10,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0010.jpg",
+          "sha256": "e960c3c28f452ce121d621539ff08dfcae4ba03d084841a65e155e42f8265fb4"
+        },
+        {
+          "frame": 11,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0011.jpg",
+          "sha256": "80f4633834f31c4f10832970677932656abd5afea0aae765292c21c0eb38dad2"
+        },
+        {
+          "frame": 12,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0012.jpg",
+          "sha256": "ce7d22735246d632afa6d7f9f3c45957dde211278a4691c0ed3c825757aa2522"
+        },
+        {
+          "frame": 13,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0013.jpg",
+          "sha256": "c0ce84bdc884c9ea9ebace034f374619cfa3f6e13412f067e8743053a285f591"
+        },
+        {
+          "frame": 14,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0014.jpg",
+          "sha256": "beda48d1cb77d4ad2869a5c46c439b0f6964918bfcb53fdaa60a629417533c94"
+        },
+        {
+          "frame": 15,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0015.jpg",
+          "sha256": "02ea79e4ecb4fd66d518308de9bb2e4a4a43a1b4f1864129d622602c684967cf"
+        },
+        {
+          "frame": 16,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0016.jpg",
+          "sha256": "8da2b1170401cbc6c77eff7eefed7173eacfb32c898e6fad92070eafcf0d129a"
+        },
+        {
+          "frame": 17,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0017.jpg",
+          "sha256": "c6672c74fdb0160ff252a3312cceeab02720f16dce34eeaecbe2782c49000ccf"
+        },
+        {
+          "frame": 18,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0018.jpg",
+          "sha256": "c549c4510ac94eb964e1b15290ad2e4bbe9116ef059742417c4741252e30ef07"
+        },
+        {
+          "frame": 19,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0019.jpg",
+          "sha256": "1c99eddf4477e9ed04d3662ddeae071e702747e58bfc16df45bb58bba6420f98"
+        },
+        {
+          "frame": 20,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0020.jpg",
+          "sha256": "18ffea75b864c6a2133f12d9aa00057e3e21a9abbea722da292bc024d5f6f135"
+        },
+        {
+          "frame": 21,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0021.jpg",
+          "sha256": "19e481de84c797f9e29f08c94813295f5267f5d5d807ca0c5b206be9f1da0c4e"
+        },
+        {
+          "frame": 22,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0022.jpg",
+          "sha256": "1d612b468084f424ddab8c1fb594a0c730b303ee76a05d1118ec554b7f6c83cf"
+        },
+        {
+          "frame": 23,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0023.jpg",
+          "sha256": "cecda4c9954c3e28c30dcb9d562d839feabcc813a53dbb7111d85eda56086a94"
+        },
+        {
+          "frame": 24,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0024.jpg",
+          "sha256": "3f5906affe7700279a28066747c2bade52ea99bb2ca9231cbd01c1c2e6bd6c9c"
+        },
+        {
+          "frame": 25,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0025.jpg",
+          "sha256": "97d068eaa3ef55dcc4aee5a218a964f67b93f9c30b3ac74a92d53bc6eb109855"
+        },
+        {
+          "frame": 26,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0026.jpg",
+          "sha256": "54b58563ab63d36d483dc0cd7a6b41cf20ee872c252769773ed61ecb4c7290f5"
+        },
+        {
+          "frame": 27,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0027.jpg",
+          "sha256": "318c167f77359bed3886aef17626a609c846313faa561b5e4dea9a320bd18137"
+        },
+        {
+          "frame": 28,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0028.jpg",
+          "sha256": "d450e89fbc0993d1d80482cfb965a43eb05e1bfd09452a6cc4d908c5c980d106"
+        },
+        {
+          "frame": 29,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0029.jpg",
+          "sha256": "4dc7d4d01d707d95f7a16b5d47143b2148f29743ca4822e21308542334ed06d9"
+        },
+        {
+          "frame": 30,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0030.jpg",
+          "sha256": "11daee852a332f38f9d69cf51c2ee2894061572c3d66c1f07d230ad623892ddd"
+        },
+        {
+          "frame": 31,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0031.jpg",
+          "sha256": "24a3ecf7c4807ba2f2a76534b38d7897399351e3fd840067ceb04845912f2534"
+        },
+        {
+          "frame": 32,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0032.jpg",
+          "sha256": "5cbcf0f2f8a5f7635d48fc67eefa0f497856227a4a7d93323064b08d515d19b1"
+        },
+        {
+          "frame": 33,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0033.jpg",
+          "sha256": "8fa0cca17436693ecd836fbaf9fd7f7d50e8e68a08cf38356f19557d1eb0a7d4"
+        },
+        {
+          "frame": 34,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0034.jpg",
+          "sha256": "ee3c0ad454b2510380e13129cf15bebc7f4a44f04f50e419fd8c81266aacfd0f"
+        },
+        {
+          "frame": 35,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0035.jpg",
+          "sha256": "87e90513ee010976bde8e5f0760a5a61f9b4ed538ed72fbf0237485a5f15f6af"
+        },
+        {
+          "frame": 36,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0036.jpg",
+          "sha256": "812424865a1f2c2c0a4f07a083f4a9cc837896d767b3f379a202aedb4edb3052"
+        },
+        {
+          "frame": 37,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0037.jpg",
+          "sha256": "2bf4a21a5f86ea3e2c701907e6e3feb647cc1705e6d2926da7cce322d12cd37c"
+        },
+        {
+          "frame": 38,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0038.jpg",
+          "sha256": "eba11b3dc2a88b16bec3e9f148433579bb6a7725cedea3ef3c088e29166d06e9"
+        },
+        {
+          "frame": 39,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0039.jpg",
+          "sha256": "e387025a3dfcc7e8426a9be88a1e3b7699f0c985ccc5fcf423495df4a5867335"
+        },
+        {
+          "frame": 40,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0040.jpg",
+          "sha256": "a3d79c2bcae408a58e839c44e97fe63a7dbe07e06d51d53c8a01e23ac7dae845"
+        },
+        {
+          "frame": 41,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0041.jpg",
+          "sha256": "d0192d4e1ce733d963bd3c26ba9dbfa8fd52039987044d164b832760ab185193"
+        },
+        {
+          "frame": 42,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0042.jpg",
+          "sha256": "71b3c98a12f8cc3d577c207484e55311a91d7fbe9dd0b65c0fc9776c1a51351c"
+        },
+        {
+          "frame": 43,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0043.jpg",
+          "sha256": "0eb071c0e29104fc8e997819a02390df3b93d4151eaba4ae1bfe60541fadfadd"
+        },
+        {
+          "frame": 44,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0044.jpg",
+          "sha256": "6e529759be7f54b3fef4c1aff3f4646aa8c5298f250538bae11200e03213c867"
+        },
+        {
+          "frame": 45,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0045.jpg",
+          "sha256": "e88351d296769d8016e1b17a6fea9d622e397643ef4f010a06e465e04a1f7099"
+        },
+        {
+          "frame": 46,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0046.jpg",
+          "sha256": "fc9aa914e5cfa39dfa59eb603a049bb3f41cd75c90c233ae55742e1e84bd11ab"
+        },
+        {
+          "frame": 47,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0047.jpg",
+          "sha256": "ae568929383515d78939fcafbd75e01789db150cb5f49928b1e8ae65e9a7835a"
+        },
+        {
+          "frame": 48,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0048.jpg",
+          "sha256": "47e5281629c057092bc21e774779fd1ad63a9f7c88487b9a9677030f69d2c4a8"
+        },
+        {
+          "frame": 49,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0049.jpg",
+          "sha256": "f1ac61308a48b98eaf1e8b38f0617f554831374de5c2bed0afdac8bbef8475bb"
+        },
+        {
+          "frame": 50,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0050.jpg",
+          "sha256": "f9f282837bc1b3a245a8da6844d10a13872a81eb0425c9b583d98462a19e38b3"
+        },
+        {
+          "frame": 51,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0051.jpg",
+          "sha256": "a904ec657533297d597a370a61d4d3193986a1c3b9747d3c8b18b03016be40ae"
+        },
+        {
+          "frame": 52,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0052.jpg",
+          "sha256": "a3844f0ea887528ad9eda73e492bf29d28bdbc530d9d83dec810544039c56278"
+        },
+        {
+          "frame": 53,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0053.jpg",
+          "sha256": "587d7751cc780bfe060d7c8cf2178df38f486423751ab7825205353deabe3b60"
+        },
+        {
+          "frame": 54,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0054.jpg",
+          "sha256": "364c0d115e77d1829bb16d7fddf418b355a9498ddc85c8743d94cbf6eafb56e0"
+        },
+        {
+          "frame": 55,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0055.jpg",
+          "sha256": "332238912a77a2a4ac229b0710e12133e91843ab716a19cfaab4201360b5e3b6"
+        },
+        {
+          "frame": 56,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0056.jpg",
+          "sha256": "db824f23d0200419f14d6347955b961adc949da15d65ab804410aeb998132e0f"
+        },
+        {
+          "frame": 57,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0057.jpg",
+          "sha256": "88a801f0554bcfcc0f4cb66c6ebdfc7391e1e5c3a27629e8c575e7b04a0fd903"
+        },
+        {
+          "frame": 58,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0058.jpg",
+          "sha256": "f8e14b9243eba034a5c0b9ac271f673781d251a786ef776e8864bf3480c0a1d1"
+        },
+        {
+          "frame": 59,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0059.jpg",
+          "sha256": "9645b756a6cce25b8fc141939ff3649218fb4670963a32124de4923022f2c47c"
+        },
+        {
+          "frame": 60,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0060.jpg",
+          "sha256": "6ffb452700e23c32e660ff072cd20425ace297ec97028f424100eaea8af91708"
+        },
+        {
+          "frame": 61,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0061.jpg",
+          "sha256": "0c820ca51c8f15074319ba897fa7fde2608136872cd9969fcdecd84872c7fe14"
+        },
+        {
+          "frame": 62,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0062.jpg",
+          "sha256": "ee120673be300312a1f6a304be0e754240fef5036821b0285fc01e46f78865dc"
+        },
+        {
+          "frame": 63,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0063.jpg",
+          "sha256": "e7f1e34b17f1b8608c4b585e606fe47060664df344dd87a9327b8c20bf19ab22"
+        },
+        {
+          "frame": 64,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0064.jpg",
+          "sha256": "c4cec6028309a2d45c7c4d2cf152e8941f262cba5f9d8b036e2910593f307d5e"
+        },
+        {
+          "frame": 65,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0065.jpg",
+          "sha256": "fd249dae896a6c143417f0d445d50637a7a8dd3bc93a17bc6e4c41aaebcc955f"
+        },
+        {
+          "frame": 66,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0066.jpg",
+          "sha256": "408a6344380e50030ecc13b89eee80a90027fa017cd9a55624aab85c8b3dba54"
+        },
+        {
+          "frame": 67,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0067.jpg",
+          "sha256": "473f76772bfeb276e4aa94b8e296f42bc380230694e1e03e84669c47a9c670b0"
+        },
+        {
+          "frame": 68,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0068.jpg",
+          "sha256": "566b8cd94a12c67fa34676d5913c87a92b8a094725f7db5bfd6ca81779718285"
+        },
+        {
+          "frame": 69,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0069.jpg",
+          "sha256": "156df055116318658bb3dc690f90e8dbeed35f881c80443c4c3e4e0d80030ade"
+        },
+        {
+          "frame": 70,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0070.jpg",
+          "sha256": "b3b7704450fb49ca7d676047ff0a4b19552ad66b36037c91b40ecb5ff308c85a"
+        },
+        {
+          "frame": 71,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0071.jpg",
+          "sha256": "c7c173dedca3b2f8a6e88df7d41959168fdd47a9bf7cc1d0bf6b551c262291ca"
+        },
+        {
+          "frame": 72,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0072.jpg",
+          "sha256": "835129a9bf967be5a87691ab45b44f9f89ebb7a609e0bb819711a4651695bdc4"
+        },
+        {
+          "frame": 73,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0073.jpg",
+          "sha256": "fe5d22288dd3e7d5d25ae1a2f1e3efb2ca477466e76e76fb83fdaf5a31f3aa9a"
+        },
+        {
+          "frame": 74,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0074.jpg",
+          "sha256": "bffdcf5d636ac2f78628a6d4965ff84fe372e51e840194b457745db0144dbe9f"
+        },
+        {
+          "frame": 75,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0075.jpg",
+          "sha256": "2263267f152ed872f776f2593253dac8f72c13e943d1fab0fbff585c5122ae61"
+        },
+        {
+          "frame": 76,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0076.jpg",
+          "sha256": "8122f5523981fe773073c2fce1dd94e6b5c61be568ba46f37f0f6720fd1a1dd1"
+        },
+        {
+          "frame": 77,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0077.jpg",
+          "sha256": "39a53479dde1349e8f556c02ccfce14832fb72cf7df0b2e39852458cea618246"
+        },
+        {
+          "frame": 78,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0078.jpg",
+          "sha256": "ef057f1d278b5177c6162e00cfd9f31879cbe8bdeacf788416a17e0ce73894a8"
+        },
+        {
+          "frame": 79,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0079.jpg",
+          "sha256": "b032b59dce8b53cc5a56a92ee8b4152f3f56cc1c911c97d6c9388c633af5b2de"
+        },
+        {
+          "frame": 80,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0080.jpg",
+          "sha256": "e93834f69e102aa690ba3e16a579ee9f17f5a3f30908c760e4aa693e09171e6a"
+        },
+        {
+          "frame": 81,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0081.jpg",
+          "sha256": "bead7517d5c4e6d7ea7c3a5501973cd863ec0943ea49b74ad056860d692abbe4"
+        },
+        {
+          "frame": 82,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0082.jpg",
+          "sha256": "1966a719b4bd4014796b2a679a21f8715010d9ec4df0055c4e2713b703206cd9"
+        },
+        {
+          "frame": 83,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0083.jpg",
+          "sha256": "20ea905023aad402f4494715dd260de4025e89cfbdcaaa4f216b3d9966082f37"
+        },
+        {
+          "frame": 84,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0084.jpg",
+          "sha256": "e826a477eb867fc85995e9e3ad7c03645b10f4f9d18e14891e5646c43c714350"
+        },
+        {
+          "frame": 85,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0085.jpg",
+          "sha256": "b7258c249bc43d04cc3f68aad7f1daa9c46a172059efc139984a45eabafd5a9f"
+        },
+        {
+          "frame": 86,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0086.jpg",
+          "sha256": "134a3b3f3cb820dc78e788c9787f5c4f15428757adffd8da5f0ac5f962ce8fcd"
+        },
+        {
+          "frame": 87,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0087.jpg",
+          "sha256": "aa61cb124558797cd678690290e3e0cc8e1f7dd5a879d8ce542b1373c4e7f0c7"
+        },
+        {
+          "frame": 88,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0088.jpg",
+          "sha256": "c9d3979fac3d4f7f7875a05ee64bd0c94cf8955861f45f8857b119b017a3800f"
+        },
+        {
+          "frame": 89,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0089.jpg",
+          "sha256": "6cfe6cb131d65e7044314c98e9e4cce17a61b0dc33cc55448c11c4dba5c6a548"
+        },
+        {
+          "frame": 90,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0090.jpg",
+          "sha256": "1fd07b8498f2635fd27a9bc402c123c2d509aabf2f67c12e6592b46e8f7feeb8"
+        },
+        {
+          "frame": 91,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0091.jpg",
+          "sha256": "ad74a07c0ae672034e7a1761b823843168c06729e8f5d7be6e63d86f1c32f15f"
+        },
+        {
+          "frame": 92,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0092.jpg",
+          "sha256": "57cfe6bb53e354a9ae36b0d9912e585ca2f36b19e2da2a8525486847ca8b7f86"
+        },
+        {
+          "frame": 93,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0093.jpg",
+          "sha256": "dc611ab655577cd3d189cf7c2e79a97d81c765da33a3a8a74815dc25bea621f0"
+        },
+        {
+          "frame": 94,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0094.jpg",
+          "sha256": "d869606a7b8f1221aed2898dfca3b999d5cbb8f75c5cf8b7cbfd4a28a560a47c"
+        },
+        {
+          "frame": 95,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0095.jpg",
+          "sha256": "f57d48628e1b0ed0615fd716f0f534685c5ce28c36a3417dd6279500d4d872f5"
+        },
+        {
+          "frame": 96,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0096.jpg",
+          "sha256": "0de74dc9598f712ef0ddebb3f8a764c25db4cad95f8e5b176ab4f9548c9db6ea"
+        },
+        {
+          "frame": 97,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0097.jpg",
+          "sha256": "ba887bc9223da33e5cf68264e43bcff9346f62b18cf32517351aba3a82cb5645"
+        },
+        {
+          "frame": 98,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0098.jpg",
+          "sha256": "4f88802dc95078726f411c4e8295182f8c3cd27086674c00ab033be9b0f12868"
+        },
+        {
+          "frame": 99,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0099.jpg",
+          "sha256": "774b2c3a9b3197343caacb3d851437dbfc8573b023849752904cda81a4b950ed"
+        },
+        {
+          "frame": 100,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0100.jpg",
+          "sha256": "052c39d709ba0326474a76e5338869208e5ab600c2c69791e5c08e528d541b25"
+        },
+        {
+          "frame": 101,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0101.jpg",
+          "sha256": "9a6149c2ff055097579fb9af7d37d23e8cf2f83418eadc198b78200394247e8d"
+        },
+        {
+          "frame": 102,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0102.jpg",
+          "sha256": "ae000684f948b48a5064b76b682decced89505cb4e40ffd1b73d716501163f1f"
+        },
+        {
+          "frame": 103,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0103.jpg",
+          "sha256": "5b8803174274ed702d563ec15b8002376c8f7b2c580679a65e36705ec8e3133d"
+        },
+        {
+          "frame": 104,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0104.jpg",
+          "sha256": "456f29217a3e03c3e3647bd29c939aaa69ad823c9efd8a14d6d26b132c6b7776"
+        },
+        {
+          "frame": 105,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0105.jpg",
+          "sha256": "8a698e6691518fa7ee25b26eed13b1e3e076d731c743a22fc4a97b7157df73a6"
+        },
+        {
+          "frame": 106,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0106.jpg",
+          "sha256": "e5060e99acb5a39cac9c51d13de9bc08d2644d064e43eba8c2b8678df690e720"
+        },
+        {
+          "frame": 107,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0107.jpg",
+          "sha256": "30525088ac9128ccd5ad50dd0a9055d50dffccfb16ae2758024ff197280e4727"
+        },
+        {
+          "frame": 108,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0108.jpg",
+          "sha256": "5c3c7630a077cd37f9101733608b6e3111d06272731520d8ff9ae78b69be3b9a"
+        },
+        {
+          "frame": 109,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0109.jpg",
+          "sha256": "9ad58d5887b451d66dfe8035f381198c3126d6d4682b8df1b2020ba94ecff9a2"
+        },
+        {
+          "frame": 110,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0110.jpg",
+          "sha256": "3196a457abbb1deb297409332ae23c1598db33a34c9865eac39f09472c5be69a"
+        },
+        {
+          "frame": 111,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0111.jpg",
+          "sha256": "829c56b5bbf39ed40688458d22f104cf89a8d6451469972b37b87770fd659346"
+        },
+        {
+          "frame": 112,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0112.jpg",
+          "sha256": "f89d9c4fc3f7477f63468cb5aa2334150c0bf463820f3b71a25f83fa610b81e5"
+        },
+        {
+          "frame": 113,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0113.jpg",
+          "sha256": "1d447ec84a2606a62ed8eb46479299614c8c59a46d029dc44769fe7abf047b43"
+        },
+        {
+          "frame": 114,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0114.jpg",
+          "sha256": "4189d5c1f82c84f7a880bc258ffd1583d4e1fc04f6883df69ae29da2230505f8"
+        },
+        {
+          "frame": 115,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0115.jpg",
+          "sha256": "84c4e2cd6ac50c24614ca0a0e0b7107122fe9bab68981689003bf92829fc3c08"
+        },
+        {
+          "frame": 116,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0116.jpg",
+          "sha256": "bb21bd8382618e69d30a782ee8350d54f1a00778da75ea34b3487eebf2c4d965"
+        },
+        {
+          "frame": 117,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0117.jpg",
+          "sha256": "a8aa520f39a1f1223f5926ce38d800abb3603e7009b6655c48cdae0ac61d0600"
+        },
+        {
+          "frame": 118,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0118.jpg",
+          "sha256": "e38ee0a02c937416ad18b5204aec43cd95f339156bd06f08c61270c23ce78c0e"
+        },
+        {
+          "frame": 119,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0119.jpg",
+          "sha256": "fab9e0d6703f06859283dc429211e41fa93605dd20617a868592081cf400d76f"
+        },
+        {
+          "frame": 120,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0120.jpg",
+          "sha256": "d985432dd613d43d15ffbb9097923a5994cbf9d2d5d3a014846fe6c39cc92c0c"
+        },
+        {
+          "frame": 121,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0121.jpg",
+          "sha256": "664a26e78dae5320b7f14d70d989ba6e03d1bda630b618b77e88e38b7f900d19"
+        },
+        {
+          "frame": 122,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0122.jpg",
+          "sha256": "2c5ba42941e9c311219dc908753d9ea5e0cc7c3998681b357c8745b0361e064e"
+        },
+        {
+          "frame": 123,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0123.jpg",
+          "sha256": "e90e965cf42a1313dd53ca40b2396117a64d0f09d604710979723e0af8bf255d"
+        },
+        {
+          "frame": 124,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0124.jpg",
+          "sha256": "6b77dfaa49a64c39a48b0799e3065e17ff2cc3b491485038159daaffcf4e9bb1"
+        },
+        {
+          "frame": 125,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0125.jpg",
+          "sha256": "d843628b149e0e5f12bb2c3bf5e08f69611b9e94364161288e298fba89099189"
+        },
+        {
+          "frame": 126,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0126.jpg",
+          "sha256": "241f5f4d8da630ccbaf3460985aa63012ffebf8411473fa9d90da81ea842b72c"
+        },
+        {
+          "frame": 127,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0127.jpg",
+          "sha256": "6aec683e26c5403631b90862ad38118b902c6d5c6612f695d4f1c7119c25ef1e"
+        },
+        {
+          "frame": 128,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0128.jpg",
+          "sha256": "9648cc3859ee70a07937e7344d69dbb22482073d342465aa04885d2b852c4806"
+        },
+        {
+          "frame": 129,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0129.jpg",
+          "sha256": "7fac97aa50f8ea85cc5b88d4da8c2a76ea7f1a1f072298ec0063f7fa0a1b59f5"
+        },
+        {
+          "frame": 130,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0130.jpg",
+          "sha256": "1031f99c861d990365d83ed9cb80101009fc2f76c0e2ab10443632f5324e65b9"
+        },
+        {
+          "frame": 131,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0131.jpg",
+          "sha256": "c92b095973e647e40577fee7c372b762996543935a163ef0fe51132f0a166f54"
+        },
+        {
+          "frame": 132,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0132.jpg",
+          "sha256": "c490d5a4ae85f29df0b66ee980ccfa726199af742550eb7637e2e7ea7521097a"
+        },
+        {
+          "frame": 133,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0133.jpg",
+          "sha256": "b532527fedbf2fff2534cec37601655cda1cdeecd0acecf9d9e50abc5135744b"
+        },
+        {
+          "frame": 134,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0134.jpg",
+          "sha256": "86d14021de6fc08008270806db46b7509b449640b4f462f64969b015f9105999"
+        },
+        {
+          "frame": 135,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0135.jpg",
+          "sha256": "f14e68e6dbaa6fd354f54320c1a6790c583618f4bcd97ca9571be6197b6a29c6"
+        },
+        {
+          "frame": 136,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0136.jpg",
+          "sha256": "53225356e9005b9137b3662fe14abab8fb3ced3dbabc93847fb4636ff67c2a5e"
+        },
+        {
+          "frame": 137,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0137.jpg",
+          "sha256": "9c42ac28a97c6cb402f9ccdeca7923db9288356e3c2163075d07e96388884d1f"
+        },
+        {
+          "frame": 138,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0138.jpg",
+          "sha256": "6791111a3b53a156763489dd383e98da131915231657c1f625918b8620c4e0f5"
+        },
+        {
+          "frame": 139,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0139.jpg",
+          "sha256": "2ce21308b4203bef132000eb6e20aa81ece904a5cc34ec2ea64d37c7d3e04872"
+        },
+        {
+          "frame": 140,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0140.jpg",
+          "sha256": "e661cdb4e502da22abc28c7e2eddb7799c8c8bde57935e80fb3103b11c55574d"
+        },
+        {
+          "frame": 141,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0141.jpg",
+          "sha256": "dc14ce0fe03660de33e08b823b64219ec3e9f0f690d5696d02a84fbe385cedc1"
+        },
+        {
+          "frame": 142,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0142.jpg",
+          "sha256": "17ae894a5bee4882a0c66aa42da36466166741f4509a39675c5adc142c4c40f5"
+        },
+        {
+          "frame": 143,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0143.jpg",
+          "sha256": "c5904d84c6dfe25f425105a77c2c1aebafaa758b350f4e8032d2aa8022def49f"
+        },
+        {
+          "frame": 144,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0144.jpg",
+          "sha256": "55804ccc82815533a9aa95d0cdd01679a4e45b0929a6ef22d5807eae9578c94c"
+        },
+        {
+          "frame": 145,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0145.jpg",
+          "sha256": "4f58d9295ffaefaa93a756ad943f836709df6841dc4cdfa1f4c4c380ca7669ab"
+        },
+        {
+          "frame": 146,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0146.jpg",
+          "sha256": "823e9f284eab7dca954070e50bb22ea5ee7839f4982ae3a85233baa089eceaa7"
+        },
+        {
+          "frame": 147,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0147.jpg",
+          "sha256": "317b2021f1195aab78d7f3f93eb3c8a1f440329291a62089f609b38db9066d8b"
+        },
+        {
+          "frame": 148,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0148.jpg",
+          "sha256": "a3df09cf985c5530ca59959581c44fcd26feb1a228e820dfc0909efafb97fab7"
+        },
+        {
+          "frame": 149,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0149.jpg",
+          "sha256": "b933c5e4fc0a9f88a2e7c55bd00e6a667c806410d4da2e3059314528e99c7ceb"
+        },
+        {
+          "frame": 150,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0150.jpg",
+          "sha256": "df32f2e577c7740bc332b6d1b7efd7bfd797b9299cadc7c0f1f820683be00705"
+        },
+        {
+          "frame": 151,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0151.jpg",
+          "sha256": "5db755a02f11712836aab26d0d3c256f3efb413165cb509c8054acf81895ed44"
+        },
+        {
+          "frame": 152,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0152.jpg",
+          "sha256": "428cbde181aa1e478160b11c13edf37f2f729bdbb42690d455cc05254023a1b1"
+        },
+        {
+          "frame": 153,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0153.jpg",
+          "sha256": "b173eb1c4fd7ef1c810c9543049ed306e64c819c7927d2070bff384310e182ed"
+        },
+        {
+          "frame": 154,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0154.jpg",
+          "sha256": "2311e616051c8ccc731c18ed6dc1ce55e0aac999cf593d9fec3a143e27d9fd9f"
+        },
+        {
+          "frame": 155,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0155.jpg",
+          "sha256": "ebbbf44c8230f7e936b7643017344bfd95fc294fa56b3157439e29dde78f6a07"
+        },
+        {
+          "frame": 156,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0156.jpg",
+          "sha256": "75b54e750d2f772b623df7cb4adabbad3ac0812bc0a8644d2116a8d4ef42b701"
+        },
+        {
+          "frame": 157,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0157.jpg",
+          "sha256": "57252e8e6cb6fff43a8ae5d59b6dc45e262d51e83efed712f8f76c4ee0b89be9"
+        },
+        {
+          "frame": 158,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0158.jpg",
+          "sha256": "9db57a611608497b923c2f7562035c68b067a89f4f2c8c666419c5a444f1fcae"
+        },
+        {
+          "frame": 159,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0159.jpg",
+          "sha256": "4e587afc66f9bc76c1e1518806e613988ee459ce6e864ab9f425035916df2cad"
+        },
+        {
+          "frame": 160,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0160.jpg",
+          "sha256": "be4bcd5dde5f034416fcf1913ee9868ae9e7156e8a298b9bb5d6d41db3a61b18"
+        },
+        {
+          "frame": 161,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0161.jpg",
+          "sha256": "93437cecbf52a3a93f17a237a2f4b9a860be6ca479726d010be73d229b9bd8ba"
+        },
+        {
+          "frame": 162,
+          "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0162.jpg",
+          "sha256": "f9c9c6ef7ef990a7878c511ec3a96a6953ca9ae5727b5f2c7477843649416b97"
+        }
+      ]
+    }
+  ],
+  "original_resolution_review": [
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0028.jpg",
+      "sha256": "97494961e6ca20f95b6f67fca437b224b679a5a20666ceb6eeeecee79c2d5664"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0029.jpg",
+      "sha256": "2637f39579fabb1b17b4a3e429aa258ecc4c7ff90e964ef2a6e17bce44551bee"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0030.jpg",
+      "sha256": "05743d6807cf64c47027885e0db58ba16cd93b56025a31645ebfe22a89d8375e"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0031.jpg",
+      "sha256": "02e75991cc1085dc364944e72a58ecdbe69b25daaaeabd7751bd767132a5d120"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0032.jpg",
+      "sha256": "81a1fdb7f39349fb19cdec491114e5bea7cb4390b64cc33ed32af682f07ff74c"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0033.jpg",
+      "sha256": "aaf91f69efbbdcfc47bae4db5623530b29fc2890e7fc491a7e66278602bd29d8"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0034.jpg",
+      "sha256": "4baba8d931ad5e1092bfb50f22c0fb004a394ebb8678078fa635a73e633dbc09"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0035.jpg",
+      "sha256": "48b62b0f2f41a58af651c864f4ce17424a6e9b2ede25d7e6b85da4b3833ed14d"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0036.jpg",
+      "sha256": "252690f00954d3f4201709b7920ad6c5710c4dfc92fff63727df48d413dc7f5f"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0037.jpg",
+      "sha256": "dc051a303d0c4534080bd2625a4e79817f6c055680845a370aeff794d40e3d3c"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0038.jpg",
+      "sha256": "fac1be9f1a4740e9b7d429883830773ceabddb2210c9977b3031c8f7341d2250"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0039.jpg",
+      "sha256": "aa3ee8f90b7b96173cccef59ffcb38f089e5d64067a7bcbf370b3c8e13ca3cdc"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0040.jpg",
+      "sha256": "f2e13d1cd3924ba064138ce7f93434be686c940ec5d5600f3349164119884691"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0041.jpg",
+      "sha256": "80e94cdab33ef75189958b480e78063dd511c026cec63b408aa58eb72547cb00"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0042.jpg",
+      "sha256": "e1d3329f0d2a72d127aa2352bfef2b25063613a0edb7d3a084dc05058f6bb7c0"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0043.jpg",
+      "sha256": "d0c1b8893f20ef11761bf5e9443981e204d5ea3e9f19df2c2ba7b0ceb86f5e38"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0044.jpg",
+      "sha256": "d1f965ca78830cbabec918d72523de81e72934eef7b006dc0aa4513e92746e39"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0045.jpg",
+      "sha256": "52af4cbe723c6fb6cf0c4b3b91920c2626a079017eb9de82e374d34c737b65e5"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0046.jpg",
+      "sha256": "743643eb665b2e9300940490bc4ce502e0c2556c08f94c2e5645f4ddcc9dc840"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0047.jpg",
+      "sha256": "d877d99d914bfb3de9742f176bfe0525dffe429a6a75b7e84b33ab442dfb47c7"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0048.jpg",
+      "sha256": "446b2465220decb8a19436b993cb21a664eebf2a29d74cfb9aa1ccadb4e3fb94"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0049.jpg",
+      "sha256": "0fbb217ee617ed0bd31284ce4c484b2bfd611fbae98078d2f9102cd45cab37ec"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0068.jpg",
+      "sha256": "9d4476d911760eb2afa681ffed687237132d7fcdf534a6d8792d0cc634709cee"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0069.jpg",
+      "sha256": "dd54243bb10eae7a43c7bf91699976c17faabf934211fc454db6531730679124"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0070.jpg",
+      "sha256": "684cc040bf0c2f07e76b4997b5cf33a05a8521c36d46fbd10467278c6592647a"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0071.jpg",
+      "sha256": "dec691353953887c9cac6c4a08918ca2fba6a5168f256d2b839798c4d60ddc8e"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0072.jpg",
+      "sha256": "791fb9bd6258064066970c79c1d966ab5a50b73c25fdeae4b48c5eabf39453ca"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0073.jpg",
+      "sha256": "e8de8aecf2d23976ad2409bfacfaee4afa506aea938378779032a1bfd73e8dda"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0074.jpg",
+      "sha256": "a220a13ac44b14724150f44d25000fd99874ec91cd73fbadfc764c8a4fc44316"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0075.jpg",
+      "sha256": "96642df101a4d867b955547056ac2f69684148ac9a3c49473ca6050eb1fc3626"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0076.jpg",
+      "sha256": "f55b26f8f567a666b5857daa9b267fb3641df8eb896539567ad0675537e1061a"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0077.jpg",
+      "sha256": "493efe15ba3126a9edde1c10eeda6b3e4f1e337a214d6337ac2fff4146e62736"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0078.jpg",
+      "sha256": "5c22041f961a33c605c9067585e96d96da755c5ffd985d63ef6b751dfae076dd"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0079.jpg",
+      "sha256": "46046de3873aa6090b46eb7f99191b5d16ceb8ea69faaac928bcca8a7ebe1e41"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0080.jpg",
+      "sha256": "f3bdb5d87e04343022c07241c048c75a152e21c9c3f87f44e40e7077a93c8832"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0081.jpg",
+      "sha256": "f7ef334499d2811ecdbef430fdacb7457f69371bd844f3860ae256a8ff0f2add"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0082.jpg",
+      "sha256": "fda944ccbda80d46f2b76d3389d9e2500a87a9a355f1ec07a62d43a4300f4385"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0083.jpg",
+      "sha256": "c388036f1e97c58716ad7b0d440417627f33d64c202f7e90ba55c9e610277c5d"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0084.jpg",
+      "sha256": "9a366121e5332f06bfcd2ab103e9f905cab0b24033087abd1e95d3903a063dd1"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_3452_0_route0_01_09_04_20_19/rgb/0085.jpg",
+      "sha256": "bf925eeb33fc4236933096d244fc6df5ea0c347365c8e0febc7857f27140f128"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0090.jpg",
+      "sha256": "fcb34a027aec4163d6db6beedda77a87d8127609916799215db9f79e00f87030"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0091.jpg",
+      "sha256": "d783b76586d64ab9752200c4bf7a7e39aa90a817e3d123262d4feec05ef24d38"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0092.jpg",
+      "sha256": "28e2fd4be0c438d25fd02137f78a5dab73207760832f850f473656be505905ff"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0093.jpg",
+      "sha256": "f2b18df42dfc20d8d2adc883def61af93f4fd2caf544015dc4229df935c26128"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0094.jpg",
+      "sha256": "69d6ef543758a492be35c1f24153bc90cf15d65e51fa227f7a4a1dfa15fd868d"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0095.jpg",
+      "sha256": "dd3c5fc24cc57487544bf773de15362a9f860d9628e9c7b126ca1acb8b7d88de"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0096.jpg",
+      "sha256": "607b5617a1061275a98593525a07802e07003000594d693ce5d54abae180eebd"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0097.jpg",
+      "sha256": "132dc6d29677f63b1606f6f1c9f4fecc8ff92c089921c649d1555a0a70347bec"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0098.jpg",
+      "sha256": "6ba8d9a5c9e5885efde0eafc5c3dd06b4bed308e383e250d5937f8271abb15dc"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0112.jpg",
+      "sha256": "0848603acaa5f26025b6cdebea201e322d6e454c0e29aef62f82eef216487479"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0113.jpg",
+      "sha256": "4a713b00b5cc53df63a892248ceae2978141df12ad4369ecaf15705d9d2e736a"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0114.jpg",
+      "sha256": "ae47a8c54172793a0ecd1df8f796f9a90c948c5f597ab3038c35fc23bdc2fca9"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0115.jpg",
+      "sha256": "fd480e25b42fb47862810170bf0489ed8698e13ca6c09acb2bd6a47d7468f5f5"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0116.jpg",
+      "sha256": "364cbf3a136c5eaa06d5c58ed13a933bc14948e2592021a4d0e4ee1b2c1bab6c"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0117.jpg",
+      "sha256": "81e7c588a7507b5fe0c12076a31c1a26d44a5d042d3cacffaf20aed112b59bc4"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0118.jpg",
+      "sha256": "b95fdb2c07b7942a6d2e4603dc4b0b134484028e5e78524e5daebb87ab0898cd"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0119.jpg",
+      "sha256": "f01b1b27030fb0cdfde0ee844ebd563f7ee1250d13fe366a27b00183f9b5d922"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0120.jpg",
+      "sha256": "6551ad2be1fda7355aa7b8c386ab1bbab9432c78813b0950ca03f05eff114147"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0121.jpg",
+      "sha256": "82e2dee8311756b89d5f4607320839880424c2e4944c880dbab39b6415a463e1"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0122.jpg",
+      "sha256": "3d9e4c84d99875d1b9f3bdd3cb88894e5c499a3b0a3809c57cab57db0d27c5cf"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0123.jpg",
+      "sha256": "0e48ab213e2e83eecd4b3a3bd48adfff74db54dd3772b0990337c29fc7aaf013"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0124.jpg",
+      "sha256": "4074ee70f01783e36efcf040d66a62ffde5bd3ffd0831ef43a116930c2cd417c"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0125.jpg",
+      "sha256": "9cb55a8b578ccb386d4c2d175403d855ad4b7d8b58ce14e47f210cfb4213a788"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0126.jpg",
+      "sha256": "949c5b208dd0fadf23cf18e63fb0b2d99f64bda8e8d070ad35103b8b17e9fbd3"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0127.jpg",
+      "sha256": "5d9144d17f471003a7a458c21577ec32ebb7fd79bc58ce67d0696be17f677869"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0128.jpg",
+      "sha256": "6858e1835b4ef42e61c6235fbcc5bcddde2cc980c737f5e3e176d1a0a084cdd7"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0129.jpg",
+      "sha256": "e0b5f4f571a2bb2b4bb399262ed71ba01297793cc626fb040e8b5b416dc95c89"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0130.jpg",
+      "sha256": "5ed0f713df04722b4ea0abf905a4ac1cc1e1fd5d368e9248a0d2bf2780bdb8f3"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0131.jpg",
+      "sha256": "7fe659bdd2aff383dc6471ed0f143dbaac7644cfe4f3f083700dba42bd64bd13"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0132.jpg",
+      "sha256": "282670ab81700dbd8dfffa6360a84f8ee30416e606e5a5c119a1eeb2fe8122c3"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0133.jpg",
+      "sha256": "0053853212468079e2d473de63cf163300c78241d361045d592dbcfaeb3b4f94"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0106.jpg",
+      "sha256": "f937cdaa708246770046814e6aaf73fec4ac15b3482ebc283fb019a4758327ff"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0107.jpg",
+      "sha256": "8454f5730edb25c73426e4b279bb0554370f748555d39d524cf880781e7575fe"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0108.jpg",
+      "sha256": "d89e5d5ba9557aa3feec5b5a3d72bb814d1084ac920769914841b7b2722d7df4"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0109.jpg",
+      "sha256": "2cac8afc77e193367bf5bda1cf8e148bfad32a5ee79a33752425423046313b66"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0110.jpg",
+      "sha256": "36e9b8559cdf9c63deeee2d4d84236c9a2b725c7907d8260c3961642297d4284"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0111.jpg",
+      "sha256": "e265c2b5843a6a8adf95635cb36e2874d31f21c5eb97f87eb47cd8a0505feeb8"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0112.jpg",
+      "sha256": "34412cd5de9cdc74a4286ccb833cde2d9c989424010f513abe6f1fa037ee0414"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0113.jpg",
+      "sha256": "a06dbb9280056bd7e2efa200bfb2213d6f5d15ff2ec1ff15d83ee5a51e31d46f"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0114.jpg",
+      "sha256": "ff2a9e1768b2cc2ffe35e7e233c310952fdc7ba7c1ae738e164aa2c646767cbb"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0115.jpg",
+      "sha256": "880b12e6fdcedf6ff6778560e0e2a6634bda3c42ecf441ed56d1de8d38fbd28b"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0116.jpg",
+      "sha256": "6b006f5fa2f27a93677e2e21dcd9638511a62358b769c17d67551d3a268ac0c7"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0117.jpg",
+      "sha256": "7766f17198475ead6f13330d3094a07cd493084a9565fa7029dcb8450d03e484"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0118.jpg",
+      "sha256": "785202f7df0996078eae83e8a8e37ddf47b46d510e7da928135f563505dc4601"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0119.jpg",
+      "sha256": "cb7713992c025b8827a63adb0adbb4b65ad4b8084deb2032d095a9c0aa82c806"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0120.jpg",
+      "sha256": "d25941550702d23bfad0aad327cccd04fe654c946b61c7e1574b78047bbd7754"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0121.jpg",
+      "sha256": "72a33ac4929d6761cc9b3624439155ead5208df6d7982d8651aa35bff544e122"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0122.jpg",
+      "sha256": "aae8129c3f90360c93cdbc62b409e03b75e36f1373ee0d054b22abab008cb2d9"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0123.jpg",
+      "sha256": "557cde1bc7df700f9aa07df35e61dab3aab9cb906fe3d03b70409ee77313e37d"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0124.jpg",
+      "sha256": "7ced758d4d4db42201cdcb685b4a877e0dbd2604f3de77107fe6203d7ad6a920"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1432_1_route0_01_10_14_36_02/rgb/0125.jpg",
+      "sha256": "884d543010b3296d024fde155326b3b4a27b932a4d5b3c94c96e01ace9e98047"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0116.jpg",
+      "sha256": "bb21bd8382618e69d30a782ee8350d54f1a00778da75ea34b3487eebf2c4d965"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0117.jpg",
+      "sha256": "a8aa520f39a1f1223f5926ce38d800abb3603e7009b6655c48cdae0ac61d0600"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0118.jpg",
+      "sha256": "e38ee0a02c937416ad18b5204aec43cd95f339156bd06f08c61270c23ce78c0e"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0119.jpg",
+      "sha256": "fab9e0d6703f06859283dc429211e41fa93605dd20617a868592081cf400d76f"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0120.jpg",
+      "sha256": "d985432dd613d43d15ffbb9097923a5994cbf9d2d5d3a014846fe6c39cc92c0c"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0121.jpg",
+      "sha256": "664a26e78dae5320b7f14d70d989ba6e03d1bda630b618b77e88e38b7f900d19"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0122.jpg",
+      "sha256": "2c5ba42941e9c311219dc908753d9ea5e0cc7c3998681b357c8745b0361e064e"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0123.jpg",
+      "sha256": "e90e965cf42a1313dd53ca40b2396117a64d0f09d604710979723e0af8bf255d"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0124.jpg",
+      "sha256": "6b77dfaa49a64c39a48b0799e3065e17ff2cc3b491485038159daaffcf4e9bb1"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0125.jpg",
+      "sha256": "d843628b149e0e5f12bb2c3bf5e08f69611b9e94364161288e298fba89099189"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0126.jpg",
+      "sha256": "241f5f4d8da630ccbaf3460985aa63012ffebf8411473fa9d90da81ea842b72c"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0127.jpg",
+      "sha256": "6aec683e26c5403631b90862ad38118b902c6d5c6612f695d4f1c7119c25ef1e"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0128.jpg",
+      "sha256": "9648cc3859ee70a07937e7344d69dbb22482073d342465aa04885d2b852c4806"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0129.jpg",
+      "sha256": "7fac97aa50f8ea85cc5b88d4da8c2a76ea7f1a1f072298ec0063f7fa0a1b59f5"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0130.jpg",
+      "sha256": "1031f99c861d990365d83ed9cb80101009fc2f76c0e2ab10443632f5324e65b9"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0131.jpg",
+      "sha256": "c92b095973e647e40577fee7c372b762996543935a163ef0fe51132f0a166f54"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0132.jpg",
+      "sha256": "c490d5a4ae85f29df0b66ee980ccfa726199af742550eb7637e2e7ea7521097a"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0133.jpg",
+      "sha256": "b532527fedbf2fff2534cec37601655cda1cdeecd0acecf9d9e50abc5135744b"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0134.jpg",
+      "sha256": "86d14021de6fc08008270806db46b7509b449640b4f462f64969b015f9105999"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0135.jpg",
+      "sha256": "f14e68e6dbaa6fd354f54320c1a6790c583618f4bcd97ca9571be6197b6a29c6"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0136.jpg",
+      "sha256": "53225356e9005b9137b3662fe14abab8fb3ced3dbabc93847fb4636ff67c2a5e"
+    },
+    {
+      "rgb": "ParkedObstacleTwoWays/Town13_Rep0_1783_1_route0_01_09_13_46_42/rgb/0137.jpg",
+      "sha256": "9c42ac28a97c6cb402f9ccdeca7923db9288356e3c2163075d07e96388884d1f"
+    }
+  ],
+  "native_bundles": [
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_368_106.png",
+      "sha256": "ae81315242dc101da545be0cc21dad74e5d91739371c6190fe3e2c4cddce8e7e"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_368_110.png",
+      "sha256": "ba98282be868523a212576f1cc2319255eef7eae1b1fc3d1d123b4451f15eea7"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_368_114.png",
+      "sha256": "6abdc2cef33a085837872098270bae2d4d2f84e4b69c7f385eb89c8d214fb003"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_368_118.png",
+      "sha256": "a87681cfcf36b8015d1324be0e2023bfac27024f4af879c2b04ab3278a2ea22d"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_368_122.png",
+      "sha256": "447bf3a5bd427334c96a28af7fffe53c7cd50bbaa5ff5f9f94848b90956656f8"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_509_116.png",
+      "sha256": "512c2e88f4d0422ebc78b2b698b0736c5c1b53aaea144fc53adbe8bff84dd54a"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_509_120.png",
+      "sha256": "a9b583fd1660794f68a875d99640ed4b32eb74592ed15da7967c8de8c99c9f05"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_509_124.png",
+      "sha256": "2a0974180c7c6fe8e57dcb1b8300f2882a1cf321cfde2113017a304fff2e6572"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_509_128.png",
+      "sha256": "969c7b97b18a9e8874b542d2a106796ebacdfbbf56937308a69b78271ff926cf"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_509_132.png",
+      "sha256": "00f021232efa7ba81517159784defafe55b3cb2967d816601d717df23c751c48"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/originals_509_136.png",
+      "sha256": "0a3f4859a13d0524ea649a1d885cf9cd66d9cc61001109d9582038ef6146fa80"
+    }
+  ],
+  "notes": [
+    "No temporal dilation. Every annotation frame, including uncertain/excluded, inspected at original RGB resolution.",
+    "Causal current speed metadata cross-check used to correct readiness/catchup descriptions; speed/control not added to model text, no labels generated from future execution.",
+    "Return clearance not inferred from obstacle disappearing from front RGB. Unconfirmed return frames remain UNKNOWN.",
+    "Existing whole-sequence totals unchanged: this batch re-reviewed existing development routes and created new labels, not new audit coverage."
+  ],
+  "reported_full_coverage": {
+    "complete_sequences": 339,
+    "frames": 38369,
+    "cells_with_three_ids": 155,
+    "total_cells": 278,
+    "remaining_sequences": 361,
+    "source_shortfall_cells": 18,
+    "all_requested_rgb_audit_complete": false
+  },
+  "scope": "Development review covers the 21 new train bands only. Eleven prospective label-only evaluation bands are documented separately in rgb_holdout_review_v1.json."
+}

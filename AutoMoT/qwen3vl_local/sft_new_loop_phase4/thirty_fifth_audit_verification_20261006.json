@@ -1,0 +1,2596 @@
+{
+  "source_acceptance": {
+    "utc": "2026-10-06T09:57:13Z",
+    "contract_sha256": "134a34e604d172a191443a96b7d78201f4176e96f4bb027fac57bd745e9cda61",
+    "checks": {
+      "single_budget10": {
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v35_full/data2",
+          "--sampling-policy",
+          "event_equal",
+          "--epoch-samples",
+          "10",
+          "--epochs",
+          "1",
+          "--world-size",
+          "1",
+          "--require-trainable"
+        ],
+        "returncode": 0,
+        "expected": 0,
+        "seconds": 190.1517106910469
+      },
+      "infeasible2": {
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v35_full/data2",
+          "--epoch-samples",
+          "10000",
+          "--require-trainable"
+        ],
+        "returncode": 2,
+        "expected": 2,
+        "seconds": 150.1072825260926
+      },
+      "startup2": {
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train.sh",
+          "check"
+        ],
+        "returncode": 0,
+        "expected": 0,
+        "seconds": 171.01409617089666
+      },
+      "infeasible4": {
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v35_full/data4",
+          "--epoch-samples",
+          "10000",
+          "--require-trainable"
+        ],
+        "returncode": 2,
+        "expected": 2,
+        "seconds": 154.56522108102217
+      },
+      "startup4": {
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train.sh",
+          "check"
+        ],
+        "returncode": 0,
+        "expected": 0,
+        "seconds": 178.11540729098488
+      },
+      "host": {
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train.sh",
+          "host-preflight"
+        ],
+        "returncode": 2,
+        "expected": 2,
+        "seconds": 0.029867809964343905
+      }
+    },
+    "tests": "900 passed in 82.29s (0:01:22)",
+    "scope": "recorded-time source acceptance, not immutable validity after future edits",
+    "gpu_training": false,
+    "carla_validation": false
+  },
+  "verification": {
+    "2": {
+      "mode": 2,
+      "train": 75488,
+      "training_routes": 1837,
+      "weak": 75045,
+      "weak_routes": 1808,
+      "weak_answers": {
+        "YES": 4149,
+        "NO": 70896
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 91,
+          "routes": 29
+        },
+        "U-E1/complete/YES": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/hold/NO": {
+          "questions": 646,
+          "routes": 154
+        },
+        "U-E1/hold/YES": {
+          "questions": 1604,
+          "routes": 1390
+        },
+        "U-E1/proceed/NO": {
+          "questions": 59713,
+          "routes": 1387
+        },
+        "U-E1/proceed/YES": {
+          "questions": 55,
+          "routes": 46
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 718,
+          "routes": 167
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 1244,
+          "routes": 159
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 119,
+          "routes": 105
+        },
+        "U-E1/release/NO": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/release/YES": {
+          "questions": 22,
+          "routes": 22
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 716,
+          "routes": 167
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/stable/NO": {
+          "questions": 536,
+          "routes": 154
+        },
+        "U-E4/complete/NO": {
+          "questions": 75,
+          "routes": 11
+        },
+        "U-E4/hold/NO": {
+          "questions": 86,
+          "routes": 11
+        },
+        "U-E4/hold/YES": {
+          "questions": 869,
+          "routes": 783
+        },
+        "U-E4/proceed/NO": {
+          "questions": 6910,
+          "routes": 780
+        },
+        "U-E4/proceed/YES": {
+          "questions": 1314,
+          "routes": 276
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 75,
+          "routes": 11
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 68
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76486,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74783,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74783,
+          "seen": 705,
+          "complete": false
+        }
+      }
+    },
+    "4": {
+      "mode": 4,
+      "train": 75489,
+      "training_routes": 1837,
+      "weak": 75046,
+      "weak_routes": 1808,
+      "weak_answers": {
+        "YES": 4149,
+        "NO": 70897
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 91,
+          "routes": 29
+        },
+        "U-E1/complete/YES": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/hold/NO": {
+          "questions": 646,
+          "routes": 154
+        },
+        "U-E1/hold/YES": {
+          "questions": 1604,
+          "routes": 1390
+        },
+        "U-E1/proceed/NO": {
+          "questions": 59714,
+          "routes": 1387
+        },
+        "U-E1/proceed/YES": {
+          "questions": 55,
+          "routes": 46
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 718,
+          "routes": 167
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 1244,
+          "routes": 159
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 119,
+          "routes": 105
+        },
+        "U-E1/release/NO": {
+          "questions": 86,
+          "routes": 86
+        },
+        "U-E1/release/YES": {
+          "questions": 22,
+          "routes": 22
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 716,
+          "routes": 167
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 40,
+          "routes": 39
+        },
+        "U-E1/stable/NO": {
+          "questions": 536,
+          "routes": 154
+        },
+        "U-E4/complete/NO": {
+          "questions": 75,
+          "routes": 11
+        },
+        "U-E4/hold/NO": {
+          "questions": 86,
+          "routes": 11
+        },
+        "U-E4/hold/YES": {
+          "questions": 869,
+          "routes": 783
+        },
+        "U-E4/proceed/NO": {
+          "questions": 6910,
+          "routes": 780
+        },
+        "U-E4/proceed/YES": {
+          "questions": 1314,
+          "routes": 276
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 75,
+          "routes": 11
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 67
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76487,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74784,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74784,
+          "seen": 705,
+          "complete": false
+        }
+      }
+    }
+  },
+  "label_delta": {
+    "2": {
+      "old_count": 75373,
+      "new_count": 75488,
+      "added": 10089,
+      "removed": 9974,
+      "added_cells": {
+        "U-E1/default/proceed/NO": 7679,
+        "U-E1/default/recover_follow/NO": 461,
+        "U-E1/default/re_yield/NO": 168,
+        "U-E1/default/re_yield/YES": 30,
+        "U-E4/default/proceed/NO": 603,
+        "U-E1/default/proceed/YES": 37,
+        "U-E1/default/renewed_restriction/YES": 30,
+        "U-E4/default/proceed/YES": 538,
+        "U-E1/default/hold/NO": 109,
+        "U-E4/cyclist_follow/hold/NO": 7,
+        "U-E1/default/renewed_restriction/NO": 173,
+        "U-E1/default/release/NO": 19,
+        "U-E1/default/hold/YES": 35,
+        "U-E1/default/complete/NO": 26,
+        "U-E1/default/recover_follow/YES": 24,
+        "U-E1/default/complete/YES": 19,
+        "U-E1/default/stable/NO": 89,
+        "U-E4/default/hold/YES": 27,
+        "U-E4/cyclist_follow/proceed/YES": 2,
+        "U-E4/cyclist_follow/re_yield/NO": 5,
+        "U-E4/cyclist_follow/complete/NO": 5,
+        "U-E1/default/release/YES": 3
+      },
+      "removed_cells": {
+        "U-E1/default/proceed/NO": 8353,
+        "U-E4/default/proceed/NO": 1180,
+        "U-E1/default/renewed_restriction/NO": 45,
+        "U-E1/default/recover_follow/NO": 17,
+        "U-E4/cyclist_follow/proceed/NO": 167,
+        "U-E1/default/complete/NO": 16,
+        "U-E1/default/release/NO": 50,
+        "U-E1/default/hold/NO": 8,
+        "U-E1/default/re_yield/NO": 60,
+        "U-E4/cyclist_follow/hold/YES": 28,
+        "U-E1/default/stable/NO": 9,
+        "U-E4/cyclist_follow/re_yield/NO": 3,
+        "U-E1/default/hold/YES": 14,
+        "U-E4/default/proceed/YES": 2,
+        "U-E1/default/renewed_restriction/YES": 1,
+        "U-E1/default/re_yield/YES": 2,
+        "U-E4/default/hold/YES": 9,
+        "U-E4/cyclist_follow/hold/NO": 4,
+        "U-E1/default/complete/YES": 1,
+        "U-E4/cyclist_follow/proceed/YES": 1,
+        "U-E4/cyclist_follow/complete/NO": 3,
+        "U-E1/default/recover_follow/YES": 1
+      },
+      "ue1_stationary_yes": 55,
+      "ue1_stationary_routes": 46,
+      "ue1_stationary_rows": [
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_001415_route0_01_10_01_31_08",
+            306,
+            "U-E1",
+            "default",
+            3891,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.1645347649950806
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_001437_route0_01_08_22_48_44",
+            304,
+            "U-E1",
+            "default",
+            3968,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.47573432058599685
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_001553_route0_01_10_10_45_19",
+            183,
+            "U-E1",
+            "default",
+            3884,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.12479522941521094
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002880_route0_01_08_19_56_51",
+            186,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.1907102682757955
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002880_route0_01_08_19_56_51",
+            187,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.011490477243992372
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002880_route0_01_08_19_56_51",
+            188,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.22399442752100676
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002890_route0_01_09_20_36_25",
+            126,
+            "U-E1",
+            "default",
+            3878,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.22133892236374836
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002890_route0_01_09_20_36_25",
+            128,
+            "U-E1",
+            "default",
+            3878,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.47481105583923716
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002892_route0_01_08_15_05_15",
+            124,
+            "U-E1",
+            "default",
+            3878,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4332187740850837
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002908_route0_01_10_22_55_31",
+            184,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.04393789150740701
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town13_Rep0_route_001532_route0_01_09_07_57_58",
+            304,
+            "U-E1",
+            "default",
+            5229,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.3949710417805465
+        },
+        {
+          "key": [
+            "ConstructionObstacle",
+            "Town05_Rep0_route_001975_route0_01_11_00_55_13",
+            241,
+            "U-E1",
+            "default",
+            229,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.46507571581578727
+        },
+        {
+          "key": [
+            "ConstructionObstacleTwoWays",
+            "Town13_Rep0_route_001264_route0_01_10_05_22_37",
+            303,
+            "U-E1",
+            "default",
+            5270,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.18373769284227837
+        },
+        {
+          "key": [
+            "DynamicObjectCrossing",
+            "Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21",
+            123,
+            "U-E1",
+            "default",
+            150,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.1805952260947935
+        },
+        {
+          "key": [
+            "DynamicObjectCrossing",
+            "Town06_Rep0_Town06_Scenario3_0_route0_01_09_02_00_12",
+            124,
+            "U-E1",
+            "default",
+            177,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.010209901142296663
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town12_Rep0_2032_0_route0_01_10_01_01_05",
+            77,
+            "U-E1",
+            "default",
+            3733,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.046552675521792715
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town12_Rep0_258_0_route0_01_08_09_35_42",
+            77,
+            "U-E1",
+            "default",
+            3733,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.31267280899523064
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town12_Rep0_707_0_route0_01_09_21_01_43",
+            73,
+            "U-E1",
+            "default",
+            3891,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.05466307964784766
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1049_0_route0_01_08_23_16_01",
+            271,
+            "U-E1",
+            "default",
+            5080,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.0016177508796031608
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1100_0_route0_01_09_12_11_41",
+            75,
+            "U-E1",
+            "default",
+            5134,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.16838937679960667
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1269_0_route0_01_07_23_43_15",
+            79,
+            "U-E1",
+            "default",
+            4749,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.42525508529239503
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1275_0_route0_01_09_14_40_40",
+            79,
+            "U-E1",
+            "default",
+            4753,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.39973623191052554
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1325_0_route0_01_10_13_07_48",
+            129,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -4.0989170568170885e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1325_0_route0_01_10_13_07_48",
+            130,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -2.459547800706149e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1325_0_route0_01_10_13_07_48",
+            131,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.23240381992404296
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1327_0_route0_01_08_13_35_25",
+            75,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -2.2402922536773576e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1327_0_route0_01_08_13_35_25",
+            76,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.018516215683877717
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1529_0_route0_01_10_17_57_35",
+            98,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.13310582257805906
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1540_0_route0_01_09_06_34_45",
+            248,
+            "U-E1",
+            "default",
+            4752,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -2.167145026546012e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1540_0_route0_01_09_06_34_45",
+            249,
+            "U-E1",
+            "default",
+            4752,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.07038693829160628
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1585_0_route0_01_09_23_18_49",
+            93,
+            "U-E1",
+            "default",
+            4746,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.408446111107746
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1713_0_route0_01_09_02_42_48",
+            80,
+            "U-E1",
+            "default",
+            4818,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4575919945083102
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_1092_3_route0_01_11_01_38_57",
+            184,
+            "U-E1",
+            "default",
+            3912,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.38496657415681684
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_2297_0_route0_01_10_21_08_04",
+            244,
+            "U-E1",
+            "default",
+            3882,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.24708012627995535
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_3123_2_route0_01_09_12_32_36",
+            187,
+            "U-E1",
+            "default",
+            3737,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2840078235308126
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_3808_2_route0_01_10_17_03_15",
+            184,
+            "U-E1",
+            "default",
+            3754,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2877670284984516
+        },
+        {
+          "key": [
+            "HazardAtSideLaneTwoWays",
+            "Town12_Rep0_2322_0_route0_01_10_12_36_20",
+            186,
+            "U-E1",
+            "default",
+            3754,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.0663428183163803
+        },
+        {
+          "key": [
+            "MergerIntoSlowTraffic",
+            "Town13_Rep0_1587_4_route0_01_09_19_07_54",
+            185,
+            "U-E1",
+            "default",
+            4768,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.03808925476764839
+        },
+        {
+          "key": [
+            "NonSignalizedJunctionLeftTurnEnterFlow",
+            "Town13_Rep0_route_003135_route0_01_10_03_34_57",
+            18,
+            "U-E1",
+            "default",
+            4745,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2988420946889114
+        },
+        {
+          "key": [
+            "ParkedObstacle",
+            "Town03_Rep0_route_001887_route0_01_08_06_14_40",
+            245,
+            "U-E1",
+            "default",
+            151,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.10408783418807012
+        },
+        {
+          "key": [
+            "ParkedObstacle",
+            "Town05_Rep0_route_001876_route0_01_08_06_56_21",
+            244,
+            "U-E1",
+            "default",
+            186,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.3611086533213732
+        },
+        {
+          "key": [
+            "ParkedObstacleTwoWays",
+            "Town12_Rep0_2104_0_route0_01_10_15_12_14",
+            244,
+            "U-E1",
+            "default",
+            3810,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.39043147452483107
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001664_route0_01_09_05_22_44",
+            65,
+            "U-E1",
+            "default",
+            94,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4198933999131038
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001664_route0_01_09_05_22_44",
+            68,
+            "U-E1",
+            "default",
+            94,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.0037428748857855115
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001676_route0_01_08_16_58_12",
+            68,
+            "U-E1",
+            "default",
+            99,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4929799416393568
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001709_route0_01_09_17_12_23",
+            64,
+            "U-E1",
+            "default",
+            94,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.31841120246406546
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town12_Rep0_2601_2_route0_01_09_12_43_28",
+            67,
+            "U-E1",
+            "default",
+            3873,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.09762130566239963
+        },
+        {
+          "key": [
+            "VehicleOpensDoorTwoWays",
+            "Town12_Rep0_1778_0_route0_01_08_14_30_47",
+            183,
+            "U-E1",
+            "default",
+            3880,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2827026077076745
+        },
+        {
+          "key": [
+            "VehicleOpensDoorTwoWays",
+            "Town12_Rep0_2071_0_route0_01_08_22_36_04",
+            245,
+            "U-E1",
+            "default",
+            3963,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.36403027567895185
+        },
+        {
+          "key": [
+            "VehicleTurningRoutePedestrian",
+            "Town12_Rep0_3266_1_route0_01_09_12_03_51",
+            185,
+            "U-E1",
+            "default",
+            3897,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4796366717226544
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town06_Rep0_route_000788_route0_01_08_11_30_02",
+            123,
+            "U-E1",
+            "default",
+            158,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.00032766524677772536
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town06_Rep0_route_000788_route0_01_08_11_30_02",
+            124,
+            "U-E1",
+            "default",
+            158,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.23007079806167796
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town15_Rep0_route_000486_route0_01_10_11_45_12",
+            123,
+            "U-E1",
+            "default",
+            264,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.3399381984434346
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town15_Rep0_route_000498_route0_01_10_02_42_32",
+            185,
+            "U-E1",
+            "default",
+            264,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2638349750768829
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town15_Rep0_route_000612_route0_01_09_02_16_49",
+            54,
+            "U-E1",
+            "default",
+            260,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.28726091367571394
+        }
+      ],
+      "registered_window_old_rows_removed": 11,
+      "old_stationary_yes_semantic_keys_retained": 18
+    },
+    "4": {
+      "old_count": 75373,
+      "new_count": 75489,
+      "added": 10033,
+      "removed": 9917,
+      "added_cells": {
+        "U-E1/default/recover_follow/NO": 459,
+        "U-E1/default/proceed/NO": 7647,
+        "U-E1/default/re_yield/NO": 168,
+        "U-E1/default/re_yield/YES": 30,
+        "U-E4/default/proceed/NO": 587,
+        "U-E1/default/proceed/YES": 37,
+        "U-E1/default/renewed_restriction/YES": 30,
+        "U-E4/default/proceed/YES": 536,
+        "U-E1/default/hold/NO": 108,
+        "U-E4/cyclist_follow/hold/NO": 7,
+        "U-E1/default/renewed_restriction/NO": 172,
+        "U-E1/default/release/NO": 19,
+        "U-E1/default/hold/YES": 35,
+        "U-E1/default/complete/NO": 26,
+        "U-E1/default/recover_follow/YES": 24,
+        "U-E1/default/stable/NO": 87,
+        "U-E1/default/complete/YES": 19,
+        "U-E4/default/hold/YES": 27,
+        "U-E4/cyclist_follow/proceed/YES": 2,
+        "U-E4/cyclist_follow/re_yield/NO": 5,
+        "U-E4/cyclist_follow/complete/NO": 5,
+        "U-E1/default/release/YES": 3
+      },
+      "removed_cells": {
+        "U-E1/default/proceed/NO": 8320,
+        "U-E4/default/proceed/NO": 1164,
+        "U-E1/default/renewed_restriction/NO": 44,
+        "U-E4/cyclist_follow/proceed/NO": 167,
+        "U-E1/default/complete/NO": 16,
+        "U-E1/default/recover_follow/NO": 15,
+        "U-E1/default/re_yield/NO": 60,
+        "U-E1/default/release/NO": 50,
+        "U-E1/default/hold/NO": 7,
+        "U-E4/cyclist_follow/hold/YES": 28,
+        "U-E4/cyclist_follow/re_yield/NO": 3,
+        "U-E1/default/hold/YES": 14,
+        "U-E1/default/renewed_restriction/YES": 1,
+        "U-E4/default/hold/YES": 9,
+        "U-E1/default/re_yield/YES": 2,
+        "U-E4/cyclist_follow/hold/NO": 4,
+        "U-E1/default/complete/YES": 1,
+        "U-E1/default/stable/NO": 7,
+        "U-E4/cyclist_follow/proceed/YES": 1,
+        "U-E4/cyclist_follow/complete/NO": 3,
+        "U-E1/default/recover_follow/YES": 1
+      },
+      "ue1_stationary_yes": 55,
+      "ue1_stationary_routes": 46,
+      "ue1_stationary_rows": [
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_001415_route0_01_10_01_31_08",
+            306,
+            "U-E1",
+            "default",
+            3891,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.1645347649950806
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_001437_route0_01_08_22_48_44",
+            304,
+            "U-E1",
+            "default",
+            3968,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.47573432058599685
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_001553_route0_01_10_10_45_19",
+            183,
+            "U-E1",
+            "default",
+            3884,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.12479522941521094
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002880_route0_01_08_19_56_51",
+            186,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.1907102682757955
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002880_route0_01_08_19_56_51",
+            188,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.22399442752100676
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002880_route0_01_08_19_56_51",
+            187,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.011490477243992372
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002890_route0_01_09_20_36_25",
+            126,
+            "U-E1",
+            "default",
+            3878,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.22133892236374836
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002890_route0_01_09_20_36_25",
+            128,
+            "U-E1",
+            "default",
+            3878,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.47481105583923716
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002892_route0_01_08_15_05_15",
+            124,
+            "U-E1",
+            "default",
+            3878,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4332187740850837
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town12_Rep0_route_002908_route0_01_10_22_55_31",
+            184,
+            "U-E1",
+            "default",
+            3893,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.04393789150740701
+        },
+        {
+          "key": [
+            "AccidentTwoWays",
+            "Town13_Rep0_route_001532_route0_01_09_07_57_58",
+            304,
+            "U-E1",
+            "default",
+            5229,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.3949710417805465
+        },
+        {
+          "key": [
+            "ConstructionObstacle",
+            "Town05_Rep0_route_001975_route0_01_11_00_55_13",
+            241,
+            "U-E1",
+            "default",
+            229,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.46507571581578727
+        },
+        {
+          "key": [
+            "ConstructionObstacleTwoWays",
+            "Town13_Rep0_route_001264_route0_01_10_05_22_37",
+            303,
+            "U-E1",
+            "default",
+            5270,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.18373769284227837
+        },
+        {
+          "key": [
+            "DynamicObjectCrossing",
+            "Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21",
+            123,
+            "U-E1",
+            "default",
+            150,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.1805952260947935
+        },
+        {
+          "key": [
+            "DynamicObjectCrossing",
+            "Town06_Rep0_Town06_Scenario3_0_route0_01_09_02_00_12",
+            124,
+            "U-E1",
+            "default",
+            177,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.010209901142296663
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town12_Rep0_2032_0_route0_01_10_01_01_05",
+            77,
+            "U-E1",
+            "default",
+            3733,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.046552675521792715
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town12_Rep0_258_0_route0_01_08_09_35_42",
+            77,
+            "U-E1",
+            "default",
+            3733,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.31267280899523064
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town12_Rep0_707_0_route0_01_09_21_01_43",
+            73,
+            "U-E1",
+            "default",
+            3891,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.05466307964784766
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1049_0_route0_01_08_23_16_01",
+            271,
+            "U-E1",
+            "default",
+            5080,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.0016177508796031608
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1100_0_route0_01_09_12_11_41",
+            75,
+            "U-E1",
+            "default",
+            5134,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.16838937679960667
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1269_0_route0_01_07_23_43_15",
+            79,
+            "U-E1",
+            "default",
+            4749,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.42525508529239503
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1275_0_route0_01_09_14_40_40",
+            79,
+            "U-E1",
+            "default",
+            4753,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.39973623191052554
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1325_0_route0_01_10_13_07_48",
+            129,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -4.0989170568170885e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1325_0_route0_01_10_13_07_48",
+            131,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.23240381992404296
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1325_0_route0_01_10_13_07_48",
+            130,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -2.459547800706149e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1327_0_route0_01_08_13_35_25",
+            75,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -2.2402922536773576e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1327_0_route0_01_08_13_35_25",
+            76,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.018516215683877717
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1529_0_route0_01_10_17_57_35",
+            98,
+            "U-E1",
+            "default",
+            4747,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.13310582257805906
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1540_0_route0_01_09_06_34_45",
+            248,
+            "U-E1",
+            "default",
+            4752,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -2.167145026546012e-05
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1540_0_route0_01_09_06_34_45",
+            249,
+            "U-E1",
+            "default",
+            4752,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.07038693829160628
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1585_0_route0_01_09_23_18_49",
+            93,
+            "U-E1",
+            "default",
+            4746,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.408446111107746
+        },
+        {
+          "key": [
+            "HardBreakRoute",
+            "Town13_Rep0_1713_0_route0_01_09_02_42_48",
+            80,
+            "U-E1",
+            "default",
+            4818,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4575919945083102
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_1092_3_route0_01_11_01_38_57",
+            184,
+            "U-E1",
+            "default",
+            3912,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.38496657415681684
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_2297_0_route0_01_10_21_08_04",
+            244,
+            "U-E1",
+            "default",
+            3882,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.24708012627995535
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_3123_2_route0_01_09_12_32_36",
+            187,
+            "U-E1",
+            "default",
+            3737,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2840078235308126
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_3808_2_route0_01_10_17_03_15",
+            184,
+            "U-E1",
+            "default",
+            3754,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2877670284984516
+        },
+        {
+          "key": [
+            "HazardAtSideLaneTwoWays",
+            "Town12_Rep0_2322_0_route0_01_10_12_36_20",
+            186,
+            "U-E1",
+            "default",
+            3754,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.0663428183163803
+        },
+        {
+          "key": [
+            "MergerIntoSlowTraffic",
+            "Town13_Rep0_1587_4_route0_01_09_19_07_54",
+            185,
+            "U-E1",
+            "default",
+            4768,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.03808925476764839
+        },
+        {
+          "key": [
+            "NonSignalizedJunctionLeftTurnEnterFlow",
+            "Town13_Rep0_route_003135_route0_01_10_03_34_57",
+            18,
+            "U-E1",
+            "default",
+            4745,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2988420946889114
+        },
+        {
+          "key": [
+            "ParkedObstacle",
+            "Town03_Rep0_route_001887_route0_01_08_06_14_40",
+            245,
+            "U-E1",
+            "default",
+            151,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.10408783418807012
+        },
+        {
+          "key": [
+            "ParkedObstacle",
+            "Town05_Rep0_route_001876_route0_01_08_06_56_21",
+            244,
+            "U-E1",
+            "default",
+            186,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.3611086533213732
+        },
+        {
+          "key": [
+            "ParkedObstacleTwoWays",
+            "Town12_Rep0_2104_0_route0_01_10_15_12_14",
+            244,
+            "U-E1",
+            "default",
+            3810,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.39043147452483107
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001664_route0_01_09_05_22_44",
+            65,
+            "U-E1",
+            "default",
+            94,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4198933999131038
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001664_route0_01_09_05_22_44",
+            68,
+            "U-E1",
+            "default",
+            94,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.0037428748857855115
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001676_route0_01_08_16_58_12",
+            68,
+            "U-E1",
+            "default",
+            99,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4929799416393568
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town10HD_Rep0_route_001709_route0_01_09_17_12_23",
+            64,
+            "U-E1",
+            "default",
+            94,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.31841120246406546
+        },
+        {
+          "key": [
+            "ParkingExit",
+            "Town12_Rep0_2601_2_route0_01_09_12_43_28",
+            67,
+            "U-E1",
+            "default",
+            3873,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.09762130566239963
+        },
+        {
+          "key": [
+            "VehicleOpensDoorTwoWays",
+            "Town12_Rep0_1778_0_route0_01_08_14_30_47",
+            183,
+            "U-E1",
+            "default",
+            3880,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2827026077076745
+        },
+        {
+          "key": [
+            "VehicleOpensDoorTwoWays",
+            "Town12_Rep0_2071_0_route0_01_08_22_36_04",
+            245,
+            "U-E1",
+            "default",
+            3963,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.36403027567895185
+        },
+        {
+          "key": [
+            "VehicleTurningRoutePedestrian",
+            "Town12_Rep0_3266_1_route0_01_09_12_03_51",
+            185,
+            "U-E1",
+            "default",
+            3897,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.4796366717226544
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town06_Rep0_route_000788_route0_01_08_11_30_02",
+            123,
+            "U-E1",
+            "default",
+            158,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": -0.00032766524677772536
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town06_Rep0_route_000788_route0_01_08_11_30_02",
+            124,
+            "U-E1",
+            "default",
+            158,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.23007079806167796
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town15_Rep0_route_000486_route0_01_10_11_45_12",
+            123,
+            "U-E1",
+            "default",
+            264,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.3399381984434346
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town15_Rep0_route_000498_route0_01_10_02_42_32",
+            185,
+            "U-E1",
+            "default",
+            264,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.2638349750768829
+        },
+        {
+          "key": [
+            "noScenarios",
+            "Town15_Rep0_route_000612_route0_01_09_02_16_49",
+            54,
+            "U-E1",
+            "default",
+            260,
+            "YIELD",
+            "HOLD",
+            "readiness",
+            "proceed",
+            "YES"
+          ],
+          "ego_speed": 0.28726091367571394
+        }
+      ],
+      "registered_window_old_rows_removed": 11,
+      "old_stationary_yes_semantic_keys_retained": 18
+    }
+  },
+  "visual_review": {
+    "reviewed_by": "current_agent",
+    "original_images": 6,
+    "training_routes": 3,
+    "new_full_sequences": 0,
+    "independent_images": 0,
+    "label_approval": false,
+    "items": [
+      {
+        "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_0_route0_01_10_05_05_30/rgb/0061.jpg",
+        "frame": 61,
+        "sha256": "a7d92adae5698ed309d5114727267fec53978f1ec9dd8bb76a248a38c77d131b",
+        "observation": "行人仍在本车前方车道范围；未据此标定精确边界。"
+      },
+      {
+        "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_0_route0_01_10_05_05_30/rgb/0065.jpg",
+        "frame": 65,
+        "sha256": "de88f33b622cd6f0adccdd8ffa4dc26256ddaea06c85b7b4955e6534a972a05b",
+        "observation": "行人已向左侧移动，前方右侧局部走廊可见；远方灯态和停止线不能由此图独立认证。"
+      },
+      {
+        "path": "ParkingCrossingPedestrian/Town12_Rep0_1794_0_route0_01_10_23_43_01/rgb/0044.jpg",
+        "frame": 44,
+        "sha256": "f30b2de4818f28e7a244e1231f06da2301e6ac9abf80c2fde325c5f292c3373b",
+        "observation": "行人已到右侧路边区域；远方STOP作用范围依赖当帧导航与元数据，非RGB直接认证。"
+      },
+      {
+        "path": "HazardAtSideLaneTwoWays/Town12_Rep0_2991_0_route0_01_10_04_37_08/rgb/0072.jpg",
+        "frame": 72,
+        "sha256": "5989d5dd2cd6fea2bb1abd07a16e70b07736b7ce85a620fe6cc4a812d3b0a180",
+        "observation": "两名骑行者沿道路右侧弯道同向前进，左侧有近距离对向车；仅支持跟随身份，不能授权超车。"
+      },
+      {
+        "path": "HazardAtSideLaneTwoWays/Town12_Rep0_2991_0_route0_01_10_04_37_08/rgb/0063.jpg",
+        "frame": 63,
+        "sha256": "07cfc67550ad40556e8eabb69bf1290fdff34fcedc43ffbf464069a2a3d2f3e5",
+        "observation": "两骑行者同向沿弯道行驶，左侧有对向车接近；只能解释为跟随，不许可超车。"
+      },
+      {
+        "path": "HazardAtSideLaneTwoWays/Town12_Rep0_2991_0_route0_01_10_04_37_08/rgb/0067.jpg",
+        "frame": 67,
+        "sha256": "7bbb3cabf04bcec4287dc2c7e55239a61f2c922e3df6963a282fc94b164d8373",
+        "observation": "两骑行者同向沿弯道行驶，左侧有对向车接近；只能解释为跟随，不许可超车。"
+      }
+    ]
+  },
+  "risk_impact": {
+    "2": {
+      "related_rows": {
+        "train": 268,
+        "val": 0,
+        "test": 0,
+        "review_queue": 0
+      },
+      "overlaps": [
+        {
+          "split": "train",
+          "id": "cfe5c817601cd016be85e281c1f5519b56643b52dd0b0113f27ec5645b1f605a",
+          "basis": "weak_rule_teacher",
+          "event": "U-E1",
+          "edge": "hold",
+          "target": "YES",
+          "frame": 67,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "787bb6c996cd52a26727cf006b3ed962fcb5758bc83f6e225d8f48d9c055bcc3",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 61,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "fb2bab53b6f647e0742eb759125be0ec11be1524ce4e60406229f2394a2d381e",
+          "basis": "weak_rule_teacher",
+          "event": "U-E1",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 68,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "e50742963042ac8635fa9c46c4575d363ea860c26f67183b161223bad98ea50b",
+          "basis": "weak_rule_teacher",
+          "event": "U-E1",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 67,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "23ce51c3f967a192a5dd0dc5d2cf8f5d88697b8c1998c938a09ddcfff65e9091",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 94,
+          "risk_ids": [
+            "7d8cd6cffc7170c70ba0da7057091442a2b0424b3190249c58a9d38d6a61aeeb"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "7dc0f633e472cb18a129128ff9e99914a3983986742edf38d293743fab776e73",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "hold",
+          "target": "YES",
+          "frame": 94,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "c09d4703066084bea8ee90bee08f53edfbc54e2e3a84702f41b490e9fc5a0e1c",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 95,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "e451ea3c14c3cbb0668a19536c3af61a575a5610cf5a23dee642f3e9f79125af",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 96,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "30ce5820ebaa579186b3ebe2af37b39457af407271ab8ed7461d384e9be0b0f2",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 107,
+          "risk_ids": [
+            "da73e76b06390fbb6a44f268e3c9efb0882e7182f90055c2ee99bce66f21dded"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "986f44469542ce78372f8bd26c1a0ee93459464a62daa1b791ebea24614cae1b",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 97,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "762eeeb4de153241b48940b5762151739e4bd2fdb7e49babb33804d81685846a",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 94,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        }
+      ]
+    },
+    "4": {
+      "related_rows": {
+        "train": 268,
+        "val": 0,
+        "test": 0,
+        "review_queue": 0
+      },
+      "overlaps": [
+        {
+          "split": "train",
+          "id": "cfe5c817601cd016be85e281c1f5519b56643b52dd0b0113f27ec5645b1f605a",
+          "basis": "weak_rule_teacher",
+          "event": "U-E1",
+          "edge": "hold",
+          "target": "YES",
+          "frame": 67,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "787bb6c996cd52a26727cf006b3ed962fcb5758bc83f6e225d8f48d9c055bcc3",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 61,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "e50742963042ac8635fa9c46c4575d363ea860c26f67183b161223bad98ea50b",
+          "basis": "weak_rule_teacher",
+          "event": "U-E1",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 67,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "fb2bab53b6f647e0742eb759125be0ec11be1524ce4e60406229f2394a2d381e",
+          "basis": "weak_rule_teacher",
+          "event": "U-E1",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 68,
+          "risk_ids": [
+            "f4d867a1f8b495bede0bc40ef5a59f9820630e6354f6e2bcde422d62f4e9d165"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "23ce51c3f967a192a5dd0dc5d2cf8f5d88697b8c1998c938a09ddcfff65e9091",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 94,
+          "risk_ids": [
+            "7d8cd6cffc7170c70ba0da7057091442a2b0424b3190249c58a9d38d6a61aeeb"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "7dc0f633e472cb18a129128ff9e99914a3983986742edf38d293743fab776e73",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "hold",
+          "target": "YES",
+          "frame": 94,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "762eeeb4de153241b48940b5762151739e4bd2fdb7e49babb33804d81685846a",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 94,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "986f44469542ce78372f8bd26c1a0ee93459464a62daa1b791ebea24614cae1b",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 97,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "30ce5820ebaa579186b3ebe2af37b39457af407271ab8ed7461d384e9be0b0f2",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 107,
+          "risk_ids": [
+            "da73e76b06390fbb6a44f268e3c9efb0882e7182f90055c2ee99bce66f21dded"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "e451ea3c14c3cbb0668a19536c3af61a575a5610cf5a23dee642f3e9f79125af",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 96,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        },
+        {
+          "split": "train",
+          "id": "c09d4703066084bea8ee90bee08f53edfbc54e2e3a84702f41b490e9fc5a0e1c",
+          "basis": "weak_rule_teacher",
+          "event": "U-E4",
+          "edge": "proceed",
+          "target": "NO",
+          "frame": 95,
+          "risk_ids": [
+            "d3d464d2e2074c93705b2aaf63c5f13241b0e9987617eca439bf4aab7dba5837"
+          ]
+        }
+      ]
+    }
+  },
+  "split": {
+    "routes": 8614,
+    "rgb_frames": 1062401,
+    "split_routes": {
+      "train": 7268,
+      "val": 658,
+      "test": 688
+    },
+    "discovered_routes": 9712,
+    "excluded_routes": 1098,
+    "exclusion_reasons": {
+      "abnormal_duration": 963,
+      "missing_all_metas": 135
+    },
+    "excluded_split_routes": {
+      "train": 898,
+      "test": 93,
+      "val": 107
+    }
+  },
+  "remaining_formal_gaps": {
+    "U-E1/release": 1,
+    "U-E2/depart": 1,
+    "U-E2/return": 1,
+    "U-E2/release": 1,
+    "U-E3/release": 1,
+    "U-E4/release": 1,
+    "U-E5/proceed": 1,
+    "U-E5/release": 1,
+    "U-E6/release": 1,
+    "U-E7/proceed": 1,
+    "U-E7/release": 1,
+    "R-E2/enter": 1,
+    "R-E2/release": 1,
+    "R-E3/enter": 1,
+    "R-E3/release": 1,
+    "R-E5/proceed": 1,
+    "R-E5/release": 1
+  },
+  "mode_pairing": {
+    "exclusive_questions": {
+      "2": 8141,
+      "4": 8142
+    },
+    "paired_training_pool": false,
+    "reason": "per-route selection order depends on question_id including mode and teacher hash"
+  },
+  "independent_rule_approvals": 0,
+  "gpu_training": false,
+  "carla_validation": false
+}

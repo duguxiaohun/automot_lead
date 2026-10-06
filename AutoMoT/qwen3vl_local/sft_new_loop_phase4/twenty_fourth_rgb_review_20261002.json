@@ -1,0 +1,529 @@
+{
+  "reviewed_routes": [
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "physical_group": "HardBreakRoute/Town13_1030_0",
+      "frames": [
+        {
+          "frame": 63,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0063.jpg",
+          "sha256": "9b96fa27c1ee5860c6b4862b3b3c141b7b8a8d513eee21a19cb9bd47351da39c"
+        },
+        {
+          "frame": 64,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0064.jpg",
+          "sha256": "304e14a53742d720c94b1aa2adf70d42a34f374805823290329dca2eabb8e160"
+        },
+        {
+          "frame": 65,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0065.jpg",
+          "sha256": "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f"
+        },
+        {
+          "frame": 66,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0066.jpg",
+          "sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b"
+        },
+        {
+          "frame": 67,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0067.jpg",
+          "sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40"
+        },
+        {
+          "frame": 68,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame": 69,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0069.jpg",
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame": 70,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0070.jpg",
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        },
+        {
+          "frame": 71,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0071.jpg",
+          "sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+        },
+        {
+          "frame": 72,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0072.jpg",
+          "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+        },
+        {
+          "frame": 73,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0073.jpg",
+          "sha256": "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03"
+        },
+        {
+          "frame": 74,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0074.jpg",
+          "sha256": "6c7925eee07b0ca8b547458d97609d919fd8bc170605842a83c928899aaf78df"
+        },
+        {
+          "frame": 75,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0075.jpg",
+          "sha256": "edcbd33302831d3e84305fc1a2c627c959b2d842126be5405f31ab7f8ce3ccd5"
+        },
+        {
+          "frame": 76,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0076.jpg",
+          "sha256": "37dc6fde50ca77514cb846d1f9e8ca7f9dc1a64397241b028c8af1db36616cad"
+        },
+        {
+          "frame": 77,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0077.jpg",
+          "sha256": "238b492f81bc1097e88f55a66797b35f2c427e75250b911c28886ee88ed40ba4"
+        },
+        {
+          "frame": 78,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0078.jpg",
+          "sha256": "1bd92a32f30052b2746277ad8c744e851df14be649ed37c4ef3fc6b0866fa584"
+        },
+        {
+          "frame": 79,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0079.jpg",
+          "sha256": "a5600dd4c3140bf96e35b14df7196fc803f82e0f9fc30d63e31277bacc9bf7f1"
+        },
+        {
+          "frame": 80,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0080.jpg",
+          "sha256": "7137b6b96932ddb9af2088ae770d60455e839eda26f5c006acd3d5caf513f7ad"
+        },
+        {
+          "frame": 81,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0081.jpg",
+          "sha256": "ec09f4b43906e48de6e7cd1f4b03ecdce764081c27165fa3c764106bb897fed6"
+        },
+        {
+          "frame": 82,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0082.jpg",
+          "sha256": "31406dd041be4101b7eea59c331799c2346bd855d49ac2a32c0faae26a26262a"
+        },
+        {
+          "frame": 83,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0083.jpg",
+          "sha256": "6134e4e16059c8fca9630aa3c3d554e060c5f11dd459f56be5fc8a75d7a68ad0"
+        },
+        {
+          "frame": 84,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0084.jpg",
+          "sha256": "cef9270d745f901aec050904f2be7e2f5a865af7d17e7de4480ea7a7cb7f67a5"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "physical_group": "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+      "frames": [
+        {
+          "frame": 41,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0041.jpg",
+          "sha256": "192b492bc182aeb9c67c1d578511b5d458461edc42de804eed719e02ea502cc3"
+        },
+        {
+          "frame": 42,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0042.jpg",
+          "sha256": "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0"
+        },
+        {
+          "frame": 43,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0043.jpg",
+          "sha256": "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406"
+        },
+        {
+          "frame": 44,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0044.jpg",
+          "sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97"
+        },
+        {
+          "frame": 45,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0045.jpg",
+          "sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b"
+        },
+        {
+          "frame": 46,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0046.jpg",
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame": 47,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0047.jpg",
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        },
+        {
+          "frame": 48,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0048.jpg",
+          "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+        },
+        {
+          "frame": 49,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0049.jpg",
+          "sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6"
+        },
+        {
+          "frame": 50,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0050.jpg",
+          "sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+        },
+        {
+          "frame": 51,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0051.jpg",
+          "sha256": "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe"
+        },
+        {
+          "frame": 52,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0052.jpg",
+          "sha256": "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5"
+        },
+        {
+          "frame": 53,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0053.jpg",
+          "sha256": "610124a145a7eba709219c34b846f18c5d2d834ae311fab391d6703a314dca31"
+        },
+        {
+          "frame": 54,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0054.jpg",
+          "sha256": "e3017c58c0e5c41c7f280469b8fc945359d53d9c312b317bfca055c6dd06107e"
+        },
+        {
+          "frame": 55,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0055.jpg",
+          "sha256": "0fbcb05ed7284968ec1f7c94c95dadc207c971a7dabedee589dc04f6bfa4040b"
+        },
+        {
+          "frame": 56,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0056.jpg",
+          "sha256": "039e07e326eddf7d9aff66560321cacc8e30dc18a715aa98ef76753b69d109fd"
+        },
+        {
+          "frame": 57,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0057.jpg",
+          "sha256": "16e0f3dfca82dae8466f80a06d1a7d8f342d91ea5c8e729f3c614aeeb5967c97"
+        },
+        {
+          "frame": 58,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0058.jpg",
+          "sha256": "75378ef89656532a90dd30d5cf473b2642fb01b81cb582e79eec64bea760537d"
+        },
+        {
+          "frame": 59,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0059.jpg",
+          "sha256": "4ae3b43932ac2470817ade5c918e2742688ee106e805b84ae84d1b32798dbc26"
+        },
+        {
+          "frame": 60,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0060.jpg",
+          "sha256": "deac22986377ed2af6bd02d584b4a0eda40d1906c53bef1d859cd0e48e4ecb57"
+        },
+        {
+          "frame": 61,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0061.jpg",
+          "sha256": "d8d0fb69dcf235c94da73851a7bbb7958559b6bbf61af9189621fbbbbe60f924"
+        },
+        {
+          "frame": 62,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0062.jpg",
+          "sha256": "e005c74d595c933d99575a30140f8f6884e68cbfa066c4eaa3cf6ba31990e517"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21",
+      "physical_group": "DynamicObjectCrossing/Town03_Town03_Scenario3_16",
+      "frames": [
+        {
+          "frame": 51,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21/rgb/0051.jpg",
+          "sha256": "528396ce619314b6d64bc5702c10c8f6306ba2ce53e794c184b6f0c348ebf120"
+        },
+        {
+          "frame": 52,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21/rgb/0052.jpg",
+          "sha256": "5eb32ab01330e5afd5e4dc347946a2eb7f18b2a1c99eec7d480857fa450b493c"
+        },
+        {
+          "frame": 53,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21/rgb/0053.jpg",
+          "sha256": "2b02e4909828082c2e899ad7746a77467b75cce84fc200bc4d28ba8d4c6d04e4"
+        },
+        {
+          "frame": 54,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21/rgb/0054.jpg",
+          "sha256": "76783d942e86c8e6923e6920449d768060b4088404395d11a0c1be2ff34af5b4"
+        },
+        {
+          "frame": 55,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21/rgb/0055.jpg",
+          "sha256": "aa55af74f9111e953672ac675a190eeded04e9d6459e8b1328faaeb57f8dd819"
+        }
+      ]
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1150_0_route0_01_09_20_35_02",
+      "physical_group": "InvadingTurn/Town12_1150_0",
+      "frames": [
+        {
+          "frame": 151,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0151.jpg",
+          "sha256": "4d731cbfc94cd7672047c7860b9a43e207fcf0d55c13c14ce6edb1aa414a60ef"
+        },
+        {
+          "frame": 152,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0152.jpg",
+          "sha256": "9132526b07fe2d034b29983dd8a1899a8d1dbc66ce3ae75c7a2f82a6212d80ce"
+        },
+        {
+          "frame": 153,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0153.jpg",
+          "sha256": "42f4c875441e6bdedad76ba035aa6d16f43837c5d9301acc4fa843de921a2709"
+        },
+        {
+          "frame": 154,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0154.jpg",
+          "sha256": "b50a11067cbb21d7c05c21549462ded3732be43ef94b45a65b76e7f78389acea"
+        },
+        {
+          "frame": 155,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0155.jpg",
+          "sha256": "1f1da036f112319e16bdefdf5abb0b477010bc3254dd0b9558ac13782e5a27db"
+        },
+        {
+          "frame": 240,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0240.jpg",
+          "sha256": "c38cda357fe16faaaf6234cb20487b2c9f167ef91fe06b01b390d30edb0a1248"
+        },
+        {
+          "frame": 241,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0241.jpg",
+          "sha256": "ca5a354ac57ee38d8959e4de194e78fb7ba8aeb919981928e917cbea606ae1f7"
+        },
+        {
+          "frame": 242,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0242.jpg",
+          "sha256": "719683e9eee8b83036b040a3d9a31e17e10f62b93265e0d6c0542315524dd6ae"
+        },
+        {
+          "frame": 243,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0243.jpg",
+          "sha256": "b9b9ea51cb98dc4ad6ce245743d26359ae8d952472b9ec24530eebb99e503cac"
+        },
+        {
+          "frame": 244,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0244.jpg",
+          "sha256": "74605ff70840e91e6a53602a5737ea1159039a373178957a410bad700b894be1"
+        },
+        {
+          "frame": 245,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0245.jpg",
+          "sha256": "4db5370159e3832bc4f2694060be6251ed16f93199a4a2014b80e7c229dce722"
+        },
+        {
+          "frame": 246,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0246.jpg",
+          "sha256": "8ec681ad80f505cab254c2a094414fa12d5b19f9bc26194ab1d870747878ac75"
+        },
+        {
+          "frame": 247,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0247.jpg",
+          "sha256": "f627c0226070d90dd91cfb63d54d7b5ce8fb3316b6cb19157eef30d77d7b0ad7"
+        },
+        {
+          "frame": 248,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0248.jpg",
+          "sha256": "6ade0a891a47b94cba60e4dc5f72a5ac4b5a98e94ccb55750287a3e06f8d298e"
+        },
+        {
+          "frame": 249,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0249.jpg",
+          "sha256": "87a93a8998bd08601f6446f77a100eee130a1c77d46da619c0ea744aad98afd6"
+        },
+        {
+          "frame": 250,
+          "path": "InvadingTurn/Town12_Rep0_1150_0_route0_01_09_20_35_02/rgb/0250.jpg",
+          "sha256": "d9bcd66d27ce2320c6bcae7ac21b094214987a81262f2c688b0a9ab2a0d5cbb3"
+        }
+      ]
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_002000_route0_01_09_12_27_42",
+      "physical_group": "ConstructionObstacle/Town04_route_002000",
+      "frames": [
+        {
+          "frame": 27,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0027.jpg",
+          "sha256": "81a41f72df5e542ddef3198d0b1ca2e64c05bfac5018d2e7bac15d9930a07e53"
+        },
+        {
+          "frame": 28,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0028.jpg",
+          "sha256": "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56"
+        },
+        {
+          "frame": 29,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0029.jpg",
+          "sha256": "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519"
+        },
+        {
+          "frame": 30,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0030.jpg",
+          "sha256": "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa"
+        },
+        {
+          "frame": 31,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0031.jpg",
+          "sha256": "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7"
+        },
+        {
+          "frame": 32,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0032.jpg",
+          "sha256": "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6"
+        },
+        {
+          "frame": 33,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0033.jpg",
+          "sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+        },
+        {
+          "frame": 34,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0034.jpg",
+          "sha256": "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c"
+        }
+      ]
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_route_000839_route0_01_08_10_26_04",
+      "physical_group": "HighwayExit/Town13_route_000839",
+      "frames": [
+        {
+          "frame": 38,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0038.jpg",
+          "sha256": "25fc1274414593c3fbaf5b793f02ec66f148ba04bf78aecadcf52f4fd2b08c7f"
+        },
+        {
+          "frame": 39,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0039.jpg",
+          "sha256": "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c"
+        },
+        {
+          "frame": 40,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0040.jpg",
+          "sha256": "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b"
+        },
+        {
+          "frame": 41,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0041.jpg",
+          "sha256": "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1"
+        },
+        {
+          "frame": 42,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0042.jpg",
+          "sha256": "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799"
+        },
+        {
+          "frame": 43,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0043.jpg",
+          "sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc"
+        },
+        {
+          "frame": 44,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0044.jpg",
+          "sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+        },
+        {
+          "frame": 45,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0045.jpg",
+          "sha256": "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17"
+        },
+        {
+          "frame": 46,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0046.jpg",
+          "sha256": "6c67d3688355e0cce6b7ab11dc6ec560ed64380887503bbda315ca5e730a88d9"
+        },
+        {
+          "frame": 47,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0047.jpg",
+          "sha256": "e1e694845fd7ec7128c9bfbcb15c60a0dfc04f0e64c371edb1694ae23e416044"
+        },
+        {
+          "frame": 48,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0048.jpg",
+          "sha256": "395674fdd02ae407517e152cc73ff7d24918ca9d4fea679f2df9b2c60e2ff08d"
+        }
+      ]
+    }
+  ],
+  "unique_rgb": 84,
+  "contact_sheets": 20,
+  "original_rgb_rechecks": 4,
+  "complete_sequences": 0,
+  "train_only_groups": [
+    "ConstructionObstacle/Town04_route_002000",
+    "DynamicObjectCrossing/Town03_Town03_Scenario3_16",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+    "HardBreakRoute/Town13_1030_0",
+    "HighwayExit/Town13_route_000839",
+    "InvadingTurn/Town12_1150_0"
+  ],
+  "new_exposure_groups": [],
+  "reserved_routes_viewed": 0,
+  "seam_review": [
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame": 55,
+      "walker_id": 140,
+      "walker_count": 1,
+      "projections": [
+        {
+          "camera": "1",
+          "panorama_center_x": 367.8977429754624
+        },
+        {
+          "camera": "2",
+          "panorama_center_x": 392.2972406099309
+        }
+      ],
+      "interpretation": "same actor projects to left/front overlap across x=384; not evidence of duplicate scene actors"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_16_route0_01_09_05_32_21",
+      "frame": 53,
+      "walker_id": 112,
+      "walker_count": 1,
+      "projections": [
+        {
+          "camera": "1",
+          "panorama_center_x": 378.8293134617602
+        },
+        {
+          "camera": "2",
+          "panorama_center_x": 404.49407134718217
+        }
+      ],
+      "interpretation": "same actor projects to left/front overlap across x=384; not evidence of duplicate scene actors"
+    }
+  ],
+  "reported_cumulative_full": 13,
+  "reported_cumulative_partial_approx": 14,
+  "coverage_recomputed": false,
+  "inherited_remaining_sequences": 240,
+  "findings": [
+    "UE1 moving-away lead before stable following; labels based on current RGB conditions, not ego motion onset.",
+    "Town07 walker local corridor cleared at f50; next junction is a separate constraint.",
+    "InvadingTurn f151 first actor group passes; f240–250 has new crossing and oncoming vehicles, not one continuous old instance.",
+    "CO1 f33–34 visible right-gap blocking gives new-scope depart NO.",
+    "HX1 f44–45 local forward left exit branch visible conditions reviewed; far fog and rear safety not certified."
+  ]
+}

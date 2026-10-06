@@ -1,0 +1,414 @@
+{
+  "train_only_groups": [
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_10",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_23",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_26",
+    "InterurbanActorFlow/Town13_1294_4",
+    "InterurbanActorFlow/Town13_1304_11",
+    "InterurbanActorFlow/Town13_1304_21",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002776",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002784",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002791",
+    "ParkedObstacle/Town12_146_1",
+    "ParkedObstacle/Town12_2514_0",
+    "ParkedObstacle/Town12_676_0",
+    "PedestrianCrossing/Town12_171_1",
+    "PedestrianCrossing/Town12_2679_1",
+    "PedestrianCrossing/Town12_2858_0"
+  ],
+  "selected_routes": [
+    {
+      "audit_id": "UE2a",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_146_1_route0_01_09_05_52_22",
+      "physical_group": "ParkedObstacle/Town12_146_1",
+      "rendered_frames": 98,
+      "review_status": "reported_full_sequence"
+    },
+    {
+      "audit_id": "UE2b",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_676_0_route0_01_08_10_05_59",
+      "physical_group": "ParkedObstacle/Town12_676_0",
+      "rendered_frames": 118,
+      "review_status": "reported_full_sequence"
+    },
+    {
+      "audit_id": "UE2c",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_2514_0_route0_01_10_18_44_46",
+      "physical_group": "ParkedObstacle/Town12_2514_0",
+      "rendered_frames": 180,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "UE3a",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_23",
+      "rendered_frames": 228,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "UE3b",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_26_route0_01_10_03_50_33",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_26",
+      "rendered_frames": 175,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "UE3c",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_10",
+      "rendered_frames": 180,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "UE4a",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_2858_0_route0_01_10_17_19_14",
+      "physical_group": "PedestrianCrossing/Town12_2858_0",
+      "rendered_frames": 135,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "UE4b",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_2679_1_route0_01_09_23_48_12",
+      "physical_group": "PedestrianCrossing/Town12_2679_1",
+      "rendered_frames": 129,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "UE4c",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_171_1_route0_01_10_22_21_19",
+      "physical_group": "PedestrianCrossing/Town12_171_1",
+      "rendered_frames": 342,
+      "review_status": "rendered_not_reviewed"
+    },
+    {
+      "audit_id": "RE2a",
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1304_11_route0_01_09_04_44_11",
+      "physical_group": "InterurbanActorFlow/Town13_1304_11",
+      "rendered_frames": 118,
+      "review_status": "reported_full_sequence"
+    },
+    {
+      "audit_id": "RE2b",
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1304_21_route0_01_10_22_57_43",
+      "physical_group": "InterurbanActorFlow/Town13_1304_21",
+      "rendered_frames": 120,
+      "review_status": "rendered_not_reviewed"
+    },
+    {
+      "audit_id": "RE2c",
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1294_4_route0_01_10_03_53_41",
+      "physical_group": "InterurbanActorFlow/Town13_1294_4",
+      "rendered_frames": 136,
+      "review_status": "rendered_not_reviewed"
+    },
+    {
+      "audit_id": "RE5a",
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town12_Rep0_route_002784_route0_01_09_23_49_29",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002784",
+      "rendered_frames": 131,
+      "review_status": "reported_partial_sequence"
+    },
+    {
+      "audit_id": "RE5b",
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town12_Rep0_route_002776_route0_01_09_03_38_46",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002776",
+      "rendered_frames": 155,
+      "review_status": "rendered_not_reviewed"
+    },
+    {
+      "audit_id": "RE5c",
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town12_Rep0_route_002791_route0_01_10_14_39_42",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002791",
+      "rendered_frames": 164,
+      "review_status": "rendered_not_reviewed"
+    }
+  ],
+  "calibration_risks": [
+    {
+      "audit_id": "UE2a",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_146_1_route0_01_09_05_52_22",
+      "physical_group": "ParkedObstacle/Town12_146_1",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": [
+        "前方白车18→19突变消失，本轮复看两张原图确认。"
+      ],
+      "reported_status": "original_rgb_rechecked",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 18,
+          "path": "ParkedObstacle/Town12_Rep0_146_1_route0_01_09_05_52_22/rgb/0018.jpg",
+          "sha256": "85eb55250111d80bc4c01ac72c80bc6da0bbe686930696480e894886d7d1c0c3"
+        },
+        {
+          "frame": 19,
+          "path": "ParkedObstacle/Town12_Rep0_146_1_route0_01_09_05_52_22/rgb/0019.jpg",
+          "sha256": "2319cf1446ed92e63d5ff590d7ef41a8423ce2a918ff1b1da1cc4f2ddbcb2abf"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE4a",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_2858_0_route0_01_10_17_19_14",
+      "physical_group": "PedestrianCrossing/Town12_2858_0",
+      "kind": "unconfirmed_visibility_or_instance_risk",
+      "reported_observations": [
+        "前车疑似消失，尚未原图确认；另有STOP让行与源UE4实例身份疑问。"
+      ],
+      "reported_status": "reported_pending_original_rgb_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "PedestrianCrossing/Town12_Rep0_2858_0_route0_01_10_17_19_14/rgb/0017.jpg",
+          "sha256": "2b024346d1fec9fc9b08c3c8ad41cc3b3242a91cedf38ad36313dffc5050ad4a"
+        },
+        {
+          "frame": 18,
+          "path": "PedestrianCrossing/Town12_Rep0_2858_0_route0_01_10_17_19_14/rgb/0018.jpg",
+          "sha256": "632da577990824423880cf80c37634638a1191af4d606b5b190909343af15bbb"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE3a",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_23",
+      "kind": "unconfirmed_visibility_or_instance_risk",
+      "reported_observations": [
+        "行人离开画面，待排除自然出画；源UE3早于车辆可见。"
+      ],
+      "reported_status": "reported_pending_original_rgb_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 160,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0160.jpg",
+          "sha256": "98bc2224a13d2bc24a54e94431a02d393d28d15070aaa2bde2831086657e0e79"
+        },
+        {
+          "frame": 161,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0161.jpg",
+          "sha256": "c8d7fba3b3f75a062cd467855d5d838ffe0187fa7d90754c4d3ebd3c47b6a09d"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE3c",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_10",
+      "kind": "unconfirmed_visibility_or_instance_risk",
+      "reported_observations": [
+        "行人消失可能为车辆遮挡，未原图确认；源UE3与实际切入区间不一致。"
+      ],
+      "reported_status": "reported_pending_original_rgb_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 129,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36/rgb/0129.jpg",
+          "sha256": "feb88a9f12f020650ba9e9cf3d2d1366ec75e6fd4e65b3bf1329f0c930e65a43"
+        },
+        {
+          "frame": 130,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36/rgb/0130.jpg",
+          "sha256": "48e52b94fd06ccf577df82b3a3fcda0f6cfda80d7997677a76748bf9d46d2f29"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE2b",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_676_0_route0_01_08_10_05_59",
+      "physical_group": "ParkedObstacle/Town12_676_0",
+      "kind": "observability_or_instance_scope_risk",
+      "reported_observations": [
+        "后侧来车进入前向视野之前不可观察；障碍旁还有行人。"
+      ],
+      "reported_status": "reported_requires_causal_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 49,
+          "path": "ParkedObstacle/Town12_Rep0_676_0_route0_01_08_10_05_59/rgb/0049.jpg",
+          "sha256": "0ac1c341bebc8cc685a65d94dfb201d49d3e749449339195e341ecda2caff298"
+        },
+        {
+          "frame": 50,
+          "path": "ParkedObstacle/Town12_Rep0_676_0_route0_01_08_10_05_59/rgb/0050.jpg",
+          "sha256": "2abe26cc6ccf1a1d333ddf20fd6a557c98e392f75757b2cf683ab47eecfd79e0"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE2c",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_2514_0_route0_01_10_18_44_46",
+      "physical_group": "ParkedObstacle/Town12_2514_0",
+      "kind": "observability_or_instance_scope_risk",
+      "reported_observations": [
+        "极暗夜及后侧来车不可见，另有从车位驶出的车辆。"
+      ],
+      "reported_status": "reported_requires_causal_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 120,
+          "path": "ParkedObstacle/Town12_Rep0_2514_0_route0_01_10_18_44_46/rgb/0120.jpg",
+          "sha256": "1459902b0d0993c45bc69de5d11235b16821cf084dce1fbd39ae74eafb9e5d7d"
+        },
+        {
+          "frame": 121,
+          "path": "ParkedObstacle/Town12_Rep0_2514_0_route0_01_10_18_44_46/rgb/0121.jpg",
+          "sha256": "014f678f78db24dd442fa407b8f91c5dafb4c69b61572eb33c7c0ddbb0638a13"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE3b",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_26_route0_01_10_03_50_33",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_26",
+      "kind": "observability_or_instance_scope_risk",
+      "reported_observations": [
+        "行人仍在路面但可能已不阻挡；源UE3身份与边界待复核，不能按源标签自动计覆盖。"
+      ],
+      "reported_status": "reported_requires_causal_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 116,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_26_route0_01_10_03_50_33/rgb/0116.jpg",
+          "sha256": "ae56a69df4e279bdfe4f7d6df02553f358d80339488f4f6fc0c902f346b997eb"
+        },
+        {
+          "frame": 118,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_26_route0_01_10_03_50_33/rgb/0118.jpg",
+          "sha256": "976f5eaf70bf2e0efe8f018bbaf111de43e3adfe26323eea411a3778851a7174"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "UE4b",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_2679_1_route0_01_09_23_48_12",
+      "physical_group": "PedestrianCrossing/Town12_2679_1",
+      "kind": "observability_or_instance_scope_risk",
+      "reported_observations": [
+        "远处行人尺寸小，需实际处理器分辨率与模型识别验证。"
+      ],
+      "reported_status": "reported_requires_causal_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 44,
+          "path": "PedestrianCrossing/Town12_Rep0_2679_1_route0_01_09_23_48_12/rgb/0044.jpg",
+          "sha256": "b72bdb1a94c5cfd10daff3dddca4cff8eeee6df7f1623f1b61c6f2080c9015bb"
+        },
+        {
+          "frame": 56,
+          "path": "PedestrianCrossing/Town12_Rep0_2679_1_route0_01_09_23_48_12/rgb/0056.jpg",
+          "sha256": "7d8789b5662352bb87cf07b616cfee4a624253273bd024e6f57439ac8f1fa6cd"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "RE2a",
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1304_11_route0_01_09_04_44_11",
+      "physical_group": "InterurbanActorFlow/Town13_1304_11",
+      "kind": "observability_or_instance_scope_risk",
+      "reported_observations": [
+        "专家蠕行越线早于对向冲突解除，不得从起步点生成proceed YES。"
+      ],
+      "reported_status": "reported_requires_causal_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 84,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_11_route0_01_09_04_44_11/rgb/0084.jpg",
+          "sha256": "133436c2b5e9a6d70e332429edfbe30f82305e5e1bd5b1b0d852a6b748a417cc"
+        },
+        {
+          "frame": 86,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_11_route0_01_09_04_44_11/rgb/0086.jpg",
+          "sha256": "9f20d8b66411768c5df82ecf8db6b1f0a5e1bfd162849ea6775da9b7ae26d4c9"
+        },
+        {
+          "frame": 88,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_11_route0_01_09_04_44_11/rgb/0088.jpg",
+          "sha256": "1ddd423f3d93da811cf9aba1fbbb0f59bd366f745d0e4206d7445230b4147580"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "audit_id": "RE5a",
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town12_Rep0_route_002784_route0_01_09_23_49_29",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town12_route_002784",
+      "kind": "observability_or_instance_scope_risk",
+      "reported_observations": [
+        "雨夜极暗，源R-E5整段标注不能当实例边界。"
+      ],
+      "reported_status": "reported_requires_causal_review",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 48,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002784_route0_01_09_23_49_29/rgb/0048.jpg",
+          "sha256": "405f88dc5b84b710571cb768822878e26eda5794c0c4de31ce6bacdef42c336c"
+        },
+        {
+          "frame": 56,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town12_Rep0_route_002784_route0_01_09_23_49_29/rgb/0056.jpg",
+          "sha256": "862eb3b4eb36867f1bb41f13ec6183273decbd1af7e7854ef9e2bdff5512be09"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    }
+  ],
+  "source_report": {
+    "path": "/tmp/phase4_audit20_20261001/notes.md",
+    "sha256": "bb7f653fa7b7e8a8734a0e92b5904a2119033ed30abbb1dc5bc1f532308abb13"
+  },
+  "audit_accounting": {
+    "reported_new_full_sequences": 3,
+    "reported_partial_sequences": 7,
+    "rendered_not_reviewed": 5,
+    "this_change_full_sequences_reviewed": 0,
+    "this_change_original_rgb_rechecked": 2,
+    "inherited_coverage_cells": 192,
+    "total_cells": 278,
+    "inherited_remaining_sequences": 240,
+    "coverage_recomputed": false
+  },
+  "training_labels_added": 0
+}

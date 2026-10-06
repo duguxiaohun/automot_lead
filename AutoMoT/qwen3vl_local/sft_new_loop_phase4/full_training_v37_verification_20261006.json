@@ -1,0 +1,2982 @@
+{
+  "version": "v37",
+  "acceptance": {
+    "utc": "2026-10-06T15:38:44Z",
+    "contract_sha256": "682c7a1faac63cb8e1cd636ebde91fca0661191231dd579143889fe9da3971c6",
+    "checks": {
+      "paired_schedule": {
+        "exit_code": 0,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "/tmp/phase4_v37_work/verify_pairs.py"
+        ]
+      },
+      "paired_preflight2": {
+        "exit_code": 0,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data2",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data4",
+          "--sampling-policy",
+          "full_event_equal",
+          "--require-trainable"
+        ]
+      },
+      "budget10000_2": {
+        "exit_code": 2,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data2",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data4",
+          "--epoch-samples",
+          "10000",
+          "--sampling-policy",
+          "full_event_equal",
+          "--require-trainable"
+        ]
+      },
+      "paired_startup2": {
+        "exit_code": 0,
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train_full.sh",
+          "2",
+          "check"
+        ]
+      },
+      "paired_preflight4": {
+        "exit_code": 0,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data4",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data2",
+          "--sampling-policy",
+          "full_event_equal",
+          "--require-trainable"
+        ]
+      },
+      "budget10000_4": {
+        "exit_code": 2,
+        "command": [
+          "/tmp/automot-qwen35-env/bin/python",
+          "-m",
+          "qwen3vl_local.sft_new_loop_phase4.preflight",
+          "--dataset",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data4",
+          "--paired-with",
+          "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v37_full/data2",
+          "--epoch-samples",
+          "10000",
+          "--sampling-policy",
+          "full_event_equal",
+          "--require-trainable"
+        ]
+      },
+      "paired_startup4": {
+        "exit_code": 0,
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train_full.sh",
+          "4",
+          "check"
+        ]
+      },
+      "host": {
+        "exit_code": 2,
+        "command": [
+          "bash",
+          "/home/codon/automot_lead/AutoMoT/qwen3vl_local/sft_new_loop_phase4/train_full.sh",
+          "4",
+          "host-preflight"
+        ]
+      }
+    },
+    "tests": "941 passed in 86.54s (0:01:26)",
+    "blind_cards": 1037,
+    "independent_images_viewed": 0,
+    "gpu_training": false,
+    "carla_validation": false
+  },
+  "datasets": {
+    "2": {
+      "mode": 2,
+      "train": 88986,
+      "training_routes": 1837,
+      "event_pool": {
+        "U-E1": 79304,
+        "U-E5": 35,
+        "U-E7": 28,
+        "R-E2": 32,
+        "U-E2": 44,
+        "U-E3": 21,
+        "U-E4": 9426,
+        "U-E6": 41,
+        "R-E5": 32,
+        "R-E3": 23
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "previous_training_task_ids_preserved": 75489,
+      "new_training_questions": 13497,
+      "teacher_selection": {
+        "max_per_route": 0,
+        "route_budget_excluded": 0,
+        "selection_policy": "semantic_task_order_v1"
+      },
+      "teacher_compilation_counts": {
+        "route_budget_excluded": 0,
+        "considered": 151105,
+        "restriction_seed_tautology": 2533,
+        "duplicate_observable_questions_excluded": 1056,
+        "rule_abstained": 41859,
+        "weak_teacher_train_only": 16592,
+        "moving_proceed_requires_visual_catchup": 366,
+        "known_risk_window_requires_separate_review": 82,
+        "conflicting_observable_questions_excluded": 6,
+        "compiled": 88611
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb": {
+        "manifest_sha256": "f5f9d3f4912675b5cb05a4f96eac591ae1388dd3d7bd6e8367325082a22bc126",
+        "rgb_verified": 89984,
+        "distinct_rgb_files": 94824,
+        "rgb_verification": "all row fingerprints checked; shared files decoded once; no human visual audit"
+      },
+      "world1": [
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 0,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 1,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 2,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 3,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 4,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 5,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 6,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        }
+      ],
+      "world4": [
+        {
+          "epoch": 0,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 1,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 2,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 3,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 4,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 5,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 6,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        }
+      ],
+      "coverage_fraction_every_epoch": 1.0,
+      "stationary_readiness": {
+        "minimum_stationary_yes": 1,
+        "cells": {
+          "U-E1/proceed": {
+            "stationary_yes": 57,
+            "stationary_routes": 48,
+            "manual_stationary_yes": 2,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 15
+          },
+          "U-E1/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 22,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "U-E2/depart": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/return": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E3/proceed": {
+            "stationary_yes": 1,
+            "stationary_routes": 1,
+            "manual_stationary_yes": 1,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 7
+          },
+          "U-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E4/proceed": {
+            "stationary_yes": 1315,
+            "stationary_routes": 269,
+            "manual_stationary_yes": 12,
+            "moving_yes": 11,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 9
+          },
+          "U-E4/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 10,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E6/proceed": {
+            "stationary_yes": 11,
+            "stationary_routes": 2,
+            "manual_stationary_yes": 11,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 13
+          },
+          "U-E6/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "R-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          }
+        },
+        "missing_cells": {
+          "U-E1/release": 1,
+          "U-E2/depart": 1,
+          "U-E2/return": 1,
+          "U-E2/release": 1,
+          "U-E3/release": 1,
+          "U-E4/release": 1,
+          "U-E5/proceed": 1,
+          "U-E5/release": 1,
+          "U-E6/release": 1,
+          "U-E7/proceed": 1,
+          "U-E7/release": 1,
+          "R-E2/enter": 1,
+          "R-E2/release": 1,
+          "R-E3/enter": 1,
+          "R-E3/release": 1,
+          "R-E5/proceed": 1,
+          "R-E5/release": 1
+        },
+        "blocking": false,
+        "warning": "missing stationary readiness YES; moving/catchup samples do not demonstrate release from a stop"
+      },
+      "optimizer_steps_per_epoch_world4_accum8": 24783
+    },
+    "4": {
+      "mode": 4,
+      "train": 88986,
+      "training_routes": 1837,
+      "event_pool": {
+        "U-E1": 79304,
+        "U-E5": 35,
+        "U-E7": 28,
+        "R-E2": 32,
+        "U-E2": 44,
+        "U-E3": 21,
+        "U-E4": 9426,
+        "U-E6": 41,
+        "R-E5": 32,
+        "R-E3": 23
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "previous_training_task_ids_preserved": 75489,
+      "new_training_questions": 13497,
+      "teacher_selection": {
+        "max_per_route": 0,
+        "route_budget_excluded": 0,
+        "selection_policy": "semantic_task_order_v1"
+      },
+      "teacher_compilation_counts": {
+        "route_budget_excluded": 0,
+        "considered": 151105,
+        "restriction_seed_tautology": 2533,
+        "duplicate_observable_questions_excluded": 1056,
+        "rule_abstained": 41859,
+        "weak_teacher_train_only": 16592,
+        "moving_proceed_requires_visual_catchup": 366,
+        "known_risk_window_requires_separate_review": 82,
+        "conflicting_observable_questions_excluded": 6,
+        "compiled": 88611
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb": {
+        "manifest_sha256": "64a5ce883b2137a3818a9787622b5a710d6dd22857b5e9be71523e318627b20e",
+        "rgb_verified": 89984,
+        "distinct_rgb_files": 101206,
+        "rgb_verification": "all row fingerprints checked; shared files decoded once; no human visual audit"
+      },
+      "world1": [
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 0,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 1,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 2,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 3,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 4,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 5,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        },
+        {
+          "policy": "full_pool_event_equal_v1",
+          "epoch": 6,
+          "seed": 20260929,
+          "world_size": 1,
+          "presentations": 793040,
+          "per_event_quota": 79304,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "unique_questions": 88986,
+          "unique_frames": 83546,
+          "max_frame_repeat": 3777,
+          "max_question_repeat": 3777,
+          "minimum_full_pool_budget": 793040,
+          "coverage_scope": "every admitted training question each epoch; exact event presentation equality",
+          "repetition_policy": "explicit full mode; small-pool question/frame repeat caps do not apply",
+          "event_repetition": {
+            "R-E2": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "R-E3": {
+              "pool": 23,
+              "presentations": 79304,
+              "min_question_repeat": 3448,
+              "max_question_repeat": 3448
+            },
+            "R-E5": {
+              "pool": 32,
+              "presentations": 79304,
+              "min_question_repeat": 2478,
+              "max_question_repeat": 2479
+            },
+            "U-E1": {
+              "pool": 79304,
+              "presentations": 79304,
+              "min_question_repeat": 1,
+              "max_question_repeat": 1
+            },
+            "U-E2": {
+              "pool": 44,
+              "presentations": 79304,
+              "min_question_repeat": 1802,
+              "max_question_repeat": 1803
+            },
+            "U-E3": {
+              "pool": 21,
+              "presentations": 79304,
+              "min_question_repeat": 3776,
+              "max_question_repeat": 3777
+            },
+            "U-E4": {
+              "pool": 9426,
+              "presentations": 79304,
+              "min_question_repeat": 8,
+              "max_question_repeat": 9
+            },
+            "U-E5": {
+              "pool": 35,
+              "presentations": 79304,
+              "min_question_repeat": 2265,
+              "max_question_repeat": 2266
+            },
+            "U-E6": {
+              "pool": 41,
+              "presentations": 79304,
+              "min_question_repeat": 1934,
+              "max_question_repeat": 1935
+            },
+            "U-E7": {
+              "pool": 28,
+              "presentations": 79304,
+              "min_question_repeat": 2832,
+              "max_question_repeat": 2833
+            }
+          },
+          "cumulative_unique_questions": 88986,
+          "cumulative_missing_questions": 0,
+          "event_coverage": {
+            "R-E2": {
+              "pool": 32,
+              "seen": 32
+            },
+            "R-E3": {
+              "pool": 23,
+              "seen": 23
+            },
+            "R-E5": {
+              "pool": 32,
+              "seen": 32
+            },
+            "U-E1": {
+              "pool": 79304,
+              "seen": 79304
+            },
+            "U-E2": {
+              "pool": 44,
+              "seen": 44
+            },
+            "U-E3": {
+              "pool": 21,
+              "seen": 21
+            },
+            "U-E4": {
+              "pool": 9426,
+              "seen": 9426
+            },
+            "U-E5": {
+              "pool": 35,
+              "seen": 35
+            },
+            "U-E6": {
+              "pool": 41,
+              "seen": 41
+            },
+            "U-E7": {
+              "pool": 28,
+              "seen": 28
+            }
+          }
+        }
+      ],
+      "world4": [
+        {
+          "epoch": 0,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 1,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 2,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 3,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 4,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 5,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        },
+        {
+          "epoch": 6,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          }
+        }
+      ],
+      "coverage_fraction_every_epoch": 1.0,
+      "stationary_readiness": {
+        "minimum_stationary_yes": 1,
+        "cells": {
+          "U-E1/proceed": {
+            "stationary_yes": 57,
+            "stationary_routes": 48,
+            "manual_stationary_yes": 2,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 15
+          },
+          "U-E1/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 22,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "U-E2/depart": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/return": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E3/proceed": {
+            "stationary_yes": 1,
+            "stationary_routes": 1,
+            "manual_stationary_yes": 1,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 7
+          },
+          "U-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E4/proceed": {
+            "stationary_yes": 1315,
+            "stationary_routes": 269,
+            "manual_stationary_yes": 12,
+            "moving_yes": 11,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 9
+          },
+          "U-E4/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 10,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E6/proceed": {
+            "stationary_yes": 11,
+            "stationary_routes": 2,
+            "manual_stationary_yes": 11,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 13
+          },
+          "U-E6/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "R-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          }
+        },
+        "missing_cells": {
+          "U-E1/release": 1,
+          "U-E2/depart": 1,
+          "U-E2/return": 1,
+          "U-E2/release": 1,
+          "U-E3/release": 1,
+          "U-E4/release": 1,
+          "U-E5/proceed": 1,
+          "U-E5/release": 1,
+          "U-E6/release": 1,
+          "U-E7/proceed": 1,
+          "U-E7/release": 1,
+          "R-E2/enter": 1,
+          "R-E2/release": 1,
+          "R-E3/enter": 1,
+          "R-E3/release": 1,
+          "R-E5/proceed": 1,
+          "R-E5/release": 1
+        },
+        "blocking": false,
+        "warning": "missing stationary readiness YES; moving/catchup samples do not demonstrate release from a stop"
+      },
+      "optimizer_steps_per_epoch_world4_accum8": 24783
+    }
+  },
+  "pairing": {
+    "pairing": {
+      "policy": "paired_causal_training_intersection_v1",
+      "pairs": 88986,
+      "semantic_sha256": "852d61e497e6fef7d3512bd8d13fb1d6dd31cd08ff9efea9c5a00a66ea190619",
+      "exclusions": {},
+      "scope": "training intersection only; full val/test retained; not proof of label accuracy"
+    },
+    "schedules": {
+      "1": [
+        {
+          "epoch": 0,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "4f85e79f03f80d641e1fcd42fdfba9c3f3573220e7ee1896e1891faca1c63a26"
+        },
+        {
+          "epoch": 1,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "5fa85c21a3e55dcb6ba3087a566b23682e947991a01739dc4c0bbaabec616498"
+        },
+        {
+          "epoch": 2,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "aa65319e6e6bb891935ec20dcbfe13be5a879aab2b5b49784f40ac5e9d9db3e7"
+        },
+        {
+          "epoch": 3,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "3ccea043da9ad44f453f05b21d280f518dcd512f0889f27c74726a8af6dbb069"
+        },
+        {
+          "epoch": 4,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "a8dce5e1f10b9d8801a71acbaaf1af9908480a502deeec7792512cb5a1a226b2"
+        },
+        {
+          "epoch": 5,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "4eab79872f6f7cdf138c5eb5e5efba3fea14c2eb29f3aa4913e103472f0d678f"
+        },
+        {
+          "epoch": 6,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "44651ceba02e586947d6dd5e71cc7963d3fbdc24f033b38afcaa0edf56dc02c4"
+        }
+      ],
+      "4": [
+        {
+          "epoch": 0,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "4f85e79f03f80d641e1fcd42fdfba9c3f3573220e7ee1896e1891faca1c63a26"
+        },
+        {
+          "epoch": 1,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "5fa85c21a3e55dcb6ba3087a566b23682e947991a01739dc4c0bbaabec616498"
+        },
+        {
+          "epoch": 2,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "aa65319e6e6bb891935ec20dcbfe13be5a879aab2b5b49784f40ac5e9d9db3e7"
+        },
+        {
+          "epoch": 3,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "3ccea043da9ad44f453f05b21d280f518dcd512f0889f27c74726a8af6dbb069"
+        },
+        {
+          "epoch": 4,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "a8dce5e1f10b9d8801a71acbaaf1af9908480a502deeec7792512cb5a1a226b2"
+        },
+        {
+          "epoch": 5,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "4eab79872f6f7cdf138c5eb5e5efba3fea14c2eb29f3aa4913e103472f0d678f"
+        },
+        {
+          "epoch": 6,
+          "presentations": 793040,
+          "unique_questions": 88986,
+          "event_counts": {
+            "R-E2": 79304,
+            "R-E3": 79304,
+            "R-E5": 79304,
+            "U-E1": 79304,
+            "U-E2": 79304,
+            "U-E3": 79304,
+            "U-E4": 79304,
+            "U-E5": 79304,
+            "U-E6": 79304,
+            "U-E7": 79304
+          },
+          "paired_sequence_sha256": "44651ceba02e586947d6dd5e71cc7963d3fbdc24f033b38afcaa0edf56dc02c4"
+        }
+      ]
+    },
+    "no_training_rows_discarded": true,
+    "full_coverage_each_epoch": true,
+    "evaluation_unchanged": true
+  },
+  "old_v36_artifacts_preserved": true,
+  "user_policy": "full eligible supervision every epoch; strict event presentation 1:1; large repetition explicitly accepted",
+  "no_new_human_labels": true,
+  "actual_rgb_visual_audit_frames": 0,
+  "gpu_training": false,
+  "carla_validation": false
+}

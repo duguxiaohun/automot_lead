@@ -1,0 +1,85 @@
+{
+  "reason": "actually visually reviewed complete sequences this audit; read-only request prevents repository ledger update",
+  "train_only_groups": [
+    "PedestrianCrossing/Town13_1736_0",
+    "PedestrianCrossing/Town13_1757_0"
+  ],
+  "pending_repository_registration": false,
+  "sequences": [
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town13_Rep0_1757_0_route0_01_09_19_25_22",
+      "town": "Town13",
+      "physical_group": "PedestrianCrossing/Town13_1757_0",
+      "previously_exposed": false,
+      "frame_count": 135,
+      "first_frame": 0,
+      "last_frame": 134,
+      "missing_frames": [],
+      "abnormal": false,
+      "events": {
+        "R-E5": {
+          "count": 63,
+          "first": 9,
+          "last": 120
+        },
+        "U-E4": {
+          "count": 32,
+          "first": 31,
+          "last": 62
+        }
+      },
+      "coverage_cells": [
+        [
+          "R-E5",
+          "PedestrianCrossing",
+          "Town13"
+        ]
+      ],
+      "review_status": "complete_sequence_visually_reviewed"
+    },
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town13_Rep0_1736_0_route0_01_10_17_29_58",
+      "town": "Town13",
+      "physical_group": "PedestrianCrossing/Town13_1736_0",
+      "previously_exposed": false,
+      "frame_count": 129,
+      "first_frame": 0,
+      "last_frame": 128,
+      "missing_frames": [],
+      "abnormal": false,
+      "events": {
+        "R-E5": {
+          "count": 62,
+          "first": 11,
+          "last": 113
+        },
+        "U-E4": {
+          "count": 28,
+          "first": 30,
+          "last": 57
+        }
+      },
+      "coverage_cells": [
+        [
+          "R-E5",
+          "PedestrianCrossing",
+          "Town13"
+        ]
+      ],
+      "review_status": "complete_sequence_visually_reviewed"
+    }
+  ],
+  "source": "/tmp/phase4_ninth_audit_20260930/new_exposure_train_only.json",
+  "source_sha256": "af183c4cbac5de18fdf223a82706a7cd41a6b1a7afd0a7bd5bf986b82a9e769a",
+  "reported_coverage": {
+    "complete_sequences": 283,
+    "rgb_frames": 32537,
+    "meets_three_ids": 120,
+    "total_cells": 278,
+    "remaining_selected_sequences": 417,
+    "source_shortfalls": 18,
+    "all_requested_rgb_audit_complete": false
+  }
+}

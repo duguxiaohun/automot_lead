@@ -1,0 +1,1537 @@
+{
+  "version": "rgb_boundary_review_v4_increment",
+  "scope": "Development boundary recheck of four existing candidate bands; no new full-sequence audit",
+  "parent_annotation_sha256": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+  "annotation_sha256": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+  "source_files": {
+    "/tmp/phase4_sixth_audit_20260930/REPORT.md": "9c019f4be5981e69628b57f404c78a2dfbbbf2cf70919db9cff69d8cd2f09bdc",
+    "/tmp/phase4_sixth_audit_20260930/candidate_annotations.json": "b943510d9a570e5ef1592779975bfaeba3b40f258bc32338d53ba16578eafa42",
+    "/tmp/phase4_sixth_audit_20260930/candidate_combined_annotations.json": "6a10dcb0d69b4c49b34a71ce7a31cdc6b64f6d15d6170acaff5562e356caa0cf",
+    "/tmp/phase4_sixth_audit_20260930/visual_notes.json": "7f6d97571751b71eba136e6e53f3121a935b48c884be71b9ae83cbc136036625",
+    "/tmp/phase4_sixth_audit_20260930/coverage_progress.json": "c24145851832e59aa34c8c2532da72ad707651a8838c85962e310a46bd52fb87",
+    "/tmp/phase4_seventh_audit_20260930/REPORT.md": "4963f31d887ed2ff3e3dda3ff0a9c13a313376f05b5cc42cfd8ea4e5a341d73c",
+    "/tmp/phase4_seventh_audit_20260930/candidate_annotations.json": "a27d18f505fc61867d94125f61a88c43e30dc2ab74ad3ea8018622ad636f435e",
+    "/tmp/phase4_seventh_audit_20260930/candidate_combined_annotations.json": "03cbf385af9150cdaece1836390fa1f9a5652746c665e9028614666611db763f",
+    "/tmp/phase4_seventh_audit_20260930/visual_notes.json": "b1f4379e11fedf4c9f37f3061103dc4eabe83bc82a04edde447db6cd3fd0e529",
+    "/tmp/phase4_seventh_audit_20260930/coverage_progress.json": "58067c80f7cde94eae9662a6e70b9b7f0c7bfd9fa9e0479682f36908c675f7b5"
+  },
+  "train_only_groups": [
+    "CrossJunctionDefectTrafficLight/Town13_route_002180",
+    "HardBreakRoute/Town12_1902_0",
+    "ParkingCutIn/Town13_1075_0",
+    "VehicleTurningRoute/Town06_Town06_Scenario4_17"
+  ],
+  "newly_exposed_groups": [],
+  "local_review": {
+    "unique_existing_rgb_frames": 169,
+    "original_resolution_frames": 43,
+    "contact_sheets": 7,
+    "new_complete_sequences": 0,
+    "new_unique_rgb_frames": 0
+  },
+  "reported_full_coverage": {
+    "new_sequences": 10,
+    "new_distinct_rgb": 757,
+    "cumulative_sequences": 238,
+    "cumulative_frames": 27633,
+    "reviewed_cells": 140,
+    "meets_three_ids": 97,
+    "total_cells": 278,
+    "shortfall_cells": 18,
+    "all_requested_rgb_audit_complete": false,
+    "remaining_selected_sequences": 462,
+    "remaining_selected_rgb": 71035
+  },
+  "panels": [
+    {
+      "path": "/tmp/phase4_third_audit_20260929/panels/649/001.jpg",
+      "sha256": "9049ae489f943ed4259af0a5d84f275955aac089d66db72ec8157b851845acdb",
+      "frames": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47
+      ]
+    },
+    {
+      "path": "/tmp/phase4_third_audit_20260929/panels/293/004.jpg",
+      "sha256": "fb172827ad7f43ed09702fa6e9ea22bd44082d1b55d7c0dd5c12acd13dadc0ea",
+      "frames": [
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        119
+      ]
+    },
+    {
+      "path": "/tmp/phase4_third_audit_20260929/panels/293/005.jpg",
+      "sha256": "0cf4fed6fe86701813fdfdaefe6a3ca3728ef1525debf36f28be5d20ad1c75d0",
+      "frames": [
+        120,
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        134,
+        135,
+        136,
+        137,
+        138,
+        139,
+        140,
+        141,
+        142,
+        143
+      ]
+    },
+    {
+      "path": "/tmp/phase4_seventh_audit_20260930/panels/406/001.jpg",
+      "sha256": "3fb8038bd04269cb2f709c62d653b2980424d63d078e7b9fc7a2e66684701a84",
+      "frames": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47
+      ]
+    },
+    {
+      "path": "/tmp/phase4_seventh_audit_20260930/panels/406/002.jpg",
+      "sha256": "3a869e4e9fad33ecdc26b8461e72407d1144fcab39da2ad5470a833a6b3c151d",
+      "frames": [
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69
+      ]
+    },
+    {
+      "path": "/tmp/phase4_seventh_audit_20260930/panels/378/001.jpg",
+      "sha256": "e28e478827d9ffbd1d6d6837d8d79665161ee33676f302baa3acadb99ee8e80c",
+      "frames": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47
+      ]
+    },
+    {
+      "path": "/tmp/phase4_seventh_audit_20260930/panels/378/002.jpg",
+      "sha256": "b10d7670e10e11ba9093008e6f761ea2a491544c741ef10d40124634e16a3929",
+      "frames": [
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0024.jpg",
+      "frame": 24,
+      "sha256": "f17ab36330b878dabb1dcc7dfcff42de32f6a8df2d1497ff321a13b4a92c608b",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0025.jpg",
+      "frame": 25,
+      "sha256": "317709a62ae61d26a4c0d44c1f42f431c462332e678e8dd055c0bd7c7de1d9e2",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0026.jpg",
+      "frame": 26,
+      "sha256": "9d12ab8ccdb42283f22f90da5a8e05b45b2cb2a9af97b287b0e19512b4b2dbac",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0027.jpg",
+      "frame": 27,
+      "sha256": "d90c5468237316dedd6b19596fbb2c6899e2146433620d54c3d0a50412114dd6",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0028.jpg",
+      "frame": 28,
+      "sha256": "d6eae35383cb8cd8d550df152b7da338ec8367d3c8e23a7f56694de604473b41",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0029.jpg",
+      "frame": 29,
+      "sha256": "422ec563137fa01823b13099a95ed1fbeaa275abcb30823ce350c60b9f9d54f3",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0030.jpg",
+      "frame": 30,
+      "sha256": "fff74829d896e3f0085412b5e35acbe2b5abc3ba518073a9b3e8babaf55b785e",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0031.jpg",
+      "frame": 31,
+      "sha256": "731d2a879b104d2c876318cde21b0644c8da3697ec19a30744be9b47607594b0",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0032.jpg",
+      "frame": 32,
+      "sha256": "b5b24d2dd3ce8f0fcc7efae32f88e06ea65447af07abbe544007444e6425dcf8",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0033.jpg",
+      "frame": 33,
+      "sha256": "44ae1a778320689c8c7e421520e830047c4c4d99dd4f1344a31877a78a893d2c",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0034.jpg",
+      "frame": 34,
+      "sha256": "f5fd9fb8f770daf4971c40979b664a27c2e158a14f34cee5af511704cfbdb29f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0035.jpg",
+      "frame": 35,
+      "sha256": "1f10c4e64bdd4a64ceb6052c09c5a927bdaefc42f53380b12e80b808b1855f1c",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0036.jpg",
+      "frame": 36,
+      "sha256": "fc63ed2e8b090a7df99e39b0e37603f084f4c167fc075fbf89416963997d9574",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0037.jpg",
+      "frame": 37,
+      "sha256": "3596512f12e365e679431bfdaec70d3fbf69be8078e363f8a390acfb4db7257d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0038.jpg",
+      "frame": 38,
+      "sha256": "d127f30e79684666d11a4dbe1796abb11f98699faa089fb87a860cf32072592c",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0039.jpg",
+      "frame": 39,
+      "sha256": "d2fa8142dcae6b605e49f6406978be58cb090cd906b52f166f98d86c76214b83",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0040.jpg",
+      "frame": 40,
+      "sha256": "cfc8bab817886a8e1f30f3b05f3d54484c0071341f8f80478e2e2702ec448e6b",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0041.jpg",
+      "frame": 41,
+      "sha256": "f56f1dcacc654734201c1f6027d46b6e7f5eef42759e2a2a9e0320b456b02759",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0042.jpg",
+      "frame": 42,
+      "sha256": "e729da970ad1c9dac2436a27441ae07eeb4038ba369f24cf9fb91dec71171971",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0043.jpg",
+      "frame": 43,
+      "sha256": "2e89a3ba0f8f65047acfda7dcd72c0eda9fbd326f1b6fb883424572acc9e1a6a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0044.jpg",
+      "frame": 44,
+      "sha256": "4b73b0d02365024e45d4846c287186ccc8d1cfac76058f54792c7711e4c928d9",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0045.jpg",
+      "frame": 45,
+      "sha256": "d2255839f49f7a7e7e3c194d57839cc21f243f36a613b11812545df227e9bd36",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0046.jpg",
+      "frame": 46,
+      "sha256": "f7d19ffdcb3a9f0150dca0112c1148729007c97b748333e99111854e8362298d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0047.jpg",
+      "frame": 47,
+      "sha256": "6df49ee7f0da6e2419835ffa7bbde4c4907a9b203434606598bdc2674c360f78",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12/rgb/0018.jpg",
+      "frame": 18,
+      "sha256": "73bf359fb0b903b01a08e74124d1afe1d6ad737dc8a8337218ae04c072a352dd",
+      "view": "original_resolution"
+    },
+    {
+      "rgb": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12/rgb/0019.jpg",
+      "frame": 19,
+      "sha256": "8d4c93c1e8cf31e1b7df97eb410e37a4a5bd95c4a0e6e9ea46363d0e061c1f2c",
+      "view": "original_resolution"
+    },
+    {
+      "rgb": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12/rgb/0020.jpg",
+      "frame": 20,
+      "sha256": "9b703c7273f4d7cb98d087fb85baa8f5efefe8b7d70943a5928fa4ba0f0236c0",
+      "view": "original_resolution"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0096.jpg",
+      "frame": 96,
+      "sha256": "14f99fac84b05c149cab71f4d45dc546a5205573a0fda8578a6782d51437b5bc",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0097.jpg",
+      "frame": 97,
+      "sha256": "6743f65a296df7dd10edf1ef1b9178faac29a304e177e41cac055e470706b712",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0098.jpg",
+      "frame": 98,
+      "sha256": "2c896aef97d868d73267d04cef933a965847f2fe96bce64c07d19e70cdec2080",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0099.jpg",
+      "frame": 99,
+      "sha256": "2d2c2b7173d0315662dd23cc3ede11cd08e7a6bf5b4479f41504f571cdbafaea",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0100.jpg",
+      "frame": 100,
+      "sha256": "90f1583f2cef835ae3ed6fd709b70436c145db1368279a08d2aac922bb3bc092",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0101.jpg",
+      "frame": 101,
+      "sha256": "5ee10073a528f767410c3b8f1a1ae92012a88c566ae96dfdf30c2f56d7bc724a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0102.jpg",
+      "frame": 102,
+      "sha256": "fb6ea0c294e3356d56f7bc0f4810f40f29a74630481c3559a18ab6613378b517",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0103.jpg",
+      "frame": 103,
+      "sha256": "35cd12345d6fa5bf08ab947b5144533d39df74578b27391e144d8e25406808fe",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0104.jpg",
+      "frame": 104,
+      "sha256": "085cf0542b63125cc493fbc5f9d189c00a4ea6f5f235ea78bc0088d68091429c",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0105.jpg",
+      "frame": 105,
+      "sha256": "ad52cb4037e08f32a1a33ba6a405ef33201eef59111c8861b926277d57e5b24a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0106.jpg",
+      "frame": 106,
+      "sha256": "50e36c2eb663f097086b536b325a46befb09ad8b85639b10a7fbd21f72bc3399",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0107.jpg",
+      "frame": 107,
+      "sha256": "ecf133e889cfc1a6c6a1393b0815250a8871d4e765cb5d5239d75e049647ef45",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0108.jpg",
+      "frame": 108,
+      "sha256": "16c79a19ac202a35ef07d0f8302362b49a5ede0d060a62f4babeca821079e930",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0109.jpg",
+      "frame": 109,
+      "sha256": "b51acbe9ed646060c4b83157432f50c6919557ddfef62798dabb8636c4cfc2bc",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0110.jpg",
+      "frame": 110,
+      "sha256": "899aae296114859ed1f246139f2529969062a09362158b1f2925ff69442d0927",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0111.jpg",
+      "frame": 111,
+      "sha256": "4d6a273d2ad6455e4050cde5a6b7ff17b7fa7a683dcf7651a05d8c985ff8f4e2",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0112.jpg",
+      "frame": 112,
+      "sha256": "81e3b6497707e12e65352ffbbd5eef52d08fa70346b0221ed52387ba07bb9880",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0113.jpg",
+      "frame": 113,
+      "sha256": "71150cdee5ceab1b69f20aad835438503fd6fcf237d24a12f4e2886c703a6cbf",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0114.jpg",
+      "frame": 114,
+      "sha256": "616011bbb7b14b3b7028823e85041efa53a5d14d4093823046ed5b62fa948f14",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0115.jpg",
+      "frame": 115,
+      "sha256": "3f953e670e4e0eb0b47e1abb7952bfb3281f3ae7d6cc1c9796dad9c2498be7bf",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0116.jpg",
+      "frame": 116,
+      "sha256": "0af93154c3f5ae8728c0b20f1f360863ba5bf095305eb65f0b53528e78445756",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0117.jpg",
+      "frame": 117,
+      "sha256": "d189df6a005a74b843ed58b6163f54e8a6398622b843b6315855ff37d060246e",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0118.jpg",
+      "frame": 118,
+      "sha256": "eedbab6ad2bb4611d6fd1f6ce9c05cfc7f4fc64c19f70d53fb82ba9ff8c9a325",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0119.jpg",
+      "frame": 119,
+      "sha256": "448a21a3fc7c60f5f5a578eaa8e127da4c9062d77617160ee8241980d4098e92",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0120.jpg",
+      "frame": 120,
+      "sha256": "e5513dcf3e1e32a701fe12755b2e57dfcca4a1f04f65670d5ab30e15f526f897",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0121.jpg",
+      "frame": 121,
+      "sha256": "56bf2872bd446f6c55a1ec4f781c11536f1585c4d10e5f8a82ee72051d8202f6",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0122.jpg",
+      "frame": 122,
+      "sha256": "0f8cd108ab252f5a8187c51891824f64259ff8098fa0ce6df8a9c74e95565cb0",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0123.jpg",
+      "frame": 123,
+      "sha256": "edaa2a1f2521c637dae836de4d443becda2e6683e3a563b92fb4569711952705",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0124.jpg",
+      "frame": 124,
+      "sha256": "6bb9605a47177b4cc92662cf6de772c6cd4dcaac85cb57a7bf78f27d9bc42d6f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0125.jpg",
+      "frame": 125,
+      "sha256": "0266ecff8c2f8380986075ce76456fd68b8a8bfb7d93903940822a1cf0eea14f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0126.jpg",
+      "frame": 126,
+      "sha256": "fe0089685cb7d956eca27c6745a7a4b89b88fd552f7ef08024c1c56223497de1",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0127.jpg",
+      "frame": 127,
+      "sha256": "642fa5c860bd1b5e557ea8eec01a37a1595b3c2d1a6a67601b902cce58b00de6",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0128.jpg",
+      "frame": 128,
+      "sha256": "077a71a55850c433843cf2f583bd24327b8c1bf9019d6a51f54b83265ec1f71f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0129.jpg",
+      "frame": 129,
+      "sha256": "123cfa919530c38f3c5d936aaeb5386ce82d2679d60ca18fc87dd476b03e7dc5",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0130.jpg",
+      "frame": 130,
+      "sha256": "e97381b6a12c914a72412628f18c87def6124e73f3701eb008c74a1843e43ef7",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0131.jpg",
+      "frame": 131,
+      "sha256": "1fbdfb1f22410d56e4133414dca292a103f4efcbaeada970ce467434594155dd",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0132.jpg",
+      "frame": 132,
+      "sha256": "3b6e5709d18cbd991424a4bd9bac86116828448b518d5b1202b260db0a174ba5",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0133.jpg",
+      "frame": 133,
+      "sha256": "f3011092b8b1a2763362512b18ca93f3e5531067fbabafb2f15e6d81e80d3ac6",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0134.jpg",
+      "frame": 134,
+      "sha256": "8b6d7eecb6e016f797739a38fd52d0e329e1bae52d79c74b673d90f54fc31221",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0135.jpg",
+      "frame": 135,
+      "sha256": "592693384d79d5061961e1a98bfd5d21fa6b97f6f1603855219fba9dc0fab255",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0136.jpg",
+      "frame": 136,
+      "sha256": "609dcc7cd0721b22ab0ffff5e648d6acba722e860aed5ade2948d78484c9e144",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0137.jpg",
+      "frame": 137,
+      "sha256": "a71dbe26d767b5946ae3dd7f541b7f770d6233fcadf620b2ec696a494f001e42",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0138.jpg",
+      "frame": 138,
+      "sha256": "9e79747e4179e36a09661dcd533b5864a33a8b948cf02b3f0dc255403a955563",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0139.jpg",
+      "frame": 139,
+      "sha256": "fc03504299744ad787dccfdcd396d99b18c20f3363325b8864dc3203bea0fa2c",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0140.jpg",
+      "frame": 140,
+      "sha256": "cd25d6fd6da2a09936aba12a9494fc9bd2684281dd92027a0f5806d77e78da13",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0141.jpg",
+      "frame": 141,
+      "sha256": "8726cd85119e240b8ed5e483af994e939c6dc81598d520a2491afa8c6f411029",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0142.jpg",
+      "frame": 142,
+      "sha256": "576d2e1b0b9fc7d4889e586004532d76d4c01e2717fcb1fa409bc12b1fb9bede",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0143.jpg",
+      "frame": 143,
+      "sha256": "e242ef07166ad60511e3af318489061710d48745dfb9a4628b42d1a01d423cce",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0024.jpg",
+      "frame": 24,
+      "sha256": "80da34b43fd45c0f4a65788de966ec35a6750f66836dfde5859f0f4476a6d893",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0025.jpg",
+      "frame": 25,
+      "sha256": "171d4fce7a6fac108d35ad1c2f599baec938d814f7ffb6ce872a3b27c3d9e168",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0026.jpg",
+      "frame": 26,
+      "sha256": "d66012320f7422ddaf68a7ad823afd8e0417ae925be17ae08d5c41b09a4f13fd",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0027.jpg",
+      "frame": 27,
+      "sha256": "03f70fe86a772caff784a66c67a7cc7e30c79b020d06c92752ae206fb50b9015",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0028.jpg",
+      "frame": 28,
+      "sha256": "e6a1c630e2dcc0901f75613f79c08ff7225d5b1e15fc494026c800a1e1207711",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0029.jpg",
+      "frame": 29,
+      "sha256": "6a34e9b6027f367dbbdef93ed4dcd783e95981529e7548a8513ca23e1461d0be",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0030.jpg",
+      "frame": 30,
+      "sha256": "72a9f3d316b00997b5d5e06afa8c76485660550f6e71ce4914b25dd6d1d31bc4",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0031.jpg",
+      "frame": 31,
+      "sha256": "ac7ff00ced1c120b2563d63ebcc68cc7e072e984953355862ec2e400430394cf",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0032.jpg",
+      "frame": 32,
+      "sha256": "9361a4b38893ee944b5d8c1e36670df95bae31bcde205f2385cf5704c870edd4",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0033.jpg",
+      "frame": 33,
+      "sha256": "413bde8809b3e0ea472724b98e2a61f21cfd1af12dcf68b8142a8ed236e68cc8",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0034.jpg",
+      "frame": 34,
+      "sha256": "230713860ac3ac2a93ffb90d783e4ebd3c8b8d1e5df09997a1e0d75472e7140a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0035.jpg",
+      "frame": 35,
+      "sha256": "d8a298146201d335134ca8a984b0801850f1214159b615b2028ea6ceedc5abdb",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0036.jpg",
+      "frame": 36,
+      "sha256": "e5cb8200ac25e1467b76a6be11f8489d31e7e619c846c8a6175bb188c979c351",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0037.jpg",
+      "frame": 37,
+      "sha256": "d52ce00486697f2f31104cd2e4c81dc0b9be131974e2b3383748b2aa3663e726",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0038.jpg",
+      "frame": 38,
+      "sha256": "e772d0d0403a227c0f18d768e974e76190df112d5d50611a3994524dfe00da57",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0039.jpg",
+      "frame": 39,
+      "sha256": "1a69ee73d65e93af95f462ab11bb265a4d3df1a0dd6d29da2b356118dac82545",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0040.jpg",
+      "frame": 40,
+      "sha256": "d76766f5377c2e820a3de516cd04edaf841409b54b417d40af5fdfda47436675",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0041.jpg",
+      "frame": 41,
+      "sha256": "9b5afea4c9068e8379a3467c0bb020a2517bbe56b283520442d1fd7ba2bb431d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0042.jpg",
+      "frame": 42,
+      "sha256": "69016131ff665169f68c005aa5cca65f97b288a705bcdf2e391b14a29409a9f9",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0043.jpg",
+      "frame": 43,
+      "sha256": "f02946197acbe50f1360d35c6954443289f96bb6282fa411a0133c7eaa3968ea",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0044.jpg",
+      "frame": 44,
+      "sha256": "9c3c1b37d4643ad44fb1ad30dd9d89092991ac59a6c0bb6add6b62f2ff596839",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0045.jpg",
+      "frame": 45,
+      "sha256": "8f0cdb8fc97bfd3328ddaeb6f6a0f2363a7d4dde16689afdbb54165858130fc7",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0046.jpg",
+      "frame": 46,
+      "sha256": "5d36e0cc82b0098940c2b0ccf58bd6d0b56dda855427cf1fb22c10a797af8a06",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0047.jpg",
+      "frame": 47,
+      "sha256": "06ce1cd4fefcb5350780db4df7ce4edc34585f340d17bff23ee52cf3af317dcb",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0048.jpg",
+      "frame": 48,
+      "sha256": "f4274c438a56592cf0efb8581df7976b47f2794cc5bf633146c2d7e45a57d2a4",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0049.jpg",
+      "frame": 49,
+      "sha256": "0920a214e8d364bc7c209c3e8654ec95b0a4cc9d4f17fbb0a50c1cfb4577b6b5",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0050.jpg",
+      "frame": 50,
+      "sha256": "8c26854699762927e6702b74dc98c0d5da37f1d73da67bbf56f1abcc194fb71a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0051.jpg",
+      "frame": 51,
+      "sha256": "a1e048878596867015fc15acb178d7f3152696c848356666dab268db88a6f23f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0052.jpg",
+      "frame": 52,
+      "sha256": "de86659557543d7381f4968aeb8f14b9c34148c6c2faa9427abfed82aa298777",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0053.jpg",
+      "frame": 53,
+      "sha256": "c33c7b134baffde041f13c9a96dc2173eb53cb3148d4e050005e7744e167689e",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0054.jpg",
+      "frame": 54,
+      "sha256": "d370090d374b937b0c6e48b8f773dc70d4710653245dcdc616c14b39a72ad1e6",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0055.jpg",
+      "frame": 55,
+      "sha256": "af61190e761ed5c0d617f3375557ed79feaff7016d2ddb87cadb033c6046a64b",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0056.jpg",
+      "frame": 56,
+      "sha256": "87ef2f105882db749f9d40bec6ab17f8985004403b42f39dd809625b07359e48",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0057.jpg",
+      "frame": 57,
+      "sha256": "4733c40374a1092a318ed33ddf9c1f7be22a226fea2c3de98f287c2c6925c2df",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0058.jpg",
+      "frame": 58,
+      "sha256": "aa1b1a8887a06cab5056c572bdb75cffb04445a30edad3c67cc17b32ad8a0d7f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0059.jpg",
+      "frame": 59,
+      "sha256": "6d0732c6ca181a6a942fe46526f34bea0a92714c6983088bf2ff2a5ae309864e",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0060.jpg",
+      "frame": 60,
+      "sha256": "4bfa971581af299c259e44c8adb12edd60482dc53bf6a00c653231b884b75969",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0061.jpg",
+      "frame": 61,
+      "sha256": "7d3dc734d981a477a86b638c96920af8dee5bf4a91b4c6965df300cf28dfa333",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0062.jpg",
+      "frame": 62,
+      "sha256": "c43f1e6dee3ce5d02e83c99095b31eafd8c111c355f8d2c2efdd4e2adbcadc5c",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0063.jpg",
+      "frame": 63,
+      "sha256": "4a7e3d7c91afa74fde5abeb87c0e8cff23e5ac2be0b27d74456a3cb75deff22a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0064.jpg",
+      "frame": 64,
+      "sha256": "f762614bf8ed3ec2f94d201458a6ab785ed33eeea9140db4ac21db8d0d0466df",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0065.jpg",
+      "frame": 65,
+      "sha256": "d460b55cce2b4237a0d01c8448e1f95b62fd68d4c989e227a15951d133e13895",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0066.jpg",
+      "frame": 66,
+      "sha256": "3d77113d053e0080330b496469f9dbe479499b1a8642a80242703de8091523ad",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0067.jpg",
+      "frame": 67,
+      "sha256": "1408e77fc03218f7044befb74e232e7a6f819fe584f5067c19ec1456a1acae38",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0068.jpg",
+      "frame": 68,
+      "sha256": "3a87c937386b1622285f64780e56095d75152f7ffea474f8ed71d8a9dfe77305",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0069.jpg",
+      "frame": 69,
+      "sha256": "9901748e8310c35791244d5cdf094f451121e8e3012571c912dbb5e18b3808fc",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0070.jpg",
+      "frame": 70,
+      "sha256": "c91fdc3e49043c94a696b849d27f109917424a5b88a71d693f710b8e93c67fd7",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0071.jpg",
+      "frame": 71,
+      "sha256": "2840c325edc5b2c8a5a8a9d346cffd0c90f225cb6c7b60fb201fb96de69bcf14",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0024.jpg",
+      "frame": 24,
+      "sha256": "ce68c005391de081e9c0a0d32094114464a5d2646ba9904c4ff804d552abe9f5",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0025.jpg",
+      "frame": 25,
+      "sha256": "1525d5cc938128cf6e6d2875cd679d7262ee835f41345fa719f206ca1c5af907",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0026.jpg",
+      "frame": 26,
+      "sha256": "510108dfe5b043a915595093d8c78d0bbba5fe5864db31d820c4b19b9ba66b16",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0027.jpg",
+      "frame": 27,
+      "sha256": "bc70dc26ad7f3d4fd524965c5c129722fc589ce957f0d5a57bc7d3fdccf6bc3f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0028.jpg",
+      "frame": 28,
+      "sha256": "0d6608b5659ab702a15f7040480577ffa3b51335819778253584a4796de81844",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0029.jpg",
+      "frame": 29,
+      "sha256": "a6779b3d90c4890caff9bf2e4c8884cffb457529e68f7271aefaa67018a1d1f3",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0030.jpg",
+      "frame": 30,
+      "sha256": "9625389d68c59079a32fc6baf2aac35ec1d3a16db60165f54ce85e0933ff5e09",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0031.jpg",
+      "frame": 31,
+      "sha256": "218bbeb0fbf303d2b15ba620f51852d32e8525ac8788c8fedaf443bffcee252d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0032.jpg",
+      "frame": 32,
+      "sha256": "c6ce4c98a53e1aa7d21858dbadf5207ca3b968b21ecd47f467b783f67150332e",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0033.jpg",
+      "frame": 33,
+      "sha256": "acc2f4176c518816167544ac8d2bb89a9e78f77f06c03701611fa8fd7bc27f0f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0034.jpg",
+      "frame": 34,
+      "sha256": "6a4ca0775ca7a07a862c3d7e652c9df1322d5bc4cd7850af945b6de53dd34ee1",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0035.jpg",
+      "frame": 35,
+      "sha256": "1469fe8e16e58f6e5f1c9186f65354a8a3e5756937930241b5061a5c66064bbc",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0036.jpg",
+      "frame": 36,
+      "sha256": "d61a9d713d5a8b549190b83a0bc91b34dac9f151bb6cfb20c584437e950073aa",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0037.jpg",
+      "frame": 37,
+      "sha256": "ef997e9000164c1a4a68dd8d12d816789c17a48516217d46bb5d24f470586c47",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0038.jpg",
+      "frame": 38,
+      "sha256": "efc8e9bc0df3452c6795d5c6818aa476e732446ff81578891201b271d12a9862",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0039.jpg",
+      "frame": 39,
+      "sha256": "3dba283760d0aeba66b2505489d263f345dc29210e25ef8511d771e1c1313999",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0040.jpg",
+      "frame": 40,
+      "sha256": "f81e8aed6cdb2b488072feaeb06fbfc6c94a69adfe179e430fbdec51b99167ca",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0041.jpg",
+      "frame": 41,
+      "sha256": "b65abaed82f2181769464bfe6a5c449d99e05c45876d4d4237d2368a1532f047",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0042.jpg",
+      "frame": 42,
+      "sha256": "a7efe426e81f3acdf82bab4bd4386cdad1aa3c519e74d231d64f48e372c85b80",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0043.jpg",
+      "frame": 43,
+      "sha256": "e948793317827b94cfe9d4249fae79c466dc89dfbe588ca890400ad693dd68cc",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0044.jpg",
+      "frame": 44,
+      "sha256": "37ae15a9042d008c71bbce273ed8e58e85354aa44845b4fc76a5653285021baa",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0045.jpg",
+      "frame": 45,
+      "sha256": "5d76d7388f6086f3c4c1a5052a90ff51082e315cd58df6ad8840078d0c9e1791",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0046.jpg",
+      "frame": 46,
+      "sha256": "c73ed5e1d2010fff82d75b70fad614f276fa5627134ec12332067f02ec69072a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0047.jpg",
+      "frame": 47,
+      "sha256": "9e195a3618c93e571df2d3576e2c3228ac72956ff4bf72b6b65bc35b71922d03",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0048.jpg",
+      "frame": 48,
+      "sha256": "6a8c4ed1c9d82e9027b922c568c4536d0fea456507c81d2be58696bae575dd9d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0049.jpg",
+      "frame": 49,
+      "sha256": "d3efb4f2b8fb10fc5644965b2bdc767a186c96ff09ce7b5ef496f8ddf8f281c5",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0050.jpg",
+      "frame": 50,
+      "sha256": "a3d462318eca1bd5f1730c998e1131cc543f56d031b4a34d8264ab1d022921b9",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0051.jpg",
+      "frame": 51,
+      "sha256": "92df9d7574dda461af73bb56b2947ac394944aa37eb792fe14341980edbadb5d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0052.jpg",
+      "frame": 52,
+      "sha256": "b3563209b189d88b89c0d559993880fd9afe8d627b0ff06d650d9b0ee531103d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0053.jpg",
+      "frame": 53,
+      "sha256": "82990368d34c2ac233f016129e89ec37ebd4d198c40376cfd87fda30a0af2c3f",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0054.jpg",
+      "frame": 54,
+      "sha256": "d8c2e0d59c6bdb4cfa9f2ddb4c06d2b536f5ad29fd2aebddf6c2d5747c64c946",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0055.jpg",
+      "frame": 55,
+      "sha256": "a4e5ae6ed0e57fc0c19e0b7795e7b5e88b6d9cb6c3906215eb0e4910e94b676d",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0056.jpg",
+      "frame": 56,
+      "sha256": "6e3312459828c59328cb40a5bfc24fa38087688d8a789c7dd1c9b644620670e2",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0057.jpg",
+      "frame": 57,
+      "sha256": "493ff0335b767721cfaa785db8fc8a3b7a48173be1ce2316a034030391375736",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0058.jpg",
+      "frame": 58,
+      "sha256": "4c92664d0d013f21b5da666722c286aed461dc3dce95611308c18c7bb86eec91",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0059.jpg",
+      "frame": 59,
+      "sha256": "6d580965fb5c694985912703eb8f8c1e13938ca82fcce62a41f58f5c84745cee",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0060.jpg",
+      "frame": 60,
+      "sha256": "0df1092f8fd1fa4a65cfcb29fe6cc835c4b55cf305cf048526d0b1bee2ac1666",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0061.jpg",
+      "frame": 61,
+      "sha256": "d12955780bea748dc8d953e16acd2026cc5b9416145bcd2ea723eff2e0251a30",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0062.jpg",
+      "frame": 62,
+      "sha256": "baeeee6098e4ad7df203218ec252529978a95f77f5f647c50440ca5b80143a5b",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0063.jpg",
+      "frame": 63,
+      "sha256": "984a50ffa625e12f5a85a34f9e36eecee30a433ec410e936cf9919874eba39f2",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0064.jpg",
+      "frame": 64,
+      "sha256": "f1313ed86f4a264cdaebf091b457ffeeeacc2b6f33c3a69f2a86f62567dcde20",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0065.jpg",
+      "frame": 65,
+      "sha256": "bdba48fe952bbae958782f829ab660d09c3529cbee0b8eaa35efb58179f0a2b2",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0066.jpg",
+      "frame": 66,
+      "sha256": "629ff263363f3327b7c79a67884c5d6d4ab523be0f3787efd2e77252846a9153",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0067.jpg",
+      "frame": 67,
+      "sha256": "c314b88b169bebfffa06e4fe62a0cc9775d3df27c4e37027cdce8ee631bb27ad",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0068.jpg",
+      "frame": 68,
+      "sha256": "4bfbe67e55ebb1090eda2fe0a59c3f2e3dc1ee6c44110ec23485fc236432247a",
+      "view": "continuous_contact_sheet"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0069.jpg",
+      "frame": 69,
+      "sha256": "8ca82f45357b11558d6476f0b8fcdb06fbff3c6239b9f70336502c47ebcf8172",
+      "view": "continuous_contact_sheet"
+    }
+  ],
+  "original_resolution_review": [
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0032.jpg",
+      "frame": 32,
+      "sha256": "b5b24d2dd3ce8f0fcc7efae32f88e06ea65447af07abbe544007444e6425dcf8"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0033.jpg",
+      "frame": 33,
+      "sha256": "44ae1a778320689c8c7e421520e830047c4c4d99dd4f1344a31877a78a893d2c"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0034.jpg",
+      "frame": 34,
+      "sha256": "f5fd9fb8f770daf4971c40979b664a27c2e158a14f34cee5af511704cfbdb29f"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0035.jpg",
+      "frame": 35,
+      "sha256": "1f10c4e64bdd4a64ceb6052c09c5a927bdaefc42f53380b12e80b808b1855f1c"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0036.jpg",
+      "frame": 36,
+      "sha256": "fc63ed2e8b090a7df99e39b0e37603f084f4c167fc075fbf89416963997d9574"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0037.jpg",
+      "frame": 37,
+      "sha256": "3596512f12e365e679431bfdaec70d3fbf69be8078e363f8a390acfb4db7257d"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0038.jpg",
+      "frame": 38,
+      "sha256": "d127f30e79684666d11a4dbe1796abb11f98699faa089fb87a860cf32072592c"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0039.jpg",
+      "frame": 39,
+      "sha256": "d2fa8142dcae6b605e49f6406978be58cb090cd906b52f166f98d86c76214b83"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0040.jpg",
+      "frame": 40,
+      "sha256": "cfc8bab817886a8e1f30f3b05f3d54484c0071341f8f80478e2e2702ec448e6b"
+    },
+    {
+      "rgb": "CrossJunctionDefectTrafficLight/Town13_Rep0_route_002180_route0_01_08_13_54_39/rgb/0041.jpg",
+      "frame": 41,
+      "sha256": "f56f1dcacc654734201c1f6027d46b6e7f5eef42759e2a2a9e0320b456b02759"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0114.jpg",
+      "frame": 114,
+      "sha256": "616011bbb7b14b3b7028823e85041efa53a5d14d4093823046ed5b62fa948f14"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0115.jpg",
+      "frame": 115,
+      "sha256": "3f953e670e4e0eb0b47e1abb7952bfb3281f3ae7d6cc1c9796dad9c2498be7bf"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0116.jpg",
+      "frame": 116,
+      "sha256": "0af93154c3f5ae8728c0b20f1f360863ba5bf095305eb65f0b53528e78445756"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0117.jpg",
+      "frame": 117,
+      "sha256": "d189df6a005a74b843ed58b6163f54e8a6398622b843b6315855ff37d060246e"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0118.jpg",
+      "frame": 118,
+      "sha256": "eedbab6ad2bb4611d6fd1f6ce9c05cfc7f4fc64c19f70d53fb82ba9ff8c9a325"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0119.jpg",
+      "frame": 119,
+      "sha256": "448a21a3fc7c60f5f5a578eaa8e127da4c9062d77617160ee8241980d4098e92"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0120.jpg",
+      "frame": 120,
+      "sha256": "e5513dcf3e1e32a701fe12755b2e57dfcca4a1f04f65670d5ab30e15f526f897"
+    },
+    {
+      "rgb": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0121.jpg",
+      "frame": 121,
+      "sha256": "56bf2872bd446f6c55a1ec4f781c11536f1585c4d10e5f8a82ee72051d8202f6"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0048.jpg",
+      "frame": 48,
+      "sha256": "6a8c4ed1c9d82e9027b922c568c4536d0fea456507c81d2be58696bae575dd9d"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0049.jpg",
+      "frame": 49,
+      "sha256": "d3efb4f2b8fb10fc5644965b2bdc767a186c96ff09ce7b5ef496f8ddf8f281c5"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0050.jpg",
+      "frame": 50,
+      "sha256": "a3d462318eca1bd5f1730c998e1131cc543f56d031b4a34d8264ab1d022921b9"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0051.jpg",
+      "frame": 51,
+      "sha256": "92df9d7574dda461af73bb56b2947ac394944aa37eb792fe14341980edbadb5d"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0052.jpg",
+      "frame": 52,
+      "sha256": "b3563209b189d88b89c0d559993880fd9afe8d627b0ff06d650d9b0ee531103d"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0053.jpg",
+      "frame": 53,
+      "sha256": "82990368d34c2ac233f016129e89ec37ebd4d198c40376cfd87fda30a0af2c3f"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0054.jpg",
+      "frame": 54,
+      "sha256": "d8c2e0d59c6bdb4cfa9f2ddb4c06d2b536f5ad29fd2aebddf6c2d5747c64c946"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0055.jpg",
+      "frame": 55,
+      "sha256": "a4e5ae6ed0e57fc0c19e0b7795e7b5e88b6d9cb6c3906215eb0e4910e94b676d"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0056.jpg",
+      "frame": 56,
+      "sha256": "6e3312459828c59328cb40a5bfc24fa38087688d8a789c7dd1c9b644620670e2"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0057.jpg",
+      "frame": 57,
+      "sha256": "493ff0335b767721cfaa785db8fc8a3b7a48173be1ce2316a034030391375736"
+    },
+    {
+      "rgb": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0058.jpg",
+      "frame": 58,
+      "sha256": "4c92664d0d013f21b5da666722c286aed461dc3dce95611308c18c7bb86eec91"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0048.jpg",
+      "frame": 48,
+      "sha256": "f4274c438a56592cf0efb8581df7976b47f2794cc5bf633146c2d7e45a57d2a4"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0049.jpg",
+      "frame": 49,
+      "sha256": "0920a214e8d364bc7c209c3e8654ec95b0a4cc9d4f17fbb0a50c1cfb4577b6b5"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0050.jpg",
+      "frame": 50,
+      "sha256": "8c26854699762927e6702b74dc98c0d5da37f1d73da67bbf56f1abcc194fb71a"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0051.jpg",
+      "frame": 51,
+      "sha256": "a1e048878596867015fc15acb178d7f3152696c848356666dab268db88a6f23f"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0052.jpg",
+      "frame": 52,
+      "sha256": "de86659557543d7381f4968aeb8f14b9c34148c6c2faa9427abfed82aa298777"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0053.jpg",
+      "frame": 53,
+      "sha256": "c33c7b134baffde041f13c9a96dc2173eb53cb3148d4e050005e7744e167689e"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0054.jpg",
+      "frame": 54,
+      "sha256": "d370090d374b937b0c6e48b8f773dc70d4710653245dcdc616c14b39a72ad1e6"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0055.jpg",
+      "frame": 55,
+      "sha256": "af61190e761ed5c0d617f3375557ed79feaff7016d2ddb87cadb033c6046a64b"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0056.jpg",
+      "frame": 56,
+      "sha256": "87ef2f105882db749f9d40bec6ab17f8985004403b42f39dd809625b07359e48"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0057.jpg",
+      "frame": 57,
+      "sha256": "4733c40374a1092a318ed33ddf9c1f7be22a226fea2c3de98f287c2c6925c2df"
+    },
+    {
+      "rgb": "ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/rgb/0058.jpg",
+      "frame": 58,
+      "sha256": "aa1b1a8887a06cab5056c572bdb75cffb04445a30edad3c67cc17b32ad8a0d7f"
+    },
+    {
+      "rgb": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12/rgb/0018.jpg",
+      "frame": 18,
+      "sha256": "73bf359fb0b903b01a08e74124d1afe1d6ad737dc8a8337218ae04c072a352dd"
+    },
+    {
+      "rgb": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12/rgb/0019.jpg",
+      "frame": 19,
+      "sha256": "8d4c93c1e8cf31e1b7df97eb410e37a4a5bd95c4a0e6e9ea46363d0e061c1f2c"
+    },
+    {
+      "rgb": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12/rgb/0020.jpg",
+      "frame": 20,
+      "sha256": "9b703c7273f4d7cb98d087fb85baa8f5efefe8b7d70943a5928fa4ba0f0236c0"
+    }
+  ],
+  "approved_bands": [
+    {
+      "evidence_id": "sixth_audit_649_proceed",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town13_Rep0_route_002180_route0_01_08_13_54_39",
+      "edge": "proceed",
+      "start": 32,
+      "end": 41,
+      "observation": "清晰日间。f1–9沿城镇直路，f10–15对向黑车经过；f16–20接近路口，f21–29橙色车横穿。f30–31路口中心短时空出，但左侧蓝色敞篷车已接近；f32–37蓝车继续从左向右穿过，f38–40其尾部移至右侧，自车持续驶入，f41–47越过出口横道，f48–53对向黑车、白车依次经过。本轮另原尺寸复看f36–39：f36蓝车横置在行进走廊，f37车尾仍紧邻走廊，f38车尾已移右，f39空间进一步拉开。最早YES需对边界和历史逐帧核对，不能把f30–31一次空隙贯穿后续蓝车。"
+    },
+    {
+      "evidence_id": "sixth_audit_293_proceed",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "edge": "proceed",
+      "start": 114,
+      "end": 121,
+      "observation": "f0初始化后为阴天。f1–16跟前车接近第一个STOP口；前车在f17–24离开，自车f25–36在停车线附近等待，f37–52穿过后恢复直路。f53–77跟车、f68–73对向黑车经过。f78–85接近前车并减慢，f86–114近前车间距大致稳定；原尺寸补审显示f115–116开始变化但许可不明确，f117–118前车运动与间距开始支持跟随推进，对向红车f84–92及白SUV f106–118经过不能单独解除前车限制。f119–126前车拉开且自车前进；f127–145再次接近并遇对向蓝车。f146–160接近第二个STOP口及前车；f161–226长时间等待，远路口红公交横向经过。f227–243前车和自车推进，f244–257再在STOP线前等待，f258–274穿越路口，f275–281沿出口继续且多辆对向红车经过。同一录制含两个路口、前车多次停止/恢复，不能整条路线只绑定一个永久完成或一次许可。"
+    },
+    {
+      "evidence_id": "seventh_audit_406_proceed",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38",
+      "edge": "proceed",
+      "start": 48,
+      "end": 58,
+      "observation": "雾天日景。f1–28接近分叉，蓝SUV在右侧；f29–39经过三角导流区，SUV沿右主路离开。f40–47骑行者从右侧接近，f48–55右向左横穿。原尺寸复看f48–64：f48–50仍占行进冲突带；f51–55左路缘临界余量不确定；f56–57两名骑行者均在左侧草地、继续远离，自车尚无明显起步即可许可。f58两骑行者突然消失，不能以消失证明条件成立；候选截至58并排除该帧。f60–64才有更明显道路后移，f65–69沿曲路前进。"
+    },
+    {
+      "evidence_id": "seventh_audit_378_proceed",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_1075_0_route0_01_10_17_19_04",
+      "edge": "proceed",
+      "start": 48,
+      "end": 58,
+      "observation": "日间湿路。f1–16跟白车红车接近路口，f17–26右转，对向STOP字样不能自动当本车义务。f27–39多辆对向车经过。f40–47接近右侧出租车，黑SUV开始驶出停车位；原尺寸复看f48–60：f48–50斜向切入仍占冲突通道，f51–53逐渐回正但许可临界不明确；f54方向已基本顺行且前向空间打开，f55–57可补问旧等待状态；f58起已连续跟车，应停止旧等待问题。f58–61橙色对向车经过，f62–73跟随，f74–76白色对向车，f77–82继续。前车仍在前方不妨碍释放等待。"
+    }
+  ],
+  "unlabelled_anomalies": [
+    {
+      "route": "EnterActorFlow/Town12_Rep0_1388_1_route0_01_10_23_16_12",
+      "frames": [
+        18,
+        19,
+        20
+      ],
+      "observation": "Near lead vehicle disappears between f18 and f19 without a visible exit; no readiness or completion label approved; lifecycle cause unresolved"
+    }
+  ]
+}

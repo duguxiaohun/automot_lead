@@ -1,0 +1,413 @@
+{
+  "date": "2026-10-02",
+  "reviewer": "Codex v25 actual-input RGB re-review; rule author, not independent certification",
+  "routes": [
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "physical_group": "HardBreakRoute/Town13_1030_0",
+      "complete_sequence": false,
+      "frames": [
+        {
+          "frame_id": 64,
+          "sha256": "304e14a53742d720c94b1aa2adf70d42a34f374805823290329dca2eabb8e160"
+        },
+        {
+          "frame_id": 65,
+          "sha256": "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f"
+        },
+        {
+          "frame_id": 66,
+          "sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b"
+        },
+        {
+          "frame_id": 67,
+          "sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40"
+        },
+        {
+          "frame_id": 68,
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame_id": 69,
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame_id": 70,
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        },
+        {
+          "frame_id": 71,
+          "sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+        },
+        {
+          "frame_id": 72,
+          "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+        },
+        {
+          "frame_id": 73,
+          "sha256": "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03"
+        },
+        {
+          "frame_id": 74,
+          "sha256": "6c7925eee07b0ca8b547458d97609d919fd8bc170605842a83c928899aaf78df"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "physical_group": "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+      "complete_sequence": false,
+      "frames": [
+        {
+          "frame_id": 41,
+          "sha256": "192b492bc182aeb9c67c1d578511b5d458461edc42de804eed719e02ea502cc3"
+        },
+        {
+          "frame_id": 42,
+          "sha256": "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0"
+        },
+        {
+          "frame_id": 43,
+          "sha256": "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406"
+        },
+        {
+          "frame_id": 44,
+          "sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97"
+        },
+        {
+          "frame_id": 45,
+          "sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b"
+        },
+        {
+          "frame_id": 46,
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame_id": 47,
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        },
+        {
+          "frame_id": 48,
+          "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+        },
+        {
+          "frame_id": 49,
+          "sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6"
+        },
+        {
+          "frame_id": 50,
+          "sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+        },
+        {
+          "frame_id": 51,
+          "sha256": "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe"
+        },
+        {
+          "frame_id": 52,
+          "sha256": "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5"
+        },
+        {
+          "frame_id": 53,
+          "sha256": "610124a145a7eba709219c34b846f18c5d2d834ae311fab391d6703a314dca31"
+        },
+        {
+          "frame_id": 54,
+          "sha256": "e3017c58c0e5c41c7f280469b8fc945359d53d9c312b317bfca055c6dd06107e"
+        },
+        {
+          "frame_id": 55,
+          "sha256": "0fbcb05ed7284968ec1f7c94c95dadc207c971a7dabedee589dc04f6bfa4040b"
+        }
+      ]
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_002000_route0_01_09_12_27_42",
+      "physical_group": "ConstructionObstacle/Town04_route_002000",
+      "complete_sequence": false,
+      "frames": [
+        {
+          "frame_id": 27,
+          "sha256": "81a41f72df5e542ddef3198d0b1ca2e64c05bfac5018d2e7bac15d9930a07e53"
+        },
+        {
+          "frame_id": 28,
+          "sha256": "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56"
+        },
+        {
+          "frame_id": 29,
+          "sha256": "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519"
+        },
+        {
+          "frame_id": 30,
+          "sha256": "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa"
+        },
+        {
+          "frame_id": 31,
+          "sha256": "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7"
+        },
+        {
+          "frame_id": 32,
+          "sha256": "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6"
+        },
+        {
+          "frame_id": 33,
+          "sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+        },
+        {
+          "frame_id": 34,
+          "sha256": "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c"
+        }
+      ]
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_route_000839_route0_01_08_10_26_04",
+      "physical_group": "HighwayExit/Town13_route_000839",
+      "complete_sequence": false,
+      "frames": [
+        {
+          "frame_id": 38,
+          "sha256": "25fc1274414593c3fbaf5b793f02ec66f148ba04bf78aecadcf52f4fd2b08c7f"
+        },
+        {
+          "frame_id": 39,
+          "sha256": "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c"
+        },
+        {
+          "frame_id": 40,
+          "sha256": "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b"
+        },
+        {
+          "frame_id": 41,
+          "sha256": "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1"
+        },
+        {
+          "frame_id": 42,
+          "sha256": "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799"
+        },
+        {
+          "frame_id": 43,
+          "sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc"
+        },
+        {
+          "frame_id": 44,
+          "sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+        },
+        {
+          "frame_id": 45,
+          "sha256": "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17"
+        }
+      ]
+    },
+    {
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002053_route0_01_09_09_02_15",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002053",
+      "complete_sequence": true,
+      "frames": [
+        {
+          "frame_id": 0,
+          "sha256": "41f8a2bc0ef2c460ee02ee95a806a7d88218063ebc2606f64d4e88f6a28c3bbb"
+        },
+        {
+          "frame_id": 1,
+          "sha256": "626e7d80a7c2405868e7e4ae959f0f8334c229f2b0b89f873f78b08e4c5f454e"
+        },
+        {
+          "frame_id": 2,
+          "sha256": "ef422abac1152d884d8f8cd4501790736b1fec5c9f60681bd88fc32984a72bdf"
+        },
+        {
+          "frame_id": 3,
+          "sha256": "c059eba9df47054eddec8d32a5331808a9626a33de8e498f987ee7c0e7f1e06b"
+        },
+        {
+          "frame_id": 4,
+          "sha256": "761214e9a0684528431d4e9c1e925fad37f25d7b2d7e4a8a3ef57d4246f572be"
+        },
+        {
+          "frame_id": 5,
+          "sha256": "68f3e537682553bc3b403e3faa7ef647bdd39328cda75c2c8aa94e02ed22301f"
+        },
+        {
+          "frame_id": 6,
+          "sha256": "8e3d81a76bb2f92ceb2e1191ff09f346315c45f406b5fee0e434b7114c0bedcf"
+        },
+        {
+          "frame_id": 7,
+          "sha256": "1c1ca54a46c53c458a770a03c6e006e56bbd8dc6044c98058e43f4c3866aedbe"
+        },
+        {
+          "frame_id": 8,
+          "sha256": "2b4d038222b37ac93630bdca4266b9d878c26989df737d5945d419d8eceadb49"
+        },
+        {
+          "frame_id": 9,
+          "sha256": "7817106f291c1fb8cee59bf4180f2f5fef5366b2627afc243b525d4f9989f900"
+        },
+        {
+          "frame_id": 10,
+          "sha256": "585a9c8a048f9a4d3f5f537414f3fbf65c9596be59b218ba5581440e31df4c76"
+        },
+        {
+          "frame_id": 11,
+          "sha256": "1e9cc770d516cb2ee5154c2e8401b12ad14953ec4ee6b5b1c081e0aa66a330fe"
+        },
+        {
+          "frame_id": 12,
+          "sha256": "a624bcff0b996007e7915a55515d9eb17bc98ebea0947a4161109cb5a912ca6b"
+        },
+        {
+          "frame_id": 13,
+          "sha256": "3d782c1af49950a29b3f08a24c6d46c1b76bc64aa1a64a9218683bc8f898b3d0"
+        },
+        {
+          "frame_id": 14,
+          "sha256": "6b1156a280e79e50a74d0bbaa41b2144fb35b19e9645005bc8fa343949881b83"
+        },
+        {
+          "frame_id": 15,
+          "sha256": "390b52f89d678faf4144d9654dce246e7b26c8225901697d1d6d0676dc601d18"
+        },
+        {
+          "frame_id": 16,
+          "sha256": "5a9b985025fa0a602453911bf62d92a8037af7f166ebe9ebafb5a7b4490738dd"
+        },
+        {
+          "frame_id": 17,
+          "sha256": "f48f765d82b6629951db2f4e9e1a6aa89ae4f5ca1324a50f8ede2eb7fb783c7f"
+        },
+        {
+          "frame_id": 18,
+          "sha256": "2c808fc2049e53c5c762383690b5b3a5c2dd6024a270648f8d61a63db75495ae"
+        },
+        {
+          "frame_id": 19,
+          "sha256": "98b7e68d16f75219dbb733a3a3aa973b877dfec3b78d27902b4f00ebadda43b1"
+        },
+        {
+          "frame_id": 20,
+          "sha256": "ebe78dfc4dec6433eebe0311e789ec95bfe2ebb6ac4dbdeb987dfbbede16e194"
+        },
+        {
+          "frame_id": 21,
+          "sha256": "2740279d2af0670a0c6b22401141b4e3877ad0c429f9446814e88117bcf57a64"
+        },
+        {
+          "frame_id": 22,
+          "sha256": "7f0d2b286ee877666cfd4c84a96200b7956e24f4f3549d99398d0e10a2b39090"
+        },
+        {
+          "frame_id": 23,
+          "sha256": "dcb7b72a763b53bd36ab58b83fa70a457eef580e5535abfe9965711c17d5fdfb"
+        },
+        {
+          "frame_id": 24,
+          "sha256": "c11e9fafdb159a346e9faf93de15411edd089a0f0e5d9679f9a1eda6bce0ceee"
+        },
+        {
+          "frame_id": 25,
+          "sha256": "b640093da0832aaabf27814e56e88d0e9ec8a1e4674686ed6b6656aafb281a83"
+        },
+        {
+          "frame_id": 26,
+          "sha256": "99b4a550ed298fa9002b4278657d0942633c55ad44166bb3417ea9e01d73eb2d"
+        },
+        {
+          "frame_id": 27,
+          "sha256": "2e5491c9d23a201e9b73dbbe23ff39f7a286ebcdb4f866368d3a7f6d52fabcb8"
+        },
+        {
+          "frame_id": 28,
+          "sha256": "f33d946c2e01abe9cd45c5f3aedec4e4623450cdb01610faa97d963b1db4d0d3"
+        },
+        {
+          "frame_id": 29,
+          "sha256": "82f7742e88894827e41ee1d4fa2e31cfaa7ad7af667ab20897d079593aee6a86"
+        },
+        {
+          "frame_id": 30,
+          "sha256": "ded5bc027f9ae82d523e03bec5651fb999128b7da8c47f5bd13193155ad47a05"
+        },
+        {
+          "frame_id": 31,
+          "sha256": "a4ad9a45a898e8297594fc2eac51179d99635e7e288597b97f7119dbb1b2444a"
+        },
+        {
+          "frame_id": 32,
+          "sha256": "0781ecd4d0924df5091a98bfe40eb94a3540601dcb4871156954b19f0bb9a09e"
+        },
+        {
+          "frame_id": 33,
+          "sha256": "2aab2cd977d5f7b546ef6e9d0faa5a58c249014e77a8a932118670470a833b6a"
+        },
+        {
+          "frame_id": 34,
+          "sha256": "5bb5330a094d0a574c6d01dc76f48961d697da4c1074638f780ace4ec7f5a596"
+        },
+        {
+          "frame_id": 35,
+          "sha256": "6a6ab2d4240df87a884e57b303b2c9bf1c641dceb732b09e78c1b4969ea26153"
+        },
+        {
+          "frame_id": 36,
+          "sha256": "e376976be04646a08d994331049757f740247289668c5042948b020af81450ca"
+        },
+        {
+          "frame_id": 37,
+          "sha256": "3555d801ece944386987c330c96e3f6ecdc430a7323145b748306a4b591bfe4c"
+        },
+        {
+          "frame_id": 38,
+          "sha256": "1e75feb1423063a716bdd462dd1daa4ad211b350929924d1a62629e082788d0a"
+        },
+        {
+          "frame_id": 39,
+          "sha256": "d3bdbfe0f1aa97a10d0bf96cb4bb75fcf5a82775661e3374295e36b07b3f9ced"
+        },
+        {
+          "frame_id": 40,
+          "sha256": "52566c63ec8496f663d972f3988c788ef06618b7ebf9cf624a99385a9bb7100b"
+        },
+        {
+          "frame_id": 41,
+          "sha256": "0171abaf77fa87481ee6bd38c339ee7cfec7c68b4e1dc0ebc428e1b870c14742"
+        },
+        {
+          "frame_id": 42,
+          "sha256": "567203bc5668b070b825e741985a56fc918bb21a5b739b378ba2abbe4ce53f56"
+        },
+        {
+          "frame_id": 43,
+          "sha256": "3eb61ab81f7286022bb7bd18c2d5e6a39260f6b7a56c6875d0585299dd854b98"
+        },
+        {
+          "frame_id": 44,
+          "sha256": "f43456d460846bfa0ded3b07fbb83a5b330c06b6f8dbdf0f4dd6722b597d648d"
+        }
+      ]
+    }
+  ],
+  "unique_rgb": 87,
+  "panels_actually_viewed": 20,
+  "original_rgb_rechecks": 7,
+  "full_sequence_reviews": 1,
+  "new_to_all_previous_audits": false,
+  "new_train_only_groups": [],
+  "independent_reserved_routes_viewed": 0,
+  "training_labels_added": 0,
+  "labels_deferred": 6,
+  "corrections": [
+    "UE1 70-72 visually weak, deferred; 73-74 catchup retained with static lamp evidence.",
+    "UE4 50-52 clearance unresolved, deferred, not NO.",
+    "002053 is not continuously green in RGB: frame20 visible yellow; frame21 overhead small green and side head unresolved; frame23 green. Applicable-head matching to logic unresolved. No UE7 identity approved."
+  ],
+  "limitations": [
+    "Thresholds are development conventions, not validated safety limits.",
+    "Author saw v24 suggestions; no independent blind accuracy claim.",
+    "Existing 192/278 cell and circa 240-sequence backlog not reduced by rereview of already seen route."
+  ]
+}

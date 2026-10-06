@@ -1,0 +1,200 @@
+{
+  "train_only_groups": [
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_10",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_23",
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_27",
+    "ParkedObstacle/Town05_route_001860",
+    "ParkedObstacle/Town05_route_001872",
+    "ParkedObstacle/Town05_route_001877",
+    "PedestrianCrossing/Town12_171_1",
+    "PedestrianCrossing/Town12_94_1",
+    "PedestrianCrossing/Town12_98_0",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_105",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_42",
+    "VehicleTurningRoute/Town05_Town05_Scenario4_88"
+  ],
+  "calibration_risks": [
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town05_Rep0_route_001860_route0_01_09_20_02_51",
+      "physical_group": "ParkedObstacle/Town05_route_001860",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "白色前车",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 5,
+          "path": "ParkedObstacle/Town05_Rep0_route_001860_route0_01_09_20_02_51/rgb/0005.jpg",
+          "sha256": "12370cd28aeb464e5765c31c15bf8496a0b1dc50c6f0db1044492c318603407b"
+        },
+        {
+          "frame": 6,
+          "path": "ParkedObstacle/Town05_Rep0_route_001860_route0_01_09_20_02_51/rgb/0006.jpg",
+          "sha256": "5911caaeace452d85886f94d121a066f54640182d0bf1d87d001a4992e401d66"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_23",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "隔离带旁行人",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 160,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0160.jpg",
+          "sha256": "98bc2224a13d2bc24a54e94431a02d393d28d15070aaa2bde2831086657e0e79"
+        },
+        {
+          "frame": 161,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0161.jpg",
+          "sha256": "c8d7fba3b3f75a062cd467855d5d838ffe0187fa7d90754c4d3ebd3c47b6a09d"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36",
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_10",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "近前车",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 109,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36/rgb/0109.jpg",
+          "sha256": "c120ea83ef1ae8acdfd16875b2518e0201345fe83c6c217f1bc04dd1685bf3dd"
+        },
+        {
+          "frame": 110,
+          "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36/rgb/0110.jpg",
+          "sha256": "0cf37b3b7a9f4f16e736518a9da5d108b2c49e47abaa277873698ff9abbd93e6"
+        }
+      ]
+    },
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_98_0_route0_01_08_00_55_14",
+      "physical_group": "PedestrianCrossing/Town12_98_0",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "红色前车",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 15,
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0015.jpg",
+          "sha256": "169ea223d0142177dc136ac7d1a729f790396331a04933a3db0ef233ba297edb"
+        },
+        {
+          "frame": 16,
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0016.jpg",
+          "sha256": "70085705acb6a2b4218babc40a12859d3ba7c4093ec5c5698cb05f98f524a533"
+        }
+      ]
+    },
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_98_0_route0_01_08_00_55_14",
+      "physical_group": "PedestrianCrossing/Town12_98_0",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "后到行人",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 53,
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0053.jpg",
+          "sha256": "4be33d18e9db88885f1c66a7af1828dc020326da550170325ff364875ece1121"
+        },
+        {
+          "frame": 54,
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0054.jpg",
+          "sha256": "5b4f738fc2d1731ce574f6b85d5ac24c26bc86d46732ddd7c57900b9b019d207"
+        }
+      ]
+    },
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_94_1_route0_01_10_05_37_06",
+      "physical_group": "PedestrianCrossing/Town12_94_1",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "红色前车",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "PedestrianCrossing/Town12_Rep0_94_1_route0_01_10_05_37_06/rgb/0014.jpg",
+          "sha256": "acb4ef08dcb668baba21f4ce3abbfa85d7c49cd6162b999f2c95a77c065432e8"
+        },
+        {
+          "frame": 15,
+          "path": "PedestrianCrossing/Town12_Rep0_94_1_route0_01_10_05_37_06/rgb/0015.jpg",
+          "sha256": "c7e46e932c474bd56b0dae87930b435becc99feb7f35427b362dc115134027ad"
+        }
+      ]
+    },
+    {
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_94_1_route0_01_10_05_37_06",
+      "physical_group": "PedestrianCrossing/Town12_94_1",
+      "kind": "original_rgb_visible_discontinuity",
+      "reported_status": "user_original_rgb_confirmed; implementation SHA checked",
+      "reported_observations": [
+        "最后可见行人",
+        "adjacent-frame visible discontinuity confirmed from original RGB; simulation cause not established"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 60,
+          "path": "PedestrianCrossing/Town12_Rep0_94_1_route0_01_10_05_37_06/rgb/0060.jpg",
+          "sha256": "6a96cc355bb0c5a42d51325224a541f0ccce03647bd7d627e08dc751713dcb61"
+        },
+        {
+          "frame": 61,
+          "path": "PedestrianCrossing/Town12_Rep0_94_1_route0_01_10_05_37_06/rgb/0061.jpg",
+          "sha256": "d6797b8f2d86a68b3b88d2143476d9e218130a19aa3d49e6260c8341514e077e"
+        }
+      ]
+    }
+  ],
+  "source": "user readonly audit 20261006; full sequence screening is not label certification",
+  "source_documents": {
+    "REPORT.txt": "98d024e2e60528a12872f8c2e4210d9a6cb0681483623bf2ca457639b3b9cf01",
+    "selected.json": "7c924ba6e5bc876d8422855cca1bf91af562a56804bc39f74bf06b1b2d0fc966",
+    "observations.json": "9e575e3eeac6e771be8ff561b8f1b437dd69bb401c6b7d7eb51e16d11d97c612",
+    "visual_discontinuities.json": "7d1825d9bf0fead976882cbbaa78f631bda2cce38ec3b90f29c50b073a3096a7",
+    "original_rechecks.json": "932574391fca8b7949168e70c14bc36d064b8357b627b8708911ec2722d5dd09"
+  },
+  "withdrawn_or_unconfirmed": [
+    "Scenario3_27 f77-78 withdrawn; f86-87 unresolved",
+    "Scenario3_10 f129-130 occlusion unresolved",
+    "PedestrianCrossing 98_0 f43-45 withdrawn"
+  ],
+  "new_supervision": 0
+}

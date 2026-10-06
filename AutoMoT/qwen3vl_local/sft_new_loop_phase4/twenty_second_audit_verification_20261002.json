@@ -1,0 +1,1827 @@
+{
+  "task": "phase4_state_pair_binary_v22",
+  "tests": {
+    "passed": 592,
+    "failed": 0,
+    "log": "/tmp/phase4_v22_work/tests_final.log",
+    "sha256": "b850c7199f8e908df1a96454fd681cee186eaa58292f6ba853b0964360d72916"
+  },
+  "modes": {
+    "2": {
+      "counts": {
+        "train": 435,
+        "val": 273,
+        "test": 186
+      },
+      "physical_routes": {
+        "train": 42,
+        "val": 13,
+        "test": 10
+      },
+      "review_queue": 533,
+      "supervised_rgb_verified": 894,
+      "review_rgb_verified": 533,
+      "v21_byte_identical": {
+        "train": true,
+        "val": true,
+        "test": true,
+        "review_queue": true
+      },
+      "sampling": {
+        "1": {
+          "cumulative_coverage": [
+            340,
+            428,
+            435,
+            435,
+            435,
+            435,
+            435
+          ],
+          "event_equal": true,
+          "cap": 8,
+          "serialized_history_equivalent": true
+        },
+        "4": {
+          "cumulative_coverage": [
+            340,
+            428,
+            435,
+            435,
+            435,
+            435,
+            435
+          ],
+          "event_equal": true,
+          "cap": 8,
+          "serialized_history_equivalent": true
+        }
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "manifest_sha256": "4d4ab3c76f2487fbad3b2cbc5423970e143b47821ac1587abaa50696a56eecd8",
+      "dataset_path": "/tmp/phase4_v22_work/final_data2",
+      "pipeline_log_sha256": "e1cd0d69fd57efa4f610286e7c9ebe2d4b1befb4a2ded541493d861744e65c2a",
+      "production_coverage": {
+        "candidate_routes": 9712,
+        "candidate_rgb_frames": 1637680,
+        "frames_with_questions": 1074,
+        "frames_with_supervision": 694,
+        "frames_without_questions": 1636606,
+        "complete_causal_production": false,
+        "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+      },
+      "training_admission": {
+        "policy": "phase4_training_admission_v3",
+        "trainable": true,
+        "errors": [],
+        "event_scope": {
+          "train": [
+            "R-E2",
+            "R-E3",
+            "R-E5",
+            "U-E1",
+            "U-E2",
+            "U-E3",
+            "U-E4",
+            "U-E5",
+            "U-E6",
+            "U-E7"
+          ],
+          "val": [
+            "U-E1",
+            "U-E5",
+            "U-E6",
+            "U-E7"
+          ],
+          "test": [
+            "U-E1",
+            "U-E5",
+            "U-E6",
+            "U-E7"
+          ]
+        },
+        "physical_routes": {
+          "train": 42,
+          "val": 13,
+          "test": 10
+        },
+        "missing_evaluation_events": {
+          "val": [
+            "R-E2",
+            "R-E3",
+            "R-E5",
+            "U-E2",
+            "U-E3",
+            "U-E4"
+          ],
+          "test": [
+            "R-E2",
+            "R-E3",
+            "R-E5",
+            "U-E2",
+            "U-E3",
+            "U-E4"
+          ]
+        },
+        "train_readiness_catchup_support": {
+          "U-E1/proceed": {
+            "readiness": {
+              "YES": 3,
+              "NO": 34
+            },
+            "catchup": {
+              "YES": 13,
+              "NO": 0
+            }
+          },
+          "U-E5/proceed": {
+            "readiness": {
+              "YES": 10,
+              "NO": 25
+            },
+            "catchup": {
+              "YES": 0,
+              "NO": 0
+            }
+          },
+          "U-E7/proceed": {
+            "readiness": {
+              "YES": 0,
+              "NO": 4
+            },
+            "catchup": {
+              "YES": 0,
+              "NO": 0
+            }
+          },
+          "R-E2/complete": {
+            "readiness": {
+              "YES": 6,
+              "NO": 16
+            },
+            "catchup": {
+              "YES": 10,
+              "NO": 0
+            }
+          },
+          "U-E7/complete": {
+            "readiness": {
+              "YES": 7,
+              "NO": 9
+            },
+            "catchup": {
+              "YES": 8,
+              "NO": 0
+            }
+          },
+          "U-E2/pass": {
+            "readiness": {
+              "YES": 3,
+              "NO": 9
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E3/proceed": {
+            "readiness": {
+              "YES": 3,
+              "NO": 11
+            },
+            "catchup": {
+              "YES": 7,
+              "NO": 0
+            }
+          },
+          "U-E4/proceed": {
+            "readiness": {
+              "YES": 12,
+              "NO": 33
+            },
+            "catchup": {
+              "YES": 9,
+              "NO": 0
+            }
+          },
+          "U-E4/pass": {
+            "readiness": {
+              "YES": 3,
+              "NO": 9
+            },
+            "catchup": {
+              "YES": 16,
+              "NO": 0
+            }
+          },
+          "U-E4/complete": {
+            "readiness": {
+              "YES": 2,
+              "NO": 5
+            },
+            "catchup": {
+              "YES": 6,
+              "NO": 0
+            }
+          },
+          "U-E6/proceed": {
+            "readiness": {
+              "YES": 12,
+              "NO": 16
+            },
+            "catchup": {
+              "YES": 13,
+              "NO": 0
+            }
+          },
+          "R-E5/proceed": {
+            "readiness": {
+              "YES": 1,
+              "NO": 27
+            },
+            "catchup": {
+              "YES": 4,
+              "NO": 0
+            }
+          },
+          "R-E3/complete": {
+            "readiness": {
+              "YES": 2,
+              "NO": 14
+            },
+            "catchup": {
+              "YES": 5,
+              "NO": 0
+            }
+          },
+          "U-E1/restrict": {
+            "readiness": {
+              "YES": 4,
+              "NO": 4
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E1/hold": {
+            "readiness": {
+              "YES": 1,
+              "NO": 4
+            },
+            "catchup": {
+              "YES": 7,
+              "NO": 0
+            }
+          },
+          "U-E1/release": {
+            "readiness": {
+              "YES": 0,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 4,
+              "NO": 0
+            }
+          },
+          "U-E1/settle": {
+            "readiness": {
+              "YES": 1,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E1/complete": {
+            "readiness": {
+              "YES": 1,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E2/complete": {
+            "readiness": {
+              "YES": 3,
+              "NO": 12
+            },
+            "catchup": {
+              "YES": 5,
+              "NO": 0
+            }
+          },
+          "U-E2/hold": {
+            "readiness": {
+              "YES": 2,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 4,
+              "NO": 0
+            }
+          }
+        },
+        "train_recovery_state_support": {
+          "U-E1/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E1/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E2/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E2/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E3/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E3/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E4/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E4/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E5/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E5/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E6/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E6/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E7/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E7/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E2/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E2/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E3/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E3/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E5/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E5/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          }
+        },
+        "catchup_dominated_transitions": [
+          "U-E1/proceed",
+          "R-E2/complete",
+          "U-E7/complete",
+          "U-E3/proceed",
+          "U-E4/pass",
+          "U-E4/complete",
+          "U-E6/proceed",
+          "R-E5/proceed",
+          "R-E3/complete",
+          "U-E1/hold",
+          "U-E1/release",
+          "U-E2/complete",
+          "U-E2/hold"
+        ],
+        "counts": {
+          "train": {
+            "rows": 435,
+            "answers": {
+              "NO": 244,
+              "YES": 191
+            }
+          },
+          "val": {
+            "rows": 273,
+            "answers": {
+              "NO": 155,
+              "YES": 118
+            }
+          },
+          "test": {
+            "rows": 186,
+            "answers": {
+              "NO": 113,
+              "YES": 73
+            }
+          }
+        },
+        "complete_coverage": false,
+        "coverage_role": "diagnostic; incomplete cells do not block training",
+        "evaluation_scope": "observed independent labelled subsets; not full-loop certification",
+        "train_missing_readiness_yes": [
+          "train/U-E1/default/re_yield",
+          "train/U-E1/default/release",
+          "train/U-E1/default/stable",
+          "train/U-E1/default/renewed_restriction",
+          "train/U-E1/default/recover_follow",
+          "train/U-E2/default/return/depart",
+          "train/U-E2/default/return/return",
+          "train/U-E2/default/return/restrict",
+          "train/U-E2/default/return/settle",
+          "train/U-E2/default/return/release",
+          "train/U-E2/default/return/stable",
+          "train/U-E2/default/return/renewed_restriction",
+          "train/U-E2/default/return/recover_follow",
+          "train/U-E3/default/complete",
+          "train/U-E3/default/re_yield",
+          "train/U-E3/default/restrict",
+          "train/U-E3/default/settle",
+          "train/U-E3/default/hold",
+          "train/U-E3/default/release",
+          "train/U-E3/default/stable",
+          "train/U-E3/default/renewed_restriction",
+          "train/U-E3/default/recover_follow",
+          "train/U-E4/default/complete",
+          "train/U-E4/default/re_yield",
+          "train/U-E4/default/restrict",
+          "train/U-E4/default/settle",
+          "train/U-E4/default/hold",
+          "train/U-E4/default/release",
+          "train/U-E4/default/stable",
+          "train/U-E4/default/renewed_restriction",
+          "train/U-E4/default/recover_follow",
+          "train/U-E5/default/complete",
+          "train/U-E5/default/re_yield",
+          "train/U-E5/default/restrict",
+          "train/U-E5/default/settle",
+          "train/U-E5/default/hold",
+          "train/U-E5/default/release",
+          "train/U-E5/default/stable",
+          "train/U-E5/default/renewed_restriction",
+          "train/U-E5/default/recover_follow",
+          "train/U-E6/default/complete",
+          "train/U-E6/default/re_yield",
+          "train/U-E6/default/restrict",
+          "train/U-E6/default/settle",
+          "train/U-E6/default/hold",
+          "train/U-E6/default/release",
+          "train/U-E6/default/stable",
+          "train/U-E6/default/renewed_restriction",
+          "train/U-E6/default/recover_follow",
+          "train/U-E7/default/proceed",
+          "train/U-E7/default/re_yield",
+          "train/U-E7/default/restrict",
+          "train/U-E7/default/settle",
+          "train/U-E7/default/hold",
+          "train/U-E7/default/release",
+          "train/U-E7/default/stable",
+          "train/U-E7/default/renewed_restriction",
+          "train/U-E7/default/recover_follow",
+          "train/R-E2/default/enter",
+          "train/R-E2/default/restrict",
+          "train/R-E2/default/settle",
+          "train/R-E2/default/hold",
+          "train/R-E2/default/release",
+          "train/R-E2/default/stable",
+          "train/R-E2/default/renewed_restriction",
+          "train/R-E2/default/recover_follow",
+          "train/R-E3/default/enter",
+          "train/R-E3/default/restrict",
+          "train/R-E3/default/settle",
+          "train/R-E3/default/hold",
+          "train/R-E3/default/release",
+          "train/R-E3/default/stable",
+          "train/R-E3/default/renewed_restriction",
+          "train/R-E3/default/recover_follow",
+          "train/R-E5/default/complete",
+          "train/R-E5/default/re_yield",
+          "train/R-E5/default/restrict",
+          "train/R-E5/default/settle",
+          "train/R-E5/default/hold",
+          "train/R-E5/default/release",
+          "train/R-E5/default/stable",
+          "train/R-E5/default/renewed_restriction",
+          "train/R-E5/default/recover_follow",
+          "train/U-E2/default/no_return/depart",
+          "train/U-E2/default/no_return/pass",
+          "train/U-E2/default/no_return/complete",
+          "train/U-E2/default/no_return/restrict",
+          "train/U-E2/default/no_return/settle",
+          "train/U-E2/default/no_return/hold",
+          "train/U-E2/default/no_return/release",
+          "train/U-E2/default/no_return/stable",
+          "train/U-E2/default/no_return/renewed_restriction",
+          "train/U-E2/default/no_return/recover_follow",
+          "train/U-E2/in_lane_pass/proceed",
+          "train/U-E2/in_lane_pass/complete",
+          "train/U-E2/in_lane_pass/re_yield",
+          "train/U-E2/in_lane_pass/restrict",
+          "train/U-E2/in_lane_pass/settle",
+          "train/U-E2/in_lane_pass/hold",
+          "train/U-E2/in_lane_pass/release",
+          "train/U-E2/in_lane_pass/stable",
+          "train/U-E2/in_lane_pass/renewed_restriction",
+          "train/U-E2/in_lane_pass/recover_follow",
+          "train/U-E4/cyclist_follow/proceed",
+          "train/U-E4/cyclist_follow/complete",
+          "train/U-E4/cyclist_follow/re_yield",
+          "train/U-E4/cyclist_follow/restrict",
+          "train/U-E4/cyclist_follow/settle",
+          "train/U-E4/cyclist_follow/hold",
+          "train/U-E4/cyclist_follow/release",
+          "train/U-E4/cyclist_follow/stable",
+          "train/U-E4/cyclist_follow/renewed_restriction",
+          "train/U-E4/cyclist_follow/recover_follow",
+          "train/U-E4/cyclist_bypass/return/depart",
+          "train/U-E4/cyclist_bypass/return/return",
+          "train/U-E4/cyclist_bypass/return/restrict",
+          "train/U-E4/cyclist_bypass/return/settle",
+          "train/U-E4/cyclist_bypass/return/hold",
+          "train/U-E4/cyclist_bypass/return/release",
+          "train/U-E4/cyclist_bypass/return/stable",
+          "train/U-E4/cyclist_bypass/return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/return/recover_follow",
+          "train/U-E4/cyclist_bypass/no_return/depart",
+          "train/U-E4/cyclist_bypass/no_return/pass",
+          "train/U-E4/cyclist_bypass/no_return/complete",
+          "train/U-E4/cyclist_bypass/no_return/restrict",
+          "train/U-E4/cyclist_bypass/no_return/settle",
+          "train/U-E4/cyclist_bypass/no_return/hold",
+          "train/U-E4/cyclist_bypass/no_return/release",
+          "train/U-E4/cyclist_bypass/no_return/stable",
+          "train/U-E4/cyclist_bypass/no_return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/no_return/recover_follow"
+        ],
+        "train_missing_readiness_no": [
+          "train/U-E1/default/re_yield",
+          "train/U-E1/default/stable",
+          "train/U-E1/default/renewed_restriction",
+          "train/U-E1/default/recover_follow",
+          "train/U-E2/default/return/depart",
+          "train/U-E2/default/return/return",
+          "train/U-E2/default/return/restrict",
+          "train/U-E2/default/return/settle",
+          "train/U-E2/default/return/release",
+          "train/U-E2/default/return/stable",
+          "train/U-E2/default/return/renewed_restriction",
+          "train/U-E2/default/return/recover_follow",
+          "train/U-E3/default/complete",
+          "train/U-E3/default/re_yield",
+          "train/U-E3/default/restrict",
+          "train/U-E3/default/settle",
+          "train/U-E3/default/hold",
+          "train/U-E3/default/release",
+          "train/U-E3/default/stable",
+          "train/U-E3/default/renewed_restriction",
+          "train/U-E3/default/recover_follow",
+          "train/U-E4/default/complete",
+          "train/U-E4/default/re_yield",
+          "train/U-E4/default/restrict",
+          "train/U-E4/default/settle",
+          "train/U-E4/default/hold",
+          "train/U-E4/default/release",
+          "train/U-E4/default/stable",
+          "train/U-E4/default/renewed_restriction",
+          "train/U-E4/default/recover_follow",
+          "train/U-E5/default/complete",
+          "train/U-E5/default/re_yield",
+          "train/U-E5/default/restrict",
+          "train/U-E5/default/settle",
+          "train/U-E5/default/hold",
+          "train/U-E5/default/release",
+          "train/U-E5/default/stable",
+          "train/U-E5/default/renewed_restriction",
+          "train/U-E5/default/recover_follow",
+          "train/U-E6/default/complete",
+          "train/U-E6/default/re_yield",
+          "train/U-E6/default/restrict",
+          "train/U-E6/default/settle",
+          "train/U-E6/default/hold",
+          "train/U-E6/default/release",
+          "train/U-E6/default/stable",
+          "train/U-E6/default/renewed_restriction",
+          "train/U-E6/default/recover_follow",
+          "train/U-E7/default/re_yield",
+          "train/U-E7/default/restrict",
+          "train/U-E7/default/settle",
+          "train/U-E7/default/hold",
+          "train/U-E7/default/release",
+          "train/U-E7/default/stable",
+          "train/U-E7/default/renewed_restriction",
+          "train/U-E7/default/recover_follow",
+          "train/R-E2/default/enter",
+          "train/R-E2/default/restrict",
+          "train/R-E2/default/settle",
+          "train/R-E2/default/hold",
+          "train/R-E2/default/release",
+          "train/R-E2/default/stable",
+          "train/R-E2/default/renewed_restriction",
+          "train/R-E2/default/recover_follow",
+          "train/R-E3/default/enter",
+          "train/R-E3/default/restrict",
+          "train/R-E3/default/settle",
+          "train/R-E3/default/hold",
+          "train/R-E3/default/release",
+          "train/R-E3/default/stable",
+          "train/R-E3/default/renewed_restriction",
+          "train/R-E3/default/recover_follow",
+          "train/R-E5/default/complete",
+          "train/R-E5/default/re_yield",
+          "train/R-E5/default/restrict",
+          "train/R-E5/default/settle",
+          "train/R-E5/default/hold",
+          "train/R-E5/default/release",
+          "train/R-E5/default/stable",
+          "train/R-E5/default/renewed_restriction",
+          "train/R-E5/default/recover_follow",
+          "train/U-E2/default/no_return/depart",
+          "train/U-E2/default/no_return/pass",
+          "train/U-E2/default/no_return/complete",
+          "train/U-E2/default/no_return/restrict",
+          "train/U-E2/default/no_return/settle",
+          "train/U-E2/default/no_return/hold",
+          "train/U-E2/default/no_return/release",
+          "train/U-E2/default/no_return/stable",
+          "train/U-E2/default/no_return/renewed_restriction",
+          "train/U-E2/default/no_return/recover_follow",
+          "train/U-E2/in_lane_pass/proceed",
+          "train/U-E2/in_lane_pass/complete",
+          "train/U-E2/in_lane_pass/re_yield",
+          "train/U-E2/in_lane_pass/restrict",
+          "train/U-E2/in_lane_pass/settle",
+          "train/U-E2/in_lane_pass/hold",
+          "train/U-E2/in_lane_pass/release",
+          "train/U-E2/in_lane_pass/stable",
+          "train/U-E2/in_lane_pass/renewed_restriction",
+          "train/U-E2/in_lane_pass/recover_follow",
+          "train/U-E4/cyclist_follow/proceed",
+          "train/U-E4/cyclist_follow/complete",
+          "train/U-E4/cyclist_follow/re_yield",
+          "train/U-E4/cyclist_follow/restrict",
+          "train/U-E4/cyclist_follow/settle",
+          "train/U-E4/cyclist_follow/hold",
+          "train/U-E4/cyclist_follow/release",
+          "train/U-E4/cyclist_follow/stable",
+          "train/U-E4/cyclist_follow/renewed_restriction",
+          "train/U-E4/cyclist_follow/recover_follow",
+          "train/U-E4/cyclist_bypass/return/depart",
+          "train/U-E4/cyclist_bypass/return/return",
+          "train/U-E4/cyclist_bypass/return/restrict",
+          "train/U-E4/cyclist_bypass/return/settle",
+          "train/U-E4/cyclist_bypass/return/hold",
+          "train/U-E4/cyclist_bypass/return/release",
+          "train/U-E4/cyclist_bypass/return/stable",
+          "train/U-E4/cyclist_bypass/return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/return/recover_follow",
+          "train/U-E4/cyclist_bypass/no_return/depart",
+          "train/U-E4/cyclist_bypass/no_return/pass",
+          "train/U-E4/cyclist_bypass/no_return/complete",
+          "train/U-E4/cyclist_bypass/no_return/restrict",
+          "train/U-E4/cyclist_bypass/no_return/settle",
+          "train/U-E4/cyclist_bypass/no_return/hold",
+          "train/U-E4/cyclist_bypass/no_return/release",
+          "train/U-E4/cyclist_bypass/no_return/stable",
+          "train/U-E4/cyclist_bypass/no_return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/no_return/recover_follow"
+        ],
+        "missing_event_cells": 12,
+        "missing_transition_cells": 415,
+        "missing_segment_cells": 12
+      }
+    },
+    "4": {
+      "counts": {
+        "train": 435,
+        "val": 273,
+        "test": 186
+      },
+      "physical_routes": {
+        "train": 42,
+        "val": 13,
+        "test": 10
+      },
+      "review_queue": 533,
+      "supervised_rgb_verified": 894,
+      "review_rgb_verified": 533,
+      "v21_byte_identical": {
+        "train": true,
+        "val": true,
+        "test": true,
+        "review_queue": true
+      },
+      "sampling": {
+        "1": {
+          "cumulative_coverage": [
+            340,
+            428,
+            435,
+            435,
+            435,
+            435,
+            435
+          ],
+          "event_equal": true,
+          "cap": 8,
+          "serialized_history_equivalent": true
+        },
+        "4": {
+          "cumulative_coverage": [
+            340,
+            428,
+            435,
+            435,
+            435,
+            435,
+            435
+          ],
+          "event_equal": true,
+          "cap": 8,
+          "serialized_history_equivalent": true
+        }
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "manifest_sha256": "0e0cb731dd6c954b30c612e85cee215b9451aa13090baff6877b31f0b0b192d5",
+      "dataset_path": "/tmp/phase4_v22_work/final_data4",
+      "pipeline_log_sha256": "e1cd0d69fd57efa4f610286e7c9ebe2d4b1befb4a2ded541493d861744e65c2a",
+      "production_coverage": {
+        "candidate_routes": 9712,
+        "candidate_rgb_frames": 1637680,
+        "frames_with_questions": 1074,
+        "frames_with_supervision": 694,
+        "frames_without_questions": 1636606,
+        "complete_causal_production": false,
+        "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+      },
+      "training_admission": {
+        "policy": "phase4_training_admission_v3",
+        "trainable": true,
+        "errors": [],
+        "event_scope": {
+          "train": [
+            "R-E2",
+            "R-E3",
+            "R-E5",
+            "U-E1",
+            "U-E2",
+            "U-E3",
+            "U-E4",
+            "U-E5",
+            "U-E6",
+            "U-E7"
+          ],
+          "val": [
+            "U-E1",
+            "U-E5",
+            "U-E6",
+            "U-E7"
+          ],
+          "test": [
+            "U-E1",
+            "U-E5",
+            "U-E6",
+            "U-E7"
+          ]
+        },
+        "physical_routes": {
+          "train": 42,
+          "val": 13,
+          "test": 10
+        },
+        "missing_evaluation_events": {
+          "val": [
+            "R-E2",
+            "R-E3",
+            "R-E5",
+            "U-E2",
+            "U-E3",
+            "U-E4"
+          ],
+          "test": [
+            "R-E2",
+            "R-E3",
+            "R-E5",
+            "U-E2",
+            "U-E3",
+            "U-E4"
+          ]
+        },
+        "train_readiness_catchup_support": {
+          "U-E1/proceed": {
+            "readiness": {
+              "YES": 3,
+              "NO": 34
+            },
+            "catchup": {
+              "YES": 13,
+              "NO": 0
+            }
+          },
+          "U-E5/proceed": {
+            "readiness": {
+              "YES": 10,
+              "NO": 25
+            },
+            "catchup": {
+              "YES": 0,
+              "NO": 0
+            }
+          },
+          "U-E7/proceed": {
+            "readiness": {
+              "YES": 0,
+              "NO": 4
+            },
+            "catchup": {
+              "YES": 0,
+              "NO": 0
+            }
+          },
+          "R-E2/complete": {
+            "readiness": {
+              "YES": 6,
+              "NO": 16
+            },
+            "catchup": {
+              "YES": 10,
+              "NO": 0
+            }
+          },
+          "U-E7/complete": {
+            "readiness": {
+              "YES": 7,
+              "NO": 9
+            },
+            "catchup": {
+              "YES": 8,
+              "NO": 0
+            }
+          },
+          "U-E2/pass": {
+            "readiness": {
+              "YES": 3,
+              "NO": 9
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E3/proceed": {
+            "readiness": {
+              "YES": 3,
+              "NO": 11
+            },
+            "catchup": {
+              "YES": 7,
+              "NO": 0
+            }
+          },
+          "U-E4/proceed": {
+            "readiness": {
+              "YES": 12,
+              "NO": 33
+            },
+            "catchup": {
+              "YES": 9,
+              "NO": 0
+            }
+          },
+          "U-E4/pass": {
+            "readiness": {
+              "YES": 3,
+              "NO": 9
+            },
+            "catchup": {
+              "YES": 16,
+              "NO": 0
+            }
+          },
+          "U-E4/complete": {
+            "readiness": {
+              "YES": 2,
+              "NO": 5
+            },
+            "catchup": {
+              "YES": 6,
+              "NO": 0
+            }
+          },
+          "U-E6/proceed": {
+            "readiness": {
+              "YES": 12,
+              "NO": 16
+            },
+            "catchup": {
+              "YES": 13,
+              "NO": 0
+            }
+          },
+          "R-E5/proceed": {
+            "readiness": {
+              "YES": 1,
+              "NO": 27
+            },
+            "catchup": {
+              "YES": 4,
+              "NO": 0
+            }
+          },
+          "R-E3/complete": {
+            "readiness": {
+              "YES": 2,
+              "NO": 14
+            },
+            "catchup": {
+              "YES": 5,
+              "NO": 0
+            }
+          },
+          "U-E1/restrict": {
+            "readiness": {
+              "YES": 4,
+              "NO": 4
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E1/hold": {
+            "readiness": {
+              "YES": 1,
+              "NO": 4
+            },
+            "catchup": {
+              "YES": 7,
+              "NO": 0
+            }
+          },
+          "U-E1/release": {
+            "readiness": {
+              "YES": 0,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 4,
+              "NO": 0
+            }
+          },
+          "U-E1/settle": {
+            "readiness": {
+              "YES": 1,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E1/complete": {
+            "readiness": {
+              "YES": 1,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 1,
+              "NO": 0
+            }
+          },
+          "U-E2/complete": {
+            "readiness": {
+              "YES": 3,
+              "NO": 12
+            },
+            "catchup": {
+              "YES": 5,
+              "NO": 0
+            }
+          },
+          "U-E2/hold": {
+            "readiness": {
+              "YES": 2,
+              "NO": 3
+            },
+            "catchup": {
+              "YES": 4,
+              "NO": 0
+            }
+          }
+        },
+        "train_recovery_state_support": {
+          "U-E1/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E1/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E2/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E2/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E3/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E3/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E4/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E4/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E5/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E5/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E6/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E6/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E7/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "U-E7/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E2/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E2/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E3/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E3/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E5/RECOVER/stable": {
+            "YES": 0,
+            "NO": 0
+          },
+          "R-E5/RECOVER/recover_follow": {
+            "YES": 0,
+            "NO": 0
+          }
+        },
+        "catchup_dominated_transitions": [
+          "U-E1/proceed",
+          "R-E2/complete",
+          "U-E7/complete",
+          "U-E3/proceed",
+          "U-E4/pass",
+          "U-E4/complete",
+          "U-E6/proceed",
+          "R-E5/proceed",
+          "R-E3/complete",
+          "U-E1/hold",
+          "U-E1/release",
+          "U-E2/complete",
+          "U-E2/hold"
+        ],
+        "counts": {
+          "train": {
+            "rows": 435,
+            "answers": {
+              "NO": 244,
+              "YES": 191
+            }
+          },
+          "val": {
+            "rows": 273,
+            "answers": {
+              "NO": 155,
+              "YES": 118
+            }
+          },
+          "test": {
+            "rows": 186,
+            "answers": {
+              "NO": 113,
+              "YES": 73
+            }
+          }
+        },
+        "complete_coverage": false,
+        "coverage_role": "diagnostic; incomplete cells do not block training",
+        "evaluation_scope": "observed independent labelled subsets; not full-loop certification",
+        "train_missing_readiness_yes": [
+          "train/U-E1/default/re_yield",
+          "train/U-E1/default/release",
+          "train/U-E1/default/stable",
+          "train/U-E1/default/renewed_restriction",
+          "train/U-E1/default/recover_follow",
+          "train/U-E2/default/return/depart",
+          "train/U-E2/default/return/return",
+          "train/U-E2/default/return/restrict",
+          "train/U-E2/default/return/settle",
+          "train/U-E2/default/return/release",
+          "train/U-E2/default/return/stable",
+          "train/U-E2/default/return/renewed_restriction",
+          "train/U-E2/default/return/recover_follow",
+          "train/U-E3/default/complete",
+          "train/U-E3/default/re_yield",
+          "train/U-E3/default/restrict",
+          "train/U-E3/default/settle",
+          "train/U-E3/default/hold",
+          "train/U-E3/default/release",
+          "train/U-E3/default/stable",
+          "train/U-E3/default/renewed_restriction",
+          "train/U-E3/default/recover_follow",
+          "train/U-E4/default/complete",
+          "train/U-E4/default/re_yield",
+          "train/U-E4/default/restrict",
+          "train/U-E4/default/settle",
+          "train/U-E4/default/hold",
+          "train/U-E4/default/release",
+          "train/U-E4/default/stable",
+          "train/U-E4/default/renewed_restriction",
+          "train/U-E4/default/recover_follow",
+          "train/U-E5/default/complete",
+          "train/U-E5/default/re_yield",
+          "train/U-E5/default/restrict",
+          "train/U-E5/default/settle",
+          "train/U-E5/default/hold",
+          "train/U-E5/default/release",
+          "train/U-E5/default/stable",
+          "train/U-E5/default/renewed_restriction",
+          "train/U-E5/default/recover_follow",
+          "train/U-E6/default/complete",
+          "train/U-E6/default/re_yield",
+          "train/U-E6/default/restrict",
+          "train/U-E6/default/settle",
+          "train/U-E6/default/hold",
+          "train/U-E6/default/release",
+          "train/U-E6/default/stable",
+          "train/U-E6/default/renewed_restriction",
+          "train/U-E6/default/recover_follow",
+          "train/U-E7/default/proceed",
+          "train/U-E7/default/re_yield",
+          "train/U-E7/default/restrict",
+          "train/U-E7/default/settle",
+          "train/U-E7/default/hold",
+          "train/U-E7/default/release",
+          "train/U-E7/default/stable",
+          "train/U-E7/default/renewed_restriction",
+          "train/U-E7/default/recover_follow",
+          "train/R-E2/default/enter",
+          "train/R-E2/default/restrict",
+          "train/R-E2/default/settle",
+          "train/R-E2/default/hold",
+          "train/R-E2/default/release",
+          "train/R-E2/default/stable",
+          "train/R-E2/default/renewed_restriction",
+          "train/R-E2/default/recover_follow",
+          "train/R-E3/default/enter",
+          "train/R-E3/default/restrict",
+          "train/R-E3/default/settle",
+          "train/R-E3/default/hold",
+          "train/R-E3/default/release",
+          "train/R-E3/default/stable",
+          "train/R-E3/default/renewed_restriction",
+          "train/R-E3/default/recover_follow",
+          "train/R-E5/default/complete",
+          "train/R-E5/default/re_yield",
+          "train/R-E5/default/restrict",
+          "train/R-E5/default/settle",
+          "train/R-E5/default/hold",
+          "train/R-E5/default/release",
+          "train/R-E5/default/stable",
+          "train/R-E5/default/renewed_restriction",
+          "train/R-E5/default/recover_follow",
+          "train/U-E2/default/no_return/depart",
+          "train/U-E2/default/no_return/pass",
+          "train/U-E2/default/no_return/complete",
+          "train/U-E2/default/no_return/restrict",
+          "train/U-E2/default/no_return/settle",
+          "train/U-E2/default/no_return/hold",
+          "train/U-E2/default/no_return/release",
+          "train/U-E2/default/no_return/stable",
+          "train/U-E2/default/no_return/renewed_restriction",
+          "train/U-E2/default/no_return/recover_follow",
+          "train/U-E2/in_lane_pass/proceed",
+          "train/U-E2/in_lane_pass/complete",
+          "train/U-E2/in_lane_pass/re_yield",
+          "train/U-E2/in_lane_pass/restrict",
+          "train/U-E2/in_lane_pass/settle",
+          "train/U-E2/in_lane_pass/hold",
+          "train/U-E2/in_lane_pass/release",
+          "train/U-E2/in_lane_pass/stable",
+          "train/U-E2/in_lane_pass/renewed_restriction",
+          "train/U-E2/in_lane_pass/recover_follow",
+          "train/U-E4/cyclist_follow/proceed",
+          "train/U-E4/cyclist_follow/complete",
+          "train/U-E4/cyclist_follow/re_yield",
+          "train/U-E4/cyclist_follow/restrict",
+          "train/U-E4/cyclist_follow/settle",
+          "train/U-E4/cyclist_follow/hold",
+          "train/U-E4/cyclist_follow/release",
+          "train/U-E4/cyclist_follow/stable",
+          "train/U-E4/cyclist_follow/renewed_restriction",
+          "train/U-E4/cyclist_follow/recover_follow",
+          "train/U-E4/cyclist_bypass/return/depart",
+          "train/U-E4/cyclist_bypass/return/return",
+          "train/U-E4/cyclist_bypass/return/restrict",
+          "train/U-E4/cyclist_bypass/return/settle",
+          "train/U-E4/cyclist_bypass/return/hold",
+          "train/U-E4/cyclist_bypass/return/release",
+          "train/U-E4/cyclist_bypass/return/stable",
+          "train/U-E4/cyclist_bypass/return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/return/recover_follow",
+          "train/U-E4/cyclist_bypass/no_return/depart",
+          "train/U-E4/cyclist_bypass/no_return/pass",
+          "train/U-E4/cyclist_bypass/no_return/complete",
+          "train/U-E4/cyclist_bypass/no_return/restrict",
+          "train/U-E4/cyclist_bypass/no_return/settle",
+          "train/U-E4/cyclist_bypass/no_return/hold",
+          "train/U-E4/cyclist_bypass/no_return/release",
+          "train/U-E4/cyclist_bypass/no_return/stable",
+          "train/U-E4/cyclist_bypass/no_return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/no_return/recover_follow"
+        ],
+        "train_missing_readiness_no": [
+          "train/U-E1/default/re_yield",
+          "train/U-E1/default/stable",
+          "train/U-E1/default/renewed_restriction",
+          "train/U-E1/default/recover_follow",
+          "train/U-E2/default/return/depart",
+          "train/U-E2/default/return/return",
+          "train/U-E2/default/return/restrict",
+          "train/U-E2/default/return/settle",
+          "train/U-E2/default/return/release",
+          "train/U-E2/default/return/stable",
+          "train/U-E2/default/return/renewed_restriction",
+          "train/U-E2/default/return/recover_follow",
+          "train/U-E3/default/complete",
+          "train/U-E3/default/re_yield",
+          "train/U-E3/default/restrict",
+          "train/U-E3/default/settle",
+          "train/U-E3/default/hold",
+          "train/U-E3/default/release",
+          "train/U-E3/default/stable",
+          "train/U-E3/default/renewed_restriction",
+          "train/U-E3/default/recover_follow",
+          "train/U-E4/default/complete",
+          "train/U-E4/default/re_yield",
+          "train/U-E4/default/restrict",
+          "train/U-E4/default/settle",
+          "train/U-E4/default/hold",
+          "train/U-E4/default/release",
+          "train/U-E4/default/stable",
+          "train/U-E4/default/renewed_restriction",
+          "train/U-E4/default/recover_follow",
+          "train/U-E5/default/complete",
+          "train/U-E5/default/re_yield",
+          "train/U-E5/default/restrict",
+          "train/U-E5/default/settle",
+          "train/U-E5/default/hold",
+          "train/U-E5/default/release",
+          "train/U-E5/default/stable",
+          "train/U-E5/default/renewed_restriction",
+          "train/U-E5/default/recover_follow",
+          "train/U-E6/default/complete",
+          "train/U-E6/default/re_yield",
+          "train/U-E6/default/restrict",
+          "train/U-E6/default/settle",
+          "train/U-E6/default/hold",
+          "train/U-E6/default/release",
+          "train/U-E6/default/stable",
+          "train/U-E6/default/renewed_restriction",
+          "train/U-E6/default/recover_follow",
+          "train/U-E7/default/re_yield",
+          "train/U-E7/default/restrict",
+          "train/U-E7/default/settle",
+          "train/U-E7/default/hold",
+          "train/U-E7/default/release",
+          "train/U-E7/default/stable",
+          "train/U-E7/default/renewed_restriction",
+          "train/U-E7/default/recover_follow",
+          "train/R-E2/default/enter",
+          "train/R-E2/default/restrict",
+          "train/R-E2/default/settle",
+          "train/R-E2/default/hold",
+          "train/R-E2/default/release",
+          "train/R-E2/default/stable",
+          "train/R-E2/default/renewed_restriction",
+          "train/R-E2/default/recover_follow",
+          "train/R-E3/default/enter",
+          "train/R-E3/default/restrict",
+          "train/R-E3/default/settle",
+          "train/R-E3/default/hold",
+          "train/R-E3/default/release",
+          "train/R-E3/default/stable",
+          "train/R-E3/default/renewed_restriction",
+          "train/R-E3/default/recover_follow",
+          "train/R-E5/default/complete",
+          "train/R-E5/default/re_yield",
+          "train/R-E5/default/restrict",
+          "train/R-E5/default/settle",
+          "train/R-E5/default/hold",
+          "train/R-E5/default/release",
+          "train/R-E5/default/stable",
+          "train/R-E5/default/renewed_restriction",
+          "train/R-E5/default/recover_follow",
+          "train/U-E2/default/no_return/depart",
+          "train/U-E2/default/no_return/pass",
+          "train/U-E2/default/no_return/complete",
+          "train/U-E2/default/no_return/restrict",
+          "train/U-E2/default/no_return/settle",
+          "train/U-E2/default/no_return/hold",
+          "train/U-E2/default/no_return/release",
+          "train/U-E2/default/no_return/stable",
+          "train/U-E2/default/no_return/renewed_restriction",
+          "train/U-E2/default/no_return/recover_follow",
+          "train/U-E2/in_lane_pass/proceed",
+          "train/U-E2/in_lane_pass/complete",
+          "train/U-E2/in_lane_pass/re_yield",
+          "train/U-E2/in_lane_pass/restrict",
+          "train/U-E2/in_lane_pass/settle",
+          "train/U-E2/in_lane_pass/hold",
+          "train/U-E2/in_lane_pass/release",
+          "train/U-E2/in_lane_pass/stable",
+          "train/U-E2/in_lane_pass/renewed_restriction",
+          "train/U-E2/in_lane_pass/recover_follow",
+          "train/U-E4/cyclist_follow/proceed",
+          "train/U-E4/cyclist_follow/complete",
+          "train/U-E4/cyclist_follow/re_yield",
+          "train/U-E4/cyclist_follow/restrict",
+          "train/U-E4/cyclist_follow/settle",
+          "train/U-E4/cyclist_follow/hold",
+          "train/U-E4/cyclist_follow/release",
+          "train/U-E4/cyclist_follow/stable",
+          "train/U-E4/cyclist_follow/renewed_restriction",
+          "train/U-E4/cyclist_follow/recover_follow",
+          "train/U-E4/cyclist_bypass/return/depart",
+          "train/U-E4/cyclist_bypass/return/return",
+          "train/U-E4/cyclist_bypass/return/restrict",
+          "train/U-E4/cyclist_bypass/return/settle",
+          "train/U-E4/cyclist_bypass/return/hold",
+          "train/U-E4/cyclist_bypass/return/release",
+          "train/U-E4/cyclist_bypass/return/stable",
+          "train/U-E4/cyclist_bypass/return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/return/recover_follow",
+          "train/U-E4/cyclist_bypass/no_return/depart",
+          "train/U-E4/cyclist_bypass/no_return/pass",
+          "train/U-E4/cyclist_bypass/no_return/complete",
+          "train/U-E4/cyclist_bypass/no_return/restrict",
+          "train/U-E4/cyclist_bypass/no_return/settle",
+          "train/U-E4/cyclist_bypass/no_return/hold",
+          "train/U-E4/cyclist_bypass/no_return/release",
+          "train/U-E4/cyclist_bypass/no_return/stable",
+          "train/U-E4/cyclist_bypass/no_return/renewed_restriction",
+          "train/U-E4/cyclist_bypass/no_return/recover_follow"
+        ],
+        "missing_event_cells": 12,
+        "missing_transition_cells": 415,
+        "missing_segment_cells": 12
+      }
+    }
+  },
+  "unchanged_files": {
+    "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+    "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+    "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+    "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+    "sampling.py": "3b5bde830001002d8da6c8be36d65ef1efd85b63470e65117fa77e218cf77672",
+    "train.py": "cdcba9cffae7c9c45b2ae0d8decc5d3f4c3e8f418c0c796c260f6fbe7dc9f5d6",
+    "selection.py": "4c46214b361f97839306e8cf5cd7c5ba36333bf144efb992345c83ec68f4e49d",
+    "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+    "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+    "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c"
+  },
+  "source_contract": {
+    "task": "phase4_state_pair_binary_v22",
+    "answers": [
+      "YES",
+      "NO"
+    ],
+    "sources": {
+      "privileged_context.py": "3114c7d877f409f44c230895c91955c180d87e918a66f5b9ccc5e18dd33bccba",
+      "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+      "privileged_geometry.py": "9ed09836f57ff2bf65d51c127fde405042f144278866cd740f644aadb6aaab49",
+      "privileged_producer.py": "ae06dadaba582bf77e6329f0ab807493b268cc4d6319232ba2389f8ac7086624",
+      "replay_safety.py": "0d5154a6bd994606bf76e1b72a4aa783ec8a5a663c912e920aa02bbecd316562",
+      "maneuver_safety.py": "aad6adb9ace9e715c20538662487ba771dce61467346fba0ff56486f665eb7eb",
+      "visible_scope.py": "e3a6e8d9cf708a5d08c2f6a942a08a07193dd807be3a201723883e5b2be6d20f",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_prompts.py": "4b798bc4607e50bf0546ca31bd9270550b03b14c2ba632d97d05fe47eadaa36a",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "dataset.py": "e45d9f228005cb9b1380e06e46691ed31e0d67dfeca818b6b30e82b3f2fc0762",
+      "sampling.py": "3b5bde830001002d8da6c8be36d65ef1efd85b63470e65117fa77e218cf77672",
+      "model.py": "f719074e44cce506d1302d1a9338456ed5e41f3a09f2d337a59027a1c1038241",
+      "train.py": "cdcba9cffae7c9c45b2ae0d8decc5d3f4c3e8f418c0c796c260f6fbe7dc9f5d6",
+      "evaluate.py": "ae46a574f4f0aab09f20089b63e094062d69439a4e13793fd9ec83a69aa76c99",
+      "runtime.py": "fa268158c96ee671d2b95449c9c0bebd2b07c4ccf73f7dcfcec4846e6bea8c4a",
+      "identity.py": "52881a46ec206908683dbd2d51f78a8f0d7a93868e518c6e032be60e5ee5db40",
+      "action_prior.py": "c0dc9aac6c1e294bb7964685202945b34a5a4236037e6d619f660457d3daf81a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "replay.py": "a4ddd7eabddf3d30c9a8e9d6806ef16be1d15ba4342e43365a4d256a16dc2f13",
+      "input_identity.py": "e7e7ebe9fc28ee2c3704ed7ef27755835f884e87476a7b3c253abe9df6a8b3d1",
+      "risk_review.py": "c4934c859c17dcb615695b5b29f6312af4685f3c6c148cc3f36e01ac5770b09d",
+      "admission.py": "250452dffca5384f20c97269dcb67fdc8344da5ed2189bafc094e5571d0f8759",
+      "condition_builder.py": "6138cd9761bcc7cb2738d47b03c72461f78ddae88fa0427a3b3a73a19872d78b",
+      "preflight.py": "b1985ca1230da6e55dc40feb2c013d9576013f14d86ecad10c30f45bb242c109",
+      "candidate_pool.py": "39829ab3bb86e4cf69a151ee233287477c859eb24224b798a7e97ced9c46acd3",
+      "selection.py": "4c46214b361f97839306e8cf5cd7c5ba36333bf144efb992345c83ec68f4e49d"
+    },
+    "calibration_assets": {
+      "producer_manual_check_plan_v2_20261002.json": "7233e870e17324b58516307430a578104df639f8b54d81960f303edb29eb102a",
+      "twenty_second_audit_exposure_20261002.json": "a2278d6d9f3a9b1460e1d57024c5dfc68bf6aa015652f0b4a68adbd57336993c",
+      "twenty_first_audit_exposure_20261001.json": "7637f7cf6d8edf503ea86757664a6734370dd9b029e70c8421a42cad38345fda",
+      "twentieth_audit_exposure_20261001.json": "096487139608adff37784d28d530594533e39f993e14a69ad58d58158a637fa4",
+      "eighteenth_nineteenth_audit_exposure_20261001.json": "1e7165a34c091f6f775e6d030ea6c7d3f9f9ef311430e6f44c4b47b25b810f00",
+      "seventeenth_audit_exposure_20261001.json": "c9835d70ef19c80c5a9cf10c7c04befe68690fda86db1079101ba57d995874e5",
+      "sixteenth_audit_exposure_20260930.json": "5166fb9a755fdc3f55675094e23bbab77ff0316df437d39712fb8ddb9424bb82",
+      "fifteenth_audit_exposure_20260930.json": "cf00b2f57a3fb406f0fb326afc30117a27bdff88bab5b8ef0f988821e4848d32",
+      "fourteenth_audit_exposure_20260930.json": "a8c8b06a2a61a0a109a28f51d8e890c07e77c866fd731cc19c090653ac079242",
+      "twelfth_thirteenth_audit_exposure_20260930.json": "211aaba44d9857698d60a9740d2a8d4bdac94857e5f7ef47e81a7d8294623dcb",
+      "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+      "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c",
+      "rgb_holdout_review_v3.json": "6cee912a8044f606a47f93b2550fe2433b7f252f6a332d11d3f99c10960b7335",
+      "reviewed_holdout_state_pairs_v1.json": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb",
+      "rgb_holdout_review_v1.json": "7f31909ed138e27f657744d963ba74db49c8790a946cb04c3a2e874c4062e2be",
+      "reviewed_state_pairs_v6.json": "5549224df241260f8d9b48fe47694289b4d467a7351846e70f402fd0639ef9c6",
+      "reviewed_holdout_state_pairs_v2.json": "44d4b65966c61ed063dd0d88aff50cfe0b820fe3893a6fc5fb63e1645cadb5d5",
+      "rgb_holdout_review_v2.json": "2fac9176699ddd48d126ed190a89c61f103db44933b35993a62d0c36684fafc0",
+      "rgb_boundary_review_v3.json": "c1b4b6b3e7903322856ce236bc64067a15bd9530b80d02834085d10bc8a4918a",
+      "reviewed_state_pairs_v3.json": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+      "rgb_boundary_review_v4.json": "ede62026ec4cd6927e66d605c5067de64bbe1d2952e26de37c8f66191be7d617",
+      "reviewed_state_pairs_v4.json": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+      "rgb_boundary_review_v5.json": "558f7a3cf7fd460b57e9f2fbc9c83af0a45f6637640d05db529d4048740f08f3",
+      "reviewed_state_pairs_v5.json": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+      "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+      "reaudit_exposure_20260929.json": "0d54eb987f238177abe4fc9004b0b124f7a053e895d216bf2862e0d326d6881f",
+      "third_audit_exposure_20260930.json": "7d5a0727c7e55dcb159a763d009c5f0469c480dc327eaba2e5d7a6ae6efee5a4",
+      "eighth_audit_exposure_20260930.json": "1d0de86b50a0c161cb89a70d1b9d78ecb263361d346dcfa96715f6ef3c118782",
+      "ninth_audit_exposure_20260930.json": "70f636b21624360e350f51d5c621101b67b7100fe3d26a900e74a0a4f5982087",
+      "tenth_audit_exposure_20260930.json": "ccf79a74cb5602665fb97d626f20d98d5c898cf81ce7229969d4e914bd94754f",
+      "eleventh_audit_exposure_20260930.json": "ebd32c592ed9c0a5e45d480f160057d092ed2b60f9e500fee38c090ee025640e"
+    },
+    "dependencies": {
+      "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+      "sft_new_loop_phase3/build_dataset.py": "b7c717528872dfeaa7e0af821ffe7eea921daa9a12cd8fdd078d22c36481150d",
+      "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e"
+    }
+  },
+  "candidate_summary": {
+    "routes": 9712,
+    "rgb_frames": 1637680,
+    "split_routes": {
+      "train": 8166,
+      "val": 765,
+      "test": 781
+    }
+  },
+  "calibration": {
+    "policy": "phase4_privileged_proposals_v2",
+    "producer": {
+      "policy": "phase4_privileged_proposals_v2",
+      "parameters": {
+        "min_visible_pixels": 20,
+        "following_time_gap_s": 2.0,
+        "min_following_gap_m": 5.0,
+        "max_relative_speed_mps": 2.0,
+        "max_lateral_speed_mps": 0.5,
+        "heading_tolerance_rad": 0.25,
+        "near_disappearance_m": 45.0,
+        "history_frames": 3,
+        "frame_period_s": 0.25,
+        "jump_margin_m": 3.0,
+        "max_actor_acceleration_mps2": 15.0
+      },
+      "source_sha256": {
+        "privileged_geometry.py": "9ed09836f57ff2bf65d51c127fde405042f144278866cd740f644aadb6aaab49",
+        "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+        "privileged_context.py": "3114c7d877f409f44c230895c91955c180d87e918a66f5b9ccc5e18dd33bccba",
+        "privileged_producer.py": "ae06dadaba582bf77e6329f0ab807493b268cc4d6319232ba2389f8ac7086624",
+        "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+        "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f"
+      },
+      "calibrated_for_supervision": false
+    },
+    "scope": "development calibration, not independent accuracy certification",
+    "reference_annotations_sha256": "8ccf2717b850a44c5bd9c53327208746bf88c496da49399154f2c586cee7b5c3",
+    "summary": {
+      "reference": 320,
+      "abstained": 311,
+      "correct": 8,
+      "wrong": 1
+    },
+    "excluded_old_maneuver_scope": 98,
+    "conditional_error_rate": 0.1111111111111111,
+    "coverage": 0.028125,
+    "strata": {
+      "train/U-E1/proceed": {
+        "reference": 37,
+        "abstained": 37
+      },
+      "train/U-E5/proceed": {
+        "reference": 35,
+        "abstained": 33,
+        "correct": 2
+      },
+      "train/U-E7/proceed": {
+        "reference": 4,
+        "abstained": 1,
+        "correct": 3
+      },
+      "train/R-E2/complete": {
+        "reference": 22,
+        "abstained": 22
+      },
+      "train/U-E7/complete": {
+        "reference": 16,
+        "abstained": 16
+      },
+      "train/U-E2/pass": {
+        "reference": 12,
+        "abstained": 12
+      },
+      "train/U-E3/proceed": {
+        "reference": 14,
+        "abstained": 14
+      },
+      "train/U-E4/proceed": {
+        "reference": 45,
+        "abstained": 45
+      },
+      "train/U-E4/pass": {
+        "reference": 12,
+        "abstained": 12
+      },
+      "train/U-E4/complete": {
+        "reference": 7,
+        "abstained": 7
+      },
+      "train/U-E6/proceed": {
+        "reference": 28,
+        "abstained": 28
+      },
+      "train/R-E5/proceed": {
+        "reference": 28,
+        "abstained": 28
+      },
+      "train/R-E3/complete": {
+        "reference": 16,
+        "abstained": 16
+      },
+      "train/U-E1/restrict": {
+        "reference": 8,
+        "abstained": 8
+      },
+      "train/U-E1/hold": {
+        "reference": 5,
+        "abstained": 5
+      },
+      "train/U-E1/release": {
+        "reference": 3,
+        "abstained": 3
+      },
+      "train/U-E1/settle": {
+        "reference": 4,
+        "correct": 3,
+        "wrong": 1
+      },
+      "train/U-E1/complete": {
+        "reference": 4,
+        "abstained": 4
+      },
+      "train/U-E2/complete": {
+        "reference": 15,
+        "abstained": 15
+      },
+      "train/U-E2/hold": {
+        "reference": 5,
+        "abstained": 5
+      }
+    },
+    "supervision_approved": false,
+    "independent_manual_evaluation_required": true,
+    "artifact_sha256": "2c066c2cee21989f781828565d9f1490f873fd7afd25b9a801b92b329e8af3cd",
+    "disagreements": [
+      {
+        "id": "dc882fb90dc5bb299b961ff25bd74a74d1b1066c7f5565a97a7643f975baef43",
+        "split": "train",
+        "physical_group": "HardBreakRoute/Town12_3452_0",
+        "event": "U-E1",
+        "edge": "settle",
+        "frame_id": 83,
+        "reference": "YES",
+        "proposal": "NO",
+        "reasons": [
+          "geometric_proposal_requires_rgb_calibration"
+        ]
+      }
+    ]
+  },
+  "production": {
+    "policy": "phase4_privileged_proposals_v2",
+    "producer": {
+      "policy": "phase4_privileged_proposals_v2",
+      "parameters": {
+        "min_visible_pixels": 20,
+        "following_time_gap_s": 2.0,
+        "min_following_gap_m": 5.0,
+        "max_relative_speed_mps": 2.0,
+        "max_lateral_speed_mps": 0.5,
+        "heading_tolerance_rad": 0.25,
+        "near_disappearance_m": 45.0,
+        "history_frames": 3,
+        "frame_period_s": 0.25,
+        "jump_margin_m": 3.0,
+        "max_actor_acceleration_mps2": 15.0
+      },
+      "source_sha256": {
+        "privileged_geometry.py": "9ed09836f57ff2bf65d51c127fde405042f144278866cd740f644aadb6aaab49",
+        "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+        "privileged_context.py": "3114c7d877f409f44c230895c91955c180d87e918a66f5b9ccc5e18dd33bccba",
+        "privileged_producer.py": "ae06dadaba582bf77e6329f0ab807493b268cc4d6319232ba2389f8ac7086624",
+        "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+        "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f"
+      },
+      "calibrated_for_supervision": false
+    },
+    "routes": 12,
+    "frames": 1087,
+    "dispositions": {
+      "pending_calibration": 1087,
+      "anomaly_candidates": 72
+    },
+    "candidate_questions_by_event": {
+      "U-E1": 944,
+      "U-E3": 538,
+      "U-E2": 786,
+      "U-E4": 192,
+      "U-E5": 2
+    },
+    "proposal_strata": {
+      "U-E1/recover_follow/hypothetical_state_pair/UNKNOWN": 472,
+      "U-E1/proceed/hypothetical_state_pair/UNKNOWN": 472,
+      "U-E3/recover_follow/hypothetical_state_pair/UNKNOWN": 269,
+      "U-E3/proceed/hypothetical_state_pair/UNKNOWN": 269,
+      "U-E2/depart/hypothetical_state_pair/UNKNOWN": 393,
+      "U-E2/return/hypothetical_state_pair/UNKNOWN": 393,
+      "U-E4/recover_follow/hypothetical_state_pair/UNKNOWN": 96,
+      "U-E4/proceed/hypothetical_state_pair/UNKNOWN": 96,
+      "U-E5/recover_follow/hypothetical_state_pair/UNKNOWN": 1,
+      "U-E5/proceed/hypothetical_state_pair/UNKNOWN": 1
+    },
+    "unknown_conditions": {
+      "U-E1/recover_follow/restricted_progress_established": 288,
+      "U-E1/proceed/release_ready": 472,
+      "U-E1/proceed/corridor_clear": 300,
+      "U-E1/proceed/priority_satisfied": 472,
+      "U-E3/recover_follow/restricted_progress_established": 266,
+      "U-E3/proceed/release_ready": 269,
+      "U-E3/proceed/corridor_clear": 130,
+      "U-E3/proceed/priority_satisfied": 269,
+      "U-E2/depart/target_corridor_known": 393,
+      "U-E2/depart/entry_gap_clear": 393,
+      "U-E2/depart/priority_satisfied": 393,
+      "U-E2/return/obstacle_passed": 393,
+      "U-E2/return/target_corridor_known": 393,
+      "U-E2/return/return_gap_clear": 393,
+      "U-E2/return/priority_satisfied": 393,
+      "U-E4/recover_follow/restricted_progress_established": 96,
+      "U-E4/proceed/release_ready": 96,
+      "U-E4/proceed/corridor_clear": 96,
+      "U-E4/proceed/priority_satisfied": 96,
+      "U-E5/recover_follow/restricted_progress_established": 1,
+      "U-E5/proceed/release_ready": 1,
+      "U-E5/proceed/corridor_clear": 1,
+      "U-E5/proceed/priority_satisfied": 1
+    },
+    "candidate_pool_sha256": "1e948c74184332b82ce768c5b2311346d15563ddd630f940d79d3a9c719cd3df",
+    "contexts_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "missing_candidate_events": [
+      "R-E2",
+      "R-E3",
+      "R-E5",
+      "U-E6",
+      "U-E7"
+    ],
+    "approved_questions": 0,
+    "full_causal_production": false,
+    "formal_data_ready": false,
+    "output_sha256": "be7a150515b118d5e10559ca61ac00cc35b18e1268d5d9c9a6f96624d2161003"
+  },
+  "manual_check_reservations": {
+    "count": 40,
+    "plan_sha256": "7233e870e17324b58516307430a578104df639f8b54d81960f303edb29eb102a",
+    "labels": 0,
+    "accuracy_certified": false
+  },
+  "limits": {
+    "new_training_labels": 0,
+    "new_complete_rgb_audits": 0,
+    "original_rgb_rechecked": 3,
+    "offline_source_bound_adapter": true,
+    "planner_prerequisites_available_for_all_routes": false,
+    "real_4b_gpu_ddp_carla_validated": false,
+    "coverage_recomputed": false,
+    "automatic_candidates_are_supervision": false
+  },
+  "actual_regressions": {
+    "same_id_146_1_f18_19": [
+      {
+        "actor_id": 3824,
+        "previous_frame": 18,
+        "frame_id": 19,
+        "kind": "same_id_position_jump_candidate",
+        "previous_visible": true,
+        "status": "requires_review_not_confirmed_render_disappearance",
+        "world_displacement_m": 59.40660108638453,
+        "allowed_displacement_m": 4.744510172900897
+      },
+      {
+        "actor_id": 3823,
+        "previous_frame": 18,
+        "frame_id": 19,
+        "kind": "same_id_position_jump_candidate",
+        "previous_visible": true,
+        "status": "requires_review_not_confirmed_render_disappearance",
+        "world_displacement_m": 59.91258038886026,
+        "allowed_displacement_m": 5.2123842371309355
+      }
+    ],
+    "normal_opposing_676_0_f57_87_ue5_candidates": 0,
+    "night_bicycles_f50": [
+      {
+        "id": 110,
+        "base_type": "bicycle",
+        "visible": null
+      },
+      {
+        "id": 148,
+        "base_type": "bicycle",
+        "visible": null
+      },
+      {
+        "id": 111,
+        "base_type": "bicycle",
+        "visible": null
+      }
+    ]
+  }
+}

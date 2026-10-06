@@ -1,7 +1,9 @@
 """事件实例状态与动作先验。模型只回答条件；执行器回执与模型答案分离。"""
 from dataclasses import asdict, dataclass, field
 from copy import deepcopy
+from .route_context import episode_edges, validate_route_context, route_identity
 from .taxonomy import LONGITUDINAL, TEMPLATE_STATES, applicable, template_for, transitions
+from .maneuver_safety import GUARDED, validate_clearances
 
 ANSWERS = ('YES', 'NO', 'UNKNOWN', 'INVALID')
 STARTS = {'depart', 'enter', 'return', 'proceed', 'release'}
@@ -34,8 +36,12 @@ class Episode:
     waiting_observations: int = 0
     unexecuted_observations: int = 0
     wait_reason: str = ""
+    route_segments: list = field(default_factory=list)
+    segment_index: int = 0
+    route_context: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        validate_route_context(self)
         template = template_for(self.event, self.branch)
         if not self.state:
             self.state = TEMPLATE_STATES[template][0]
@@ -49,11 +55,57 @@ class Episode:
             raise ValueError('invalid event instance')
         if template == 'bypass' and not self.return_required and self.state == 'RETURN':
             raise ValueError('no-return branch has no RETURN state')
+        if type(self.segment_index) is not int or self.segment_index < 0 or not isinstance(self.route_segments,list):
+            raise ValueError('invalid route segment index/plan')
+        if self.route_segments:
+            if self.event != 'R-E3' or self.segment_index >= len(self.route_segments):
+                raise ValueError('route segments require RE3 and a valid active segment')
+            seen = set()
+            previous = None
+            for segment in self.route_segments:
+                if (not isinstance(segment,dict) or set(segment) != {'segment_id','source_corridor','target_corridor','direction','adjacent'}
+                        or segment['adjacent'] is not True
+                        or any(not isinstance(segment[k],str) or not segment[k].strip()
+                               for k in ('segment_id','source_corridor','target_corridor','direction'))
+                        or segment['direction'] not in ('LEFT','RIGHT','FORWARD')
+                        or segment['source_corridor']==segment['target_corridor']
+                        or segment['segment_id'] in seen
+                        or (previous is not None and segment['source_corridor'] != previous)):
+                    raise ValueError('invalid adjacent route segment chain')
+                seen.add(segment['segment_id'])
+                previous = segment['target_corridor']
+            active = self.route_segments[self.segment_index]
+            if self.direction != active['direction'] or self.target_corridor != active['target_corridor']:
+                raise ValueError('active segment does not match episode target')
+        elif self.segment_index:
+            raise ValueError('segment index without route plan')
+
+    @property
+    def segment_id(self):
+        return self.route_segments[self.segment_index]['segment_id'] if self.route_segments else None
+
+    def continue_route(self):
+        """Geometric completion selects a target, never grants its entry permission."""
+        if (not self.route_segments or self.segment_index+1 >= len(self.route_segments)
+                or self.state != 'DONE' or self.uncertain or self.needs_recheck or self.suspended):
+            return
+        record = self.history[-1] if self.history else {}
+        if record.get('pending_start') and not record.get('committed'):
+            return
+        old = self.segment_id
+        self.segment_index += 1
+        segment = self.route_segments[self.segment_index]
+        self.direction,self.target_corridor = segment['direction'],segment['target_corridor']
+        self.state = 'WAIT'
+        self.waiting_observations = self.unexecuted_observations = 0
+        if record:
+            record['route_continuation'] = dict(completed_segment=old,next_segment=self.segment_id)
 
     @property
     def finished(self):
         # DONE closes only the event axis. Remaining longitudinal constraints stay alive.
-        return self.state == 'DONE' and self.longitudinal in ('STABLE','FOLLOW')
+        return (self.state == 'DONE' and self.longitudinal in ('STABLE','FOLLOW')
+                and (not self.route_segments or self.segment_index == len(self.route_segments)-1))
 
     @property
     def current_target_corridor(self):
@@ -76,17 +128,22 @@ class Episode:
     def questions(self):
         """在下一观察构题前取消未执行的旧机会，不能将过期YES作为历史事实。"""
         self.refresh_uncommitted()
+        self.continue_route()
         if self.suspended or self.needs_recheck or self.finished:
             return ()
-        return tuple(e for e in transitions(self.event,self.branch,self.return_required)
+        return tuple(e for e in episode_edges(self)
                      if applicable(e,self.state,self.longitudinal))
 
-    def acknowledge(self, frame_id):
+    def acknowledge(self, frame_id, *, segment_id=None, route_context_id=None):
         """执行端确认已开始执行；不允许仅因模型说YES就自动确认。"""
         if self.needs_recheck or self.suspended:
             raise ValueError('cannot acknowledge an unresolved instance')
         if not self.history or frame_id != self.history[-1]['frame_id']:
             raise ValueError('acknowledgement must match latest decision')
+        if self.route_segments and (segment_id != self.segment_id or segment_id != self.history[-1].get('segment_id')):
+            raise ValueError('acknowledgement segment mismatch')
+        if self.route_context and (route_context_id != route_identity(self) or route_context_id != self.history[-1].get('route_context_id')):
+            raise ValueError('acknowledgement route context mismatch')
         if not self.history[-1]['pending_start'] or self.history[-1]['committed']:
             raise ValueError('no pending start')
         self.history[-1]['committed'] = True
@@ -112,29 +169,33 @@ class Episode:
         pending = self.history[-1]['pending_start'] if self.history else []
         if set(receipt.get('edges',[])) != set(pending) or not pending or self.history[-1]['committed']:
             raise ValueError('receipt transition mismatch or duplicate')
-        self.acknowledge(decision)
+        self.acknowledge(decision,segment_id=receipt.get('segment_id'),route_context_id=receipt.get('route_context_id'))
         self.history[-1]['execution_receipt'] = dict(receipt)
 
-    def advance(self, frame_id, answers, *, context_valid=True, execution_committed=False, progress_fault=False):
+    def advance(self, frame_id, answers, *, context_valid=True, execution_committed=False, progress_fault=False, maneuver_clearances=()):
         """Reject malformed input without expiring an earlier valid permission."""
         candidate = deepcopy(self)
         result = candidate._advance(frame_id, answers, context_valid=context_valid,
-                                    execution_committed=execution_committed, progress_fault=progress_fault)
+                                    execution_committed=execution_committed, progress_fault=progress_fault,
+                                    maneuver_clearances=maneuver_clearances)
         self.__dict__.update(candidate.__dict__)
         return result
 
-    def _advance(self, frame_id, answers, *, context_valid=True, execution_committed=False, progress_fault=False):
+    def _advance(self, frame_id, answers, *, context_valid=True, execution_committed=False, progress_fault=False, maneuver_clearances=()):
         if type(frame_id) is not int or frame_id <= self.last_frame:
             raise ValueError('stale or duplicate observation')
         if context_valid is not None and type(context_valid) is not bool:
             raise ValueError('invalid context validity')
         if type(progress_fault) is not bool:
             raise ValueError('invalid external progress fault')
+        if (self.route_segments or self.route_context) and execution_committed:
+            raise ValueError('routed execution requires a segment-bound or route-bound receipt')
         if type(execution_committed) is not bool:
             raise ValueError('invalid execution acknowledgement')
         questions = {e.key:e for e in self.questions()}
         if set(answers)-questions.keys() or any(v not in ANSWERS for v in answers.values()):
             raise ValueError('answer does not match pending transitions')
+        clearances = validate_clearances(self, frame_id, maneuver_clearances, questions)
         self.last_frame = frame_id
         if progress_fault:
             self.wait_reason = 'external_progress_fault'
@@ -146,26 +207,63 @@ class Episode:
             return self.prior()
         # Missing answers are uncertainty, never silently NO.
         self.uncertain = set(answers) != set(questions) or 'UNKNOWN' in answers.values()
-        if self.uncertain or self.suspended or self.needs_recheck:
-            if self.uncertain:
-                self.wait_reason = 'uncertain_observation'
-            self.stalled_observations += 1
-            if self.stalled_observations >= self.stall_limit:
-                self.needs_recheck = True
-            return self.prior()
-        accepted = [e for k,e in questions.items() if answers[k] == 'YES']
+        accepted = [e for k,e in questions.items() if answers.get(k) == 'YES']
         keys = {e.key for e in accepted}
         completing = questions.get('complete')
         progress_completion = ('complete' in keys and completing is not None
                                and 'stable_progress_established' in completing.criteria)
-        if keys & RESTRICT and (keys & (STARTS | {'stable'}) or progress_completion):
+        if keys & RESTRICT and (keys & (STARTS | {'stable', 'recover_follow'}) or progress_completion):
             self.wait_reason = 'contradictory_restriction_and_progress'
             self.needs_recheck = True
+            return self.prior()
+        # RGB YES proves only visible conditions. Execution feedback is not a
+        # substitute for independent, current pre-maneuver safety clearance.
+        guarded = keys & GUARDED
+        for key in guarded:
+            side = self.return_direction if key == 'return' else self.direction
+            corridor = self.return_corridor if key == 'return' else self.target_corridor
+            if not side or not corridor:
+                self.needs_recheck = True
+                self.wait_reason = 'missing_maneuver_target'
+                return self.prior()
+        # A known planner denial is ordinary waiting, not missing information.
+        # Missing coverage/evidence remains uncertainty and retains its timeout.
+        denied = {key for key in guarded if key in clearances and clearances[key]['clear'] is False}
+        accepted = [e for e in accepted if e.key not in denied]
+        keys -= denied
+        blocked = [key for key in sorted(guarded-denied) if key not in clearances]
+        if blocked:
+            self.uncertain = True
+        if self.uncertain or self.suspended or self.needs_recheck:
+            if self.uncertain:
+                self.wait_reason = 'maneuver_safety_unconfirmed:' + ','.join(blocked) if blocked else 'uncertain_observation'
+            self.stalled_observations += 1
+            # Apply only independently established restrictions. Unknown progression
+            # does not veto a known STOP, nor does it authorize any new maneuver.
+            if self.uncertain and not (self.suspended or self.needs_recheck):
+                restriction = next((k for k in ('hold','restrict','renewed_restriction','re_yield')
+                                    if k in keys),None)
+                if restriction:
+                    before = [self.state,self.longitudinal]
+                    self.longitudinal = 'HOLD' if restriction=='hold' or self.longitudinal=='HOLD' else 'APPROACH'
+                    applied = [restriction]
+                    if 're_yield' in keys:
+                        self.state = questions['re_yield'].target
+                        if restriction!='re_yield':
+                            applied.append('re_yield')
+                    self.waiting_observations = 0
+                    self.unexecuted_observations = 0
+                    self.history.append(dict(frame_id=frame_id,segment_id=self.segment_id,route_context_id=route_identity(self),before=before,after=[self.state,self.longitudinal],
+                        accepted=applied,committed=False,rollback={},pending_start=[],partial_restriction=True,
+                        unresolved=[k for k in questions if answers.get(k) in (None,'UNKNOWN')]))
+            if self.stalled_observations >= self.stall_limit:
+                self.needs_recheck = True
             return self.prior()
         # stationary wait also implies restriction; consume only the stronger longitudinal edge.
         if 'hold' in keys:
             accepted = [e for e in accepted if e.axis == 'event' or e.key == 'hold']
         if any(sum(e.axis == axis for e in accepted) > 1 for axis in ('event','longitudinal')):
+            self.wait_reason = 'contradictory_same_axis_answers'
             self.needs_recheck = True
             return self.prior()
         for e in accepted:
@@ -197,11 +295,15 @@ class Episode:
         self.stalled_observations = 0
         self.waiting_observations = 0 if accepted else self.waiting_observations + 1
         self.wait_reason = 'permission_pending_execution' if keys & STARTS and not execution_committed else '' if accepted else 'confirmed_no_transition'
+        if denied and not accepted:
+            self.wait_reason = 'maneuver_safety_denied:' + ','.join(sorted(denied))
         if not keys & STARTS or execution_committed:
             self.unexecuted_observations = 0
-        self.history.append(dict(frame_id=frame_id,before=list(before),after=[self.state,self.longitudinal],
+        self.history.append(dict(frame_id=frame_id,segment_id=self.segment_id,route_context_id=route_identity(self),before=list(before),after=[self.state,self.longitudinal],
                                  accepted=[e.key for e in accepted],committed=execution_committed,
-                                 rollback=rollback,pending_start=sorted(keys & STARTS)))
+                                 rollback=rollback,pending_start=sorted(keys & STARTS),
+                                 maneuver_clearances=list(clearances.values()),safety_denied=sorted(denied)))
+        self.continue_route()
         return self.prior()
 
     def prior(self):
@@ -216,7 +318,7 @@ class Episode:
         return dict(status=status,action=primary,text=ACTION_TEXT.get(primary),longitudinal=lon,
                     lateral=lat,event=self.event,state=self.state,instance_id=self.instance_id,
                     event_stage_completed=self.state=='DONE',instance_complete=self.finished,wait_reason=self.wait_reason,
-                    target_corridor=self.current_target_corridor)
+                    target_corridor=self.current_target_corridor,route_context_id=route_identity(self),segment_id=self.segment_id,segment_index=self.segment_index)
 
     def to_dict(self):
         return asdict(self)

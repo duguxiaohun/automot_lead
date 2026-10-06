@@ -1,0 +1,858 @@
+{
+  "version": "prospective_holdout_annotation_v1",
+  "seed": 20260929,
+  "status": "metadata_only_not_validation_or_test_labels",
+  "source_inventory": {
+    "path": "/tmp/phase4_readonly_audit_20260929/inventory.json",
+    "sha256": "2eaad6eb0358a7ce9c3adee13cd08007f0897bd8c3731b32527b846e0d4eac08",
+    "scope": "previous inventory of mapped available routes; not a fresh source scan"
+  },
+  "exposure_sha256": "f4d9e8d3e256c8fc07c54a94fc38a27806f56ee0c0f00c6bd93091e06892c0eb",
+  "excluded_development_selection_sha256": "0e1a2aaff606413c37c70caf83b52c3c152f153b140da1ba5ea8c5b6a4d1a85e",
+  "frozen_rubric_sha256": {
+    "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+    "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+    "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+    "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994"
+  },
+  "protocol": [
+    "Reserve by existing physical-group split before viewing RGB; no exposed or pending development-audit routes selected.",
+    "Label-only evaluation annotation against frozen rubric; do not use reserved content to redesign prompts, transitions, thresholds, or training labels.",
+    "If a reserved route is used for development, register it train-only and replace the holdout; never undo exposure.",
+    "Do not force YES/NO to fill coverage: uncertain frames remain unknown; scenario metadata is not a transition label.",
+    "No training gate changes. Reserved groups are not reviewed labels or an independent evaluation result."
+  ],
+  "available_unique_groups_by_event": {
+    "U-E1": {
+      "val": 2,
+      "test": 4
+    },
+    "U-E2": {
+      "val": 101,
+      "test": 103
+    },
+    "U-E3": {
+      "val": 9,
+      "test": 7
+    },
+    "U-E4": {
+      "val": 101,
+      "test": 92
+    },
+    "U-E5": {
+      "val": 6,
+      "test": 3
+    },
+    "U-E6": {
+      "val": 27,
+      "test": 23
+    },
+    "U-E7": {
+      "val": 3,
+      "test": 5
+    },
+    "R-E2": {
+      "val": 209,
+      "test": 218
+    },
+    "R-E3": {
+      "val": 21,
+      "test": 24
+    },
+    "R-E5": {
+      "val": 152,
+      "test": 162
+    }
+  },
+  "reservations": [
+    {
+      "physical_group": "AccidentTwoWays/Town13_1402_0",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town13_Rep0_1402_0_route0_01_10_14_24_39",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 131,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "BlockedIntersection/Town13_27_0",
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_27_0_route0_01_09_11_45_35",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 183,
+      "candidate_events": [
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ConstructionObstacleTwoWays/Town12_route_001128",
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town12_Rep0_route_001128_route0_01_09_23_32_19",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 139,
+      "candidate_events": [
+        "R-E2",
+        "R-E5",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002137",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002137_route0_01_08_14_52_20",
+      "town": "Town03",
+      "split": "test",
+      "frame_count": 32,
+      "candidate_events": [
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002138_route0_01_08_13_15_20",
+      "town": "Town03",
+      "split": "test",
+      "frame_count": 49,
+      "candidate_events": [
+        "U-E6",
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002144",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town03_Rep0_route_002144_route0_01_09_09_18_10",
+      "town": "Town03",
+      "split": "test",
+      "frame_count": 43,
+      "candidate_events": [
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town04_route_002177",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town04_Rep0_route_002177_route0_01_10_07_08_45",
+      "town": "Town04",
+      "split": "test",
+      "frame_count": 22,
+      "candidate_events": [
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002070_route0_01_09_22_49_09",
+      "town": "Town05",
+      "split": "test",
+      "frame_count": 52,
+      "candidate_events": [
+        "U-E6",
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "DynamicObjectCrossing/Town05_Town05_Scenario3_3",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_3_route0_01_09_07_18_44",
+      "town": "Town05",
+      "split": "test",
+      "frame_count": 199,
+      "candidate_events": [
+        "U-E3",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "DynamicObjectCrossing/Town06_Town06_Scenario3_24",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town06_Rep0_Town06_Scenario3_24_route0_01_08_08_43_58",
+      "town": "Town06",
+      "split": "test",
+      "frame_count": 100,
+      "candidate_events": [
+        "U-E3",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "EnterActorFlow/Town12_4378_2",
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_4378_2_route0_01_08_21_50_08",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 72,
+      "candidate_events": [
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_2325_0_route0_01_10_01_35_10",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 187,
+      "candidate_events": [
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_767_0_route0_01_10_23_36_16",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 106,
+      "candidate_events": [
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "HardBreakRoute/Town13_1196_0",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1196_0_route0_01_08_10_58_06",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 258,
+      "candidate_events": [
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_1520_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_1520_0_route0_01_10_04_48_36",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 137,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_3000_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_3000_0_route0_01_10_20_01_38",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 74,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_518_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_518_0_route0_01_09_02_51_35",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 108,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "MergerIntoSlowTrafficV2/Town12_968_30",
+      "scenario": "MergerIntoSlowTrafficV2",
+      "route_id": "Town12_Rep0_968_30_route0_01_11_01_32_47",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 200,
+      "candidate_events": [
+        "R-E2",
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town12_2529_0",
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town12_Rep0_2529_0_route0_01_10_13_00_29",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 77,
+      "candidate_events": [
+        "R-E5"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town07_route_001032",
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town07_Rep0_route_001032_route0_01_11_02_08_23",
+      "town": "Town07",
+      "split": "test",
+      "frame_count": 35,
+      "candidate_events": [
+        "R-E5"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "OppositeVehicleRunningRedLight/Town03_Town03_Scenario8_67",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town03_Rep0_Town03_Scenario8_67_route0_01_09_19_21_19",
+      "town": "Town03",
+      "split": "test",
+      "frame_count": 74,
+      "candidate_events": [
+        "U-E6"
+      ],
+      "requested_events": [
+        "U-E6"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "OppositeVehicleRunningRedLight/Town04_Town04_Scenario8_41",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town04_Rep0_Town04_Scenario8_41_route0_01_10_21_43_03",
+      "town": "Town04",
+      "split": "test",
+      "frame_count": 60,
+      "candidate_events": [
+        "U-E6"
+      ],
+      "requested_events": [
+        "U-E6"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkedObstacle/Town13_1263_3",
+      "scenario": "ParkedObstacle",
+      "route_id": "Town13_Rep0_1263_3_route0_01_10_04_35_08",
+      "town": "Town13",
+      "split": "test",
+      "frame_count": 79,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingCrossingPedestrian/Town12_1667_0",
+      "scenario": "ParkingCrossingPedestrian",
+      "route_id": "Town12_Rep0_1667_0_route0_01_08_11_31_51",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 179,
+      "candidate_events": [
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingCutIn/Town12_196_0",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town12_Rep0_196_0_route0_01_10_06_36_30",
+      "town": "Town12",
+      "split": "test",
+      "frame_count": 169,
+      "candidate_events": [
+        "U-E3"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "noScenarios/Town05_Town05_lr_0",
+      "scenario": "noScenarios",
+      "route_id": "Town05_Rep0_Town05_lr_0_route0_01_08_21_31_08",
+      "town": "Town05",
+      "split": "test",
+      "frame_count": 55,
+      "candidate_events": [
+        "R-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "AccidentTwoWays/Town07_route_001441",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town07_Rep0_route_001441_route0_01_09_03_04_44",
+      "town": "Town07",
+      "split": "val",
+      "frame_count": 92,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "AccidentTwoWays/Town12_route_002743",
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_route_002743_route0_01_09_02_31_47",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 87,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "U-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ConstructionObstacleTwoWays/Town12_route_002820",
+      "scenario": "ConstructionObstacleTwoWays",
+      "route_id": "Town12_Rep0_route_002820_route0_01_10_05_08_01",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 318,
+      "candidate_events": [
+        "R-E2",
+        "U-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002062",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002062_route0_01_10_12_26_10",
+      "town": "Town05",
+      "split": "val",
+      "frame_count": 43,
+      "candidate_events": [
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002066",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+      "town": "Town05",
+      "split": "val",
+      "frame_count": 57,
+      "candidate_events": [
+        "U-E6",
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "CrossJunctionDefectTrafficLight/Town15_route_002097",
+      "scenario": "CrossJunctionDefectTrafficLight",
+      "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+      "town": "Town15",
+      "split": "val",
+      "frame_count": 55,
+      "candidate_events": [
+        "U-E6",
+        "U-E7"
+      ],
+      "requested_events": [
+        "U-E7"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "DynamicObjectCrossing/Town04_Town04_Scenario3_29",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town04_Rep0_Town04_Scenario3_29_route0_01_09_20_06_51",
+      "town": "Town04",
+      "split": "val",
+      "frame_count": 170,
+      "candidate_events": [
+        "U-E3",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "EnterActorFlow/Town13_1661_11",
+      "scenario": "EnterActorFlow",
+      "route_id": "Town13_Rep0_1661_11_route0_01_10_10_57_04",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 80,
+      "candidate_events": [
+        "R-E2",
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "EnterActorFlowV2/Town12_975_1",
+      "scenario": "EnterActorFlowV2",
+      "route_id": "Town12_Rep0_975_1_route0_01_09_16_04_19",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 124,
+      "candidate_events": [
+        "R-E2",
+        "R-E3"
+      ],
+      "requested_events": [
+        "R-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "HardBreakRoute/Town13_1520_0",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1520_0_route0_01_10_08_11_17",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 120,
+      "candidate_events": [
+        "R-E5",
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "HardBreakRoute/Town13_1775_0",
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1775_0_route0_01_10_23_19_49",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 135,
+      "candidate_events": [
+        "R-E5",
+        "U-E1"
+      ],
+      "requested_events": [
+        "U-E1"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_3077_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_3077_0_route0_01_09_19_30_54",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 94,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_4195_0_route0_01_09_08_28_04",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 167,
+      "candidate_events": [
+        "R-E5",
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town12_78_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town12_Rep0_78_0_route0_01_09_12_29_40",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 108,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town13_1205_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1205_0_route0_01_08_21_23_12",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 123,
+      "candidate_events": [
+        "R-E5",
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1337_0_route0_01_10_22_00_49",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 84,
+      "candidate_events": [
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "InvadingTurn/Town13_1353_0",
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1353_0_route0_01_09_16_25_18",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 189,
+      "candidate_events": [
+        "R-E5",
+        "U-E5"
+      ],
+      "requested_events": [
+        "U-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town12_1614_0",
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town12_Rep0_1614_0_route0_01_09_09_08_30",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 80,
+      "candidate_events": [
+        "R-E5"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "OppositeVehicleRunningRedLight/Town03_Town03_Scenario8_51",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town03_Rep0_Town03_Scenario8_51_route0_01_08_06_18_42",
+      "town": "Town03",
+      "split": "val",
+      "frame_count": 70,
+      "candidate_events": [
+        "U-E6"
+      ],
+      "requested_events": [
+        "U-E6"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "OppositeVehicleRunningRedLight/Town13_1245_5",
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town13_Rep0_1245_5_route0_01_10_01_12_10",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 105,
+      "candidate_events": [
+        "U-E6"
+      ],
+      "requested_events": [
+        "U-E6"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingCutIn/Town13_100_0",
+      "scenario": "ParkingCutIn",
+      "route_id": "Town13_Rep0_100_0_route0_01_10_10_51_47",
+      "town": "Town13",
+      "split": "val",
+      "frame_count": 72,
+      "candidate_events": [
+        "U-E3"
+      ],
+      "requested_events": [
+        "U-E3"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "ParkingExit/Town03_route_001731",
+      "scenario": "ParkingExit",
+      "route_id": "Town03_Rep0_route_001731_route0_01_09_13_54_20",
+      "town": "Town03",
+      "split": "val",
+      "frame_count": 86,
+      "candidate_events": [
+        "R-E2"
+      ],
+      "requested_events": [
+        "R-E2"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "VehicleTurningRoute/Town07_Town07_Scenario4_58",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town07_Rep0_Town07_Scenario4_58_route0_01_09_09_29_09",
+      "town": "Town07",
+      "split": "val",
+      "frame_count": 104,
+      "candidate_events": [
+        "R-E5",
+        "U-E4"
+      ],
+      "requested_events": [
+        "R-E5"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "VehicleTurningRoute/Town07_Town07_Scenario4_82",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town07_Rep0_Town07_Scenario4_82_route0_01_09_23_36_57",
+      "town": "Town07",
+      "split": "val",
+      "frame_count": 61,
+      "candidate_events": [
+        "R-E5",
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    },
+    {
+      "physical_group": "VehicleTurningRoutePedestrian/Town12_1754_0",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1754_0_route0_01_10_20_36_07",
+      "town": "Town12",
+      "split": "val",
+      "frame_count": 268,
+      "candidate_events": [
+        "U-E4"
+      ],
+      "requested_events": [
+        "U-E4"
+      ],
+      "status": "reserved_unviewed_unlabelled"
+    }
+  ]
+}

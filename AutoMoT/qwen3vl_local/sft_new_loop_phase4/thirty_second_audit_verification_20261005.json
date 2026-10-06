@@ -1,0 +1,1921 @@
+{
+  "version": "v32",
+  "contract_sha256": "2708f5181d626adc25b3526ca46c9c3647089f1db70da5500ed74510623e2929",
+  "artifact_root": "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v32_full",
+  "tests": {
+    "distinct_tests_passed": 833
+  },
+  "data": {
+    "2": {
+      "mode": 2,
+      "train": 75373,
+      "training_routes": 1837,
+      "weak": 74930,
+      "weak_routes": 1809,
+      "weak_answers": {
+        "YES": 3463,
+        "NO": 71467
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 81,
+          "routes": 24
+        },
+        "U-E1/complete/YES": {
+          "questions": 68,
+          "routes": 68
+        },
+        "U-E1/hold/NO": {
+          "questions": 545,
+          "routes": 113
+        },
+        "U-E1/hold/YES": {
+          "questions": 1583,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 60387,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 18,
+          "routes": 14
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 610,
+          "routes": 115
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 12,
+          "routes": 12
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 800,
+          "routes": 100
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 96,
+          "routes": 83
+        },
+        "U-E1/release/NO": {
+          "questions": 117,
+          "routes": 73
+        },
+        "U-E1/release/YES": {
+          "questions": 19,
+          "routes": 19
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 588,
+          "routes": 115
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/stable/NO": {
+          "questions": 456,
+          "routes": 113
+        },
+        "U-E4/complete/NO": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES": {
+          "questions": 879,
+          "routes": 792
+        },
+        "U-E4/proceed/NO": {
+          "questions": 7654,
+          "routes": 790
+        },
+        "U-E4/proceed/YES": {
+          "questions": 777,
+          "routes": 161
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 73
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76371,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        }
+      },
+      "weak_motion_cells": {
+        "U-E1/complete/NO/moving": {
+          "questions": 81,
+          "routes": 24
+        },
+        "U-E1/complete/YES/moving": {
+          "questions": 68,
+          "routes": 68
+        },
+        "U-E1/hold/NO/moving": {
+          "questions": 545,
+          "routes": 113
+        },
+        "U-E1/hold/YES/moving": {
+          "questions": 1397,
+          "routes": 1232
+        },
+        "U-E1/hold/YES/stationary": {
+          "questions": 186,
+          "routes": 183
+        },
+        "U-E1/proceed/NO/moving": {
+          "questions": 4955,
+          "routes": 1255
+        },
+        "U-E1/proceed/NO/stationary": {
+          "questions": 55432,
+          "routes": 1206
+        },
+        "U-E1/proceed/YES/stationary": {
+          "questions": 18,
+          "routes": 14
+        },
+        "U-E1/re_yield/NO/moving": {
+          "questions": 610,
+          "routes": 115
+        },
+        "U-E1/re_yield/YES/moving": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/re_yield/YES/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/recover_follow/NO/moving": {
+          "questions": 800,
+          "routes": 100
+        },
+        "U-E1/recover_follow/YES/moving": {
+          "questions": 96,
+          "routes": 83
+        },
+        "U-E1/release/NO/moving": {
+          "questions": 116,
+          "routes": 73
+        },
+        "U-E1/release/NO/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/release/YES/moving": {
+          "questions": 19,
+          "routes": 19
+        },
+        "U-E1/renewed_restriction/NO/moving": {
+          "questions": 588,
+          "routes": 115
+        },
+        "U-E1/renewed_restriction/YES/moving": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/stable/NO/moving": {
+          "questions": 456,
+          "routes": 113
+        },
+        "U-E4/complete/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO/moving": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES/moving": {
+          "questions": 104,
+          "routes": 99
+        },
+        "U-E4/hold/YES/stationary": {
+          "questions": 775,
+          "routes": 696
+        },
+        "U-E4/proceed/NO/moving": {
+          "questions": 292,
+          "routes": 105
+        },
+        "U-E4/proceed/NO/stationary": {
+          "questions": 7362,
+          "routes": 750
+        },
+        "U-E4/proceed/YES/moving": {
+          "questions": 10,
+          "routes": 10
+        },
+        "U-E4/proceed/YES/stationary": {
+          "questions": 767,
+          "routes": 151
+        },
+        "U-E4/re_yield/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "weak_branch_cells": {
+        "U-E1/default/hold/YES": 1583,
+        "U-E1/default/proceed/NO": 60387,
+        "U-E1/default/complete/YES": 68,
+        "U-E1/default/hold/NO": 545,
+        "U-E1/default/re_yield/NO": 610,
+        "U-E1/default/recover_follow/YES": 96,
+        "U-E1/default/release/NO": 117,
+        "U-E1/default/renewed_restriction/NO": 588,
+        "U-E1/default/stable/NO": 456,
+        "U-E1/default/recover_follow/NO": 800,
+        "U-E1/default/complete/NO": 81,
+        "U-E1/default/release/YES": 19,
+        "U-E1/default/re_yield/YES": 12,
+        "U-E1/default/renewed_restriction/YES": 11,
+        "U-E4/cyclist_follow/hold/YES": 29,
+        "U-E4/cyclist_follow/proceed/NO": 168,
+        "U-E4/default/hold/YES": 850,
+        "U-E4/default/proceed/NO": 7486,
+        "U-E4/default/proceed/YES": 767,
+        "U-E1/default/proceed/YES": 18,
+        "U-E4/cyclist_follow/complete/NO": 73,
+        "U-E4/cyclist_follow/hold/NO": 83,
+        "U-E4/cyclist_follow/proceed/YES": 10,
+        "U-E4/cyclist_follow/re_yield/NO": 73
+      },
+      "compiled_exclusions": {
+        "route_budget_excluded": 13519,
+        "considered": 144448,
+        "restriction_seed_tautology": 2550,
+        "duplicate_observable_questions_excluded": 1043,
+        "rule_abstained": 35360,
+        "weak_teacher_train_only": 16562,
+        "moving_proceed_requires_visual_catchup": 194,
+        "known_risk_window_requires_separate_review": 217,
+        "compiled": 75003
+      },
+      "stationary_readiness_support": {
+        "minimum_stationary_yes": 1,
+        "cells": {
+          "U-E1/proceed": {
+            "stationary_yes": 20,
+            "stationary_routes": 16,
+            "manual_stationary_yes": 2,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 15
+          },
+          "U-E1/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 19,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "U-E2/depart": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/return": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E3/proceed": {
+            "stationary_yes": 1,
+            "stationary_routes": 1,
+            "manual_stationary_yes": 1,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 7
+          },
+          "U-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E4/proceed": {
+            "stationary_yes": 779,
+            "stationary_routes": 155,
+            "manual_stationary_yes": 12,
+            "moving_yes": 10,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 9
+          },
+          "U-E4/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 10,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E6/proceed": {
+            "stationary_yes": 11,
+            "stationary_routes": 2,
+            "manual_stationary_yes": 11,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 13
+          },
+          "U-E6/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "R-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          }
+        },
+        "missing_cells": {
+          "U-E1/release": 1,
+          "U-E2/depart": 1,
+          "U-E2/return": 1,
+          "U-E2/release": 1,
+          "U-E3/release": 1,
+          "U-E4/release": 1,
+          "U-E5/proceed": 1,
+          "U-E5/release": 1,
+          "U-E6/release": 1,
+          "U-E7/proceed": 1,
+          "U-E7/release": 1,
+          "R-E2/enter": 1,
+          "R-E2/release": 1,
+          "R-E3/enter": 1,
+          "R-E3/release": 1,
+          "R-E5/proceed": 1,
+          "R-E5/release": 1
+        },
+        "blocking": false,
+        "warning": "missing stationary readiness YES; moving/catchup samples do not demonstrate release from a stop"
+      }
+    },
+    "4": {
+      "mode": 4,
+      "train": 75373,
+      "training_routes": 1837,
+      "weak": 74930,
+      "weak_routes": 1809,
+      "weak_answers": {
+        "YES": 3463,
+        "NO": 71467
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 81,
+          "routes": 24
+        },
+        "U-E1/complete/YES": {
+          "questions": 68,
+          "routes": 68
+        },
+        "U-E1/hold/NO": {
+          "questions": 545,
+          "routes": 113
+        },
+        "U-E1/hold/YES": {
+          "questions": 1583,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 60387,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 18,
+          "routes": 14
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 610,
+          "routes": 115
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 12,
+          "routes": 12
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 800,
+          "routes": 100
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 96,
+          "routes": 83
+        },
+        "U-E1/release/NO": {
+          "questions": 117,
+          "routes": 73
+        },
+        "U-E1/release/YES": {
+          "questions": 19,
+          "routes": 19
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 588,
+          "routes": 115
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/stable/NO": {
+          "questions": 456,
+          "routes": 113
+        },
+        "U-E4/complete/NO": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES": {
+          "questions": 879,
+          "routes": 792
+        },
+        "U-E4/proceed/NO": {
+          "questions": 7654,
+          "routes": 790
+        },
+        "U-E4/proceed/YES": {
+          "questions": 777,
+          "routes": 161
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 73
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76371,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        }
+      },
+      "weak_motion_cells": {
+        "U-E1/complete/NO/moving": {
+          "questions": 81,
+          "routes": 24
+        },
+        "U-E1/complete/YES/moving": {
+          "questions": 68,
+          "routes": 68
+        },
+        "U-E1/hold/NO/moving": {
+          "questions": 545,
+          "routes": 113
+        },
+        "U-E1/hold/YES/moving": {
+          "questions": 1397,
+          "routes": 1232
+        },
+        "U-E1/hold/YES/stationary": {
+          "questions": 186,
+          "routes": 183
+        },
+        "U-E1/proceed/NO/moving": {
+          "questions": 4955,
+          "routes": 1255
+        },
+        "U-E1/proceed/NO/stationary": {
+          "questions": 55432,
+          "routes": 1206
+        },
+        "U-E1/proceed/YES/stationary": {
+          "questions": 18,
+          "routes": 14
+        },
+        "U-E1/re_yield/NO/moving": {
+          "questions": 610,
+          "routes": 115
+        },
+        "U-E1/re_yield/YES/moving": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/re_yield/YES/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/recover_follow/NO/moving": {
+          "questions": 800,
+          "routes": 100
+        },
+        "U-E1/recover_follow/YES/moving": {
+          "questions": 96,
+          "routes": 83
+        },
+        "U-E1/release/NO/moving": {
+          "questions": 116,
+          "routes": 73
+        },
+        "U-E1/release/NO/stationary": {
+          "questions": 1,
+          "routes": 1
+        },
+        "U-E1/release/YES/moving": {
+          "questions": 19,
+          "routes": 19
+        },
+        "U-E1/renewed_restriction/NO/moving": {
+          "questions": 588,
+          "routes": 115
+        },
+        "U-E1/renewed_restriction/YES/moving": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/stable/NO/moving": {
+          "questions": 456,
+          "routes": 113
+        },
+        "U-E4/complete/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO/moving": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES/moving": {
+          "questions": 104,
+          "routes": 99
+        },
+        "U-E4/hold/YES/stationary": {
+          "questions": 775,
+          "routes": 696
+        },
+        "U-E4/proceed/NO/moving": {
+          "questions": 292,
+          "routes": 105
+        },
+        "U-E4/proceed/NO/stationary": {
+          "questions": 7362,
+          "routes": 750
+        },
+        "U-E4/proceed/YES/moving": {
+          "questions": 10,
+          "routes": 10
+        },
+        "U-E4/proceed/YES/stationary": {
+          "questions": 767,
+          "routes": 151
+        },
+        "U-E4/re_yield/NO/moving": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "weak_branch_cells": {
+        "U-E1/default/hold/YES": 1583,
+        "U-E1/default/proceed/NO": 60387,
+        "U-E1/default/complete/YES": 68,
+        "U-E1/default/hold/NO": 545,
+        "U-E1/default/re_yield/NO": 610,
+        "U-E1/default/recover_follow/YES": 96,
+        "U-E1/default/release/NO": 117,
+        "U-E1/default/renewed_restriction/NO": 588,
+        "U-E1/default/stable/NO": 456,
+        "U-E1/default/recover_follow/NO": 800,
+        "U-E1/default/complete/NO": 81,
+        "U-E1/default/release/YES": 19,
+        "U-E1/default/re_yield/YES": 12,
+        "U-E1/default/renewed_restriction/YES": 11,
+        "U-E4/cyclist_follow/hold/YES": 29,
+        "U-E4/cyclist_follow/proceed/NO": 168,
+        "U-E4/default/hold/YES": 850,
+        "U-E4/default/proceed/NO": 7486,
+        "U-E4/default/proceed/YES": 767,
+        "U-E1/default/proceed/YES": 18,
+        "U-E4/cyclist_follow/complete/NO": 73,
+        "U-E4/cyclist_follow/hold/NO": 83,
+        "U-E4/cyclist_follow/proceed/YES": 10,
+        "U-E4/cyclist_follow/re_yield/NO": 73
+      },
+      "compiled_exclusions": {
+        "route_budget_excluded": 13519,
+        "considered": 144448,
+        "restriction_seed_tautology": 2550,
+        "duplicate_observable_questions_excluded": 1043,
+        "rule_abstained": 35360,
+        "weak_teacher_train_only": 16562,
+        "moving_proceed_requires_visual_catchup": 194,
+        "known_risk_window_requires_separate_review": 217,
+        "compiled": 75003
+      },
+      "stationary_readiness_support": {
+        "minimum_stationary_yes": 1,
+        "cells": {
+          "U-E1/proceed": {
+            "stationary_yes": 20,
+            "stationary_routes": 16,
+            "manual_stationary_yes": 2,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 15
+          },
+          "U-E1/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 19,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "U-E2/depart": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/return": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E3/proceed": {
+            "stationary_yes": 1,
+            "stationary_routes": 1,
+            "manual_stationary_yes": 1,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 7
+          },
+          "U-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E4/proceed": {
+            "stationary_yes": 779,
+            "stationary_routes": 155,
+            "manual_stationary_yes": 12,
+            "moving_yes": 10,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 9
+          },
+          "U-E4/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 10,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E6/proceed": {
+            "stationary_yes": 11,
+            "stationary_routes": 2,
+            "manual_stationary_yes": 11,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 13
+          },
+          "U-E6/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "U-E7/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E2/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/enter": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 2,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E3/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          },
+          "R-E5/proceed": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 1,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 4
+          },
+          "R-E5/release": {
+            "stationary_yes": 0,
+            "stationary_routes": 0,
+            "manual_stationary_yes": 0,
+            "moving_yes": 0,
+            "unknown_motion_yes": 0,
+            "catchup_yes": 0
+          }
+        },
+        "missing_cells": {
+          "U-E1/release": 1,
+          "U-E2/depart": 1,
+          "U-E2/return": 1,
+          "U-E2/release": 1,
+          "U-E3/release": 1,
+          "U-E4/release": 1,
+          "U-E5/proceed": 1,
+          "U-E5/release": 1,
+          "U-E6/release": 1,
+          "U-E7/proceed": 1,
+          "U-E7/release": 1,
+          "R-E2/enter": 1,
+          "R-E2/release": 1,
+          "R-E3/enter": 1,
+          "R-E3/release": 1,
+          "R-E5/proceed": 1,
+          "R-E5/release": 1
+        },
+        "blocking": false,
+        "warning": "missing stationary readiness YES; moving/catchup samples do not demonstrate release from a stop"
+      }
+    }
+  },
+  "baseline_v31_weak_motion_cells": {
+    "2": {
+      "U-E1/complete/NO/moving": {
+        "questions": 114,
+        "routes": 30
+      },
+      "U-E1/complete/YES/moving": {
+        "questions": 111,
+        "routes": 110
+      },
+      "U-E1/hold/NO/moving": {
+        "questions": 680,
+        "routes": 173
+      },
+      "U-E1/hold/YES/moving": {
+        "questions": 1291,
+        "routes": 1228
+      },
+      "U-E1/hold/YES/stationary": {
+        "questions": 177,
+        "routes": 176
+      },
+      "U-E1/proceed/NO/moving": {
+        "questions": 5730,
+        "routes": 1263
+      },
+      "U-E1/proceed/NO/stationary": {
+        "questions": 55359,
+        "routes": 1206
+      },
+      "U-E1/proceed/YES/stationary": {
+        "questions": 37,
+        "routes": 19
+      },
+      "U-E1/re_yield/NO/moving": {
+        "questions": 746,
+        "routes": 175
+      },
+      "U-E1/re_yield/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/re_yield/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/recover_follow/NO/moving": {
+        "questions": 974,
+        "routes": 116
+      },
+      "U-E1/recover_follow/YES/moving": {
+        "questions": 150,
+        "routes": 135
+      },
+      "U-E1/release/NO/moving": {
+        "questions": 194,
+        "routes": 116
+      },
+      "U-E1/release/NO/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/release/YES/moving": {
+        "questions": 21,
+        "routes": 21
+      },
+      "U-E1/renewed_restriction/NO/moving": {
+        "questions": 724,
+        "routes": 175
+      },
+      "U-E1/renewed_restriction/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/stable/NO/moving": {
+        "questions": 546,
+        "routes": 173
+      },
+      "U-E4/complete/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      },
+      "U-E4/hold/NO/moving": {
+        "questions": 83,
+        "routes": 10
+      },
+      "U-E4/hold/YES/moving": {
+        "questions": 104,
+        "routes": 99
+      },
+      "U-E4/hold/YES/stationary": {
+        "questions": 775,
+        "routes": 696
+      },
+      "U-E4/proceed/NO/moving": {
+        "questions": 292,
+        "routes": 105
+      },
+      "U-E4/proceed/NO/stationary": {
+        "questions": 7367,
+        "routes": 750
+      },
+      "U-E4/proceed/YES/moving": {
+        "questions": 10,
+        "routes": 10
+      },
+      "U-E4/proceed/YES/stationary": {
+        "questions": 767,
+        "routes": 151
+      },
+      "U-E4/re_yield/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      }
+    },
+    "4": {
+      "U-E1/complete/NO/moving": {
+        "questions": 114,
+        "routes": 30
+      },
+      "U-E1/complete/YES/moving": {
+        "questions": 111,
+        "routes": 110
+      },
+      "U-E1/hold/NO/moving": {
+        "questions": 680,
+        "routes": 173
+      },
+      "U-E1/hold/YES/moving": {
+        "questions": 1291,
+        "routes": 1228
+      },
+      "U-E1/hold/YES/stationary": {
+        "questions": 177,
+        "routes": 176
+      },
+      "U-E1/proceed/NO/moving": {
+        "questions": 5730,
+        "routes": 1263
+      },
+      "U-E1/proceed/NO/stationary": {
+        "questions": 55359,
+        "routes": 1206
+      },
+      "U-E1/proceed/YES/stationary": {
+        "questions": 37,
+        "routes": 19
+      },
+      "U-E1/re_yield/NO/moving": {
+        "questions": 746,
+        "routes": 175
+      },
+      "U-E1/re_yield/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/re_yield/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/recover_follow/NO/moving": {
+        "questions": 974,
+        "routes": 116
+      },
+      "U-E1/recover_follow/YES/moving": {
+        "questions": 150,
+        "routes": 135
+      },
+      "U-E1/release/NO/moving": {
+        "questions": 194,
+        "routes": 116
+      },
+      "U-E1/release/NO/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/release/YES/moving": {
+        "questions": 21,
+        "routes": 21
+      },
+      "U-E1/renewed_restriction/NO/moving": {
+        "questions": 724,
+        "routes": 175
+      },
+      "U-E1/renewed_restriction/YES/moving": {
+        "questions": 14,
+        "routes": 14
+      },
+      "U-E1/stable/NO/moving": {
+        "questions": 546,
+        "routes": 173
+      },
+      "U-E4/complete/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      },
+      "U-E4/hold/NO/moving": {
+        "questions": 83,
+        "routes": 10
+      },
+      "U-E4/hold/YES/moving": {
+        "questions": 104,
+        "routes": 99
+      },
+      "U-E4/hold/YES/stationary": {
+        "questions": 775,
+        "routes": 696
+      },
+      "U-E4/proceed/NO/moving": {
+        "questions": 292,
+        "routes": 105
+      },
+      "U-E4/proceed/NO/stationary": {
+        "questions": 7367,
+        "routes": 750
+      },
+      "U-E4/proceed/YES/moving": {
+        "questions": 10,
+        "routes": 10
+      },
+      "U-E4/proceed/YES/stationary": {
+        "questions": 767,
+        "routes": 151
+      },
+      "U-E4/re_yield/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      }
+    }
+  },
+  "references": {
+    "2": {
+      "val": 8345,
+      "test": 7952
+    },
+    "4": {
+      "val": 8345,
+      "test": 7952
+    }
+  },
+  "independent_review": {
+    "cards": 961,
+    "routes": 56,
+    "reviewed": 0,
+    "best_case_passable": 0
+  },
+  "strict_approved_classes": 0,
+  "production": {
+    "candidate_routes": 8614,
+    "candidate_rgb_frames": 1062401,
+    "frames_with_questions": 71139,
+    "frames_with_supervision": 70754,
+    "frames_without_questions": 991262,
+    "complete_causal_production": true,
+    "accounting": {
+      "processed_routes": 8614,
+      "processed_frames": 1062401,
+      "dispositions": {
+        "abstained": 939612,
+        "questions": 122789
+      },
+      "rule_targets": {
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb2/readiness/NO": 87263,
+        "ue1_ue4_causal_teacher_v7/U-E1/restrict/rgb2/readiness/YES": 1845,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb2/readiness/YES": 1862,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb4/readiness/NO": 87263,
+        "ue1_ue4_causal_teacher_v7/U-E1/restrict/rgb4/readiness/YES": 1845,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb4/readiness/YES": 1862,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb2/readiness/UNKNOWN": 15260,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb4/readiness/UNKNOWN": 15260,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb2/readiness/YES": 244,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb4/readiness/YES": 244,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb2/readiness/NO": 708,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb2/readiness/NO": 631,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb2/readiness/NO": 528,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb2/readiness/NO": 678,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb2/readiness/NO": 988,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb4/readiness/NO": 708,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb4/readiness/NO": 631,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb4/readiness/NO": 528,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb4/readiness/NO": 678,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb4/readiness/NO": 988,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb2/readiness/YES": 112,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb4/readiness/YES": 112,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb2/readiness/YES": 81,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb2/readiness/NO": 153,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb4/readiness/YES": 81,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb4/readiness/NO": 153,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb2/readiness/UNKNOWN": 734,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb2/readiness/UNKNOWN": 736,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb2/readiness/UNKNOWN": 657,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb2/readiness/UNKNOWN": 694,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb4/readiness/UNKNOWN": 734,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb4/readiness/UNKNOWN": 736,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb4/readiness/UNKNOWN": 657,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb4/readiness/UNKNOWN": 694,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb2/readiness/NO": 84,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb2/readiness/YES": 22,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb4/readiness/NO": 84,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb4/readiness/YES": 22,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb2/readiness/UNKNOWN": 85,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb4/readiness/UNKNOWN": 85,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb2/readiness/YES": 13,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb2/readiness/YES": 12,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb4/readiness/YES": 13,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb4/readiness/YES": 12,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb2/readiness/NO": 10453,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb2/readiness/UNKNOWN": 3532,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb2/readiness/YES": 1055,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb4/readiness/NO": 10453,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb4/readiness/UNKNOWN": 3532,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb4/readiness/YES": 1055,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb2/readiness/UNKNOWN": 9335,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb4/readiness/UNKNOWN": 9335,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb2/readiness/YES": 1049,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb4/readiness/YES": 1049,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb2/readiness/UNKNOWN": 3542,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb4/readiness/UNKNOWN": 3542,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb2/readiness/NO": 99,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb4/readiness/NO": 99,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb2/readiness/YES": 979,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb4/readiness/YES": 979,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb2/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb2/readiness/UNKNOWN": 95,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb4/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb4/readiness/UNKNOWN": 95,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb2/readiness/NO": 83,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb4/readiness/NO": 83,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb2/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb2/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb4/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb4/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb2/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb2/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb4/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb4/readiness/UNKNOWN": 328
+      },
+      "complete_causal_production": true,
+      "index_sha256": "cf810e87cd2247dac972c664bdf92a04b05d53ce061c3c80c0c05d8722845a86",
+      "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+    },
+    "approved_rule_classes": [],
+    "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+  },
+  "production_seconds": 1243.6534285400994,
+  "rgb_review": {
+    "contact_sheets": 2,
+    "frames": 10,
+    "training_routes": 2,
+    "new_full_sequences": 0,
+    "new_human_supervision": 0,
+    "independent_rgb_viewed": 0
+  },
+  "explicit_training_exposure_groups": 8,
+  "protected_case_checks": {
+    "2": {
+      "old_stationary_yes": 37,
+      "reported_bad_yes": 19,
+      "reported_bad_yes_remaining": 0,
+      "other_old_stationary_yes_retained": 18,
+      "new_stationary_yes": 18,
+      "new_stationary_yes_added": []
+    },
+    "4": {
+      "old_stationary_yes": 37,
+      "reported_bad_yes": 19,
+      "reported_bad_yes_remaining": 0,
+      "other_old_stationary_yes_retained": 18,
+      "new_stationary_yes": 18,
+      "new_stationary_yes_added": []
+    }
+  },
+  "blocked_route_audit": {
+    "routes": [
+      {
+        "physical_group": "BlockedIntersection/Town06_Town06_18",
+        "route_id": "Town06_Rep0_Town06_18_route0_01_09_11_22_13",
+        "split": "train",
+        "frames": 564,
+        "max_abs_speed": 11.561078236401045,
+        "max_horizontal_distance_from_start": 81.72382430988098,
+        "moving_frames": 56,
+        "last_frame_speed": 10.729190011529482,
+        "metadata_digest": "b69fe2f0e56a24f3dd3e4abe1f83e035d918947c89cff0dd206ef23a9c894981",
+        "moving_witnesses": [
+          {
+            "frame": 3,
+            "speed": 1.5340157217507389,
+            "position": [
+              4.488790988922119,
+              188.32940673828125,
+              -0.006608085706830025
+            ],
+            "sha256": "94f0ae66b9aa3372c6d6180f689ab80f6e684a009cfc3b126eca70b656822315"
+          },
+          {
+            "frame": 563,
+            "speed": 10.729190011529482,
+            "position": [
+              2.4540622234344482,
+              106.8609619140625,
+              -0.004476204048842192
+            ],
+            "sha256": "a1dd8df3f93f3977fe67b403034a0888ca6c90e78614df6c05516fceee6ec24a"
+          }
+        ],
+        "decision": "retained; observable movement at beginning and end; not a wholly stationary capture"
+      },
+      {
+        "physical_group": "BlockedIntersection/Town06_Town06_37",
+        "route_id": "Town06_Rep0_Town06_37_route0_01_09_12_27_17",
+        "split": "train",
+        "frames": 602,
+        "max_abs_speed": 7.258140707840461,
+        "max_horizontal_distance_from_start": 56.21789989322811,
+        "moving_frames": 51,
+        "last_frame_speed": 4.916148913224606,
+        "metadata_digest": "5b53b9869bc514cfcc296f36ac0ac04b147822092f0ae53a2975efff073d2cde",
+        "moving_witnesses": [
+          {
+            "frame": 3,
+            "speed": 1.5532380983546525,
+            "position": [
+              -190.5486297607422,
+              52.47593688964844,
+              -0.006393813993781805
+            ],
+            "sha256": "3ca1376fa7855722f903b4a9c538be38a44ecc72bad39a31efa4bd255a5d864c"
+          },
+          {
+            "frame": 601,
+            "speed": 4.916148913224606,
+            "position": [
+              -134.55711364746094,
+              52.454105377197266,
+              -0.007324485573917627
+            ],
+            "sha256": "0c80c3f6bd7a977587213abad34146805ab4724b4d6d779f143aaeaa7cd60893"
+          }
+        ],
+        "decision": "retained; observable movement at beginning and end; not a wholly stationary capture"
+      },
+      {
+        "physical_group": "BlockedIntersection/Town06_Town06_38",
+        "route_id": "Town06_Rep0_Town06_38_route0_01_09_13_27_01",
+        "split": "train",
+        "frames": 563,
+        "max_abs_speed": 7.2070550380670575,
+        "max_horizontal_distance_from_start": 56.171482734726965,
+        "moving_frames": 48,
+        "last_frame_speed": 3.3152328137758653,
+        "metadata_digest": "46dff87424b663dae8fa94dc3c1a84dcb9a00913622c285fcd88c3647d1322e3",
+        "moving_witnesses": [
+          {
+            "frame": 3,
+            "speed": 1.498538383057292,
+            "position": [
+              -190.54690551757812,
+              48.976009368896484,
+              -0.006349334493279457
+            ],
+            "sha256": "a0662945dedb2790b7661ab24e5c35d3b6d42ef370ece74a575154bbc3b3e044"
+          },
+          {
+            "frame": 562,
+            "speed": 3.3152328137758653,
+            "position": [
+              -134.60494995117188,
+              48.95391845703125,
+              -0.003927955403923988
+            ],
+            "sha256": "f7b892736099f5536ea8c59938843a6bfddf0924a604eddb84b1e5fbd0d81c1d"
+          }
+        ],
+        "decision": "retained; observable movement at beginning and end; not a wholly stationary capture"
+      },
+      {
+        "physical_group": "BlockedIntersection/Town06_Town06_39",
+        "route_id": "Town06_Rep0_Town06_39_route0_01_08_16_27_08",
+        "split": "train",
+        "frames": 563,
+        "max_abs_speed": 7.432214840990779,
+        "max_horizontal_distance_from_start": 56.17552621070629,
+        "moving_frames": 49,
+        "last_frame_speed": 3.0967976182269257,
+        "metadata_digest": "83c91f10dabd0a3bd5c6248d5eed1a673e96e649ef066a9ebb6c242c32284242",
+        "moving_witnesses": [
+          {
+            "frame": 3,
+            "speed": 1.5487917905384192,
+            "position": [
+              -190.5442352294922,
+              45.47606658935547,
+              -0.006389503367245197
+            ],
+            "sha256": "7e1057b9657c3ff6d98e4923d143bf44905880a8700be820a169c135ada48101"
+          },
+          {
+            "frame": 562,
+            "speed": 3.0967976182269257,
+            "position": [
+              -134.60231018066406,
+              45.45417785644531,
+              -0.0031566619873046875
+            ],
+            "sha256": "1f905aef85d00f563cd95512d0caa7809179351df01ea3145a46f5e8da8da9e4"
+          }
+        ],
+        "decision": "retained; observable movement at beginning and end; not a wholly stationary capture"
+      }
+    ],
+    "scope": "all-frame metadata validation on four named training routes; no RGB audit and no inferred cause of the long wait"
+  },
+  "remaining_limits": [
+    "eight event teachers absent",
+    "automatic visual catchup not approved",
+    "visible actor deletion remains censored",
+    "event-equal budget limited by sparse manual events",
+    "weak labels lack independent accuracy measurement"
+  ],
+  "gpu_training_executed": false,
+  "protected_sources_unchanged": [
+    "controller.py",
+    "taxonomy.py",
+    "prompts.py",
+    "calibration.py",
+    "observation.py",
+    "maneuver_safety.py",
+    "sampling.py",
+    "weighted_sampling.py",
+    "train.py",
+    "selection.py",
+    "teacher_controls.py"
+  ],
+  "phase3_bound_dependencies_unchanged": true,
+  "training_lifecycle": {
+    "raw_question_cells": {
+      "U-E1/default/proceed/NO/moving": {
+        "questions": 4956,
+        "routes": 1255
+      },
+      "U-E1/default/restrict/YES/moving": {
+        "questions": 1382,
+        "routes": 1232
+      },
+      "U-E1/default/hold/YES/moving": {
+        "questions": 1397,
+        "routes": 1232
+      },
+      "U-E1/default/proceed/NO/stationary": {
+        "questions": 69072,
+        "routes": 1206
+      },
+      "U-E1/default/proceed/UNKNOWN/stationary": {
+        "questions": 4867,
+        "routes": 1217
+      },
+      "U-E1/default/proceed/UNKNOWN/moving": {
+        "questions": 8200,
+        "routes": 1287
+      },
+      "U-E1/default/restrict/YES/stationary": {
+        "questions": 186,
+        "routes": 183
+      },
+      "U-E1/default/hold/YES/stationary": {
+        "questions": 186,
+        "routes": 183
+      },
+      "U-E1/default/proceed/YES/moving": {
+        "questions": 194,
+        "routes": 133
+      },
+      "U-E1/default/re_yield/NO/moving": {
+        "questions": 618,
+        "routes": 115
+      },
+      "U-E1/default/hold/NO/moving": {
+        "questions": 553,
+        "routes": 113
+      },
+      "U-E1/default/stable/NO/moving": {
+        "questions": 466,
+        "routes": 113
+      },
+      "U-E1/default/renewed_restriction/NO/moving": {
+        "questions": 599,
+        "routes": 115
+      },
+      "U-E1/default/recover_follow/YES/moving": {
+        "questions": 96,
+        "routes": 83
+      },
+      "U-E1/default/complete/YES/moving": {
+        "questions": 68,
+        "routes": 68
+      },
+      "U-E1/default/release/NO/moving": {
+        "questions": 116,
+        "routes": 73
+      },
+      "U-E1/default/recover_follow/NO/moving": {
+        "questions": 820,
+        "routes": 100
+      },
+      "U-E1/default/re_yield/UNKNOWN/moving": {
+        "questions": 589,
+        "routes": 53
+      },
+      "U-E1/default/hold/UNKNOWN/moving": {
+        "questions": 603,
+        "routes": 54
+      },
+      "U-E1/default/stable/UNKNOWN/moving": {
+        "questions": 522,
+        "routes": 52
+      },
+      "U-E1/default/renewed_restriction/UNKNOWN/moving": {
+        "questions": 561,
+        "routes": 53
+      },
+      "U-E1/default/complete/NO/moving": {
+        "questions": 81,
+        "routes": 24
+      },
+      "U-E1/default/release/YES/moving": {
+        "questions": 19,
+        "routes": 19
+      },
+      "U-E1/default/recover_follow/UNKNOWN/moving": {
+        "questions": 72,
+        "routes": 6
+      },
+      "U-E1/default/re_yield/YES/moving": {
+        "questions": 11,
+        "routes": 11
+      },
+      "U-E1/default/renewed_restriction/YES/moving": {
+        "questions": 11,
+        "routes": 11
+      },
+      "U-E4/cyclist_follow/proceed/NO/stationary": {
+        "questions": 73,
+        "routes": 6
+      },
+      "U-E4/cyclist_follow/restrict/UNKNOWN/stationary": {
+        "questions": 114,
+        "routes": 11
+      },
+      "U-E4/cyclist_follow/hold/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E4/cyclist_follow/proceed/NO/moving": {
+        "questions": 97,
+        "routes": 29
+      },
+      "U-E4/cyclist_follow/proceed/UNKNOWN/moving": {
+        "questions": 3663,
+        "routes": 101
+      },
+      "U-E4/cyclist_follow/restrict/UNKNOWN/moving": {
+        "questions": 3136,
+        "routes": 100
+      },
+      "U-E4/cyclist_follow/hold/YES/moving": {
+        "questions": 29,
+        "routes": 28
+      },
+      "U-E4/default/proceed/NO/stationary": {
+        "questions": 8408,
+        "routes": 746
+      },
+      "U-E4/default/restrict/YES/stationary": {
+        "questions": 785,
+        "routes": 696
+      },
+      "U-E4/default/hold/YES/stationary": {
+        "questions": 785,
+        "routes": 696
+      },
+      "U-E4/default/proceed/UNKNOWN/stationary": {
+        "questions": 3578,
+        "routes": 584
+      },
+      "U-E4/default/proceed/UNKNOWN/moving": {
+        "questions": 514,
+        "routes": 52
+      },
+      "U-E4/default/proceed/NO/moving": {
+        "questions": 205,
+        "routes": 77
+      },
+      "U-E4/default/restrict/YES/moving": {
+        "questions": 76,
+        "routes": 72
+      },
+      "U-E4/default/hold/YES/moving": {
+        "questions": 76,
+        "routes": 72
+      },
+      "U-E4/cyclist_follow/hold/UNKNOWN/moving": {
+        "questions": 3145,
+        "routes": 97
+      },
+      "U-E4/cyclist_follow/restrict/NO/moving": {
+        "questions": 97,
+        "routes": 15
+      },
+      "U-E4/cyclist_follow/restrict/YES/moving": {
+        "questions": 24,
+        "routes": 23
+      },
+      "U-E4/cyclist_follow/proceed/UNKNOWN/stationary": {
+        "questions": 563,
+        "routes": 18
+      },
+      "U-E4/cyclist_follow/hold/UNKNOWN/stationary": {
+        "questions": 113,
+        "routes": 10
+      },
+      "U-E4/default/proceed/YES/stationary": {
+        "questions": 780,
+        "routes": 155
+      },
+      "U-E1/default/complete/UNKNOWN/moving": {
+        "questions": 34,
+        "routes": 3
+      },
+      "U-E1/default/release/UNKNOWN/moving": {
+        "questions": 95,
+        "routes": 7
+      },
+      "U-E1/default/proceed/YES/stationary": {
+        "questions": 18,
+        "routes": 14
+      },
+      "U-E4/cyclist_follow/proceed/YES/moving": {
+        "questions": 10,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/hold/NO/moving": {
+        "questions": 83,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/complete/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/re_yield/NO/moving": {
+        "questions": 73,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/complete/UNKNOWN/moving": {
+        "questions": 328,
+        "routes": 10
+      },
+      "U-E4/cyclist_follow/re_yield/UNKNOWN/moving": {
+        "questions": 328,
+        "routes": 10
+      },
+      "U-E1/default/re_yield/YES/stationary": {
+        "questions": 1,
+        "routes": 1
+      },
+      "U-E1/default/release/NO/stationary": {
+        "questions": 1,
+        "routes": 1
+      }
+    },
+    "instances": {
+      "U-E1/default": 1568,
+      "U-E4/cyclist_follow": 102,
+      "U-E4/default": 861
+    },
+    "ends": {
+      "U-E1/default/observed_resumption_censors_stale_wait": 1173,
+      "U-E1/default/instance_rgb_discontinuity": 103,
+      "U-E1/default/finished": 68,
+      "U-E4/cyclist_follow/instance_rgb_discontinuity": 24,
+      "U-E4/default/instance_rgb_discontinuity": 839,
+      "U-E4/default/identity_lost": 4,
+      "U-E4/default/cyclist_follow_branch_requires_new_instance": 16,
+      "U-E4/cyclist_follow/requires_recheck": 4,
+      "U-E4/cyclist_follow/identity_lost": 73,
+      "U-E1/default/lead_visibly_beyond_event_horizon": 5,
+      "U-E1/default/lead_visibly_left_event_corridor": 11,
+      "U-E1/default/invalid_geometry_or_initialization": 2
+    },
+    "scope": "training routes only; raw rule outputs before supervision exclusions; no RGB viewed"
+  },
+  "lead_no_numeric_audit": {
+    "v31": {
+      "metrics": {
+        "no_after_observed_stop_and_8_moving_frames": {
+          "rows": 794,
+          "routes": 196
+        },
+        "no_ego_and_original_lead_above_3_similar_speed_within_1": {
+          "rows": 424,
+          "routes": 116
+        }
+      },
+      "definitions": "Training weak UE1 proceed NO only. Stale proxy: observed abs(speed)<0.5 since seed, then at least eight consecutive speed>=0.5 frames. Following proxy: ego and original actor speed>3 and absolute difference<=1; does not establish label error.",
+      "examples": [
+        [
+          "AccidentTwoWays/Town01_route_001543",
+          250
+        ],
+        [
+          "AccidentTwoWays/Town07_route_001449",
+          69
+        ],
+        [
+          "AccidentTwoWays/Town12_1809_0",
+          176
+        ],
+        [
+          "AccidentTwoWays/Town12_26_0",
+          197
+        ],
+        [
+          "AccidentTwoWays/Town12_route_002886",
+          190
+        ],
+        [
+          "AccidentTwoWays/Town13_1157_1",
+          178
+        ],
+        [
+          "AccidentTwoWays/Town13_1779_0",
+          231
+        ],
+        [
+          "BlockedIntersection/Town12_346_0",
+          53
+        ],
+        [
+          "BlockedIntersection/Town12_346_0",
+          54
+        ],
+        [
+          "ConstructionObstacleTwoWays/Town15_route_001206",
+          112
+        ],
+        [
+          "ControlLoss/Town01_Town01_Scenario1_3",
+          195
+        ],
+        [
+          "ControlLoss/Town01_Town01_Scenario1_3",
+          199
+        ],
+        [
+          "ControlLoss/Town01_Town01_Scenario1_3",
+          198
+        ],
+        [
+          "ControlLoss/Town03_Town03_Scenario1_13",
+          74
+        ],
+        [
+          "ControlLoss/Town03_Town03_Scenario1_13",
+          72
+        ],
+        [
+          "ControlLoss/Town03_Town03_Scenario1_13",
+          75
+        ],
+        [
+          "ControlLoss/Town03_Town03_Scenario1_22",
+          133
+        ],
+        [
+          "ControlLoss/Town03_Town03_Scenario1_22",
+          134
+        ],
+        [
+          "ControlLoss/Town03_Town03_Scenario1_22",
+          136
+        ],
+        [
+          "ControlLoss/Town04_Town04_Scenario1_45",
+          194
+        ]
+      ]
+    },
+    "v32": {
+      "metrics": {
+        "no_after_observed_stop_and_8_moving_frames": {
+          "rows": 66,
+          "routes": 44
+        },
+        "no_ego_and_original_lead_above_3_similar_speed_within_1": {
+          "rows": 138,
+          "routes": 61
+        }
+      },
+      "definitions": "Training weak UE1 proceed NO only. Stale proxy: observed abs(speed)<0.5 since seed, then at least eight consecutive speed>=0.5 frames. Following proxy: ego and original actor speed>3 and absolute difference<=1; does not establish label error.",
+      "examples": [
+        [
+          "AccidentTwoWays/Town12_1809_0",
+          176
+        ],
+        [
+          "AccidentTwoWays/Town13_1157_1",
+          178
+        ],
+        [
+          "ControlLoss/Town05_Town05_Scenario1_55",
+          19
+        ],
+        [
+          "ControlLoss/Town12_2438_0",
+          82
+        ],
+        [
+          "ControlLoss/Town13_1349_0",
+          117
+        ],
+        [
+          "ControlLoss/Town13_1525_0",
+          135
+        ],
+        [
+          "DynamicObjectCrossing/Town05_Town05_Scenario3_15",
+          92
+        ],
+        [
+          "DynamicObjectCrossing/Town05_Town05_Scenario3_18",
+          113
+        ],
+        [
+          "DynamicObjectCrossing/Town05_Town05_Scenario3_19",
+          93
+        ],
+        [
+          "DynamicObjectCrossing/Town05_Town05_Scenario3_21",
+          113
+        ],
+        [
+          "DynamicObjectCrossing/Town12_256_0",
+          82
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1479_0",
+          93
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1479_0",
+          94
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1527_0",
+          132
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1527_0",
+          133
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1579_0",
+          157
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1651_0",
+          100
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1651_0",
+          108
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1731_0",
+          98
+        ],
+        [
+          "DynamicObjectCrossing/Town13_1758_0",
+          144
+        ]
+      ]
+    }
+  }
+}

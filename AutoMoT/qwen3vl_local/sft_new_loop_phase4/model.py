@@ -1,15 +1,21 @@
 """本地Qwen3.5 LoRA的条件SFT与自由生成；不使用Phase3动作输出头。"""
 from pathlib import Path
 from .controller import Episode
-from .prompts import messages, parse_answer
+from .route_prompts import messages, parse_answer
 from .identity import file_sha, digest
 from .observation import check_observation_contract,validate_observation
 
 
 def load_images(row,data_root):
     from PIL import Image
+    if 'condition_provenance' in row:
+        from .condition_builder import validate_row
+        validate_row(row,data_root)
     root = Path(data_root).resolve()
     images = []
+    pixel_hashes = row.get('image_rgb_sha256')
+    if pixel_hashes is not None and len(pixel_hashes)!=len(row['images']):
+        raise ValueError('decoded RGB identity count mismatch')
     if len(row['images']) != len(row['observation']['history_frames']):
         raise ValueError('image/history count mismatch')
     for index,(rel,expected) in enumerate(zip(row['images'],row['image_sha256'],strict=True)):
@@ -19,7 +25,12 @@ def load_images(row,data_root):
         if not path.is_relative_to(root) or file_sha(path) != expected:
             raise ValueError('RGB source mismatch')
         with Image.open(path) as source:
-            images.append(source.convert('RGB'))
+            rgb = source.convert('RGB')
+            if pixel_hashes is not None:
+                from .input_identity import rgb_content_sha
+                if rgb_content_sha(rgb)!=pixel_hashes[index]:
+                    raise ValueError('decoded RGB content mismatch')
+            images.append(rgb)
     return images
 
 
@@ -34,7 +45,7 @@ def encode(bundle,row,data_root,*,supervise=True,max_length=8192):
     import torch
     from qwen3vl_local.sft_v2.train import _find_subsequence, _assert_inside_assistant_turn
     from qwen3vl_local.qwen35.backend import assistant_header_text
-    from .prompts import prompt
+    from .route_prompts import prompt
     validate_observation(getattr(bundle,'observation_contract',None),row['observation'],len(row['images']))
     ep = Episode(**row['episode'])
     if digest(prompt(ep,row['edge'],row['observation'])) != row['prompt_sha256']:

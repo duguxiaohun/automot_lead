@@ -1,3 +1,4 @@
+from qwen3vl_local.sft_new_loop_phase4.tests.safety_fixtures import clearances, loop_clearances
 import copy
 import json
 import pytest
@@ -47,7 +48,7 @@ def test_reachable_hold_then_reyield_retains_stop_until_explicit_permission(even
 @pytest.mark.parametrize('mode',['duplicate','stale','bad_context','bad_fault','bad_images'])
 def test_rejected_observation_preserves_permission_and_can_still_acknowledge(mode):
     loop=setup_loop();ep=loop.episodes['a']
-    loop.tick(obs(),[None]*2,predict('depart'))
+    loop.tick(obs(),[None]*2,predict('depart'),maneuver_clearances=loop_clearances(loop,10,'depart'))
     before=copy.deepcopy(loop.snapshot());calls=[]
     o=obs(10 if mode=='duplicate' else 9 if mode=='stale' else 11)
     kw={'context_valid':{'a':1}} if mode=='bad_context' else {'progress_faults':{'missing':True}} if mode=='bad_fault' else {}
@@ -72,17 +73,17 @@ def test_multiepisode_failure_rolls_back_entire_batch_and_valid_retry_succeeds(f
     rs=[receipt('a')]
     if failure in ('bad_receipt','inactive_receipt'):rs.append(receipt('b',edges=['enter']))
     with pytest.raises((ValueError,RuntimeError)):
-        loop.tick(obs(),[None]*2,predictor,execution_receipts=rs)
+        loop.tick(obs(),[None]*2,predictor,execution_receipts=rs,maneuver_clearances=loop_clearances(loop,10,'depart'))
     assert 'a' in seen and loop.snapshot()==before
     assert all(loop.episodes[k] is ref for k,ref in refs.items())
     loop.episodes['b'].suspended=False
-    loop.tick(obs(),[None]*2,predict('depart'),execution_receipts=[receipt('a'),receipt('b')])
+    loop.tick(obs(),[None]*2,predict('depart'),execution_receipts=[receipt('a'),receipt('b')],maneuver_clearances=loop_clearances(loop,10,'depart'))
     assert all(ep.state=='DEPART' and ep.history[-1]['committed'] for ep in refs.values())
     assert Phase4Loop.restore(loop.snapshot()).snapshot()==loop.snapshot()
 
 
 def test_new_observation_expires_permission_once_only_after_success():
-    loop=setup_loop();loop.tick(obs(),[None]*2,predict('depart'))
+    loop=setup_loop();loop.tick(obs(),[None]*2,predict('depart'),maneuver_clearances=loop_clearances(loop,10,'depart'))
     before=copy.deepcopy(loop.snapshot())
     with pytest.raises(ValueError):loop.tick(obs(11),[None]*2,lambda *a:'bad')
     assert loop.snapshot()==before
@@ -95,7 +96,7 @@ def test_new_observation_expires_permission_once_only_after_success():
 
 def test_direct_advance_rejects_bad_answer_without_expiring_permission():
     ep=setup_loop().episodes['a']
-    ep.advance(10,{e.key:'YES' if e.key=='depart' else 'NO' for e in ep.questions()})
+    ep.advance(10,{e.key:'YES' if e.key=='depart' else 'NO' for e in ep.questions()},maneuver_clearances=clearances(ep,10,'depart'))
     before=copy.deepcopy(ep.to_dict())
     with pytest.raises(ValueError):ep.advance(11,{'not_an_edge':'YES'})
     assert ep.to_dict()==before

@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 from .identity import ROOT,write_json,digest
-from .prompts import prompt
+from .route_prompts import prompt
 from .model import load_for_inference,generate
 from .evaluate import replay
 from .dataset import EPISODE_FIELDS
@@ -24,6 +24,8 @@ def main():
     p.add_argument('--data-root',type=Path,default=ROOT.parents[1]/'lead_data')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--device',default='cuda:0')
+    p.add_argument('--offline-geometry-safety',action='store_true',
+                   help='compute clearances from source-bound current planner envelopes and causal bboxes')
     a=p.parse_args()
     import torch
     sequence=json.loads(a.sequence.read_text())
@@ -38,7 +40,9 @@ def main():
                  prompt_sha256=digest(prompt(ep,key,obs['observation'])))
         answer,_=generate(bundle,row,a.data_root)
         return 'UNKNOWN' if answer=='MALFORMED' else answer
-    result=replay(sequence['initial'],sequence['observations'],predictor)
+    from .replay_safety import ReplaySafetyAdapter
+    safety=ReplaySafetyAdapter(a.data_root) if a.offline_geometry_safety else None
+    result=replay(sequence['initial'],sequence['observations'],predictor,safety_adapter=safety)
     write_json(a.output,result)
 
 if __name__=='__main__':

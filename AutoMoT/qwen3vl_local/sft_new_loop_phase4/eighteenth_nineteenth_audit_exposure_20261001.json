@@ -1,0 +1,646 @@
+{
+  "train_only_groups": [
+    "Accident/Town04_route_001798",
+    "Accident/Town04_route_001799",
+    "Accident/Town04_route_001801",
+    "Accident/Town12_3817_0",
+    "Accident/Town12_3823_1",
+    "Accident/Town12_3990_0",
+    "Accident/Town13_1276_1",
+    "Accident/Town13_1627_2",
+    "Accident/Town13_1683_0",
+    "ConstructionObstacle/Town12_2879_0",
+    "ConstructionObstacle/Town12_3221_0",
+    "ConstructionObstacle/Town12_4098_0",
+    "HazardAtSideLaneTwoWays/Town12_1882_0",
+    "HazardAtSideLaneTwoWays/Town12_280_0",
+    "HazardAtSideLaneTwoWays/Town12_299_0",
+    "HighwayCutIn/Town13_1283_10",
+    "HighwayCutIn/Town13_1586_11",
+    "HighwayCutIn/Town13_1586_9",
+    "MergerIntoSlowTraffic/Town12_2961_0",
+    "MergerIntoSlowTraffic/Town12_2961_1",
+    "NonSignalizedJunctionLeftTurn/Town13_1633_0",
+    "NonSignalizedJunctionLeftTurn/Town13_1644_0",
+    "NonSignalizedJunctionLeftTurn/Town13_route_000945",
+    "OppositeVehicleRunningRedLight/Town05_Town05_Scenario8_0",
+    "OppositeVehicleRunningRedLight/Town05_Town05_Scenario8_41",
+    "noScenarios/Town03_route_000397",
+    "noScenarios/Town03_route_000398",
+    "noScenarios/Town03_route_000402"
+  ],
+  "new_train_only_groups": [
+    "noScenarios/Town03_route_000397",
+    "noScenarios/Town03_route_000398",
+    "noScenarios/Town03_route_000402"
+  ],
+  "new_group_previous_split": {
+    "noScenarios/Town03_route_000397": "train",
+    "noScenarios/Town03_route_000398": "train",
+    "noScenarios/Town03_route_000402": "train"
+  },
+  "calibration_risks": [
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "physical_group": "HighwayCutIn/Town13_1586_11",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/000",
+      "reported_observations": [
+        "全序列0–337。初始前车17→18突变待原图核对。紫SUV在38–56靠近左侧边界，主路拓宽后从左侧自然出画70–72，不登记消失；原图复核切入/自车汇入几何。后238–249右变道、路口329–333右转属新阶段，旧UE3补问不能延至这些阶段。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0017.jpg",
+          "sha256": "70c159ac700d82ab13c7cf0f2b8bef5df091fd89b932647c445e7ae8ef7ff100"
+        },
+        {
+          "frame": 18,
+          "path": "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0018.jpg",
+          "sha256": "7df4d480bb74e2db393da9a986c14199ecac6c77c7f4d68d76ccbe05a54b3cdc"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1283_10_route0_01_08_20_13_30",
+      "physical_group": "HighwayCutIn/Town13_1283_10",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/001",
+      "reported_observations": [
+        "全序列0–165。初始前车45→46突变；右匝道黑SUV96–119切入后120–130跟随，130→131消失，待原图。可跟随条件须与消失区分；146–154独立右变道。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 45,
+          "path": "HighwayCutIn/Town13_Rep0_1283_10_route0_01_08_20_13_30/rgb/0045.jpg",
+          "sha256": "9d830ab330d362eeddae5785a66ec42c31fc8ae43f5a9ae151e7b980f0457be7"
+        },
+        {
+          "frame": 46,
+          "path": "HighwayCutIn/Town13_Rep0_1283_10_route0_01_08_20_13_30/rgb/0046.jpg",
+          "sha256": "0641fdcae426032e2865926d8e91231738db92ea3f5514a562f28cf029808e2f"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1283_10_route0_01_08_20_13_30",
+      "physical_group": "HighwayCutIn/Town13_1283_10",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/001",
+      "reported_observations": [
+        "全序列0–165。初始前车45→46突变；右匝道黑SUV96–119切入后120–130跟随，130→131消失，待原图。可跟随条件须与消失区分；146–154独立右变道。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 130,
+          "path": "HighwayCutIn/Town13_Rep0_1283_10_route0_01_08_20_13_30/rgb/0130.jpg",
+          "sha256": "883b8302c0ec77d332873bcac39ce9c9e233c3345051bccd46cbaa9b2ef97478"
+        },
+        {
+          "frame": 131,
+          "path": "HighwayCutIn/Town13_Rep0_1283_10_route0_01_08_20_13_30/rgb/0131.jpg",
+          "sha256": "53f7e60e53aa7f6e2db01b5ad0f6977a214f9db9bdf17f5d4c57185cb22862e0"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "physical_group": "HighwayCutIn/Town13_1586_9",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/002",
+      "reported_observations": [
+        "全序列0–335。前车17→18突变待原图。警车44–56左侧接近，主路拓宽后70–72自然出画。245–254后续右变道，末段329–333路口右转均另阶段。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0017.jpg",
+          "sha256": "adb2aaec7bb1fccb39d5d8ccf6e68bb2cd336e0fb57c53e3fd3cca3708f722ff"
+        },
+        {
+          "frame": 18,
+          "path": "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0018.jpg",
+          "sha256": "bca6c56093ecc2fbdde084262bb36effe35242a4d567371de1d3b1664a19896a"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town12_Rep0_299_0_route0_01_11_01_52_51",
+      "physical_group": "HazardAtSideLaneTwoWays/Town12_299_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/004",
+      "reported_observations": [
+        "全序列0–193。初始前车17→18消失待原图。对向车至69出画，70–76绕第一骑行者，77–81绕第二人，82–86回归。前方仍可见骑行者时先判断是否可绕行而非等其出画。后路口跟车等候114–148，前车156后远离，自车176后前进，185–193右转未到完整稳定尾段，不强填DONE。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "HazardAtSideLaneTwoWays/Town12_Rep0_299_0_route0_01_11_01_52_51/rgb/0017.jpg",
+          "sha256": "5100c727470dfb71c2e9a4c677663d30559aabc1740db05203aa9e812404d2fd"
+        },
+        {
+          "frame": 18,
+          "path": "HazardAtSideLaneTwoWays/Town12_Rep0_299_0_route0_01_11_01_52_51/rgb/0018.jpg",
+          "sha256": "146df740f9c78cd939eb898e209e3f98a78205cddda41e0b26f09686d245b293"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "HazardAtSideLaneTwoWays",
+      "route_id": "Town12_Rep0_1882_0_route0_01_08_13_39_59",
+      "physical_group": "HazardAtSideLaneTwoWays/Town12_1882_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/005",
+      "reported_observations": [
+        "全序列0–181。前车16→17消失待原图。雨天反光，对向车至69，70–75绕第一人，76–80第二人，81–85回归；89后跟车进入独立路口，停车105–114，前车122–130右转，自车142后启动，147–154右转，随后对向车通过。不能用同Town相似布局给相同固定窗。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "HazardAtSideLaneTwoWays/Town12_Rep0_1882_0_route0_01_08_13_39_59/rgb/0016.jpg",
+          "sha256": "02e580c213273d72e139b4e0850798c48a8b00051fab1a7dd0c4ef04310c120e"
+        },
+        {
+          "frame": 17,
+          "path": "HazardAtSideLaneTwoWays/Town12_Rep0_1882_0_route0_01_08_13_39_59/rgb/0017.jpg",
+          "sha256": "c401b6d9b813d94968706d10f5fecabd17bc05657bd1fc17b42daea633dca0ac"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town13_Rep0_1633_0_route0_01_08_19_23_46",
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town13_1633_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/008",
+      "reported_observations": [
+        "全序列0–100。夜雨极暗。前车14→15尾灯及车身突变候选须原图核对。路口附近32–47对向车通过，48–61停等、62后缓行，73–77再次对向车通过，79–86转弯，后对向车连续经过。暗部视野不足不作通行YES，不能只凭车灯消失。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "NonSignalizedJunctionLeftTurn/Town13_Rep0_1633_0_route0_01_08_19_23_46/rgb/0014.jpg",
+          "sha256": "4ed32c736ecea593e7ddb146a7d44f88750fd639eb8e02617ed4db47d336c4c7"
+        },
+        {
+          "frame": 15,
+          "path": "NonSignalizedJunctionLeftTurn/Town13_Rep0_1633_0_route0_01_08_19_23_46/rgb/0015.jpg",
+          "sha256": "62aa62f04fae069839d242851061512838970467cd2d232818e4153ecfd03641"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurn",
+      "route_id": "Town13_Rep0_1644_0_route0_01_10_13_41_48",
+      "physical_group": "NonSignalizedJunctionLeftTurn/Town13_1644_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/009",
+      "reported_observations": [
+        "全序列0–139。晴天，初始前车14→15消失候选。路口有可见信号灯，目录NonSignalized并不等于无信号约束；49后多批对向车，70–121长等待，122后进入，125–132左转。具体信号所属车道和路权须原图核验，不能只按最后对向车出画打YES。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "NonSignalizedJunctionLeftTurn/Town13_Rep0_1644_0_route0_01_10_13_41_48/rgb/0014.jpg",
+          "sha256": "9d33f689f7c4b569c40a52eb877d4521af4c84c2e0762415a015d706d6afe401"
+        },
+        {
+          "frame": 15,
+          "path": "NonSignalizedJunctionLeftTurn/Town13_Rep0_1644_0_route0_01_10_13_41_48/rgb/0015.jpg",
+          "sha256": "fe72d8a218094d3cc2589144f04a259e83f5208bef95a16f3a9b409e17b2995e"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town12_Rep0_2961_1_route0_01_08_08_22_34",
+      "physical_group": "MergerIntoSlowTraffic/Town12_2961_1",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/014",
+      "reported_observations": [
+        "完整0–156。32→33前方红车无连续离开路径地消失，原图确认视觉不连续。60后左侧橙车靠近，72–88近侧并行，89后其向前；94–100又有黑车从左后超过，约100–106自车进入目标通道，后续稳定跟随。不能因橙车刚离开近侧就直接扩窗许可，须纳入随后黑车。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 32,
+          "path": "MergerIntoSlowTraffic/Town12_Rep0_2961_1_route0_01_08_08_22_34/rgb/0032.jpg",
+          "sha256": "d3bdc165a5d6a39b4005086f0e2cf172563777af0627477d2d54f6545a81a9d5"
+        },
+        {
+          "frame": 33,
+          "path": "MergerIntoSlowTraffic/Town12_Rep0_2961_1_route0_01_08_08_22_34/rgb/0033.jpg",
+          "sha256": "16f76b6f7bc02ea7645b382c5433ca7e51fe174106c8edb004f4fff6b2557d93"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town12_Rep0_2961_0_route0_01_10_08_26_35",
+      "physical_group": "MergerIntoSlowTraffic/Town12_2961_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/015",
+      "reported_observations": [
+        "完整0–146。29→30前方车辆突变消失，原图确认。57后左侧红车出现并靠近，77–85仍近侧，86后前移，自车约92–98并入后持续跟随。弯曲匝道43附近不等于已经横向汇入。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 29,
+          "path": "MergerIntoSlowTraffic/Town12_Rep0_2961_0_route0_01_10_08_26_35/rgb/0029.jpg",
+          "sha256": "b3e4e187eef6417f2df759cb28344ef62cf33d1d905e5ec9f45ba4b24c9649bf"
+        },
+        {
+          "frame": 30,
+          "path": "MergerIntoSlowTraffic/Town12_Rep0_2961_0_route0_01_10_08_26_35/rgb/0030.jpg",
+          "sha256": "02831b09b9411589764401d6a4eded4ef3ad58cb6de31fdb411b3e28f5788997"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_2879_0_route0_01_07_21_41_54",
+      "physical_group": "ConstructionObstacle/Town12_2879_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/016",
+      "reported_observations": [
+        "完整0–154。17→18前车突变消失原图确认。53–99多辆同向车从左后超过且有对向流，自车等待施工绕行；约100–106进入左侧同向绕行车道，107–111锥桶仍在右侧，112后全部锥桶出近侧视野，113–126返回原车道。132后新路口独立。施工牌被超过不等于全部障碍已通过。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "ConstructionObstacle/Town12_Rep0_2879_0_route0_01_07_21_41_54/rgb/0017.jpg",
+          "sha256": "e8c2b24b0c017ab536116708f79753ed9a9eaf1e147e32d776aafbf4db5c9e13"
+        },
+        {
+          "frame": 18,
+          "path": "ConstructionObstacle/Town12_Rep0_2879_0_route0_01_07_21_41_54/rgb/0018.jpg",
+          "sha256": "942417545beb389453f507acf9f9f82f770a741888b99501dcdb49527c577d67"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_3221_0_route0_01_11_03_57_53",
+      "physical_group": "ConstructionObstacle/Town12_3221_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/017",
+      "reported_observations": [
+        "完整0–123。15→16前黑车突变消失原图确认。57–88多辆左侧同向超车；89–94进入施工绕行通道，95–99仍沿锥桶行进，100后锥桶通过，101–114返回。返回与对向车辆自然通过应区分，不是等待所有可见车辆消失。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 15,
+          "path": "ConstructionObstacle/Town12_Rep0_3221_0_route0_01_11_03_57_53/rgb/0015.jpg",
+          "sha256": "5e6e526c3566f01b24ebe883b2c71749dce46ad8c1bfcf30a23e1d99ded2f64d"
+        },
+        {
+          "frame": 16,
+          "path": "ConstructionObstacle/Town12_Rep0_3221_0_route0_01_11_03_57_53/rgb/0016.jpg",
+          "sha256": "bbbeef140c81f08377c790dd04c3c794c1db768429771a9e75276f5ad5c260a6"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_4098_0_route0_01_10_07_24_36",
+      "physical_group": "ConstructionObstacle/Town12_4098_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "eighteenth/018",
+      "reported_observations": [
+        "完整0–126。16→17前黄色车突变消失原图确认。夜雨水滴遮挡，65–98多辆左后车超越，99–105绕入相邻同向车道，106–110仍有锥桶，111后通过，112–121右移返回，122后直行。对图像模糊处不生成确定正例。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "ConstructionObstacle/Town12_Rep0_4098_0_route0_01_10_07_24_36/rgb/0016.jpg",
+          "sha256": "6875f4b982dfff0ac12ba272156cdd73daa9b56a60644fad3a107b191ab8c20e"
+        },
+        {
+          "frame": 17,
+          "path": "ConstructionObstacle/Town12_Rep0_4098_0_route0_01_10_07_24_36/rgb/0017.jpg",
+          "sha256": "e2f419395faa0fd2793c77e715302359040ae5943ed776666e8606b79af8ca3b"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town04_Rep0_route_001798_route0_01_09_06_48_12",
+      "physical_group": "Accident/Town04_route_001798",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/000",
+      "reported_observations": [
+        "完整0–123逐帧浏览。四车道，0–10先向右移；10→11前右蓝车突变消失，原图确认。左侧持续多车通过30–73，74–80红车前移后约80–85左绕。84–87警车后仍有黑轿车及SUV，92原图SUV仍并排，96画面障碍已在后方，约97–105右返回。106–123普通行进。整组障碍范围不能仅取警车；以上为观察范围，不批准转移YES窗口。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 10,
+          "path": "Accident/Town04_Rep0_route_001798_route0_01_09_06_48_12/rgb/0010.jpg",
+          "sha256": "1deb696029b052daec2e74ad66ff6292298e0c903c7c2c9a661ace3ee1a4ff0b"
+        },
+        {
+          "frame": 11,
+          "path": "Accident/Town04_Rep0_route_001798_route0_01_09_06_48_12/rgb/0011.jpg",
+          "sha256": "ebb587c5ee8e0458e4e24aa11a3f34e74ca0e54cf98e2643887c0df3b2dad6d9"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town04_Rep0_route_001799_route0_01_09_14_55_52",
+      "physical_group": "Accident/Town04_route_001799",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/001",
+      "reported_observations": [
+        "完整0–217逐帧浏览。5→6左前SUV突变消失，原图确认。右车10–54持续邻接，约55–63右绕；64–67通过左侧警车，68–71黑事故车、72–76红SUV仍在左侧，约78–85左返回。86–217长段普通巡航，不应延长旧状态catchup至尾部。证明RIGHT绕行LEFT返回分支有真实样本；未批准标签。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 5,
+          "path": "Accident/Town04_Rep0_route_001799_route0_01_09_14_55_52/rgb/0005.jpg",
+          "sha256": "4ee02a8f464aa02cd3b6975eb0c25ddae84889eeba094fc3fe61253df23d9864"
+        },
+        {
+          "frame": 6,
+          "path": "Accident/Town04_Rep0_route_001799_route0_01_09_14_55_52/rgb/0006.jpg",
+          "sha256": "6d6b98ba49fd9cf25599825a8c25810231c2b9499b66ec5ba0d9318cbc90d194"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town04_Rep0_route_001801_route0_01_09_23_52_07",
+      "physical_group": "Accident/Town04_route_001801",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/002",
+      "reported_observations": [
+        "完整0–262逐帧浏览。浓雾，6→7左前车突变消失，原图确认。右车长期并排，65–73白SUV、75–85黑车、88–94后续黑车相继通过；约92–98右绕，96–99警车、100–103蓝车、104–107橙车，约110–116左返回。117–262普通巡航。不得第一辆邻车前移就判许可，也不得从后续动作反推精确最早YES。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 6,
+          "path": "Accident/Town04_Rep0_route_001801_route0_01_09_23_52_07/rgb/0006.jpg",
+          "sha256": "b0e9dcb6f71a962b75d050889f1d50192d43314dab7c42836d75186e27d8c623"
+        },
+        {
+          "frame": 7,
+          "path": "Accident/Town04_Rep0_route_001801_route0_01_09_23_52_07/rgb/0007.jpg",
+          "sha256": "575ffc73f9d3a1fd80a514b64dfd25defd7b3564640dd36d06bc8dcc9b83d1ad"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town12_Rep0_3817_0_route0_01_09_18_08_27",
+      "physical_group": "Accident/Town12_3817_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/003",
+      "reported_observations": [
+        "完整0–121逐帧浏览。0→1昼夜/天气初始化变化；夜雨低可见性。17→18左前车突变消失原图确认。24–55红车从右侧通过，63–69另有黑车通过，约69–74右绕。73原图近处一辆警车后仍有事故车，80原图更前方还有另一辆警车，85该车接近左边缘，约86–94左返回，95–121普通行进且有右侧车辆。不能假定警车固定处于事故组最前或最后；低可见段不批准标签。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "Accident/Town12_Rep0_3817_0_route0_01_09_18_08_27/rgb/0017.jpg",
+          "sha256": "40ff723f67bd6a44c542eac75f82311e078f0321a7c2c52c26ad816cd29b6073"
+        },
+        {
+          "frame": 18,
+          "path": "Accident/Town12_Rep0_3817_0_route0_01_09_18_08_27/rgb/0018.jpg",
+          "sha256": "55e6ce481311ea9a2cc5f87f011634f7fc9e851dfcf46f3ffefaaaa818656394"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town12_Rep0_3823_1_route0_01_08_18_55_40",
+      "physical_group": "Accident/Town12_3823_1",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/004",
+      "reported_observations": [
+        "完整0–134逐帧浏览。雨滴模糊；缩略图5→6疑点经原图5–8及14–18复看纠正，6–15前车仍可见，15→16左前车辆发生突变消失。51–59红MINI、64–70黑车、73–82绿SUV、86–92黑车连续从右侧经过。约90–96右绕，95–97警车、98–101黑事故车、102–104红事故车；105–112左返回。120–130右车自然沿支路转出，不是突变消失。观察点不等于可批准许可。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 15,
+          "path": "Accident/Town12_Rep0_3823_1_route0_01_08_18_55_40/rgb/0015.jpg",
+          "sha256": "b302985b04c0d857261c78160ccf201c33a7a0787e021f7323a6445fd96f4870"
+        },
+        {
+          "frame": 16,
+          "path": "Accident/Town12_Rep0_3823_1_route0_01_08_18_55_40/rgb/0016.jpg",
+          "sha256": "773259c6cd52df8ddfcdfc8eca4f49992838bf8d4ff6653b248c7682c8cf24cd"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town12_Rep0_3990_0_route0_01_10_23_55_56",
+      "physical_group": "Accident/Town12_3990_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/005",
+      "reported_observations": [
+        "完整0–141逐帧浏览。16→17本车道橙车突变消失原图确认。左侧绿SUV长期并排，55–62黑车、67–74灰车、79–86灰车、90–97SUV连续通过，同时双黄线另一侧来车持续。约97–103左绕，103–106警车、107–110出租车、110–113蓝MINI仍在右侧，114全组已不在前视范围，约115–122右返回；123–141普通行进。不能混淆同向邻车间隙与对向车道通行许可；无新增标签。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "Accident/Town12_Rep0_3990_0_route0_01_10_23_55_56/rgb/0016.jpg",
+          "sha256": "0c8e90dd5bf2aac83f0b14115c11967bc6b8704823c723003bb1f440d07721d5"
+        },
+        {
+          "frame": 17,
+          "path": "Accident/Town12_Rep0_3990_0_route0_01_10_23_55_56/rgb/0017.jpg",
+          "sha256": "d827ab231b4a26e748f447e63528c07154bdb5fe324c2c3b7e0360b229560321"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town13_Rep0_1276_1_route0_01_11_06_29_10",
+      "physical_group": "Accident/Town13_1276_1",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/006",
+      "reported_observations": [
+        "完整0–92逐帧浏览。13→14左前SUV突变消失原图确认。右侧棕轿车20–40长期并排，40–46前移，约44–51右绕，左侧事故组延续至60–62，约63–69左返回；70–92继续行进但右侧黑车仍在附近。邻车存在与阻挡目标走廊需要区分，不按目标完全出画机械标注。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 13,
+          "path": "Accident/Town13_Rep0_1276_1_route0_01_11_06_29_10/rgb/0013.jpg",
+          "sha256": "8ee1ca96ce72964bca0bdbf2522d6aed050b25ec694ec79fc23e29637695f585"
+        },
+        {
+          "frame": 14,
+          "path": "Accident/Town13_Rep0_1276_1_route0_01_11_06_29_10/rgb/0014.jpg",
+          "sha256": "ffcf0fc0faca7cf6f3ca7c7edd75ac821b7d9d439eeb827002bdf73c0ea60302"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town13_Rep0_1627_2_route0_01_10_17_11_56",
+      "physical_group": "Accident/Town13_1627_2",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/007",
+      "reported_observations": [
+        "完整0–113逐帧浏览。极暗夜雨，车身/车道细节证据弱。原图9–11显示亮度变化不能直接称消失；15→16右前车灯/车身可见性突变，原图15–18复核，保留低可见性风险而不诊断仿真原因。29–53左侧皮卡经过；约55–63向左绕行，64–73右侧黄色及绿色事故车持续，约74–82回到右侧走廊；83–113左侧车流持续，无法由缩略图批准精确许可窗口。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 15,
+          "path": "Accident/Town13_Rep0_1627_2_route0_01_10_17_11_56/rgb/0015.jpg",
+          "sha256": "e0e334ccdf3b115adffa036d691feb6fee5a99eec8fc74c0698c54f05a2be7d0"
+        },
+        {
+          "frame": 16,
+          "path": "Accident/Town13_Rep0_1627_2_route0_01_10_17_11_56/rgb/0016.jpg",
+          "sha256": "6ac6dbb9c2c7bf39d53c4439ddb149013e5cc0086d4a5ac8739e73623a09ff94"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town13_Rep0_1683_0_route0_01_11_00_52_01",
+      "physical_group": "Accident/Town13_1683_0",
+      "kind": "visual_actor_discontinuity",
+      "training_label_approved": false,
+      "audit_id": "nineteenth/008",
+      "reported_observations": [
+        "完整0–130逐帧浏览。夜雨城市路，17→18右前车辆突变消失原图确认。44–62及65–70左侧连续来车，74–80白车经过后约79–85左绕；83–86警车之后右侧还有两辆黄出租车直到95，91原图仍有事故车在右、对向来车在左；约96–104右返回，105–130普通行进、另有左侧车流。必须覆盖两辆出租车整体，不能通过警车就判返回。未批准标签。"
+      ],
+      "reported_status": "original_rgb_visually_confirmed_not_engine_cause_diagnosis",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "Accident/Town13_Rep0_1683_0_route0_01_11_00_52_01/rgb/0017.jpg",
+          "sha256": "9ce1b2e04120a0fa2e90ad5aa0c2cb554b7663d9dce6d26b9eef805727c9b581"
+        },
+        {
+          "frame": 18,
+          "path": "Accident/Town13_Rep0_1683_0_route0_01_11_00_52_01/rgb/0018.jpg",
+          "sha256": "888874612d6a26224a3789f86dbb6d07c3c3093ed340598794b0aac47dac5711"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    }
+  ],
+  "navigation_context_required_routes": [
+    {
+      "scenario": "noScenarios",
+      "route_id": "Town03_Rep0_route_000402_route0_01_08_08_14_38",
+      "physical_group": "noScenarios/Town03_route_000402"
+    },
+    {
+      "scenario": "noScenarios",
+      "route_id": "Town03_Rep0_route_000398_route0_01_09_07_58_27",
+      "physical_group": "noScenarios/Town03_route_000398"
+    },
+    {
+      "scenario": "noScenarios",
+      "route_id": "Town03_Rep0_route_000397_route0_01_11_13_19_52",
+      "physical_group": "noScenarios/Town03_route_000397"
+    }
+  ],
+  "source_files": {
+    "/tmp/phase4_eighteenth_readonly_20261001/REPORT.txt": "bec0b0422ef53c66953cdba20f2544d116ce2403df5fb573156ad2523ffb5010",
+    "/tmp/phase4_eighteenth_readonly_20261001/selected.json": "7f51ceddcd9a3cb8122a2dc9d0a30f0e689fbaecf216bc44e5e81de20d799551",
+    "/tmp/phase4_eighteenth_readonly_20261001/observations.json": "bbc956d7458c98bc000e686eda6e622038d06690ed2594149bab6b435ab824c7",
+    "/tmp/phase4_eighteenth_readonly_20261001/originals.json": "188c14693ee297db034052738ad07ff766afe7d4f766c0db64178a386a32d6a2",
+    "/tmp/phase4_eighteenth_readonly_20261001/new_risks.json": "84de6b14c1e6497ef47d16134f4d05ce57abedf102bfcb9238885d2c8c6a41e8",
+    "/tmp/phase4_eighteenth_readonly_20261001/coverage_progress.json": "79e7b01e73c5e672450e0a4ea90e3c9f0e5787e5c009c11b2de880fa830ec994",
+    "/tmp/phase4_nineteenth_readonly_20261001/REPORT.txt": "fa216d645dd20223f4163d33fe74e1e4fd0702076849f9d8043f84b3db694e2e",
+    "/tmp/phase4_nineteenth_readonly_20261001/selected.json": "4087872c2fad9b585bed0c8b7eb1adc24f7f3938f8dcc3122f79f4a3769e869b",
+    "/tmp/phase4_nineteenth_readonly_20261001/observations.json": "2835b1c7865d90370c78230d0f616e2f0ae9f628e349fea0b7c53abbd4160521",
+    "/tmp/phase4_nineteenth_readonly_20261001/originals.json": "9044a974b3f91ecc1c8b1010997b6797e132bffb28754fedc5b5fa1fda181dca",
+    "/tmp/phase4_nineteenth_readonly_20261001/new_risks.json": "4c8d281f8b09e329cf27c2007053a02ee6ec0c8e994ab94060d7f4efbaef1c9d",
+    "/tmp/phase4_nineteenth_readonly_20261001/coverage_progress.json": "580ec2d202f35a45433b04244ea35a085bfbfbf092b03864c4d9cf986fe691ce"
+  },
+  "local_review": {
+    "new_labels": 0,
+    "new_complete_sequences": 0,
+    "new_visual_frames": 0,
+    "rgb_hash_checks": 44
+  },
+  "reported_coverage": {
+    "new_sequences": 28,
+    "new_distinct_rgb": 4528,
+    "original_resolution_rechecks": 101,
+    "cumulative_sequences": 460,
+    "cumulative_frames": 56872,
+    "meets_three_ids": 192,
+    "total_cells": 278,
+    "shortfall_cells": 18,
+    "remaining_selected_sequences": 240,
+    "remaining_selected_rgb": 41796,
+    "all_requested_rgb_audit_complete": false,
+    "prior_counts_are_inherited": true
+  },
+  "scope": "Register supplied visual evidence, not new labels or engine-cause diagnoses. Rain/identity uncertainty remains uncertain. Roundabout routes require navigation-established exit and instance boundary. No fixed time expansion."
+}

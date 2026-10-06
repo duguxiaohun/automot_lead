@@ -1,0 +1,37 @@
+{
+  "train_only_groups": [
+    "DynamicObjectCrossing/Town04_Town04_Scenario3_27",
+    "HazardAtSideLane/Town13_1710_10",
+    "HazardAtSideLaneTwoWays/Town12_2735_0",
+    "VehicleTurningRoute/Town07_Town07_Scenario4_47",
+    "VehicleTurningRoute/Town10HD_Town10HD_Scenario4_19",
+    "VehicleTurningRoutePedestrian/Town13_1765_0"
+  ],
+  "source": "user v30 audit; six precisely identified training routes; implementation rechecked 21 frames from four training routes (including previously registered HardBreakRoute)",
+  "unresolved_exposure": "six additional UE1 YES spot-check routes were not named; do not guess IDs",
+  "calibration_risks": [
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town07_Rep0_Town07_Scenario4_47_route0_01_09_04_45_51",
+      "physical_group": "VehicleTurningRoute/Town07_Town07_Scenario4_47",
+      "kind": "visible_cyclist_disappearance",
+      "reported_status": "user_original_confirmed_and_implementation_contact_sheet_rechecked",
+      "reported_observations": [
+        "骑行者第51帧仍在画面内，第52帧消失；已离走廊也不能把可见删除当自然离开。"
+      ],
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 51,
+          "path": "VehicleTurningRoute/Town07_Rep0_Town07_Scenario4_47_route0_01_09_04_45_51/rgb/0051.jpg",
+          "sha256": "94593fbc585fbdcbaa2656086b8cf1bbc94e825c9038fcaff4345f16f08c9d25"
+        },
+        {
+          "frame": 52,
+          "path": "VehicleTurningRoute/Town07_Rep0_Town07_Scenario4_47_route0_01_09_04_45_51/rgb/0052.jpg",
+          "sha256": "68ef1e687c8fd852fda53021a92e19aab9ea0620fee3bfbfca49a368f73a8697"
+        }
+      ]
+    }
+  ]
+}

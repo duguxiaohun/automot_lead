@@ -1,0 +1,194 @@
+{
+  "train_only_groups": [
+    "ParkedObstacleTwoWays/Town12_4608_0"
+  ],
+  "routes": [
+    {
+      "manifest_id": "366",
+      "scenario": "ParkedObstacleTwoWays",
+      "route_id": "Town12_Rep0_4608_0_route0_01_09_08_59_12",
+      "group": "ParkedObstacleTwoWays/Town12_4608_0",
+      "already_train_only": false,
+      "default_split": "train"
+    }
+  ],
+  "reason": "第十一轮RGB曝光永久排除独立盲测；默认seed落train不替代隔离登记",
+  "source_files": {
+    "/tmp/phase4_eleventh_audit_20260930/REPORT.md": "6fe55748fdc518e546dfca1f6f37dfba727d804f4830b4489d08cd7ec35ea434",
+    "/tmp/phase4_eleventh_audit_20260930/train_only_exposure_to_register.json": "1d4050f02d208162eacbfcbb493547b5b62184764b1d96e1b4bd557846b394ac",
+    "/tmp/phase4_eleventh_audit_20260930/visual_notes.json": "6369964707f805e19644f9b3365107fb028b26b5e528990202eddcebf67fcd7a",
+    "/tmp/phase4_eleventh_audit_20260930/rgb_risk_overlap.json": "b091be771a60c9127b288c3cdb92cf554060403e8750ce13d1ea7ca5bc15abe4"
+  },
+  "reported_coverage": {
+    "complete_sequences": 339,
+    "rgb_frames": 38369,
+    "meets_three_ids": 155,
+    "total_cells": 278,
+    "remaining_selected_sequences": 361,
+    "remaining_selected_rgb": 60299,
+    "source_shortfalls": 18,
+    "all_requested_rgb_audit_complete": false
+  },
+  "local_review": {
+    "existing_rgb_frames": 34,
+    "new_complete_sequences": 0,
+    "new_labels": 0,
+    "original_resolution_frames": 0,
+    "panels": [
+      {
+        "path": "/tmp/phase4_eleventh_audit_20260930/panels/130/003.jpg",
+        "sha256": "b0742eb508fa0f8320a5d5d78a596f86df0610f05753c6b606bc28cf4e4ef12d"
+      },
+      {
+        "path": "/tmp/phase4_eleventh_audit_20260930/panels/366/004.jpg",
+        "sha256": "94afaeb88e4a567e5b21d6d380a34335b93f0ab4e6a93f3fb1744bf4d4dbbefd"
+      }
+    ]
+  },
+  "calibration_risks": [
+    {
+      "manifest_id": "130",
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_route_002662_route0_01_08_01_38_48",
+      "reported_observations": "雨雾f0初始化，f1–6前方多车，f7车群突变且左近黑车出现；f8–16黑车在左侧并向前，f17–23自车左向进入其后通道，f24–72跟随，f73前车突变消失，f74–81继续行驶。汇入完成不能等于前车消失；前方已有稳定跟随时可完成几何阶段，但需真实相邻目标和间隙，不批准异常点YES。 原图f72/73确认近前黑车突变消失。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 72,
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_route_002662_route0_01_08_01_38_48/rgb/0072.jpg",
+          "sha256": "81f072044c7ad6581ea5d897cbb05690369bbba8061287a471b0b166a5649abc"
+        },
+        {
+          "frame": 73,
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_route_002662_route0_01_08_01_38_48/rgb/0073.jpg",
+          "sha256": "82757fbdb932b9a37a9c3c3c101e1959a93c3f50e6ef4164888df491ddd66512"
+        }
+      ]
+    },
+    {
+      "manifest_id": "129",
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1397_4_route0_01_10_08_53_53",
+      "reported_observations": "完整f0–145晴天。匝道前车f17→18消失，f39–55进入多车道，f56–64逐渐左移沿路线汇入，f65–81接近前方慢车流，f81→82多辆近车突变消失。f83–121长段普通行进，f122后重新接近车流直至末尾。不能以消失结束汇入或把后半车流沿用旧许可；几何汇入完成需单独标定，且末段新的间隙问题应由新上下文决定。 原图f81/82确认近处红车及右侧SUV同时消失。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 81,
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1397_4_route0_01_10_08_53_53/rgb/0081.jpg",
+          "sha256": "96b6902feee8870105856754c1704d96f6510bfddce2ccbf3cb3f401a7ccfff8"
+        },
+        {
+          "frame": 82,
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1397_4_route0_01_10_08_53_53/rgb/0082.jpg",
+          "sha256": "913f458c572ffdcb0bac3c7759e1a29d5188153204a0bf29f23d693f97d804ae"
+        }
+      ]
+    },
+    {
+      "manifest_id": "278",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town03_Rep0_Town03_Scenario3_17_route0_01_08_19_40_35",
+      "reported_observations": "完整f0–63，雨雾。f21–25右侧行人出现，f26–49逐渐向左横穿；f31附近疑似两道人影，蓝色对向车f31–38通过。f49→50行人及红色售货机消失，自车稍后继续前行，有新的对向黑车。不得从消失生成YES，需核对原图中通道净空。 原尺寸复核可见相似对象的双轮廓/重叠轮廓，车辆也有重影；不能只凭这些RGB确认独立目标数量，可能为渲染时域重影，需轨迹/actor身份消歧。此前“多名/两名”仅是待核查线索，不作为确定事实或标签依据。 原图f49/50确认左侧行人及右侧售货机同时消失。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 49,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_17_route0_01_08_19_40_35/rgb/0049.jpg",
+          "sha256": "2dbcb69f332ffe03754768a90ee38f469ee280410a66275bb4f6293603f39d79"
+        },
+        {
+          "frame": 50,
+          "path": "DynamicObjectCrossing/Town03_Rep0_Town03_Scenario3_17_route0_01_08_19_40_35/rgb/0050.jpg",
+          "sha256": "bd8dd2515fd11ccfc02ac753c35ea6f9a016bb97dc83e3215ee5f5b96c9997cf"
+        }
+      ]
+    },
+    {
+      "manifest_id": "526",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town05_Rep0_Town05_Scenario3_14_route0_01_10_15_07_07",
+      "reported_observations": "完整f0–166，雨后逆光。f30–47沿弯道行进，f48–75行人从右侧售货机处向左横穿，同时对向车及右侧超车经过，f58疑似多人重叠需原图。f75→76行人和售货机突变消失，f80后自车前进，随后至STOP队列等待至末尾。不能把前車先行/目标消失直接视为自车YES，行人事件完成不解除后续STOP。 原尺寸复核可见相似对象的双轮廓/重叠轮廓，车辆也有重影；不能只凭这些RGB确认独立目标数量，可能为渲染时域重影，需轨迹/actor身份消歧。此前“多名/两名”仅是待核查线索，不作为确定事实或标签依据。 原图f75/76确认行人及售货机同帧消失。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 75,
+          "path": "DynamicObjectCrossing/Town05_Rep0_Town05_Scenario3_14_route0_01_10_15_07_07/rgb/0075.jpg",
+          "sha256": "030647ea7ce3c40660f0f13ff4abebdbc21ee98717aaec8dd4a08a18e4068ae8"
+        },
+        {
+          "frame": 76,
+          "path": "DynamicObjectCrossing/Town05_Rep0_Town05_Scenario3_14_route0_01_10_15_07_07/rgb/0076.jpg",
+          "sha256": "42991a69ab09ad3837a089664097ccfd8fba42a04d74bd589a8fa25935903c16"
+        }
+      ]
+    },
+    {
+      "manifest_id": "569",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario3_10_route0_01_09_17_07_25",
+      "reported_observations": "完整f0–95雨雾。跟车沿左弯接近售货机，f34–36行人从右侧进入，f38–54右侧蓝车经过后等待行人，f55–63蓝车先行而行人仍横穿本车路径，f60–61可见两道人影需原图确认。f64–73行人继续走向左侧，右侧另有绿色/黑色车辆超过，f74→75右侧售货机及左侧行人突变消失（原图已纠正联系表初判的帧号），自车f81后前进。不能复制前车起步点为本车YES，多行人及资产消失均需裁边。 原尺寸复核可见相似对象的双轮廓/重叠轮廓，车辆也有重影；不能只凭这些RGB确认独立目标数量，可能为渲染时域重影，需轨迹/actor身份消歧。此前“多名/两名”仅是待核查线索，不作为确定事实或标签依据。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 74,
+          "path": "DynamicObjectCrossing/Town10HD_Rep0_Town10HD_Scenario3_10_route0_01_09_17_07_25/rgb/0074.jpg",
+          "sha256": "275deb35b26d928759de66fb77f7b984bc2cd057325527004d146912c7599a32"
+        },
+        {
+          "frame": 75,
+          "path": "DynamicObjectCrossing/Town10HD_Rep0_Town10HD_Scenario3_10_route0_01_09_17_07_25/rgb/0075.jpg",
+          "sha256": "a38c21dc0c60ba4afca89afd801412770ac87550a2fc0e074cfac7be24784fd2"
+        }
+      ]
+    },
+    {
+      "manifest_id": "412",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario4_16_route0_01_11_01_10_25",
+      "reported_observations": "完整f0–76。跟车至路口后f18–33右转，f34–40右侧骑行者接近，f41–61向左横穿，自车等待。f62–65骑行者在对向黑车附近被遮挡或消失，f68后自车前行。需要原图分清遮挡/突变，不将目标消失视为冲突解除；转弯完成与骑行冲突解除应分别判断。 原尺寸f61–64骑行者仍在黑车前侧，f65突然不可见；不能写成已正常离开图像，至少须从f65起截止基于连续可见轨迹的完成带。是否消失前已不影响自车需另外审核，不等于要求等到消失才放行。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 64,
+          "path": "VehicleTurningRoute/Town10HD_Rep0_Town10HD_Scenario4_16_route0_01_11_01_10_25/rgb/0064.jpg",
+          "sha256": "78455f0a800242f984b41101b8c3ffbdb9d2336925ee341ddfc1f102a8d7e83a"
+        },
+        {
+          "frame": 65,
+          "path": "VehicleTurningRoute/Town10HD_Rep0_Town10HD_Scenario4_16_route0_01_11_01_10_25/rgb/0065.jpg",
+          "sha256": "ad432248ebbca0eac916d9e0f9251e4b31a50172379e4b1c8a5c0419532504ca"
+        }
+      ]
+    },
+    {
+      "manifest_id": "366",
+      "scenario": "ParkedObstacleTwoWays",
+      "route_id": "Town12_Rep0_4608_0_route0_01_09_08_59_12",
+      "reported_observations": "完整f0–219，暗湿乡村路。前半沿路持续遇对向车，f85–95在黄色占道车后等待黑色对向车，f96–101左绕，f102–109返回且新对向车靠近。f110后跟随黑车，f135–172在STOP队列中长等，f173–184靠近STOP，f185–202再次等待，f203–214左转，末段进入新路。绕障几何完成不能解除后续独立停车约束，后续路口需新条件/实例，不能让固定窗口覆盖整段。",
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 96,
+          "path": "ParkedObstacleTwoWays/Town12_Rep0_4608_0_route0_01_09_08_59_12/rgb/0096.jpg",
+          "sha256": "e12087e0ad505c2c0cd618190099bd03b0b4893fef530addec4649e88096cacf"
+        },
+        {
+          "frame": 109,
+          "path": "ParkedObstacleTwoWays/Town12_Rep0_4608_0_route0_01_09_08_59_12/rgb/0109.jpg",
+          "sha256": "1dd0d0fd128d8f9f4399fcdafaabb1c59920faa099aa31f0600fce50949767b2"
+        },
+        {
+          "frame": 135,
+          "path": "ParkedObstacleTwoWays/Town12_Rep0_4608_0_route0_01_09_08_59_12/rgb/0135.jpg",
+          "sha256": "3bbc102a16a0aaca1bbd2432335a1bfb8cdffaf1d91b76d6a9e90e52f3120615"
+        },
+        {
+          "frame": 202,
+          "path": "ParkedObstacleTwoWays/Town12_Rep0_4608_0_route0_01_09_08_59_12/rgb/0202.jpg",
+          "sha256": "de1f2a299f9568210c6659a725e8534bc9266f5913a80b1711c2447f98381042"
+        }
+      ]
+    }
+  ],
+  "risk_policy": "报告观察与本轮复看分别记账；不是已批准边界、自动过滤表或训练标签。重影不能确认独立目标数量，异常消失不能单独建立YES，绕障后独立停车须另审实例边界。"
+}

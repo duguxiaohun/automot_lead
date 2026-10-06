@@ -1,0 +1,61 @@
+{
+  "policy": "causal_teacher_class_approval_v2",
+  "criteria": {
+    "min_judgments": 100,
+    "min_routes": 20,
+    "min_yes_precision_lower": 0.95,
+    "min_no_precision_lower": 0.9,
+    "min_transition_judgments": 30
+  },
+  "teacher": {
+    "version": "ue1_ue4_causal_teacher_v4",
+    "parameters": {
+      "local_horizon_m": 18.0,
+      "seed_horizon_m": 30.0,
+      "vru_margin_m": 1.0,
+      "boundary_band_m": 0.25,
+      "lead_growth_m": 1.0,
+      "lead_min_gap_m": 3.0,
+      "min_pixel_change": 6.0,
+      "stable_gap_m": 3.0,
+      "stable_time_gap_s": 0.5,
+      "relative_speed_mps": 3.0,
+      "relative_speed_range_mps": 1.5,
+      "max_closing_speed_mps": 0.5,
+      "max_gap_loss_m": 0.5,
+      "receipt_displacement_m": 0.75,
+      "receipt_max_lateral_m": 0.5,
+      "receipt_heading_tolerance": 0.05,
+      "lead_min_forward_speed_mps": 0.5
+    },
+    "sources": {
+      "teacher_controls.py": "74b571b62beab34ca7339e8bcf4e03dd7c10eb6d865b30844fb9bd0b807eb5c7",
+      "teacher_rules.py": "c51da680fb12c38b9e47145944df31f3829c31649393372753790b93e1063792",
+      "teacher_replay.py": "049bc3a851dc4220adf538244a6fd35c70e8d95006254c7898912f373d5dbf40",
+      "teacher_approval.py": "fac85145ef3c4c053d6ee86d95888e09775954594ad5baf9a6d84c59252985e3",
+      "teacher_data.py": "86fa97907c7a2c005c708e74bf55c730c45df77666374b30620504624afe7665",
+      "teacher_review.py": "5cf823e278b7121bffd5bd732aefee3bbc04efed64496bfdfe21e2462c0bf0c7",
+      "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+      "privileged_geometry.py": "5e73322a5e2cf5825e6a287f7db090b271acb91a7039183ee5d8ea345af02260",
+      "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "route_prompts.py": "4b798bc4607e50bf0546ca31bd9270550b03b14c2ba632d97d05fe47eadaa36a",
+      "risk_review.py": "23cf162b545113d0c93021acf2e5dd5d253ff459576ca4e99d3ec07a762297d1",
+      "dataset.py": "c14895425165049f386b493376dbd38f4fe5a556d157af107e5cc81c892040cb",
+      "candidate_pool.py": "b6511f80eaf7390d91d4768d27d6211e5784594c22c098e22db8c8b764fdb393",
+      "preflight.py": "916eaaeeb3712045bc81590ad25a67111839b97a74a904121c88188c0f0b9c05",
+      "evaluate.py": "79cc5abcd9506a75adfe4749f70715c8ca2161450406c76155c7961f30cc9ee8",
+      "identity.py": "bb58d9d42d051b931f98b5a736dd1de294e52496a844bc5694d645d8ad8ecf80"
+    }
+  },
+  "rules": [],
+  "status": "no_independent_rule_approval_yet"
+}

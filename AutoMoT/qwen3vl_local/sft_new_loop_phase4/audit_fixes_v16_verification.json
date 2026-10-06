@@ -1,0 +1,161 @@
+{
+  "contract": {
+    "task": "phase4_state_pair_binary_v16",
+    "answers": [
+      "YES",
+      "NO"
+    ],
+    "sources": {
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "controller.py": "328e7e5d79f8ab2650237fdddf787205db15f44b59d3fc54f8dadd53d0eb2c06",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "dataset.py": "47e30a36e291ecbc8396548f0fb777539ef0ac36a09bcb316fae8ac5f4c1843c",
+      "sampling.py": "61c7fe37f2b937f153fcdd48f6f13f015bdbca93a36363a27200a6d05a85f766",
+      "model.py": "d8faeaa5bb0dd9604633200336b41af09263cd5ad34140364b6ecb4c02fb6bfa",
+      "train.py": "47a7e97b89d18a767aa10a4c654c3b406d9602943f9df846905ae21b2679ea4a",
+      "evaluate.py": "2fe1646d7f337b53d1a88b58caef8a2ea920fea9a0fc652eb55dd6b50c512433",
+      "runtime.py": "546f7c8e3e38a836ec6c43b8577878683b4a6bfe1cac4ab19e2edf013c296a65",
+      "identity.py": "68fe675f89210f54d61c6f715041a4dd49d72fd7f768791a08bab110bd176dfb",
+      "action_prior.py": "c0dc9aac6c1e294bb7964685202945b34a5a4236037e6d619f660457d3daf81a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "replay.py": "738820f13d88bfd20679cad298898f9375d0917ebc12e4fd4cad6b1fe3d51b01",
+      "input_identity.py": "289b015510032c11efca40627494777900103c693b1c73b59f98961203248835",
+      "risk_review.py": "6a3c35fb8a773172075fac98aa026689e4312dfdc308f75552c22f0ebb0dfa53",
+      "admission.py": "2d8f3634a808a66fa081f9bcb829229ea0a040001e4f23f4edfa9ca4de1fe2d7",
+      "condition_builder.py": "d97c8ac395cef1bc7ab3fe8cf33a8d68bd9f60df75511ced2b661ea8a0a4ee2d",
+      "preflight.py": "9aa4a763ce7952433a3198e3033243fa18afd71ed3e0a626015cf4ef12aa6901"
+    },
+    "calibration_assets": {
+      "twelfth_thirteenth_audit_exposure_20260930.json": "211aaba44d9857698d60a9740d2a8d4bdac94857e5f7ef47e81a7d8294623dcb",
+      "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+      "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c",
+      "rgb_holdout_review_v3.json": "6cee912a8044f606a47f93b2550fe2433b7f252f6a332d11d3f99c10960b7335",
+      "reviewed_holdout_state_pairs_v1.json": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb",
+      "rgb_holdout_review_v1.json": "7f31909ed138e27f657744d963ba74db49c8790a946cb04c3a2e874c4062e2be",
+      "reviewed_state_pairs_v6.json": "5549224df241260f8d9b48fe47694289b4d467a7351846e70f402fd0639ef9c6",
+      "reviewed_holdout_state_pairs_v2.json": "44d4b65966c61ed063dd0d88aff50cfe0b820fe3893a6fc5fb63e1645cadb5d5",
+      "rgb_holdout_review_v2.json": "2fac9176699ddd48d126ed190a89c61f103db44933b35993a62d0c36684fafc0",
+      "rgb_boundary_review_v3.json": "c1b4b6b3e7903322856ce236bc64067a15bd9530b80d02834085d10bc8a4918a",
+      "reviewed_state_pairs_v3.json": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+      "rgb_boundary_review_v4.json": "ede62026ec4cd6927e66d605c5067de64bbe1d2952e26de37c8f66191be7d617",
+      "reviewed_state_pairs_v4.json": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+      "rgb_boundary_review_v5.json": "558f7a3cf7fd460b57e9f2fbc9c83af0a45f6637640d05db529d4048740f08f3",
+      "reviewed_state_pairs_v5.json": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+      "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+      "reaudit_exposure_20260929.json": "0d54eb987f238177abe4fc9004b0b124f7a053e895d216bf2862e0d326d6881f",
+      "third_audit_exposure_20260930.json": "7d5a0727c7e55dcb159a763d009c5f0469c480dc327eaba2e5d7a6ae6efee5a4",
+      "eighth_audit_exposure_20260930.json": "1d0de86b50a0c161cb89a70d1b9d78ecb263361d346dcfa96715f6ef3c118782",
+      "ninth_audit_exposure_20260930.json": "70f636b21624360e350f51d5c621101b67b7100fe3d26a900e74a0a4f5982087",
+      "tenth_audit_exposure_20260930.json": "ccf79a74cb5602665fb97d626f20d98d5c898cf81ce7229969d4e914bd94754f",
+      "eleventh_audit_exposure_20260930.json": "ebd32c592ed9c0a5e45d480f160057d092ed2b60f9e500fee38c090ee025640e"
+    },
+    "dependencies": {
+      "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+      "sft_new_loop_phase3/build_dataset.py": "b7c717528872dfeaa7e0af821ffe7eea921daa9a12cd8fdd078d22c36481150d",
+      "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e"
+    }
+  },
+  "contract_sha256": "47d2cc1b405be577614391bb3c7aa5e11447b69c7e0032caee0a5142eb0ec68b",
+  "pytest": {
+    "passed": 414,
+    "log": "/tmp/phase4_resume_fixes_20260930/pytest.log",
+    "sha256": "e30a97a3b1824224ace52faa8dbae3cb11d06da6d17333c57a50f7171e957938"
+  },
+  "modes": {
+    "2": {
+      "counts": {
+        "train": 563,
+        "val": 273,
+        "test": 186
+      },
+      "review_queue": 405,
+      "rgb_verified_rows": 1427,
+      "jsonl_byte_equal_to_v15": {
+        "train.jsonl": true,
+        "val.jsonl": true,
+        "test.jsonl": true,
+        "review_queue.jsonl": true
+      },
+      "trainable": true,
+      "complete_coverage": false,
+      "strict_coverage_rejected": true,
+      "full_sampling_plans": 14,
+      "cap1_epochs": 563,
+      "cap1_distinct_questions": 563,
+      "critical_readiness": {
+        "train/U-E2/default/return/return": {
+          "YES": 0,
+          "NO": 11
+        },
+        "train/R-E3/default/enter": {
+          "YES": 0,
+          "NO": 9
+        },
+        "train/U-E7/default/proceed": {
+          "YES": 0,
+          "NO": 4
+        }
+      },
+      "risk_review": {
+        "policy": "known_visual_risk_admission_v1",
+        "registry_sha256": "d0de7f06bd8bbc829204b0fd7cf0d14e9d493f75a5d970ebbbbe4b51847791a0",
+        "row_dispositions": {}
+      },
+      "missing_transitions": 366,
+      "missing_segment_cells": 12
+    },
+    "4": {
+      "counts": {
+        "train": 563,
+        "val": 273,
+        "test": 186
+      },
+      "review_queue": 405,
+      "rgb_verified_rows": 1427,
+      "jsonl_byte_equal_to_v15": {
+        "train.jsonl": true,
+        "val.jsonl": true,
+        "test.jsonl": true,
+        "review_queue.jsonl": true
+      },
+      "trainable": true,
+      "complete_coverage": false,
+      "strict_coverage_rejected": true,
+      "full_sampling_plans": 14,
+      "cap1_epochs": 563,
+      "cap1_distinct_questions": 563,
+      "critical_readiness": {
+        "train/U-E2/default/return/return": {
+          "YES": 0,
+          "NO": 11
+        },
+        "train/R-E3/default/enter": {
+          "YES": 0,
+          "NO": 9
+        },
+        "train/U-E7/default/proceed": {
+          "YES": 0,
+          "NO": 4
+        }
+      },
+      "risk_review": {
+        "policy": "known_visual_risk_admission_v1",
+        "registry_sha256": "d0de7f06bd8bbc829204b0fd7cf0d14e9d493f75a5d970ebbbbe4b51847791a0",
+        "row_dispositions": {}
+      },
+      "missing_transitions": 366,
+      "missing_segment_cells": 12
+    }
+  },
+  "logs": {
+    "pipeline2.log": "d76ef6560e322a7d0c62a45e97aaca11b890fd23056a1ebca781ac4c75cc751f",
+    "pipeline4.log": "d76ef6560e322a7d0c62a45e97aaca11b890fd23056a1ebca781ac4c75cc751f",
+    "preflight2.json": "dad115bfa6d584c2ce8f13dca08312bbc5aad5514b2b02eb2305557f9aee419d",
+    "preflight4.json": "dad115bfa6d584c2ce8f13dca08312bbc5aad5514b2b02eb2305557f9aee419d",
+    "verify.log": "6c6808ec5e500242b9fc43783ab242ae3ae53ec0c35f79855f109579e80d0456"
+  },
+  "new_visual_reviews": 0,
+  "new_labels": 0,
+  "full_qwen_gpu_ddp_carla_tested": false
+}

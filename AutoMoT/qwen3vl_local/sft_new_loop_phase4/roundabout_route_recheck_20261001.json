@@ -1,0 +1,146 @@
+{
+  "scope": "Re-review of previously audited Town03 roundabout sequences only; no new coverage or labels.",
+  "rechecked_complete_sequences": 3,
+  "rechecked_distinct_frames": 309,
+  "continuous_panels": 14,
+  "original_resolution_rechecks": 6,
+  "new_sequences": 0,
+  "new_frames": 0,
+  "new_labels": 0,
+  "entries": [
+    {
+      "audit_id": "011",
+      "scenario": "noScenarios",
+      "route_id": "Town03_Rep0_route_000402_route0_01_08_08_14_38",
+      "frames": 117,
+      "frame_range": [
+        0,
+        116
+      ],
+      "panels": [
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/011/000.jpg",
+          "sha256": "8a57743ac74d87a24a9d4c020994249924625c0e675cebb8a0ee42aafbbd7725"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/011/001.jpg",
+          "sha256": "73cb4124d400c3275cf1200009db56b204b26bb2dde4864a37dbafe652fafc54"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/011/002.jpg",
+          "sha256": "34cc91eebb7cb13f254c20a64f7eabdde7709f20cff55efa409eb49a4be4ad2c"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/011/003.jpg",
+          "sha256": "c4e2f631c6c3d3da98d1fa03556c711632e78318caf92a5084dc3551ec1d4416"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/011/004.jpg",
+          "sha256": "fbae9c84ed0e9a5a33bd2bfc9cf1dc3a8596d9dd0a1ebf2337a8466b55df26c4"
+        }
+      ],
+      "originals": [
+        {
+          "frame": 78,
+          "path": "noScenarios/Town03_Rep0_route_000402_route0_01_08_08_14_38/rgb/0078.jpg",
+          "sha256": "d7ad94d0e331ac5e7d0ae9ad054e68feafedc1e3b03b982279b10686de363f0e"
+        },
+        {
+          "frame": 116,
+          "path": "noScenarios/Town03_Rep0_route_000402_route0_01_08_08_14_38/rgb/0116.jpg",
+          "sha256": "7643f72b0f3e8f95e0e7af84b7caef170dd66b4576bd2a3401c44a6c2b9ef2ff"
+        }
+      ],
+      "observation": "0–116连续复看。13–26附近进入后仍持续沿圆环行驶；60–79多辆右侧车加入，78原图黑车仍在近侧；80以后仍需持续处理其并行/进入前方。112–116走向出口，116原图前车、分隔岛及侧向路口仍可见。缺导航指定出口与终止线，不能单凭尾帧宣布该实例完成。",
+      "labels_approved": false
+    },
+    {
+      "audit_id": "012",
+      "scenario": "noScenarios",
+      "route_id": "Town03_Rep0_route_000398_route0_01_09_07_58_27",
+      "frames": 100,
+      "frame_range": [
+        0,
+        99
+      ],
+      "panels": [
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/012/000.jpg",
+          "sha256": "5a2c073bd53f3e71107f49e861cb7f980bfcb1fad4881019cbdfa0289a92d355"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/012/001.jpg",
+          "sha256": "89b8b6259ceea4ebed3afee826ba39854d470d11eb04accf442a06c840a57c12"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/012/002.jpg",
+          "sha256": "9f43fe0306459366a0b68abb93a6ec02bb1b11b09a1baddafcf6d1788aeaf798"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/012/003.jpg",
+          "sha256": "55b08c91219b2fc7bb084a1a3681dd10c18fcf887e84139a030f47d5efa3d5a6"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/012/004.jpg",
+          "sha256": "caf50f8f3e6c510be3d7bdfb939246562be7439a63f5ce4d0d65c8fdb56aa921"
+        }
+      ],
+      "originals": [
+        {
+          "frame": 61,
+          "path": "noScenarios/Town03_Rep0_route_000398_route0_01_09_07_58_27/rgb/0061.jpg",
+          "sha256": "e7be9181ab0f0c79676f5001c8d4711f9e64273751c20a8fb8666ff2322b6c38"
+        },
+        {
+          "frame": 91,
+          "path": "noScenarios/Town03_Rep0_route_000398_route0_01_09_07_58_27/rgb/0091.jpg",
+          "sha256": "ebda81259ae410b870419c04641ffefefe3acefefc15f8917ff202d2a1f3b71d"
+        }
+      ],
+      "observation": "0–99连续复看。夜雨；多个出口几何先后出现。42–48蓝车进入，61原图蓝车仍处近侧并向右离开；随后橙色车流加入，旧间隙不能覆盖新车流。83–90附近离开圆环，91原图为分隔道路直行；暗处间隙和路权仍不能据低分辨率联系表标定精确YES帧。",
+      "labels_approved": false
+    },
+    {
+      "audit_id": "013",
+      "scenario": "noScenarios",
+      "route_id": "Town03_Rep0_route_000397_route0_01_11_13_19_52",
+      "frames": 92,
+      "frame_range": [
+        0,
+        91
+      ],
+      "panels": [
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/013/000.jpg",
+          "sha256": "6b0eb505f05b4944efe6db1bb4dc061037f39609aa4047503e42e18cc6d1f561"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/013/001.jpg",
+          "sha256": "05768ed37d8ca2611eec57e93ec7c64cafa80b7911bb166f29006aa7f015b70c"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/013/002.jpg",
+          "sha256": "c66f97b7db66ecdd3db132a4c663464650a7bebbfeb2f2dcae94519ec1c60943"
+        },
+        {
+          "path": "/tmp/phase4_eighteenth_readonly_20261001/panels/013/003.jpg",
+          "sha256": "ae99c667b6640c2071ac7dcb0e458c4ce403b5f978b70f18f50e6e2f1b6a72f2"
+        }
+      ],
+      "originals": [
+        {
+          "frame": 68,
+          "path": "noScenarios/Town03_Rep0_route_000397_route0_01_11_13_19_52/rgb/0068.jpg",
+          "sha256": "4d30d0faadec89aa12c8351a3770b9c5cb8bdd1c906b35bc87dc45d0a06d2545"
+        },
+        {
+          "frame": 87,
+          "path": "noScenarios/Town03_Rep0_route_000397_route0_01_11_13_19_52/rgb/0087.jpg",
+          "sha256": "c9809fb57b845c8f40f3acfe0bf6fef092288bd070b8a7e41eec0ce1bbc5c2c2"
+        }
+      ],
+      "observation": "0–91连续复看。8–16进入；24–30和40–48经过分叉并继续沿环行驶。53后白车、62–69黑车加入；68原图右侧还有多辆来车。80–87走向实际出口，87原图转为分隔道路。画面实际轨迹不等于已获得导航目标证明，不从事后驶出反推早期目标或许可。",
+      "labels_approved": false
+    }
+  ]
+}

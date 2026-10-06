@@ -1,0 +1,847 @@
+{
+  "version": "v34",
+  "contract_sha256": "131518f66e22ab8f6032a3f070e1b00d08e270c648ad940839915279583cd5db",
+  "artifact_root": "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v34_full",
+  "tests": {
+    "distinct_tests_passed": 878
+  },
+  "data": {
+    "2": {
+      "mode": 2,
+      "train": 75373,
+      "training_routes": 1837,
+      "weak": 74930,
+      "weak_routes": 1809,
+      "weak_answers": {
+        "YES": 3463,
+        "NO": 71467
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 81,
+          "routes": 24
+        },
+        "U-E1/complete/YES": {
+          "questions": 68,
+          "routes": 68
+        },
+        "U-E1/hold/NO": {
+          "questions": 545,
+          "routes": 113
+        },
+        "U-E1/hold/YES": {
+          "questions": 1583,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 60387,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 18,
+          "routes": 14
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 610,
+          "routes": 115
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 12,
+          "routes": 12
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 800,
+          "routes": 100
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 96,
+          "routes": 83
+        },
+        "U-E1/release/NO": {
+          "questions": 117,
+          "routes": 73
+        },
+        "U-E1/release/YES": {
+          "questions": 19,
+          "routes": 19
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 588,
+          "routes": 115
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/stable/NO": {
+          "questions": 456,
+          "routes": 113
+        },
+        "U-E4/complete/NO": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES": {
+          "questions": 879,
+          "routes": 792
+        },
+        "U-E4/proceed/NO": {
+          "questions": 7654,
+          "routes": 790
+        },
+        "U-E4/proceed/YES": {
+          "questions": 777,
+          "routes": 161
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 73
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76371,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        }
+      },
+      "pool_fraction_seen": {
+        "1": 0.009353482016106564,
+        "4": 0.009353482016106564
+      },
+      "missing_evaluation_events": {
+        "val": [
+          "U-E2",
+          "U-E3",
+          "U-E4",
+          "R-E2",
+          "R-E3",
+          "R-E5"
+        ],
+        "test": [
+          "U-E2",
+          "U-E3",
+          "U-E4",
+          "R-E2",
+          "R-E3",
+          "R-E5"
+        ]
+      },
+      "missing_readiness_cells": 245
+    },
+    "4": {
+      "mode": 4,
+      "train": 75373,
+      "training_routes": 1837,
+      "weak": 74930,
+      "weak_routes": 1809,
+      "weak_answers": {
+        "YES": 3463,
+        "NO": 71467
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 81,
+          "routes": 24
+        },
+        "U-E1/complete/YES": {
+          "questions": 68,
+          "routes": 68
+        },
+        "U-E1/hold/NO": {
+          "questions": 545,
+          "routes": 113
+        },
+        "U-E1/hold/YES": {
+          "questions": 1583,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 60387,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 18,
+          "routes": 14
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 610,
+          "routes": 115
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 12,
+          "routes": 12
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 800,
+          "routes": 100
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 96,
+          "routes": 83
+        },
+        "U-E1/release/NO": {
+          "questions": 117,
+          "routes": 73
+        },
+        "U-E1/release/YES": {
+          "questions": 19,
+          "routes": 19
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 588,
+          "routes": 115
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 11,
+          "routes": 11
+        },
+        "U-E1/stable/NO": {
+          "questions": 456,
+          "routes": 113
+        },
+        "U-E4/complete/NO": {
+          "questions": 73,
+          "routes": 10
+        },
+        "U-E4/hold/NO": {
+          "questions": 83,
+          "routes": 10
+        },
+        "U-E4/hold/YES": {
+          "questions": 879,
+          "routes": 792
+        },
+        "U-E4/proceed/NO": {
+          "questions": 7654,
+          "routes": 790
+        },
+        "U-E4/proceed/YES": {
+          "questions": 777,
+          "routes": 161
+        },
+        "U-E4/re_yield/NO": {
+          "questions": 73,
+          "routes": 10
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 73
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 76371,
+      "budget": 400,
+      "primary_edge_presentations": 376,
+      "coverage": {
+        "1": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        },
+        "4": {
+          "missing": 74668,
+          "seen": 705,
+          "complete": false
+        }
+      },
+      "pool_fraction_seen": {
+        "1": 0.009353482016106564,
+        "4": 0.009353482016106564
+      },
+      "missing_evaluation_events": {
+        "val": [
+          "U-E2",
+          "U-E3",
+          "U-E4",
+          "R-E2",
+          "R-E3",
+          "R-E5"
+        ],
+        "test": [
+          "U-E2",
+          "U-E3",
+          "U-E4",
+          "R-E2",
+          "R-E3",
+          "R-E5"
+        ]
+      },
+      "missing_readiness_cells": 245
+    }
+  },
+  "references": {
+    "2": {
+      "val": 8345,
+      "test": 7952
+    },
+    "4": {
+      "val": 8345,
+      "test": 7952
+    }
+  },
+  "independent_review": {
+    "cards": 961,
+    "routes": 56,
+    "reviewed": 0,
+    "best_case_passable": 0
+  },
+  "strict_approved_classes": 0,
+  "production": {
+    "candidate_routes": 8614,
+    "candidate_rgb_frames": 1062401,
+    "frames_with_questions": 71139,
+    "frames_with_supervision": 70754,
+    "frames_without_questions": 991262,
+    "complete_causal_production": true,
+    "accounting": {
+      "processed_routes": 8614,
+      "processed_frames": 1062401,
+      "dispositions": {
+        "abstained": 939612,
+        "questions": 122789
+      },
+      "rule_targets": {
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb2/readiness/NO": 87263,
+        "ue1_ue4_causal_teacher_v7/U-E1/restrict/rgb2/readiness/YES": 1845,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb2/readiness/YES": 1862,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb4/readiness/NO": 87263,
+        "ue1_ue4_causal_teacher_v7/U-E1/restrict/rgb4/readiness/YES": 1845,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb4/readiness/YES": 1862,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb2/readiness/UNKNOWN": 15260,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb4/readiness/UNKNOWN": 15260,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb2/readiness/YES": 244,
+        "ue1_ue4_causal_teacher_v7/U-E1/proceed/rgb4/readiness/YES": 244,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb2/readiness/NO": 708,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb2/readiness/NO": 631,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb2/readiness/NO": 528,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb2/readiness/NO": 678,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb2/readiness/NO": 988,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb4/readiness/NO": 708,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb4/readiness/NO": 631,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb4/readiness/NO": 528,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb4/readiness/NO": 678,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb4/readiness/NO": 988,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb2/readiness/YES": 112,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb4/readiness/YES": 112,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb2/readiness/YES": 81,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb2/readiness/NO": 153,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb4/readiness/YES": 81,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb4/readiness/NO": 153,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb2/readiness/UNKNOWN": 734,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb2/readiness/UNKNOWN": 736,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb2/readiness/UNKNOWN": 657,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb2/readiness/UNKNOWN": 694,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb4/readiness/UNKNOWN": 734,
+        "ue1_ue4_causal_teacher_v7/U-E1/hold/rgb4/readiness/UNKNOWN": 736,
+        "ue1_ue4_causal_teacher_v7/U-E1/stable/rgb4/readiness/UNKNOWN": 657,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb4/readiness/UNKNOWN": 694,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb2/readiness/NO": 84,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb2/readiness/YES": 22,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb4/readiness/NO": 84,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb4/readiness/YES": 22,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb2/readiness/UNKNOWN": 85,
+        "ue1_ue4_causal_teacher_v7/U-E1/recover_follow/rgb4/readiness/UNKNOWN": 85,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb2/readiness/YES": 13,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb2/readiness/YES": 12,
+        "ue1_ue4_causal_teacher_v7/U-E1/re_yield/rgb4/readiness/YES": 13,
+        "ue1_ue4_causal_teacher_v7/U-E1/renewed_restriction/rgb4/readiness/YES": 12,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb2/readiness/NO": 10453,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb2/readiness/UNKNOWN": 3532,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb2/readiness/YES": 1055,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb4/readiness/NO": 10453,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb4/readiness/UNKNOWN": 3532,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb4/readiness/YES": 1055,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb2/readiness/UNKNOWN": 9335,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb4/readiness/UNKNOWN": 9335,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb2/readiness/YES": 1049,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb4/readiness/YES": 1049,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb2/readiness/UNKNOWN": 3542,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb4/readiness/UNKNOWN": 3542,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb2/readiness/NO": 99,
+        "ue1_ue4_causal_teacher_v7/U-E4/restrict/rgb4/readiness/NO": 99,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb2/readiness/YES": 979,
+        "ue1_ue4_causal_teacher_v7/U-E4/proceed/rgb4/readiness/YES": 979,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb2/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb2/readiness/UNKNOWN": 95,
+        "ue1_ue4_causal_teacher_v7/U-E1/complete/rgb4/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v7/U-E1/release/rgb4/readiness/UNKNOWN": 95,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb2/readiness/NO": 83,
+        "ue1_ue4_causal_teacher_v7/U-E4/hold/rgb4/readiness/NO": 83,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb2/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb2/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb4/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb4/readiness/NO": 73,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb2/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb2/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v7/U-E4/complete/rgb4/readiness/UNKNOWN": 328,
+        "ue1_ue4_causal_teacher_v7/U-E4/re_yield/rgb4/readiness/UNKNOWN": 328
+      },
+      "complete_causal_production": true,
+      "index_sha256": "5993283f1312d8ee8351f7566c6dffc7a2c729e7380e31300fac8f1f5494d811",
+      "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+    },
+    "approved_rule_classes": [],
+    "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+  },
+  "production_seconds": 1423.9268643510295,
+  "rgb_review": {
+    "contact_sheets": 0,
+    "original_frames": 4,
+    "training_routes": 2,
+    "new_full_sequences": 0,
+    "new_human_supervision": 0,
+    "independent_rgb_viewed": 0
+  },
+  "reported_screening_coverage": {
+    "cells_three_ids": 203,
+    "total_cells": 278,
+    "remaining_selected_sequences": 215,
+    "scope": "inherited user screening ledger; not annotation certification"
+  },
+  "explicit_training_exposure_groups": 13,
+  "confirmed_risk_windows_registered": 11,
+  "protected_case_checks": {
+    "2": {
+      "stationary_ue1_yes_retained": 18,
+      "moving_ue1_readiness_yes": 0,
+      "weak_restrict": 0,
+      "old_stale_case_questions": 0
+    },
+    "4": {
+      "stationary_ue1_yes_retained": 18,
+      "moving_ue1_readiness_yes": 0,
+      "weak_restrict": 0,
+      "old_stale_case_questions": 0
+    }
+  },
+  "remaining_limits": [
+    "eight event teachers absent",
+    "key bypass/lane-change branch supervision absent",
+    "six events lack independent val/test",
+    "event-equal budget constrained by sparse manual events",
+    "independent blind review unfinished",
+    "Action/CARLA live providers not wired",
+    "local default model missing"
+  ],
+  "gpu_training_executed": false,
+  "carla_validation_executed": false,
+  "protected_sources_unchanged": [
+    "controller.py",
+    "taxonomy.py",
+    "prompts.py",
+    "calibration.py",
+    "observation.py",
+    "maneuver_safety.py",
+    "sampling.py",
+    "weighted_sampling.py",
+    "selection.py",
+    "teacher_controls.py",
+    "teacher_replay.py",
+    "event_scope.py",
+    "route_prompts.py",
+    "runtime.py"
+  ],
+  "phase3_dependencies_preserved_from_turn_start": true,
+  "dependency_drift_from_v33": {
+    "sft_new_loop_phase3/build_dataset.py": {
+      "recorded": "b7c717528872dfeaa7e0af821ffe7eea921daa9a12cd8fdd078d22c36481150d",
+      "current": "21ea65e49fdc266eaef38b510b7494ba9016bd2076ff299ab9accf1a8dd6e4aa"
+    }
+  },
+  "new_risk_supervision_impact": {
+    "scope": "read-only v33 rows, not validation of v33 against current source; overlap uses complete weak causal/STOP evidence or manual history envelope",
+    "risk_windows": 11,
+    "modes": {
+      "2": {
+        "source_manifest_sha256": "d6ab0e703ef0f0715d8e546d79709d7a6c65af7d2f2fd803eb3439940eb23e6a",
+        "source_files": {
+          "train": "e60415b4578a0ee48dfd5ee49157cc944c5433b0f98d4db756a3677bbe6b8d88",
+          "val": "b71f362ade1af310762bb21b98a6d79cda1fadd1ab0a01117e8d51db50611e78",
+          "test": "88570c0010e3bd0f81689a5563de1c0cc523490c666e2d4e0c89890a09cea27b",
+          "review_queue": "773df96b9380776c699b0d0138b5c122520dcde405d3b921ea90296bf829b9ae"
+        },
+        "selected_route_rows": {
+          "train": 18,
+          "review_queue": 3
+        },
+        "risk_window_overlapping_rows": [],
+        "selected_rows": {
+          "DynamicObjectCrossing/Town07_Town07_Scenario3_1": [
+            {
+              "split": "train",
+              "frame": 47,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "train",
+              "frame": 48,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "train",
+              "frame": 41,
+              "edge": "hold",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 41,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 62,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 45,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 54,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 42,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 59,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 46,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 56,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 44,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 57,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 43,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 60,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 58,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 53,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 55,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "review_queue",
+              "frame": 50,
+              "edge": "proceed",
+              "target": "UNKNOWN",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "review_queue",
+              "frame": 51,
+              "edge": "proceed",
+              "target": "UNKNOWN",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "review_queue",
+              "frame": 52,
+              "edge": "proceed",
+              "target": "UNKNOWN",
+              "label_basis": "reviewed_transition_band"
+            }
+          ]
+        }
+      },
+      "4": {
+        "source_manifest_sha256": "908f3c616e51ccf7716362af5033bae4c5cfd9b176214012d11c8b0de77986ed",
+        "source_files": {
+          "train": "cf0009d787448efeb68837b59c85d58a1d6453e9b1593d999cec815aee24259b",
+          "val": "80e4755776e9083df6719bfc398ca363ab83947544112b6cc6ca19882d4d8b23",
+          "test": "f85a52bb46c36d2a3015e4779451386cb7b18bc283137d260b795e9bec05a057",
+          "review_queue": "c3ce5e28cc483628d9fcce7e964e87c67429bd4466cdc7e7b6ed777720f16cfd"
+        },
+        "selected_route_rows": {
+          "train": 18,
+          "review_queue": 3
+        },
+        "risk_window_overlapping_rows": [],
+        "selected_rows": {
+          "DynamicObjectCrossing/Town07_Town07_Scenario3_1": [
+            {
+              "split": "train",
+              "frame": 47,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "train",
+              "frame": 48,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "train",
+              "frame": 41,
+              "edge": "hold",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 43,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 62,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 45,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 44,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 53,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 42,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 55,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 56,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 41,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 60,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 59,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 46,
+              "edge": "proceed",
+              "target": "NO",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 57,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 54,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "train",
+              "frame": 58,
+              "edge": "proceed",
+              "target": "YES",
+              "label_basis": "weak_rule_teacher"
+            },
+            {
+              "split": "review_queue",
+              "frame": 50,
+              "edge": "proceed",
+              "target": "UNKNOWN",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "review_queue",
+              "frame": 51,
+              "edge": "proceed",
+              "target": "UNKNOWN",
+              "label_basis": "reviewed_transition_band"
+            },
+            {
+              "split": "review_queue",
+              "frame": 52,
+              "edge": "proceed",
+              "target": "UNKNOWN",
+              "label_basis": "reviewed_transition_band"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "final_source_acceptance": {
+    "verified_at_utc": "2026-10-06T05:38:04.461361+00:00",
+    "source_contract_sha256": "131518f66e22ab8f6032a3f070e1b00d08e270c648ad940839915279583cd5db",
+    "dependencies": {
+      "../lead_video_tools/abnormal_duration_filter.py": "9a3df626182ff0ba0d581898dc1a16510b31f95b17129ce1eb64e30b03071616",
+      "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+      "sft_new_loop_phase3/build_dataset.py": "21ea65e49fdc266eaef38b510b7494ba9016bd2076ff299ab9accf1a8dd6e4aa",
+      "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e"
+    },
+    "actual_default_startup_checks": {
+      "2": {
+        "epochs": 7,
+        "final_unique_questions": 705,
+        "log_sha256": "ebd744f622f7e122c78be0d688cc59ae0f02a64874c9d2d7ed46bde9529cfab4"
+      },
+      "4": {
+        "epochs": 7,
+        "final_unique_questions": 705,
+        "log_sha256": "2d198bd41d3dc453b5c3a1ba47b8f85cafcd9322b4be114b49a1e447b92b58f8"
+      }
+    },
+    "regression_test_identity": {
+      "path": "tests/test_audit_v34.py",
+      "sha256": "953ac2ab6e0b3329a890c4b410eca869f35016bf47745b11345bc26c6e8922c1"
+    },
+    "default_host_preflight": {
+      "expected_exit": 2,
+      "result": {
+        "configuration_valid": false,
+        "errors": [
+          "MODEL_DIR=checkpoints/Qwen3.5-4B: local base model missing; set MODEL_DIR to the complete installed base model"
+        ],
+        "scope": "path and dataset contract check only; full model/RGB preflight still required",
+        "downloads_performed": false
+      }
+    },
+    "scope": "acceptance at recorded source hashes and time; subsequent edits require revalidation, no manifest rehash"
+  }
+}

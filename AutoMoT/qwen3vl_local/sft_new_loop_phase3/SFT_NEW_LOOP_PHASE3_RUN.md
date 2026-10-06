@@ -1,3 +1,5 @@
+> 2026-10-07 入口更新：`run_full_pipeline.sh` 默认使用 RGB-stage 候选提示词和曝光隔离数据，并在完整 test 后执行旧错例/成功题回归。四组原命令、环境要求及退出码含义见 [四组训练说明](FOUR_RUNS_20261006.md)。本文较早的 v23 默认目录说明适用于 `PROMPT_VARIANT=baseline`。
+
 > 2026-09-28：当前新训基座默认已迁移为本地 `checkpoints/Qwen3.5-4B`。本文历史记录/旧命令中的 Qwen3-VL 路径不适用于新模型；旧 adapter 需重训。依赖、本地源码、预检与兼容边界见 [Qwen3.5 迁移说明](../qwen35/README.md)。
 
 # SFT New Loop Phase3 当前运行入口（2026-09-27，恢复 v23）

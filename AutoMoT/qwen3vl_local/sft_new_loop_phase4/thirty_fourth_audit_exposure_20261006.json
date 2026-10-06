@@ -1,0 +1,270 @@
+{
+  "train_only_groups": [
+    "Accident/Town05_route_001770",
+    "Accident/Town05_route_001775",
+    "Accident/Town05_route_001777",
+    "BlockedIntersection/Town13_1221_0",
+    "BlockedIntersection/Town13_69_0",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_11",
+    "HighwayCutIn/Town12_2954_1",
+    "InterurbanActorFlow/Town13_1294_4",
+    "InterurbanActorFlow/Town13_1304_11",
+    "InterurbanActorFlow/Town13_1304_21",
+    "VehicleOpensDoorTwoWays/Town13_1005_1",
+    "VehicleOpensDoorTwoWays/Town13_85_1"
+  ],
+  "calibration_risks": [
+    {
+      "scenario": "Accident",
+      "route_id": "Town05_Rep0_route_001777_route0_01_10_15_33_03",
+      "physical_group": "Accident/Town05_route_001777",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 7,
+          "path": "Accident/Town05_Rep0_route_001777_route0_01_10_15_33_03/rgb/0007.jpg",
+          "sha256": "46c2dee39e4b46d90df7d5d5edc938e96cf11d14aaafb76fad20c97dcd0134a6"
+        },
+        {
+          "frame": 8,
+          "path": "Accident/Town05_Rep0_route_001777_route0_01_10_15_33_03/rgb/0008.jpg",
+          "sha256": "eb8e4e8ac890f43846e04577d905b595f101c0573cfc940c447a9be54c4400db"
+        }
+      ]
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town05_Rep0_route_001775_route0_01_08_20_19_47",
+      "physical_group": "Accident/Town05_route_001775",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 5,
+          "path": "Accident/Town05_Rep0_route_001775_route0_01_08_20_19_47/rgb/0005.jpg",
+          "sha256": "4d8d8eb87921974104690cc6988f24b35848f056de97facfacdcaebb72a62686"
+        },
+        {
+          "frame": 6,
+          "path": "Accident/Town05_Rep0_route_001775_route0_01_08_20_19_47/rgb/0006.jpg",
+          "sha256": "3d8f70eecd4c6977db31be101fa489bf0973a884df9e3fbcf03a6a7b086484bd"
+        }
+      ]
+    },
+    {
+      "scenario": "Accident",
+      "route_id": "Town05_Rep0_route_001770_route0_01_10_23_24_06",
+      "physical_group": "Accident/Town05_route_001770",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 5,
+          "path": "Accident/Town05_Rep0_route_001770_route0_01_10_23_24_06/rgb/0005.jpg",
+          "sha256": "c581706ab74369d579afa99bd21f077c70ae71362f73ed2c275699c6ce38c54e"
+        },
+        {
+          "frame": 6,
+          "path": "Accident/Town05_Rep0_route_001770_route0_01_10_23_24_06/rgb/0006.jpg",
+          "sha256": "6ff6140950d1ff94bb4a7290a39239d19220f59d61fe38b1656d521716ce965b"
+        }
+      ]
+    },
+    {
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1294_4_route0_01_10_03_53_41",
+      "physical_group": "InterurbanActorFlow/Town13_1294_4",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "InterurbanActorFlow/Town13_Rep0_1294_4_route0_01_10_03_53_41/rgb/0016.jpg",
+          "sha256": "822c69348487c49f5451cf2ba20a00b9211a9e58dffe21579b010f8035f3c745"
+        },
+        {
+          "frame": 17,
+          "path": "InterurbanActorFlow/Town13_Rep0_1294_4_route0_01_10_03_53_41/rgb/0017.jpg",
+          "sha256": "48ac16da5179abc5b41f19eaf804c9f1ecff6a0c27f7501f7ba37be2b512bd3a"
+        }
+      ]
+    },
+    {
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1304_11_route0_01_09_04_44_11",
+      "physical_group": "InterurbanActorFlow/Town13_1304_11",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_11_route0_01_09_04_44_11/rgb/0014.jpg",
+          "sha256": "967064d27f568394c0d49e935cc6124803ecc5c5f45c99bbed20f47a8653bbae"
+        },
+        {
+          "frame": 15,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_11_route0_01_09_04_44_11/rgb/0015.jpg",
+          "sha256": "036a9df1ae055ece8809fc2c0c5c0b8dc7d87d5551aee1e1d06619feb56f1155"
+        }
+      ]
+    },
+    {
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town13_Rep0_1304_21_route0_01_10_22_57_43",
+      "physical_group": "InterurbanActorFlow/Town13_1304_21",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_21_route0_01_10_22_57_43/rgb/0016.jpg",
+          "sha256": "f4c4374cc4e53bd6db3dd7fabf165a150158dc86476ee1bd575ee2ee5e372c95"
+        },
+        {
+          "frame": 17,
+          "path": "InterurbanActorFlow/Town13_Rep0_1304_21_route0_01_10_22_57_43/rgb/0017.jpg",
+          "sha256": "d933160cad2a0c18c4089399dc51c59397853a1965ac06b5262189651cfe4626"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "physical_group": "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 24,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0024.jpg",
+          "sha256": "7353bed685b37536a17dd59da5ee0c40a38f26376da1f87dff7210967742050a"
+        },
+        {
+          "frame": 25,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0025.jpg",
+          "sha256": "baa019842a55b275965eb4b630896d8d27d6754bc04ea11fd407d3437ac5a07f"
+        }
+      ]
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town12_Rep0_2954_1_route0_01_08_00_18_48",
+      "physical_group": "HighwayCutIn/Town12_2954_1",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 61,
+          "path": "HighwayCutIn/Town12_Rep0_2954_1_route0_01_08_00_18_48/rgb/0061.jpg",
+          "sha256": "c86242aa47268cb83c3d2227344f2daa331d289e289c4c8b25eb8cd85816e550"
+        },
+        {
+          "frame": 62,
+          "path": "HighwayCutIn/Town12_Rep0_2954_1_route0_01_08_00_18_48/rgb/0062.jpg",
+          "sha256": "cd787c0817ded4df5d9df1bf30586c6cbef9dc8af334de5110e032543073d203"
+        }
+      ]
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_69_0_route0_01_11_10_46_18",
+      "physical_group": "BlockedIntersection/Town13_69_0",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 14,
+          "path": "BlockedIntersection/Town13_Rep0_69_0_route0_01_11_10_46_18/rgb/0014.jpg",
+          "sha256": "2377805d1fbe474aede74bf49a74dd25dc88252008d6c20ab6c2e019e2ded57f"
+        },
+        {
+          "frame": 15,
+          "path": "BlockedIntersection/Town13_Rep0_69_0_route0_01_11_10_46_18/rgb/0015.jpg",
+          "sha256": "56b5bc1ff360ac4aeaa5d42e98783e554b1a0119dab0691f3c0a1577734649a1"
+        }
+      ]
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_69_0_route0_01_11_10_46_18",
+      "physical_group": "BlockedIntersection/Town13_69_0",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 99,
+          "path": "BlockedIntersection/Town13_Rep0_69_0_route0_01_11_10_46_18/rgb/0099.jpg",
+          "sha256": "6295c95951e3687359bf76aee4c430c8860d3cc25a3a82a72143bc34c6d052db"
+        },
+        {
+          "frame": 100,
+          "path": "BlockedIntersection/Town13_Rep0_69_0_route0_01_11_10_46_18/rgb/0100.jpg",
+          "sha256": "e5784df4e213c7be4277a7e8db4a9a6efefad7b823fc554bda488bfecaf1e969"
+        }
+      ]
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town13_Rep0_1221_0_route0_01_10_16_17_14",
+      "physical_group": "BlockedIntersection/Town13_1221_0",
+      "kind": "original_rgb_visible_vehicle_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_vehicle_discontinuity",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 114,
+          "path": "BlockedIntersection/Town13_Rep0_1221_0_route0_01_10_16_17_14/rgb/0114.jpg",
+          "sha256": "ebd1b79cc5b586566ccb5a4b9ba8c751d3e42ca103954af9e8e5fc8782e18f0c"
+        },
+        {
+          "frame": 115,
+          "path": "BlockedIntersection/Town13_Rep0_1221_0_route0_01_10_16_17_14/rgb/0115.jpg",
+          "sha256": "c89014e9a79eeab3aa73ea5c5bacdd2e5b9f95cda9aa3c60b3288cb610e04566"
+        }
+      ]
+    }
+  ],
+  "new_supervision": 0,
+  "source_documents": {
+    "REPORT.txt": "6d46e682b074fac41295cecc11b8dba80f65c2c5934426122f7a4d5d453e661e",
+    "observations.json": "1a15722a95663baea73d0b899438cc96450d3a1aeadab9a57429d4e0e6357ce0",
+    "visual_discontinuities.json": "bed23b241aa162d508f9b440afc9b9895393d70dd645b97b7468a83ca738ed97",
+    "original_rechecks.json": "197bb453fc2c2e5e1bcd9c20ad9981c13000a8ce7b2c21856360fa9a8bc983cb",
+    "coverage_progress.json": "bfb3b440662e6cad11580ba5f71c42ca5cd2e3a1353b0b740ffb82a4a5af075a"
+  },
+  "scope": "13 screened training groups only; selected but unviewed validation group excluded"
+}

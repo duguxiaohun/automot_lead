@@ -2,7 +2,8 @@
 from .controller import Episode, combine_priors
 from copy import deepcopy
 from .identity import digest
-from .prompts import prompt
+from .route_context import route_identity
+from .route_prompts import prompt
 from .observation import observation_contract, check_observation_contract, validate_observation
 
 
@@ -40,12 +41,14 @@ class Phase4Loop:
             raise ValueError('invalid revalidation')
         if not (old.needs_recheck or old.suspended):
             raise ValueError('ordinary Phase4 progress does not need Phase1/2')
+        if route_identity(old) != route_identity(replacement):
+            raise ValueError('changed route target/boundary requires a new event instance')
         replacement.last_frame = old.last_frame
         replacement.history = old.history + [dict(revalidated=True,pending_start=[],committed=True)]
         self.episodes[instance_id] = replacement
         self.aggregate()
 
-    def tick(self, observation, images, predictor, *, context_valid=None, execution_receipts=(), progress_faults=None):
+    def tick(self, observation, images, predictor, *, context_valid=None, execution_receipts=(), progress_faults=None, maneuver_clearances=()):
         """Commit the entire observation only after every prediction/receipt succeeds.
 
         Predictor receives staged episodes and must be read-only outside the loop;
@@ -53,7 +56,8 @@ class Phase4Loop:
         """
         candidate = deepcopy(self)
         result = candidate._tick(observation, images, predictor, context_valid=context_valid,
-                                 execution_receipts=execution_receipts, progress_faults=progress_faults)
+                                 execution_receipts=execution_receipts, progress_faults=progress_faults,
+                                 maneuver_clearances=maneuver_clearances)
         self._commit(candidate)
         return result
 
@@ -62,7 +66,7 @@ class Phase4Loop:
         for ident, ep in candidate.episodes.items():
             self.episodes[ident].__dict__.update(ep.__dict__)
 
-    def _tick(self, observation, images, predictor, *, context_valid=None, execution_receipts=(), progress_faults=None):
+    def _tick(self, observation, images, predictor, *, context_valid=None, execution_receipts=(), progress_faults=None, maneuver_clearances=()):
         validate_observation(self.observation_contract,observation,len(images))
         context_valid = {} if context_valid is None else context_valid
         progress_faults = {} if progress_faults is None else progress_faults
@@ -74,6 +78,13 @@ class Phase4Loop:
             if not ep.finished and observation['frame_id'] <= ep.last_frame:
                 raise ValueError('stale loop observation')
         receipts = {}
+        safety = {}
+        if not isinstance(maneuver_clearances, (list, tuple)):
+            raise ValueError('maneuver clearances must be a sequence')
+        for clearance in maneuver_clearances:
+            if not isinstance(clearance, dict) or clearance.get('instance_id') not in self.episodes:
+                raise ValueError('unknown maneuver clearance instance')
+            safety.setdefault(clearance['instance_id'], []).append(clearance)
         for receipt in execution_receipts:
             ident=receipt.get('instance_id')
             if ident not in self.episodes or ident in receipts:
@@ -92,29 +103,32 @@ class Phase4Loop:
                 continue
             answers = {e.key:predictor(ep,e.key,observation,images) for e in questions}
             ep.advance(observation['frame_id'],answers,context_valid=context_valid.get(ident,True),
-                       progress_fault=progress_faults.get(ident,False))
+                       progress_fault=progress_faults.get(ident,False),
+                       maneuver_clearances=safety.pop(ident, ()))
             if ident in receipts:
                 ep.confirm_execution(receipts.pop(ident))
         if receipts:
             raise ValueError('receipt for inactive instance')
+        if safety:
+            raise ValueError('clearance for inactive instance')
         prior=self.aggregate()
         return dict(prior=prior,
                     recheck_instances=prior['recheck_instances'],
                     completed_instances=[i for i,e in self.episodes.items() if e.finished])
 
-    def acknowledge(self, instance_id,frame_id):
+    def acknowledge(self, instance_id,frame_id, *, segment_id=None, route_context_id=None):
         candidate = deepcopy(self)
         candidate.aggregate()
-        candidate.episodes[instance_id].acknowledge(frame_id)
+        candidate.episodes[instance_id].acknowledge(frame_id,segment_id=segment_id,route_context_id=route_context_id)
         self._commit(candidate)
 
     def snapshot(self):
-        return dict(version='phase4_loop_v6',observation_contract=self.observation_contract,
+        return dict(version='phase4_loop_v11',observation_contract=self.observation_contract,
                     episodes={k:e.to_dict() for k,e in self.episodes.items()})
 
     @classmethod
     def restore(cls,snapshot):
-        if snapshot.get('version') != 'phase4_loop_v6':
+        if snapshot.get('version') != 'phase4_loop_v11':
             raise ValueError('snapshot protocol mismatch')
         c=check_observation_contract(snapshot.get('observation_contract'))
         loop=cls(rgb_mode=c['rgb_mode'])
@@ -128,7 +142,7 @@ class Phase4Loop:
 
 def predict_with_bundle(bundle,episode,edge_key,observation,images):
     import torch
-    from .prompts import messages,parse_answer
+    from .route_prompts import messages,parse_answer
     validate_observation(getattr(bundle,'observation_contract',None),observation,len(images))
     msgs=messages(episode,edge_key,observation,images)
     text=bundle.processor.apply_chat_template(msgs,tokenize=False,add_generation_prompt=True)

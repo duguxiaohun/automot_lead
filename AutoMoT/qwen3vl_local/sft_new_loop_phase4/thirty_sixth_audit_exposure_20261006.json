@@ -1,0 +1,280 @@
+{
+  "train_only_groups": [
+    "ConstructionObstacleTwoWays/Town13_1143_0",
+    "ConstructionObstacleTwoWays/Town13_1143_1",
+    "ConstructionObstacleTwoWays/Town13_1541_0",
+    "ControlLoss/Town07_Town07_Scenario1_1",
+    "ControlLoss/Town07_Town07_Scenario1_11",
+    "ControlLoss/Town12_1134_0",
+    "ControlLoss/Town12_1373_0",
+    "DynamicObjectCrossing/Town02_Town02_Scenario3_5",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_10",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_6",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town13_route_001063",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town13_route_003129",
+    "NonSignalizedJunctionLeftTurnEnterFlow/Town13_route_003146",
+    "ParkedObstacle/Town03_route_001883",
+    "ParkedObstacle/Town03_route_001890",
+    "ParkedObstacle/Town03_route_001891",
+    "VehicleTurningRoute/Town12_1908_0",
+    "VehicleTurningRoute/Town12_2734_0",
+    "VehicleTurningRoute/Town12_2734_1",
+    "VehicleTurningRoute/Town13_1170_1",
+    "VehicleTurningRoute/Town13_1433_0",
+    "VehicleTurningRoute/Town13_1761_0",
+    "noScenarios/Town06_route_000705",
+    "noScenarios/Town06_route_000709",
+    "noScenarios/Town06_route_000712",
+    "noScenarios/Town06_route_000772"
+  ],
+  "calibration_risks": [
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town03_Rep0_route_001883_route0_01_08_15_46_23",
+      "physical_group": "ParkedObstacle/Town03_route_001883",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "右前红车",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 6,
+          "path": "ParkedObstacle/Town03_Rep0_route_001883_route0_01_08_15_46_23/rgb/0006.jpg",
+          "sha256": "85b997422fef721286ee63619fa98526d8792ec625ee12464c006b6cb9f71494"
+        },
+        {
+          "frame": 7,
+          "path": "ParkedObstacle/Town03_Rep0_route_001883_route0_01_08_15_46_23/rgb/0007.jpg",
+          "sha256": "285e29a373b9ff57373c35cf59daeb4ae4155453f1959ded218f334098dba685"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 6,
+      "first_affected_frame": 7
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town13_Rep0_route_003146_route0_01_08_16_50_03",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town13_route_003146",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "两辆红色前方车辆",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003146_route0_01_08_16_50_03/rgb/0016.jpg",
+          "sha256": "fa77ad2eca4da8cb5a248011ce73adcdfe90b2f2df17d290eca2de39a360e9aa"
+        },
+        {
+          "frame": 17,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003146_route0_01_08_16_50_03/rgb/0017.jpg",
+          "sha256": "7b639507ff5030a077559e1dbeb61a94c3262ba1a301e7ddcdc53bbfab71ff37"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 16,
+      "first_affected_frame": 17
+    },
+    {
+      "scenario": "NonSignalizedJunctionLeftTurnEnterFlow",
+      "route_id": "Town13_Rep0_route_003129_route0_01_10_08_47_02",
+      "physical_group": "NonSignalizedJunctionLeftTurnEnterFlow/Town13_route_003129",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "蓝色前车",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 20,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003129_route0_01_10_08_47_02/rgb/0020.jpg",
+          "sha256": "92c05af057fe519ff3a3313e24b1439be9089999f74f1e6c1d3f45ab74ac13fc"
+        },
+        {
+          "frame": 21,
+          "path": "NonSignalizedJunctionLeftTurnEnterFlow/Town13_Rep0_route_003129_route0_01_10_08_47_02/rgb/0021.jpg",
+          "sha256": "9b4cc3667a37e53fbc277a37512c2ae86882a1d959b27cef4adbd6fe81a22ff8"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 20,
+      "first_affected_frame": 21
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town02_Rep0_Town02_Scenario3_5_route0_01_10_06_42_00",
+      "physical_group": "DynamicObjectCrossing/Town02_Town02_Scenario3_5",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "行人和红道具；115道具仍剩下部",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 114,
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_5_route0_01_10_06_42_00/rgb/0114.jpg",
+          "sha256": "0fd9adb060dcab78e4115b4dd80103ab4771ac7677218b942fb713fdb9d4d4e2"
+        },
+        {
+          "frame": 115,
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_5_route0_01_10_06_42_00/rgb/0115.jpg",
+          "sha256": "573a6aa325928b2e513e2b9f3a81e874f57788e0ee7141863b65f711f1253355"
+        },
+        {
+          "frame": 116,
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_5_route0_01_10_06_42_00/rgb/0116.jpg",
+          "sha256": "ce05cc3da2022de794137242231acccc83983ccf028a1f2a27c66568ae768e12"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_10_route0_01_10_14_59_03",
+      "physical_group": "DynamicObjectCrossing/Town07_Town07_Scenario3_10",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "行人与红道具",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 97,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_10_route0_01_10_14_59_03/rgb/0097.jpg",
+          "sha256": "cae3a12854ba74223a71dfad189be52ecdb24b0cfc6c434d0e9b5af9d43fc738"
+        },
+        {
+          "frame": 98,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_10_route0_01_10_14_59_03/rgb/0098.jpg",
+          "sha256": "1c0187c7afedf48d16e7dbabdf8b9b7150a1a6eafacf2cb55008bfc005ea2162"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 97,
+      "first_affected_frame": 98
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_6_route0_01_11_05_19_17",
+      "physical_group": "DynamicObjectCrossing/Town07_Town07_Scenario3_6",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "红道具与中央人影，暗部身份有限",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 101,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_6_route0_01_11_05_19_17/rgb/0101.jpg",
+          "sha256": "5e8176b658c81a7786fdb00807d5de5607159c66733b650adaca88aa3a39db80"
+        },
+        {
+          "frame": 102,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_6_route0_01_11_05_19_17/rgb/0102.jpg",
+          "sha256": "690514b5356768d26ad6752b34485ae1cd1d883c98a84bc85317b75a4806c249"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 101,
+      "first_affected_frame": 102
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town12_Rep0_2734_1_route0_01_10_20_33_00",
+      "physical_group": "VehicleTurningRoute/Town12_2734_1",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "横穿骑行者",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 154,
+          "path": "VehicleTurningRoute/Town12_Rep0_2734_1_route0_01_10_20_33_00/rgb/0154.jpg",
+          "sha256": "b124982fa212967fd827ad6c17831a10cade39c64a0b1d96968362db91ed12b7"
+        },
+        {
+          "frame": 155,
+          "path": "VehicleTurningRoute/Town12_Rep0_2734_1_route0_01_10_20_33_00/rgb/0155.jpg",
+          "sha256": "11ab3e4bd66c436cb3a7e0640ab9d09e15a6a9a6a48d2039bad66daea8bf3547"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 154,
+      "first_affected_frame": 155
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town13_Rep0_1433_0_route0_01_10_06_09_36",
+      "physical_group": "VehicleTurningRoute/Town13_1433_0",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "横穿骑行者",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 146,
+          "path": "VehicleTurningRoute/Town13_Rep0_1433_0_route0_01_10_06_09_36/rgb/0146.jpg",
+          "sha256": "4a77489f3c48fd5943a5a729629b73fe8e3819cdb94b1761bc722575ddffd33e"
+        },
+        {
+          "frame": 147,
+          "path": "VehicleTurningRoute/Town13_Rep0_1433_0_route0_01_10_06_09_36/rgb/0147.jpg",
+          "sha256": "5b03066f4532a66e2ea67621e76c7e3583888b35b3289e4dfe7aaec75865765d"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 146,
+      "first_affected_frame": 147
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town13_Rep0_1170_1_route0_01_08_20_13_04",
+      "physical_group": "VehicleTurningRoute/Town13_1170_1",
+      "kind": "reported_rgb_visible_discontinuity",
+      "manual_scope": "causal_history_window",
+      "reported_status": "original_RGB_confirmed_visible_discontinuity",
+      "description": "横穿骑行者",
+      "cause": "unknown_not_inferred_from_RGB",
+      "training_label_approved": false,
+      "rgb_evidence": [
+        {
+          "frame": 124,
+          "path": "VehicleTurningRoute/Town13_Rep0_1170_1_route0_01_08_20_13_04/rgb/0124.jpg",
+          "sha256": "59126d58ac39a81368e643575a6fa2d5c2f0fbe08845656b717169aadf1ce769"
+        },
+        {
+          "frame": 125,
+          "path": "VehicleTurningRoute/Town13_Rep0_1170_1_route0_01_08_20_13_04/rgb/0125.jpg",
+          "sha256": "a387e356ee285e6643506c5ce4a75c91dbee485c7764a56c4934ac803715a83c"
+        }
+      ],
+      "temporal_scope": "confirmed_discontinuity_onset_v1",
+      "last_unaffected_frame": 124,
+      "first_affected_frame": 125
+    }
+  ],
+  "source_report": "/tmp/phase4_readonly_v35_20261006/AUDIT_REPORT.md",
+  "current_agent_visual_rechecks": [
+    {
+      "route": "DynamicObjectCrossing/Town07_Town07_Scenario3_10",
+      "frames": [
+        97,
+        98
+      ],
+      "new_full_sequence": false
+    }
+  ],
+  "boundary_policy": "onset only for adjacent confirmed endpoints; 114-116 aggregate retains conservative envelope"
+}

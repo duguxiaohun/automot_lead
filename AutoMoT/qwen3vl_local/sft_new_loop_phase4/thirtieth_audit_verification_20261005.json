@@ -1,0 +1,404 @@
+{
+  "version": "v30",
+  "contract_sha256": "dae5c988250ea3b91b418f25af89b2e6f194508ac09529a190db3d4fe6d5cc21",
+  "tests": 795,
+  "candidate_pool": {
+    "routes": 8614,
+    "rgb_frames": 1062401,
+    "split_routes": {
+      "train": 7268,
+      "val": 658,
+      "test": 688
+    },
+    "discovered_routes": 9712,
+    "excluded_routes": 1098,
+    "exclusion_reasons": {
+      "abnormal_duration": 963,
+      "missing_all_metas": 135
+    },
+    "excluded_split_routes": {
+      "train": 898,
+      "test": 93,
+      "val": 107
+    }
+  },
+  "eligible_frames": 1062401,
+  "production": {
+    "candidate_routes": 8614,
+    "candidate_rgb_frames": 1062401,
+    "frames_with_questions": 73734,
+    "frames_with_supervision": 73368,
+    "frames_without_questions": 988667,
+    "complete_causal_production": true,
+    "accounting": {
+      "processed_routes": 8614,
+      "processed_frames": 1062401,
+      "dispositions": {
+        "abstained": 890281,
+        "questions": 172120
+      },
+      "rule_targets": {
+        "ue1_ue4_causal_teacher_v5/U-E1/proceed/rgb2/readiness/NO": 89775,
+        "ue1_ue4_causal_teacher_v5/U-E1/restrict/rgb2/readiness/YES": 1706,
+        "ue1_ue4_causal_teacher_v5/U-E1/hold/rgb2/readiness/YES": 1728,
+        "ue1_ue4_causal_teacher_v5/U-E1/proceed/rgb4/readiness/NO": 89775,
+        "ue1_ue4_causal_teacher_v5/U-E1/restrict/rgb4/readiness/YES": 1706,
+        "ue1_ue4_causal_teacher_v5/U-E1/hold/rgb4/readiness/YES": 1728,
+        "ue1_ue4_causal_teacher_v5/U-E1/proceed/rgb2/readiness/UNKNOWN": 60789,
+        "ue1_ue4_causal_teacher_v5/U-E1/proceed/rgb4/readiness/UNKNOWN": 60789,
+        "ue1_ue4_causal_teacher_v5/U-E1/proceed/rgb2/readiness/YES": 372,
+        "ue1_ue4_causal_teacher_v5/U-E1/proceed/rgb4/readiness/YES": 372,
+        "ue1_ue4_causal_teacher_v5/U-E1/re_yield/rgb2/readiness/NO": 902,
+        "ue1_ue4_causal_teacher_v5/U-E1/hold/rgb2/readiness/NO": 824,
+        "ue1_ue4_causal_teacher_v5/U-E1/stable/rgb2/readiness/NO": 658,
+        "ue1_ue4_causal_teacher_v5/U-E1/renewed_restriction/rgb2/readiness/NO": 871,
+        "ue1_ue4_causal_teacher_v5/U-E1/recover_follow/rgb2/readiness/NO": 1291,
+        "ue1_ue4_causal_teacher_v5/U-E1/re_yield/rgb4/readiness/NO": 902,
+        "ue1_ue4_causal_teacher_v5/U-E1/hold/rgb4/readiness/NO": 824,
+        "ue1_ue4_causal_teacher_v5/U-E1/stable/rgb4/readiness/NO": 658,
+        "ue1_ue4_causal_teacher_v5/U-E1/renewed_restriction/rgb4/readiness/NO": 871,
+        "ue1_ue4_causal_teacher_v5/U-E1/recover_follow/rgb4/readiness/NO": 1291,
+        "ue1_ue4_causal_teacher_v5/U-E1/recover_follow/rgb2/readiness/YES": 186,
+        "ue1_ue4_causal_teacher_v5/U-E1/recover_follow/rgb4/readiness/YES": 186,
+        "ue1_ue4_causal_teacher_v5/U-E1/complete/rgb2/readiness/YES": 142,
+        "ue1_ue4_causal_teacher_v5/U-E1/release/rgb2/readiness/NO": 335,
+        "ue1_ue4_causal_teacher_v5/U-E1/complete/rgb4/readiness/YES": 142,
+        "ue1_ue4_causal_teacher_v5/U-E1/release/rgb4/readiness/NO": 335,
+        "ue1_ue4_causal_teacher_v5/U-E1/re_yield/rgb2/readiness/UNKNOWN": 1199,
+        "ue1_ue4_causal_teacher_v5/U-E1/hold/rgb2/readiness/UNKNOWN": 1061,
+        "ue1_ue4_causal_teacher_v5/U-E1/stable/rgb2/readiness/UNKNOWN": 929,
+        "ue1_ue4_causal_teacher_v5/U-E1/renewed_restriction/rgb2/readiness/UNKNOWN": 1021,
+        "ue1_ue4_causal_teacher_v5/U-E1/re_yield/rgb4/readiness/UNKNOWN": 1199,
+        "ue1_ue4_causal_teacher_v5/U-E1/hold/rgb4/readiness/UNKNOWN": 1061,
+        "ue1_ue4_causal_teacher_v5/U-E1/stable/rgb4/readiness/UNKNOWN": 929,
+        "ue1_ue4_causal_teacher_v5/U-E1/renewed_restriction/rgb4/readiness/UNKNOWN": 1021,
+        "ue1_ue4_causal_teacher_v5/U-E1/complete/rgb2/readiness/NO": 144,
+        "ue1_ue4_causal_teacher_v5/U-E1/release/rgb2/readiness/YES": 24,
+        "ue1_ue4_causal_teacher_v5/U-E1/complete/rgb4/readiness/NO": 144,
+        "ue1_ue4_causal_teacher_v5/U-E1/release/rgb4/readiness/YES": 24,
+        "ue1_ue4_causal_teacher_v5/U-E1/recover_follow/rgb2/readiness/UNKNOWN": 110,
+        "ue1_ue4_causal_teacher_v5/U-E1/recover_follow/rgb4/readiness/UNKNOWN": 110,
+        "ue1_ue4_causal_teacher_v5/U-E1/re_yield/rgb2/readiness/YES": 16,
+        "ue1_ue4_causal_teacher_v5/U-E1/renewed_restriction/rgb2/readiness/YES": 15,
+        "ue1_ue4_causal_teacher_v5/U-E1/re_yield/rgb4/readiness/YES": 16,
+        "ue1_ue4_causal_teacher_v5/U-E1/renewed_restriction/rgb4/readiness/YES": 15,
+        "ue1_ue4_causal_teacher_v5/U-E4/proceed/rgb2/readiness/NO": 13451,
+        "ue1_ue4_causal_teacher_v5/U-E4/restrict/rgb2/readiness/YES": 1246,
+        "ue1_ue4_causal_teacher_v5/U-E4/hold/rgb2/readiness/YES": 1246,
+        "ue1_ue4_causal_teacher_v5/U-E4/proceed/rgb4/readiness/NO": 13451,
+        "ue1_ue4_causal_teacher_v5/U-E4/restrict/rgb4/readiness/YES": 1246,
+        "ue1_ue4_causal_teacher_v5/U-E4/hold/rgb4/readiness/YES": 1246,
+        "ue1_ue4_causal_teacher_v5/U-E4/proceed/rgb2/readiness/UNKNOWN": 13948,
+        "ue1_ue4_causal_teacher_v5/U-E4/proceed/rgb4/readiness/UNKNOWN": 13948,
+        "ue1_ue4_causal_teacher_v5/U-E4/proceed/rgb2/readiness/YES": 970,
+        "ue1_ue4_causal_teacher_v5/U-E4/proceed/rgb4/readiness/YES": 970,
+        "ue1_ue4_causal_teacher_v5/U-E1/complete/rgb2/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v5/U-E1/release/rgb2/readiness/UNKNOWN": 171,
+        "ue1_ue4_causal_teacher_v5/U-E1/complete/rgb4/readiness/UNKNOWN": 34,
+        "ue1_ue4_causal_teacher_v5/U-E1/release/rgb4/readiness/UNKNOWN": 171,
+        "ue1_ue4_causal_teacher_v5/U-E4/re_yield/rgb2/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/hold/rgb2/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/stable/rgb2/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/renewed_restriction/rgb2/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/recover_follow/rgb2/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/re_yield/rgb4/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/hold/rgb4/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/stable/rgb4/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/renewed_restriction/rgb4/readiness/UNKNOWN": 39,
+        "ue1_ue4_causal_teacher_v5/U-E4/recover_follow/rgb4/readiness/UNKNOWN": 39
+      },
+      "complete_causal_production": true,
+      "index_sha256": "71a724951347b02701ea71dedc2442c2ccf759297e30ba3f35a1e3f6effcddc8",
+      "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+    },
+    "approved_rule_classes": [],
+    "scope": "inventory coverage; unreviewed frames may be irrelevant, invalid or awaiting conditions; never implicit NO"
+  },
+  "production_generation_seconds": 1244.7,
+  "data": {
+    "2": {
+      "mode": 2,
+      "train": 81377,
+      "training_routes": 1914,
+      "weak": 80934,
+      "weak_routes": 1888,
+      "weak_answers": {
+        "YES": 6435,
+        "NO": 74499
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 118,
+          "routes": 31
+        },
+        "U-E1/complete/YES": {
+          "questions": 119,
+          "routes": 118
+        },
+        "U-E1/hold/NO": {
+          "questions": 707,
+          "routes": 183
+        },
+        "U-E1/hold/YES": {
+          "questions": 1465,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 60762,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 320,
+          "routes": 213
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 773,
+          "routes": 185
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 15,
+          "routes": 15
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 1009,
+          "routes": 119
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 159,
+          "routes": 144
+        },
+        "U-E1/release/NO": {
+          "questions": 203,
+          "routes": 124
+        },
+        "U-E1/release/YES": {
+          "questions": 21,
+          "routes": 21
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 753,
+          "routes": 185
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/restrict/YES": {
+          "questions": 1444,
+          "routes": 1390
+        },
+        "U-E1/stable/NO": {
+          "questions": 567,
+          "routes": 183
+        },
+        "U-E4/hold/YES": {
+          "questions": 1054,
+          "routes": 906
+        },
+        "U-E4/proceed/NO": {
+          "questions": 9607,
+          "routes": 905
+        },
+        "U-E4/proceed/YES": {
+          "questions": 770,
+          "routes": 153
+        },
+        "U-E4/restrict/YES": {
+          "questions": 1054,
+          "routes": 906
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 66
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 82375,
+      "budget": 400,
+      "primary_edge_presentations": 378,
+      "coverage": {
+        "1": {
+          "missing": 80666,
+          "seen": 711,
+          "complete": false
+        },
+        "4": {
+          "missing": 80666,
+          "seen": 711,
+          "complete": false
+        }
+      }
+    },
+    "4": {
+      "mode": 4,
+      "train": 81377,
+      "training_routes": 1914,
+      "weak": 80934,
+      "weak_routes": 1888,
+      "weak_answers": {
+        "YES": 6435,
+        "NO": 74499
+      },
+      "weak_cells": {
+        "U-E1/complete/NO": {
+          "questions": 118,
+          "routes": 31
+        },
+        "U-E1/complete/YES": {
+          "questions": 119,
+          "routes": 118
+        },
+        "U-E1/hold/NO": {
+          "questions": 707,
+          "routes": 183
+        },
+        "U-E1/hold/YES": {
+          "questions": 1465,
+          "routes": 1391
+        },
+        "U-E1/proceed/NO": {
+          "questions": 60762,
+          "routes": 1390
+        },
+        "U-E1/proceed/YES": {
+          "questions": 320,
+          "routes": 213
+        },
+        "U-E1/re_yield/NO": {
+          "questions": 773,
+          "routes": 185
+        },
+        "U-E1/re_yield/YES": {
+          "questions": 15,
+          "routes": 15
+        },
+        "U-E1/recover_follow/NO": {
+          "questions": 1009,
+          "routes": 119
+        },
+        "U-E1/recover_follow/YES": {
+          "questions": 159,
+          "routes": 144
+        },
+        "U-E1/release/NO": {
+          "questions": 203,
+          "routes": 124
+        },
+        "U-E1/release/YES": {
+          "questions": 21,
+          "routes": 21
+        },
+        "U-E1/renewed_restriction/NO": {
+          "questions": 753,
+          "routes": 185
+        },
+        "U-E1/renewed_restriction/YES": {
+          "questions": 14,
+          "routes": 14
+        },
+        "U-E1/restrict/YES": {
+          "questions": 1444,
+          "routes": 1390
+        },
+        "U-E1/stable/NO": {
+          "questions": 567,
+          "routes": 183
+        },
+        "U-E4/hold/YES": {
+          "questions": 1054,
+          "routes": 906
+        },
+        "U-E4/proceed/NO": {
+          "questions": 9607,
+          "routes": 905
+        },
+        "U-E4/proceed/YES": {
+          "questions": 770,
+          "routes": 153
+        },
+        "U-E4/restrict/YES": {
+          "questions": 1054,
+          "routes": 906
+        }
+      },
+      "original_manual_rows_preserved": 443,
+      "heldout_and_review_bytes_preserved": true,
+      "weak_input_exclusions": {
+        "manual_input_overlap": 66
+      },
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 82375,
+      "budget": 400,
+      "primary_edge_presentations": 378,
+      "coverage": {
+        "1": {
+          "missing": 80666,
+          "seen": 711,
+          "complete": false
+        },
+        "4": {
+          "missing": 80666,
+          "seen": 711,
+          "complete": false
+        }
+      }
+    }
+  },
+  "references": {
+    "2": {
+      "val": 8736,
+      "test": 8369
+    },
+    "4": {
+      "val": 8736,
+      "test": 8369
+    }
+  },
+  "blind_review": {
+    "cards": 933,
+    "routes": 57,
+    "classes": 12,
+    "best_case_passable": 0,
+    "reviewed": 0
+  },
+  "independent_active_routes": 93,
+  "independent_retired_routes": 16,
+  "strict_approved_classes": 0,
+  "full_replay_target_counts_unchanged_after_sampling_fix": true,
+  "protected_sources_unchanged": {
+    "taxonomy.py": true,
+    "prompts.py": true,
+    "calibration.py": true,
+    "observation.py": true,
+    "controller.py": true,
+    "maneuver_safety.py": true,
+    "teacher_controls.py": true,
+    "event_scope.py": true,
+    "selection.py": true,
+    "reviewed_state_pairs_v9.json": true,
+    "reviewed_holdout_state_pairs_v3.json": true
+  },
+  "visual_audit": {
+    "new_human_viewed_rgb": 0,
+    "new_full_sequences": 0,
+    "independent_human_labels": 0,
+    "user_exposure_groups_registered": 3,
+    "unresolved_group": "OppositeVehicleRunningRedLight/Town01 exact ID missing"
+  },
+  "source_check_retry": {
+    "first_build_rejected": true,
+    "persistent_mismatch_reproduced": false,
+    "source_recheck": {
+      "checked_questions": 81000,
+      "checked_files": 316794,
+      "bad": []
+    },
+    "retry": "explicit absolute data root; diagnostic wrapper delegates original validation; no checks bypassed"
+  },
+  "gpu_training_executed": false,
+  "carla_closed_loop_verified": false,
+  "artifact_root": "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v30_full"
+}

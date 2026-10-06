@@ -1,0 +1,2043 @@
+{
+  "policy": "phase4_transition_review_queue_v2",
+  "queue_sha256": "74b48856b09688f49b93d0a8af68e338ef1d77e273ac9bffd9feeeb819692342",
+  "reviewer": "Codex v25 actual-input RGB re-review; rule author, not independent certification",
+  "decisions": [
+    {
+      "card_id": "f893c79d01c615fdf2b08b76a091fb523aaae722f77a5e52ef3edf54a2def76e",
+      "status": "deferred",
+      "phase": "uncertain",
+      "target": "UNKNOWN",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": null,
+        "corridor_clear": null,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "64": {
+          "rgb_sha256": "304e14a53742d720c94b1aa2adf70d42a34f374805823290329dca2eabb8e160",
+          "observed_until": 64,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "65": {
+          "rgb_sha256": "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f",
+          "observed_until": 65,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "66": {
+          "rgb_sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b",
+          "observed_until": 66,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "67": {
+          "rgb_sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+          "observed_until": 67,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "68": {
+          "rgb_sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+          "observed_until": 68,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "69": {
+          "rgb_sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+          "observed_until": 69,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "70": {
+          "rgb_sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+          "observed_until": 70,
+          "usable": true,
+          "observation": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              66,
+              70
+            ],
+            "sha256": [
+              "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b",
+              "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+            ],
+            "disposition": "uncertain",
+            "reason": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              64,
+              66,
+              68,
+              70
+            ],
+            "sha256": [
+              "304e14a53742d720c94b1aa2adf70d42a34f374805823290329dca2eabb8e160",
+              "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b",
+              "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+              "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+            ],
+            "disposition": "uncertain",
+            "reason": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "8a62c232d7ec790b0540c0d60fed34629f03b952d5116fdd9b8f66ead18f24dd",
+      "status": "deferred",
+      "phase": "uncertain",
+      "target": "UNKNOWN",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": null,
+        "corridor_clear": null,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "65": {
+          "rgb_sha256": "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f",
+          "observed_until": 65,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "66": {
+          "rgb_sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b",
+          "observed_until": 66,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "67": {
+          "rgb_sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+          "observed_until": 67,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "68": {
+          "rgb_sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+          "observed_until": 68,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "69": {
+          "rgb_sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+          "observed_until": 69,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "70": {
+          "rgb_sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+          "observed_until": 70,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "71": {
+          "rgb_sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db",
+          "observed_until": 71,
+          "usable": true,
+          "observation": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              67,
+              71
+            ],
+            "sha256": [
+              "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+              "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+            ],
+            "disposition": "uncertain",
+            "reason": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              65,
+              67,
+              69,
+              71
+            ],
+            "sha256": [
+              "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f",
+              "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+              "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+              "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+            ],
+            "disposition": "uncertain",
+            "reason": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "b2e11f5047edfa08fea53fc0d562dbaf588c902b18ac35aeb152e0f91005569b",
+      "status": "deferred",
+      "phase": "uncertain",
+      "target": "UNKNOWN",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": null,
+        "corridor_clear": null,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "66": {
+          "rgb_sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b",
+          "observed_until": 66,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "67": {
+          "rgb_sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+          "observed_until": 67,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "68": {
+          "rgb_sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+          "observed_until": 68,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "69": {
+          "rgb_sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+          "observed_until": 69,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "70": {
+          "rgb_sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+          "observed_until": 70,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "71": {
+          "rgb_sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db",
+          "observed_until": 71,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "72": {
+          "rgb_sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562",
+          "observed_until": 72,
+          "usable": true,
+          "observation": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              68,
+              72
+            ],
+            "sha256": [
+              "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+              "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+            ],
+            "disposition": "uncertain",
+            "reason": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              66,
+              68,
+              70,
+              72
+            ],
+            "sha256": [
+              "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b",
+              "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+              "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+              "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+            ],
+            "disposition": "uncertain",
+            "reason": "Actual 2/4 RGB does not clearly establish lead release / ego successor; metadata movement alone is insufficient.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "0b034d753d5deefe0181cf698f15897698b00ee2607333bfb7234bffe00c81ec",
+      "status": "accepted",
+      "phase": "catchup",
+      "target": "YES",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": true
+      },
+      "rgb_reviews": {
+        "67": {
+          "rgb_sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+          "observed_until": 67,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "68": {
+          "rgb_sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+          "observed_until": 68,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "69": {
+          "rgb_sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+          "observed_until": 69,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "70": {
+          "rgb_sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+          "observed_until": 70,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "71": {
+          "rgb_sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db",
+          "observed_until": 71,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "72": {
+          "rgb_sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562",
+          "observed_until": 72,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "73": {
+          "rgb_sha256": "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03",
+          "observed_until": 73,
+          "usable": true,
+          "observation": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "successor_confirmed": true,
+      "current_conflict": false,
+      "transition_blocking_conflict": false,
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              69,
+              73
+            ],
+            "sha256": [
+              "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+              "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03"
+            ],
+            "disposition": "supported",
+            "reason": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only.",
+            "current_cues": [
+              {
+                "frame": 73,
+                "box": [
+                  530,
+                  220,
+                  635,
+                  305
+                ],
+                "observation": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only."
+              },
+              {
+                "frame": 73,
+                "box": [
+                  119,
+                  228,
+                  143,
+                  260
+                ],
+                "observation": "Same static lamp base; identified in actual four-frame-separated pair."
+              }
+            ],
+            "successor": {
+              "kind": "ego_progress",
+              "points": [
+                {
+                  "frame": 69,
+                  "xy": [
+                    163,
+                    245
+                  ]
+                },
+                {
+                  "frame": 73,
+                  "xy": [
+                    131,
+                    248
+                  ]
+                }
+              ],
+              "same_feature_reviewed": true,
+              "camera_motion_accounted": true,
+              "description": "Left sidewalk lamp base in same camera; outward displacement with curb/building parallax, lane heading remains straight. Coordinates manually localized in original RGB; not nearby moving cars."
+            },
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              67,
+              69,
+              71,
+              73
+            ],
+            "sha256": [
+              "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40",
+              "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+              "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db",
+              "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03"
+            ],
+            "disposition": "supported",
+            "reason": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only.",
+            "current_cues": [
+              {
+                "frame": 73,
+                "box": [
+                  530,
+                  220,
+                  635,
+                  305
+                ],
+                "observation": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only."
+              },
+              {
+                "frame": 73,
+                "box": [
+                  119,
+                  228,
+                  143,
+                  260
+                ],
+                "observation": "Same static lamp base; identified in actual four-frame-separated pair."
+              }
+            ],
+            "successor": {
+              "kind": "ego_progress",
+              "points": [
+                {
+                  "frame": 69,
+                  "xy": [
+                    163,
+                    245
+                  ]
+                },
+                {
+                  "frame": 73,
+                  "xy": [
+                    131,
+                    248
+                  ]
+                }
+              ],
+              "same_feature_reviewed": true,
+              "camera_motion_accounted": true,
+              "description": "Left sidewalk lamp base in same camera; outward displacement with curb/building parallax, lane heading remains straight. Coordinates manually localized in original RGB; not nearby moving cars."
+            },
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "9d7856d8395e4c0ff52f14a0ef4b8f9e06f9efcb4c7723521f9916f071f3e0c6",
+      "status": "accepted",
+      "phase": "catchup",
+      "target": "YES",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": true
+      },
+      "rgb_reviews": {
+        "68": {
+          "rgb_sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+          "observed_until": 68,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "69": {
+          "rgb_sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7",
+          "observed_until": 69,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "70": {
+          "rgb_sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+          "observed_until": 70,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "71": {
+          "rgb_sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db",
+          "observed_until": 71,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "72": {
+          "rgb_sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562",
+          "observed_until": 72,
+          "usable": true,
+          "observation": "Black lead remains in current lane; other vehicles visible. Small apparent movement does not independently establish a release or ego-progress label.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "73": {
+          "rgb_sha256": "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03",
+          "observed_until": 73,
+          "usable": true,
+          "observation": "黑色前车继续沿本车道驶离，空隙增大；右侧蓝车与对向车未进入自车走廊，允许向前恢复跟随，不以自车起步定标。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "74": {
+          "rgb_sha256": "6c7925eee07b0ca8b547458d97609d919fd8bc170605842a83c928899aaf78df",
+          "observed_until": 74,
+          "usable": true,
+          "observation": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "successor_confirmed": true,
+      "current_conflict": false,
+      "transition_blocking_conflict": false,
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              70,
+              74
+            ],
+            "sha256": [
+              "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+              "6c7925eee07b0ca8b547458d97609d919fd8bc170605842a83c928899aaf78df"
+            ],
+            "disposition": "supported",
+            "reason": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only.",
+            "current_cues": [
+              {
+                "frame": 74,
+                "box": [
+                  530,
+                  220,
+                  635,
+                  305
+                ],
+                "observation": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only."
+              },
+              {
+                "frame": 74,
+                "box": [
+                  84,
+                  232,
+                  108,
+                  264
+                ],
+                "observation": "Same static lamp base; identified in actual four-frame-separated pair."
+              }
+            ],
+            "successor": {
+              "kind": "ego_progress",
+              "points": [
+                {
+                  "frame": 70,
+                  "xy": [
+                    163,
+                    245
+                  ]
+                },
+                {
+                  "frame": 74,
+                  "xy": [
+                    96,
+                    252
+                  ]
+                }
+              ],
+              "same_feature_reviewed": true,
+              "camera_motion_accounted": true,
+              "description": "Left sidewalk lamp base in same camera; outward displacement with curb/building parallax, lane heading remains straight. Coordinates manually localized in original RGB; not nearby moving cars."
+            },
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              68,
+              70,
+              72,
+              74
+            ],
+            "sha256": [
+              "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b",
+              "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743",
+              "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562",
+              "6c7925eee07b0ca8b547458d97609d919fd8bc170605842a83c928899aaf78df"
+            ],
+            "disposition": "supported",
+            "reason": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only.",
+            "current_cues": [
+              {
+                "frame": 74,
+                "box": [
+                  530,
+                  220,
+                  635,
+                  305
+                ],
+                "observation": "Static left lamp base shifts outward across shared four-frame input; current lead remains centered and gap usable. Old-state catchup only."
+              },
+              {
+                "frame": 74,
+                "box": [
+                  84,
+                  232,
+                  108,
+                  264
+                ],
+                "observation": "Same static lamp base; identified in actual four-frame-separated pair."
+              }
+            ],
+            "successor": {
+              "kind": "ego_progress",
+              "points": [
+                {
+                  "frame": 70,
+                  "xy": [
+                    163,
+                    245
+                  ]
+                },
+                {
+                  "frame": 74,
+                  "xy": [
+                    96,
+                    252
+                  ]
+                }
+              ],
+              "same_feature_reviewed": true,
+              "camera_motion_accounted": true,
+              "description": "Left sidewalk lamp base in same camera; outward displacement with curb/building parallax, lane heading remains straight. Coordinates manually localized in original RGB; not nearby moving cars."
+            },
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "2156a150c6f3ec53e53ea287c789996728d1ee81031f01ae1e06a51333517685",
+      "status": "accepted",
+      "phase": "readiness",
+      "target": "NO",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "41": {
+          "rgb_sha256": "192b492bc182aeb9c67c1d578511b5d458461edc42de804eed719e02ea502cc3",
+          "observed_until": 41,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "42": {
+          "rgb_sha256": "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0",
+          "observed_until": 42,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "43": {
+          "rgb_sha256": "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406",
+          "observed_until": 43,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "44": {
+          "rgb_sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97",
+          "observed_until": 44,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "45": {
+          "rgb_sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b",
+          "observed_until": 45,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "46": {
+          "rgb_sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+          "observed_until": 46,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "47": {
+          "rgb_sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+          "observed_until": 47,
+          "usable": true,
+          "observation": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              43,
+              47
+            ],
+            "sha256": [
+              "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406",
+              "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+            ],
+            "disposition": "supported",
+            "reason": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied.",
+            "current_cues": [
+              {
+                "frame": 47,
+                "box": [
+                  505,
+                  195,
+                  565,
+                  280
+                ],
+                "observation": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              41,
+              43,
+              45,
+              47
+            ],
+            "sha256": [
+              "192b492bc182aeb9c67c1d578511b5d458461edc42de804eed719e02ea502cc3",
+              "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406",
+              "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b",
+              "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+            ],
+            "disposition": "supported",
+            "reason": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied.",
+            "current_cues": [
+              {
+                "frame": 47,
+                "box": [
+                  505,
+                  195,
+                  565,
+                  280
+                ],
+                "observation": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "f760e65aff9a8187cb113aac3077424113b6231ed719d0aeeffd8c612ff5e3f6",
+      "status": "accepted",
+      "phase": "readiness",
+      "target": "NO",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "42": {
+          "rgb_sha256": "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0",
+          "observed_until": 42,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "43": {
+          "rgb_sha256": "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406",
+          "observed_until": 43,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "44": {
+          "rgb_sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97",
+          "observed_until": 44,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "45": {
+          "rgb_sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b",
+          "observed_until": 45,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "46": {
+          "rgb_sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+          "observed_until": 46,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "47": {
+          "rgb_sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+          "observed_until": 47,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "48": {
+          "rgb_sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+          "observed_until": 48,
+          "usable": true,
+          "observation": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              44,
+              48
+            ],
+            "sha256": [
+              "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97",
+              "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+            ],
+            "disposition": "supported",
+            "reason": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied.",
+            "current_cues": [
+              {
+                "frame": 48,
+                "box": [
+                  497,
+                  197,
+                  542,
+                  276
+                ],
+                "observation": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              42,
+              44,
+              46,
+              48
+            ],
+            "sha256": [
+              "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0",
+              "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97",
+              "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+              "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+            ],
+            "disposition": "supported",
+            "reason": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied.",
+            "current_cues": [
+              {
+                "frame": 48,
+                "box": [
+                  497,
+                  197,
+                  542,
+                  276
+                ],
+                "observation": "Pedestrian visibly occupies near ego travel corridor in current frame; release denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "5b9019b44c11a4b915c9b0c8e4a2f7b1e11534d060646e2c913ee3faa3e57285",
+      "status": "deferred",
+      "phase": "uncertain",
+      "target": "UNKNOWN",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": null,
+        "corridor_clear": null,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "44": {
+          "rgb_sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97",
+          "observed_until": 44,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "45": {
+          "rgb_sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b",
+          "observed_until": 45,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "46": {
+          "rgb_sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+          "observed_until": 46,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "47": {
+          "rgb_sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+          "observed_until": 47,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "48": {
+          "rgb_sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+          "observed_until": 48,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "49": {
+          "rgb_sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6",
+          "observed_until": 49,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "50": {
+          "rgb_sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed",
+          "observed_until": 50,
+          "usable": true,
+          "observation": "Pedestrian continues left on roadway. Exact footprint clearance lower bound cannot be certified from this image; no automatic permission.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              46,
+              50
+            ],
+            "sha256": [
+              "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+              "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+            ],
+            "disposition": "uncertain",
+            "reason": "Participant remains on road; no reliably localized one-metre footprint clearance lower bound or separated sidewalk in RGB.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              44,
+              46,
+              48,
+              50
+            ],
+            "sha256": [
+              "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97",
+              "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+              "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+              "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+            ],
+            "disposition": "uncertain",
+            "reason": "Participant remains on road; no reliably localized one-metre footprint clearance lower bound or separated sidewalk in RGB.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "388e6014ed914978890beec345ba384867c4c552fc9b856d009ff128d1c5d156",
+      "status": "deferred",
+      "phase": "uncertain",
+      "target": "UNKNOWN",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": null,
+        "corridor_clear": null,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "45": {
+          "rgb_sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b",
+          "observed_until": 45,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "46": {
+          "rgb_sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+          "observed_until": 46,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "47": {
+          "rgb_sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+          "observed_until": 47,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "48": {
+          "rgb_sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+          "observed_until": 48,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "49": {
+          "rgb_sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6",
+          "observed_until": 49,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "50": {
+          "rgb_sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed",
+          "observed_until": 50,
+          "usable": true,
+          "observation": "Pedestrian continues left on roadway. Exact footprint clearance lower bound cannot be certified from this image; no automatic permission.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "51": {
+          "rgb_sha256": "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe",
+          "observed_until": 51,
+          "usable": true,
+          "observation": "Pedestrian continues left on roadway. Exact footprint clearance lower bound cannot be certified from this image; no automatic permission.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              47,
+              51
+            ],
+            "sha256": [
+              "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+              "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe"
+            ],
+            "disposition": "uncertain",
+            "reason": "Participant remains on road; no reliably localized one-metre footprint clearance lower bound or separated sidewalk in RGB.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              45,
+              47,
+              49,
+              51
+            ],
+            "sha256": [
+              "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b",
+              "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+              "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6",
+              "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe"
+            ],
+            "disposition": "uncertain",
+            "reason": "Participant remains on road; no reliably localized one-metre footprint clearance lower bound or separated sidewalk in RGB.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "523cbdfe27b5a952f95bc942d505d0e98fac6f19517d894c84b9d191e9b70c48",
+      "status": "deferred",
+      "phase": "uncertain",
+      "target": "UNKNOWN",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "release_ready": null,
+        "corridor_clear": null,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "46": {
+          "rgb_sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+          "observed_until": 46,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "47": {
+          "rgb_sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db",
+          "observed_until": 47,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "48": {
+          "rgb_sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+          "observed_until": 48,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "49": {
+          "rgb_sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6",
+          "observed_until": 49,
+          "usable": true,
+          "observation": "行人在右至左横穿过程，仍影响当前近处通行区域；前方下一路口车流保留为独立限制。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "50": {
+          "rgb_sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed",
+          "observed_until": 50,
+          "usable": true,
+          "observation": "Pedestrian continues left on roadway. Exact footprint clearance lower bound cannot be certified from this image; no automatic permission.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "51": {
+          "rgb_sha256": "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe",
+          "observed_until": 51,
+          "usable": true,
+          "observation": "Pedestrian continues left on roadway. Exact footprint clearance lower bound cannot be certified from this image; no automatic permission.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "52": {
+          "rgb_sha256": "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5",
+          "observed_until": 52,
+          "usable": true,
+          "observation": "Pedestrian continues left on roadway. Exact footprint clearance lower bound cannot be certified from this image; no automatic permission.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              48,
+              52
+            ],
+            "sha256": [
+              "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+              "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5"
+            ],
+            "disposition": "uncertain",
+            "reason": "Participant remains on road; no reliably localized one-metre footprint clearance lower bound or separated sidewalk in RGB.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              46,
+              48,
+              50,
+              52
+            ],
+            "sha256": [
+              "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7",
+              "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5",
+              "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed",
+              "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5"
+            ],
+            "disposition": "uncertain",
+            "reason": "Participant remains on road; no reliably localized one-metre footprint clearance lower bound or separated sidewalk in RGB.",
+            "current_cues": [],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "244f158be336d0819889521e8fd80ba0579f32697958b2b82a09485262e5e611",
+      "status": "accepted",
+      "phase": "readiness",
+      "target": "NO",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [
+        "968b0d8af7bddd3256344f2c2ac43a4b8186bdfde1e502b203ce4578ef1597f0"
+      ],
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": false,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "27": {
+          "rgb_sha256": "81a41f72df5e542ddef3198d0b1ca2e64c05bfac5018d2e7bac15d9930a07e53",
+          "observed_until": 27,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "28": {
+          "rgb_sha256": "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56",
+          "observed_until": 28,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "29": {
+          "rgb_sha256": "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519",
+          "observed_until": 29,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "30": {
+          "rgb_sha256": "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa",
+          "observed_until": 30,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "31": {
+          "rgb_sha256": "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7",
+          "observed_until": 31,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "32": {
+          "rgb_sha256": "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6",
+          "observed_until": 32,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "33": {
+          "rgb_sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7",
+          "observed_until": 33,
+          "usable": true,
+          "observation": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visible_maneuver_scope_reviewed": true,
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              29,
+              33
+            ],
+            "sha256": [
+              "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519",
+              "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+            ],
+            "disposition": "supported",
+            "reason": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied.",
+            "current_cues": [
+              {
+                "frame": 33,
+                "box": [
+                  660,
+                  220,
+                  935,
+                  355
+                ],
+                "observation": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              27,
+              29,
+              31,
+              33
+            ],
+            "sha256": [
+              "81a41f72df5e542ddef3198d0b1ca2e64c05bfac5018d2e7bac15d9930a07e53",
+              "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519",
+              "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7",
+              "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+            ],
+            "disposition": "supported",
+            "reason": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied.",
+            "current_cues": [
+              {
+                "frame": 33,
+                "box": [
+                  660,
+                  220,
+                  935,
+                  355
+                ],
+                "observation": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "53dbe70115948af1fcd3be6fbb7048550f669a65c62dd360f3fd06837e3054bc",
+      "status": "accepted",
+      "phase": "readiness",
+      "target": "NO",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [
+        "968b0d8af7bddd3256344f2c2ac43a4b8186bdfde1e502b203ce4578ef1597f0"
+      ],
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": false,
+        "priority_satisfied": null
+      },
+      "rgb_reviews": {
+        "28": {
+          "rgb_sha256": "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56",
+          "observed_until": 28,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "29": {
+          "rgb_sha256": "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519",
+          "observed_until": 29,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "30": {
+          "rgb_sha256": "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa",
+          "observed_until": 30,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "31": {
+          "rgb_sha256": "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7",
+          "observed_until": 31,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "32": {
+          "rgb_sha256": "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6",
+          "observed_until": 32,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "33": {
+          "rgb_sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7",
+          "observed_until": 33,
+          "usable": true,
+          "observation": "左侧护栏旁本车道施工拖车可见，右侧相邻目标车道有近距离黄色车及黑车；右绕可见间隙不成立。强逆光不妨碍确认这些近处阻挡，未据零语义计数排除锥桶，也未推断后方安全。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "34": {
+          "rgb_sha256": "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c",
+          "observed_until": 34,
+          "usable": true,
+          "observation": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visible_maneuver_scope_reviewed": true,
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              30,
+              34
+            ],
+            "sha256": [
+              "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa",
+              "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c"
+            ],
+            "disposition": "supported",
+            "reason": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied.",
+            "current_cues": [
+              {
+                "frame": 34,
+                "box": [
+                  595,
+                  235,
+                  815,
+                  305
+                ],
+                "observation": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              28,
+              30,
+              32,
+              34
+            ],
+            "sha256": [
+              "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56",
+              "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa",
+              "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6",
+              "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c"
+            ],
+            "disposition": "supported",
+            "reason": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied.",
+            "current_cues": [
+              {
+                "frame": 34,
+                "box": [
+                  595,
+                  235,
+                  815,
+                  305
+                ],
+                "observation": "Yellow taxi occupies adjacent right entry corridor, black vehicle ahead; visible gap denied."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "a56cde40ddd508e2884735c9c0b1dd889543d49b1504a869b9d563d5b6da3cf4",
+      "status": "accepted",
+      "phase": "readiness",
+      "target": "YES",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": true,
+        "priority_satisfied": true
+      },
+      "rgb_reviews": {
+        "38": {
+          "rgb_sha256": "25fc1274414593c3fbaf5b793f02ec66f148ba04bf78aecadcf52f4fd2b08c7f",
+          "observed_until": 38,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "39": {
+          "rgb_sha256": "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c",
+          "observed_until": 39,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "40": {
+          "rgb_sha256": "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b",
+          "observed_until": 40,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "41": {
+          "rgb_sha256": "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1",
+          "observed_until": 41,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "42": {
+          "rgb_sha256": "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799",
+          "observed_until": 42,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "43": {
+          "rgb_sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc",
+          "observed_until": 43,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "44": {
+          "rgb_sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8",
+          "observed_until": 44,
+          "usable": true,
+          "observation": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visible_maneuver_scope_reviewed": true,
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              40,
+              44
+            ],
+            "sha256": [
+              "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b",
+              "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+            ],
+            "disposition": "supported",
+            "reason": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified.",
+            "current_cues": [
+              {
+                "frame": 44,
+                "box": [
+                  440,
+                  195,
+                  625,
+                  383
+                ],
+                "observation": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              38,
+              40,
+              42,
+              44
+            ],
+            "sha256": [
+              "25fc1274414593c3fbaf5b793f02ec66f148ba04bf78aecadcf52f4fd2b08c7f",
+              "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b",
+              "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799",
+              "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+            ],
+            "disposition": "supported",
+            "reason": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified.",
+            "current_cues": [
+              {
+                "frame": 44,
+                "box": [
+                  440,
+                  195,
+                  625,
+                  383
+                ],
+                "observation": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    },
+    {
+      "card_id": "a57941bbed6ccf8b6f01dd97585fec14a11b2b04019a0e2fe9e76b9607277c6a",
+      "status": "accepted",
+      "phase": "readiness",
+      "target": "YES",
+      "event_identity_reviewed": true,
+      "state_pair_reviewed": true,
+      "local_scope_and_priority_reviewed": true,
+      "risk_ids_reviewed": [],
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": true,
+        "priority_satisfied": true
+      },
+      "rgb_reviews": {
+        "39": {
+          "rgb_sha256": "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c",
+          "observed_until": 39,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "40": {
+          "rgb_sha256": "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b",
+          "observed_until": 40,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "41": {
+          "rgb_sha256": "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1",
+          "observed_until": 41,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "42": {
+          "rgb_sha256": "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799",
+          "observed_until": 42,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "43": {
+          "rgb_sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc",
+          "observed_until": 43,
+          "usable": true,
+          "observation": "前方橙色车与右侧蓝车仍可见，护栏和白线界定道路；逐帧观察分叉的形成，未把此历史帧当作许可。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "44": {
+          "rgb_sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8",
+          "observed_until": 44,
+          "usable": true,
+          "observation": "当前可见左侧分支沿原路线向前展开，橙色与蓝色车辆在右侧主线；目标分支近处无可见侵入或横穿，按FORWARD进入左侧出口分支的可见范围条件成立。浓雾限制远方，未推断后侧完整安全；此许可仍须规划器安全准入。",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        },
+        "45": {
+          "rgb_sha256": "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17",
+          "observed_until": 45,
+          "usable": true,
+          "observation": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified.",
+          "participant_identity_reviewed": true,
+          "transition_scope_reviewed": true,
+          "instance_boundary_reviewed": true
+        }
+      },
+      "visible_maneuver_scope_reviewed": true,
+      "visual_review": {
+        "policy": "phase4_mode_specific_visual_review_v1",
+        "modes": {
+          "2": {
+            "frames": [
+              41,
+              45
+            ],
+            "sha256": [
+              "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1",
+              "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17"
+            ],
+            "disposition": "supported",
+            "reason": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified.",
+            "current_cues": [
+              {
+                "frame": 45,
+                "box": [
+                  440,
+                  195,
+                  625,
+                  383
+                ],
+                "observation": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          },
+          "4": {
+            "frames": [
+              39,
+              41,
+              43,
+              45
+            ],
+            "sha256": [
+              "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c",
+              "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1",
+              "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc",
+              "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17"
+            ],
+            "disposition": "supported",
+            "reason": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified.",
+            "current_cues": [
+              {
+                "frame": 45,
+                "box": [
+                  440,
+                  195,
+                  625,
+                  383
+                ],
+                "observation": "Near left route fork visibly available; Mini vehicles remain on right mainline. Far fog and rear safety not certified."
+              }
+            ],
+            "successor": null,
+            "lead_release": null,
+            "vulnerable_clearance": null,
+            "signal_identity": null
+          }
+        }
+      }
+    }
+  ]
+}

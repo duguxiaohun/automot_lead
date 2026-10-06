@@ -1,0 +1,14 @@
+{
+  "tests_passed": 15,
+  "current_source_contract_unchanged": true,
+  "selected_existing_dataset": "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_v38_full",
+  "launcher_sources": {
+    "run.sh": "b0b2c9fd7263102529f0e05ce6c5b47f93339ef1894717fa2c5bd14c4885b88f",
+    "auto_run.py": "f898de3cadffa51032b9812c72cabd46c963e2d7b81608146c2a059aae8e3e78"
+  },
+  "model_repo": "Qwen/Qwen3.5-4B",
+  "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "model_download_test": "mocked",
+  "gpu_training": false,
+  "new_rgb_audit": false
+}

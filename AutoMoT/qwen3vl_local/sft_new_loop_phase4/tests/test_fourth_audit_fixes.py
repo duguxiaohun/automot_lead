@@ -1,3 +1,4 @@
+from qwen3vl_local.sft_new_loop_phase4.tests.safety_fixtures import clearances, loop_clearances
 import copy
 import json
 import pytest
@@ -17,8 +18,8 @@ def at_twelve(ep,key,obs):
 
 
 def observations():
-    return [dict(frame_id=10,truth={'depart':'YES'}),dict(frame_id=11,truth={}),
-            dict(frame_id=12,truth={'depart':'YES'},execution_committed=True)]
+    return [dict(visible_truth_scope='visible_maneuver_conditions_v1',frame_id=f,truth={'depart':'YES'} if f != 11 else {}, execution_committed=f==12,
+                 maneuver_clearances=clearances(Episode(**initial()),f,'depart')) for f in (10,11,12)]
 
 
 @pytest.mark.parametrize('condition',[False,True,None])
@@ -54,6 +55,13 @@ def test_reviewed_band_builder_honors_current_false_fact_over_observed_successor
             item['observation']='synthetic validation: current entry gap blocked despite observed successor'
             changed.add(int(f))
     assert changed
+    # Explicit synthetic visible-scope proof for this counterfactual guard test.
+    from qwen3vl_local.sft_new_loop_phase4.identity import file_sha
+    from qwen3vl_local.sft_new_loop_phase4.risk_review import required_frames
+    a['visible_scope_review']=dict(policy='visible_maneuver_conditions_v1',reviewer='synthetic',evidence_id='test-only',
+        frames={str(f):dict(observed_until=f,rgb_sha256=file_sha(root/a['scenario']/a['route_id']/'rgb'/f'{f:04d}.jpg'),
+            visible_conditions_reviewed=True,observation='synthetic visible conflict',
+            target=reviewed_band_labels(Episode(**a['episode']),a['edge'],b).get(f,('UNKNOWN',))[0]) for f in required_frames(a,mode)})
     target=tmp_path/'synthetic'
     dataset.build([a],root,target,rgb_mode=mode)
     data,_=dataset.load_dataset(target)

@@ -59,17 +59,17 @@ def test_real_data_roundtrip_is_train_only_and_tamper_rejected(tmp_path):
     data_root=ROOT.parents[1]/'lead_data'
     if not data_root.exists():
         pytest.skip('LEAD RGB is external; not a synthetic production readiness assertion')
-    ann=json.loads((ROOT/'reviewed_state_pairs_v3.json').read_text())
+    ann=json.loads((ROOT/'reviewed_state_pairs_v4.json').read_text())
     output=tmp_path/'dataset'
     m=dataset.build(ann,data_root,output)
-    assert m['counts']=={'train':429} and not m['ready']
-    assert m['review_queue_count']==121
+    assert m['counts']=={'train':352} and not m['ready']
+    assert m['review_queue_count']==234
     data,_=dataset.load_dataset(output)
     assert not data['val'] and not data['test']
     assert {r['target'] for r in data['train']}=={'YES','NO'}
     assert any(r['slice']=='catchup' for r in data['train'])
     with pytest.raises(ValueError,match='support'):
-        dataset.load_dataset(output,require_ready=True)
+        dataset.load_dataset(output,require_complete_coverage=True)
     with (output/'train.jsonl').open('a') as f:f.write('\n')
     with pytest.raises(ValueError,match='hash'):
         dataset.load_dataset(output)

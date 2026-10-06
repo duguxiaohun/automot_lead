@@ -1,0 +1,2768 @@
+[
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_1520_0_route0_01_10_04_48_36",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_1520_0_route0_01_10_04_48_36/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_0_U-E5_proceed_69",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 69,
+      "review_end": 76,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 77,
+        "kind": "review_end",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "69": {
+          "phase": "readiness",
+          "observed_until": 69,
+          "observation": "f69: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "70": {
+          "phase": "readiness",
+          "observed_until": 70,
+          "observation": "f70: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "71": {
+          "phase": "readiness",
+          "observed_until": 71,
+          "observation": "f71: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "72": {
+          "phase": "uncertain",
+          "observed_until": 72,
+          "observation": "f72: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "73": {
+          "phase": "uncertain",
+          "observed_until": 73,
+          "observation": "f73: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "74": {
+          "phase": "uncertain",
+          "observed_until": 74,
+          "observation": "f74: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "75": {
+          "phase": "uncertain",
+          "observed_until": 75,
+          "observation": "f75: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "76": {
+          "phase": "uncertain",
+          "observed_until": 76,
+          "observation": "f76: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "69": "e298c64dd499506ebf981c68f384894d478b547279688cd97b54a24aef4f2ad3",
+      "70": "375478270d52718c3922ad81b36bcd25a124b60bd29424009e4787cd697167e6",
+      "71": "2a95e5437574b4b8863125c96a717855c8b17107b2d6ec39442a2a12325004b9",
+      "72": "497ec8a383f18e314bd9079a09499eb3aa6bee8d5676eb03961bb9df86e74f58",
+      "73": "50e7bd7a05419892d6bb960a69f36df3db2f82c4c63671df83573e2082b56b47",
+      "74": "142c4d6fe5d54b2d0550a2237377ca3a585709335735c07ed2d9caf86b14c8eb",
+      "75": "42341d6c51c814e7039028adf214d7e2dca911b8c9cc867679e9119ee5473e48",
+      "76": "180918b4eaa9f88d04a0cf158176571bba8788af7a74267097fb07bf3513d5b1"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_3000_0_route0_01_10_20_01_38",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_3000_0_route0_01_10_20_01_38/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_1_U-E5_proceed_57",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 57,
+      "review_end": 65,
+      "reference_frame": 62,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 65,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "57": {
+          "phase": "readiness",
+          "observed_until": 57,
+          "observation": "f57: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "58": {
+          "phase": "readiness",
+          "observed_until": 58,
+          "observation": "f58: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "59": {
+          "phase": "readiness",
+          "observed_until": 59,
+          "observation": "f59: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "60": {
+          "phase": "readiness",
+          "observed_until": 60,
+          "observation": "f60: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "61": {
+          "phase": "uncertain",
+          "observed_until": 61,
+          "observation": "f61: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "62": {
+          "phase": "catchup",
+          "observed_until": 62,
+          "observation": "f62: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "63": {
+          "phase": "catchup",
+          "observed_until": 63,
+          "observation": "f63: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "64": {
+          "phase": "catchup",
+          "observed_until": 64,
+          "observation": "f64: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "65": {
+          "phase": "excluded",
+          "observed_until": 65,
+          "observation": "f65: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "57": "83134b2709185cd1765309011c79a867e8649c5731d5c2a8a2cac7e27cbcb6cf",
+      "58": "4adc6b5f10fb66380e17156bd449cda894b3583da87157610f3a8d0e45149567",
+      "59": "d269524fb5c562654b7a474b84247fb75de82bd23a4bf4c2774435484045fbd6",
+      "60": "11917068b659abab97080e86466874b532c0fc0be6bbcaaf99e0ccfefc6b853c",
+      "61": "1e65a6b232757f952d3a1b805b498614113d804a71ba845913293ce8e548abd9",
+      "62": "ca82fe26084cac81edda108fb9bcd8a8093cd762a6f3c91ce243aa625abaa7ce",
+      "63": "62e094b4301f7c6a244ba1e26989f1516eb55464e73a962175cb1031f386a2c5",
+      "64": "8c2d2864da94e7df2d35d799d1f94be94ce637baa300e811bbadd2214390c663",
+      "65": "de429394bd14033fba5e2e8b95b2bf53300ceca780d79f2aa76181750d17a11c"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_518_0_route0_01_09_02_51_35",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_518_0_route0_01_09_02_51_35/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_2_U-E5_proceed_70",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 70,
+      "review_end": 80,
+      "reference_frame": 77,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 80,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "70": {
+          "phase": "readiness",
+          "observed_until": 70,
+          "observation": "f70: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "71": {
+          "phase": "readiness",
+          "observed_until": 71,
+          "observation": "f71: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "72": {
+          "phase": "readiness",
+          "observed_until": 72,
+          "observation": "f72: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "73": {
+          "phase": "readiness",
+          "observed_until": 73,
+          "observation": "f73: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "74": {
+          "phase": "readiness",
+          "observed_until": 74,
+          "observation": "f74: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "75": {
+          "phase": "uncertain",
+          "observed_until": 75,
+          "observation": "f75: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "76": {
+          "phase": "uncertain",
+          "observed_until": 76,
+          "observation": "f76: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "77": {
+          "phase": "catchup",
+          "observed_until": 77,
+          "observation": "f77: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "78": {
+          "phase": "catchup",
+          "observed_until": 78,
+          "observation": "f78: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "79": {
+          "phase": "catchup",
+          "observed_until": 79,
+          "observation": "f79: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "80": {
+          "phase": "excluded",
+          "observed_until": 80,
+          "observation": "f80: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "70": "1c8565a2c3eca22626d4372f6de3c89bde11bdd11a5ed56975a5c452fe1bb255",
+      "71": "df2ec082de7f2bd79cf5f7c2a8e05f04d729f85005fe21e6d6f54702c15f282a",
+      "72": "765870c05a207a7a3264ae5f61b296e9f332e2accde3c6535f90d9fb0221ec5a",
+      "73": "42afe2f7b6b35962ba53146235665d5a3d7bd275bc7e1b65d6fb7e3051242f85",
+      "74": "8ad52d7c5a3e03f3333cb4a90dddda37fa1685d6c9c908cacb5c1f1e554fd181",
+      "75": "52a158952af4b614d2608d0891de20f6ae5bbbc1488d049b257619f57287091a",
+      "76": "64ffbd15108a6db66fd5cb891d49c3ef2806580118ebe76d56a4a6060eb5df25",
+      "77": "eea286740a08172c39da5357935fa7059b6847692f9f66c864a4be4a196afa11",
+      "78": "f3f1a7d21e3238dfbe1c5bf5c0d117eddc3c9d72379838dfad5628c55ace2553",
+      "79": "89f0d278626e5356a9d74cc39e7b089a98751b080cbff18599c25a99a24bfc80",
+      "80": "3e362de72be7a9217852589ac8fdbef184e5f0a76e1f82c29a0a2c6c2ec2ca58"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_518_0_route0_01_09_02_51_35",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_518_0_route0_01_09_02_51_35/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_2_U-E5_release_70",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 70,
+      "review_end": 80,
+      "reference_frame": 77,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 80,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "70": {
+          "phase": "readiness",
+          "observed_until": 70,
+          "observation": "f70: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "71": {
+          "phase": "readiness",
+          "observed_until": 71,
+          "observation": "f71: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "72": {
+          "phase": "readiness",
+          "observed_until": 72,
+          "observation": "f72: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "73": {
+          "phase": "readiness",
+          "observed_until": 73,
+          "observation": "f73: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "74": {
+          "phase": "readiness",
+          "observed_until": 74,
+          "observation": "f74: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "75": {
+          "phase": "uncertain",
+          "observed_until": 75,
+          "observation": "f75: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "76": {
+          "phase": "uncertain",
+          "observed_until": 76,
+          "observation": "f76: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "77": {
+          "phase": "catchup",
+          "observed_until": 77,
+          "observation": "f77: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "78": {
+          "phase": "catchup",
+          "observed_until": 78,
+          "observation": "f78: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "79": {
+          "phase": "catchup",
+          "observed_until": 79,
+          "observation": "f79: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "80": {
+          "phase": "excluded",
+          "observed_until": 80,
+          "observation": "f80: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "70": "1c8565a2c3eca22626d4372f6de3c89bde11bdd11a5ed56975a5c452fe1bb255",
+      "71": "df2ec082de7f2bd79cf5f7c2a8e05f04d729f85005fe21e6d6f54702c15f282a",
+      "72": "765870c05a207a7a3264ae5f61b296e9f332e2accde3c6535f90d9fb0221ec5a",
+      "73": "42afe2f7b6b35962ba53146235665d5a3d7bd275bc7e1b65d6fb7e3051242f85",
+      "74": "8ad52d7c5a3e03f3333cb4a90dddda37fa1685d6c9c908cacb5c1f1e554fd181",
+      "75": "52a158952af4b614d2608d0891de20f6ae5bbbc1488d049b257619f57287091a",
+      "76": "64ffbd15108a6db66fd5cb891d49c3ef2806580118ebe76d56a4a6060eb5df25",
+      "77": "eea286740a08172c39da5357935fa7059b6847692f9f66c864a4be4a196afa11",
+      "78": "f3f1a7d21e3238dfbe1c5bf5c0d117eddc3c9d72379838dfad5628c55ace2553",
+      "79": "89f0d278626e5356a9d74cc39e7b089a98751b080cbff18599c25a99a24bfc80",
+      "80": "3e362de72be7a9217852589ac8fdbef184e5f0a76e1f82c29a0a2c6c2ec2ca58"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_3077_0_route0_01_09_19_30_54",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_3077_0_route0_01_09_19_30_54/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_3_U-E5_proceed_63",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 63,
+      "review_end": 70,
+      "reference_frame": 69,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 70,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "63": {
+          "phase": "readiness",
+          "observed_until": 63,
+          "observation": "f63: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "64": {
+          "phase": "readiness",
+          "observed_until": 64,
+          "observation": "f64: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "65": {
+          "phase": "readiness",
+          "observed_until": 65,
+          "observation": "f65: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "66": {
+          "phase": "readiness",
+          "observed_until": 66,
+          "observation": "f66: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "67": {
+          "phase": "uncertain",
+          "observed_until": 67,
+          "observation": "f67: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "68": {
+          "phase": "uncertain",
+          "observed_until": 68,
+          "observation": "f68: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "69": {
+          "phase": "catchup",
+          "observed_until": 69,
+          "observation": "f69: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "70": {
+          "phase": "excluded",
+          "observed_until": 70,
+          "observation": "f70: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "63": "70fd158c081cac2a30d0d02dfbebc4663d4951446479b38840b9bb18c9782848",
+      "64": "b086560d909da85082f9e6b005ef7aeb20d7b496da881c9bbb56b866194eabfe",
+      "65": "47947553fee99c7d53390a69325c763e3ce037dd4141b980fe475e6c77192417",
+      "66": "feab2fe9eba759f7f2f38358501555b412c586345b271941d716b13890d0d8a5",
+      "67": "ffea27d0e1103a2d69b3da07e9904b772d43b5ab8f0e9dcee26aa6d9f5c28c63",
+      "68": "4d4a15dd09669b496032b6bdda9881011adca6e873c54abed13443e9e09c4897",
+      "69": "c296c24e43d3e28a804da1166d859a856ea7643248e2c4fd9432e2ef34425e45",
+      "70": "6fa050be26948eb47d486a22b1f29498a62a90d11d1323fe379a78594b063acb"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_4195_0_route0_01_09_08_28_04",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_4195_0_route0_01_09_08_28_04/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_4_U-E5_proceed_92",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 92,
+      "review_end": 101,
+      "reference_frame": 98,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 101,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "92": {
+          "phase": "readiness",
+          "observed_until": 92,
+          "observation": "f92: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "93": {
+          "phase": "readiness",
+          "observed_until": 93,
+          "observation": "f93: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "94": {
+          "phase": "readiness",
+          "observed_until": 94,
+          "observation": "f94: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "95": {
+          "phase": "readiness",
+          "observed_until": 95,
+          "observation": "f95: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "96": {
+          "phase": "uncertain",
+          "observed_until": 96,
+          "observation": "f96: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "97": {
+          "phase": "uncertain",
+          "observed_until": 97,
+          "observation": "f97: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "98": {
+          "phase": "catchup",
+          "observed_until": 98,
+          "observation": "f98: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "99": {
+          "phase": "catchup",
+          "observed_until": 99,
+          "observation": "f99: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "100": {
+          "phase": "catchup",
+          "observed_until": 100,
+          "observation": "f100: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "101": {
+          "phase": "excluded",
+          "observed_until": 101,
+          "observation": "f101: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "92": "19c76297d158d2ca5f6a16b36f4795532aee58e629c57232081162d534c5d532",
+      "93": "33e673ef78ad03b3307d5e9db02df76b25f3c64bd77ed4c9860f86bde03061e8",
+      "94": "68f50baf895754bf984c5470adc0e9eaeecf54bcbcb745021157f0bbfa819e7c",
+      "95": "c1e552a8452497307bb2d02ab867b4d30913a0ef30e951245d4d64e2a0dbb84f",
+      "96": "8a69b89b5a51cb3f302e8939165126cde008a3485032c7db327163a55daa1725",
+      "97": "fefe71f4e445e4f406d0451c759a66d6f43a93b807cbc167d8e3b580a883a27c",
+      "98": "809d92b2ffefb3f97fd5ae294d4e7954eeed3b358f49d12352127d3c82e6de41",
+      "99": "489d48e9f6c0abe025a5bf4aaf1481a7aa8d5176c67b14b3e1fe456e2a9b5324",
+      "100": "c885dbdbd7ac03ca520714c68357dcf72461664fb849afee51b9ae8786615f8e",
+      "101": "98d6b6e7f0b6d9caf651ab5343744833e9b14bad6092de835fa389793b269566"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_4195_0_route0_01_09_08_28_04",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_4195_0_route0_01_09_08_28_04/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_4_U-E5_release_92",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 92,
+      "review_end": 101,
+      "reference_frame": 98,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 101,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "92": {
+          "phase": "readiness",
+          "observed_until": 92,
+          "observation": "f92: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "93": {
+          "phase": "readiness",
+          "observed_until": 93,
+          "observation": "f93: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "94": {
+          "phase": "readiness",
+          "observed_until": 94,
+          "observation": "f94: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "95": {
+          "phase": "readiness",
+          "observed_until": 95,
+          "observation": "f95: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "96": {
+          "phase": "uncertain",
+          "observed_until": 96,
+          "observation": "f96: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "97": {
+          "phase": "uncertain",
+          "observed_until": 97,
+          "observation": "f97: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "98": {
+          "phase": "catchup",
+          "observed_until": 98,
+          "observation": "f98: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "99": {
+          "phase": "catchup",
+          "observed_until": 99,
+          "observation": "f99: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "100": {
+          "phase": "catchup",
+          "observed_until": 100,
+          "observation": "f100: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "101": {
+          "phase": "excluded",
+          "observed_until": 101,
+          "observation": "f101: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "92": "19c76297d158d2ca5f6a16b36f4795532aee58e629c57232081162d534c5d532",
+      "93": "33e673ef78ad03b3307d5e9db02df76b25f3c64bd77ed4c9860f86bde03061e8",
+      "94": "68f50baf895754bf984c5470adc0e9eaeecf54bcbcb745021157f0bbfa819e7c",
+      "95": "c1e552a8452497307bb2d02ab867b4d30913a0ef30e951245d4d64e2a0dbb84f",
+      "96": "8a69b89b5a51cb3f302e8939165126cde008a3485032c7db327163a55daa1725",
+      "97": "fefe71f4e445e4f406d0451c759a66d6f43a93b807cbc167d8e3b580a883a27c",
+      "98": "809d92b2ffefb3f97fd5ae294d4e7954eeed3b358f49d12352127d3c82e6de41",
+      "99": "489d48e9f6c0abe025a5bf4aaf1481a7aa8d5176c67b14b3e1fe456e2a9b5324",
+      "100": "c885dbdbd7ac03ca520714c68357dcf72461664fb849afee51b9ae8786615f8e",
+      "101": "98d6b6e7f0b6d9caf651ab5343744833e9b14bad6092de835fa389793b269566"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_78_0_route0_01_09_12_29_40",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_5_U-E5_proceed_90",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 90,
+      "review_end": 99,
+      "reference_frame": 97,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 99,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "90": {
+          "phase": "readiness",
+          "observed_until": 90,
+          "observation": "f90: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "91": {
+          "phase": "readiness",
+          "observed_until": 91,
+          "observation": "f91: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "92": {
+          "phase": "readiness",
+          "observed_until": 92,
+          "observation": "f92: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "93": {
+          "phase": "readiness",
+          "observed_until": 93,
+          "observation": "f93: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "94": {
+          "phase": "uncertain",
+          "observed_until": 94,
+          "observation": "f94: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "95": {
+          "phase": "uncertain",
+          "observed_until": 95,
+          "observation": "f95: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "96": {
+          "phase": "uncertain",
+          "observed_until": 96,
+          "observation": "f96: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "97": {
+          "phase": "catchup",
+          "observed_until": 97,
+          "observation": "f97: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "98": {
+          "phase": "catchup",
+          "observed_until": 98,
+          "observation": "f98: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "99": {
+          "phase": "excluded",
+          "observed_until": 99,
+          "observation": "f99: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "90": "da0a7e3eb95bda60dca9a837fa8d2e637e5c61d4f48454e31ebfd0bfcd4a50cf",
+      "91": "f760a3c570dbc8be5535f43289fc004c21c0f833fb543271d1221650c9ebe4ec",
+      "92": "d48d2a906a344f0b85778fec0a1e2f34545805ddc11e3bcfc5ae6a266247a3a7",
+      "93": "0f29f9eb61e6d8fd78c61a3bfc27a0441fbbbabcc48da1bcdda9860ce9f84ddc",
+      "94": "fe45465a9bb21b9c1f2562cc93c5ead48f4c2778713e79a7a449d105b6bfd1ea",
+      "95": "fe4dbf43aef800069691061460b302025b8ef19240692cce95bbbb6958138560",
+      "96": "aa02bc96e6768d4fade13968b8464a1880ef76627c5c1a59725f7f9b26511cdf",
+      "97": "c38e4d919a6023993b6071198ac46a30ee8532f821cd07ee7c3b8dc4bda6b1e9",
+      "98": "8fbdb4ac7128da22004f4163247ac0ddcd1e5faf9725d578a3c2fedb81db6b12",
+      "99": "bed6d550e4fab017e874654924f55fe51535f947a48db38d7912d974aa9e54f6"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_78_0_route0_01_09_12_29_40",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_5_U-E5_release_90",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 90,
+      "review_end": 99,
+      "reference_frame": 97,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 99,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "90": {
+          "phase": "readiness",
+          "observed_until": 90,
+          "observation": "f90: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "91": {
+          "phase": "readiness",
+          "observed_until": 91,
+          "observation": "f91: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "92": {
+          "phase": "readiness",
+          "observed_until": 92,
+          "observation": "f92: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "93": {
+          "phase": "readiness",
+          "observed_until": 93,
+          "observation": "f93: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "94": {
+          "phase": "uncertain",
+          "observed_until": 94,
+          "observation": "f94: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "95": {
+          "phase": "uncertain",
+          "observed_until": 95,
+          "observation": "f95: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "96": {
+          "phase": "uncertain",
+          "observed_until": 96,
+          "observation": "f96: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "97": {
+          "phase": "catchup",
+          "observed_until": 97,
+          "observation": "f97: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "98": {
+          "phase": "catchup",
+          "observed_until": 98,
+          "observation": "f98: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "99": {
+          "phase": "excluded",
+          "observed_until": 99,
+          "observation": "f99: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "90": "da0a7e3eb95bda60dca9a837fa8d2e637e5c61d4f48454e31ebfd0bfcd4a50cf",
+      "91": "f760a3c570dbc8be5535f43289fc004c21c0f833fb543271d1221650c9ebe4ec",
+      "92": "d48d2a906a344f0b85778fec0a1e2f34545805ddc11e3bcfc5ae6a266247a3a7",
+      "93": "0f29f9eb61e6d8fd78c61a3bfc27a0441fbbbabcc48da1bcdda9860ce9f84ddc",
+      "94": "fe45465a9bb21b9c1f2562cc93c5ead48f4c2778713e79a7a449d105b6bfd1ea",
+      "95": "fe4dbf43aef800069691061460b302025b8ef19240692cce95bbbb6958138560",
+      "96": "aa02bc96e6768d4fade13968b8464a1880ef76627c5c1a59725f7f9b26511cdf",
+      "97": "c38e4d919a6023993b6071198ac46a30ee8532f821cd07ee7c3b8dc4bda6b1e9",
+      "98": "8fbdb4ac7128da22004f4163247ac0ddcd1e5faf9725d578a3c2fedb81db6b12",
+      "99": "bed6d550e4fab017e874654924f55fe51535f947a48db38d7912d974aa9e54f6"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1205_0_route0_01_08_21_23_12",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1205_0_route0_01_08_21_23_12/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_6_U-E5_proceed_86",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 86,
+      "review_end": 94,
+      "reference_frame": 91,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 94,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "86": {
+          "phase": "readiness",
+          "observed_until": 86,
+          "observation": "f86: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "87": {
+          "phase": "readiness",
+          "observed_until": 87,
+          "observation": "f87: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "88": {
+          "phase": "readiness",
+          "observed_until": 88,
+          "observation": "f88: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "89": {
+          "phase": "readiness",
+          "observed_until": 89,
+          "observation": "f89: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "90": {
+          "phase": "uncertain",
+          "observed_until": 90,
+          "observation": "f90: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "91": {
+          "phase": "catchup",
+          "observed_until": 91,
+          "observation": "f91: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "92": {
+          "phase": "catchup",
+          "observed_until": 92,
+          "observation": "f92: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "93": {
+          "phase": "catchup",
+          "observed_until": 93,
+          "observation": "f93: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "94": {
+          "phase": "excluded",
+          "observed_until": 94,
+          "observation": "f94: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "86": "4d65e4f4fccf2aaf79840abbb6f8f7b2744853460522bfae753b038068f6a0e1",
+      "87": "b7421f3219a7333f95808ffa3b44b6113ddfa8a16aeba946205e5cea30125c0b",
+      "88": "ae56288f8d6fa546f8ab5349365c3e647487c18d8c653010b9ba8d2b5e98b9ff",
+      "89": "4250047250da171f0d04e5edd395b8191c8de98a7e4bc20b4fe31729073ba1f3",
+      "90": "d31eec5331c72d4b3d2b5d0e531f641390f51857553b7c72755ed667317e6ca3",
+      "91": "96ee6f29b5117ca69d5bce5b9457f0c6ad7a9c19099ae5781ec6c073e872caf9",
+      "92": "363226432ad27b13d595780213312d2b2b80462fa85f030e01e608ebd795afd5",
+      "93": "91b7514755479e15118bdc36ce9cace8e0d9b98af17f76b5033365278e77c0bd",
+      "94": "5f47768f8dcf5823771e13e0b1aeb73e8cf793429d92cf9b67187d34b0aabd2c"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1205_0_route0_01_08_21_23_12",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1205_0_route0_01_08_21_23_12/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_6_U-E5_release_86",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 86,
+      "review_end": 94,
+      "reference_frame": 91,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 94,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "86": {
+          "phase": "readiness",
+          "observed_until": 86,
+          "observation": "f86: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "87": {
+          "phase": "readiness",
+          "observed_until": 87,
+          "observation": "f87: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "88": {
+          "phase": "readiness",
+          "observed_until": 88,
+          "observation": "f88: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "89": {
+          "phase": "readiness",
+          "observed_until": 89,
+          "observation": "f89: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "90": {
+          "phase": "uncertain",
+          "observed_until": 90,
+          "observation": "f90: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "91": {
+          "phase": "catchup",
+          "observed_until": 91,
+          "observation": "f91: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "92": {
+          "phase": "catchup",
+          "observed_until": 92,
+          "observation": "f92: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "93": {
+          "phase": "catchup",
+          "observed_until": 93,
+          "observation": "f93: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "94": {
+          "phase": "excluded",
+          "observed_until": 94,
+          "observation": "f94: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "86": "4d65e4f4fccf2aaf79840abbb6f8f7b2744853460522bfae753b038068f6a0e1",
+      "87": "b7421f3219a7333f95808ffa3b44b6113ddfa8a16aeba946205e5cea30125c0b",
+      "88": "ae56288f8d6fa546f8ab5349365c3e647487c18d8c653010b9ba8d2b5e98b9ff",
+      "89": "4250047250da171f0d04e5edd395b8191c8de98a7e4bc20b4fe31729073ba1f3",
+      "90": "d31eec5331c72d4b3d2b5d0e531f641390f51857553b7c72755ed667317e6ca3",
+      "91": "96ee6f29b5117ca69d5bce5b9457f0c6ad7a9c19099ae5781ec6c073e872caf9",
+      "92": "363226432ad27b13d595780213312d2b2b80462fa85f030e01e608ebd795afd5",
+      "93": "91b7514755479e15118bdc36ce9cace8e0d9b98af17f76b5033365278e77c0bd",
+      "94": "5f47768f8dcf5823771e13e0b1aeb73e8cf793429d92cf9b67187d34b0aabd2c"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1337_0_route0_01_10_22_00_49",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1337_0_route0_01_10_22_00_49/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "APPROACH"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_7_U-E5_proceed_48",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 48,
+      "review_end": 56,
+      "reference_frame": 53,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 56,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "48": {
+          "phase": "readiness",
+          "observed_until": 48,
+          "observation": "f48: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "49": {
+          "phase": "readiness",
+          "observed_until": 49,
+          "observation": "f49: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "50": {
+          "phase": "readiness",
+          "observed_until": 50,
+          "observation": "f50: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "51": {
+          "phase": "uncertain",
+          "observed_until": 51,
+          "observation": "f51: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "52": {
+          "phase": "uncertain",
+          "observed_until": 52,
+          "observation": "f52: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "53": {
+          "phase": "catchup",
+          "observed_until": 53,
+          "observation": "f53: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "54": {
+          "phase": "catchup",
+          "observed_until": 54,
+          "observation": "f54: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "55": {
+          "phase": "catchup",
+          "observed_until": 55,
+          "observation": "f55: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "56": {
+          "phase": "excluded",
+          "observed_until": 56,
+          "observation": "f56: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "48": "647416857370e2edd3a9ca43ed89a93a44f7b218e9fb91436afb46ea02418f11",
+      "49": "d424fbe4e4de684e47afea82bf3905abe86a54dfb7da1c8d603bb8888fe7d7bb",
+      "50": "6bdec7312669a322a81e64deaaf57b8e667bf718230080b245b4f749c96b43ff",
+      "51": "cc716c40124115c99d4aab05b36a1bcf91440f42404c78a7234be27f97d9b603",
+      "52": "73fb14a481cc638f6cfde09cf940fd08ce57d8b86e5687c950395a1892b19951",
+      "53": "0b968cf6fc191e80be6f37e48c96cc0ceb89cc41001d8f7639809a0c2a4d6cdd",
+      "54": "dbdbc20a0a7cb1a28eb46e977e3134db85fe47221193053ef3e25e2dbc021d65",
+      "55": "201b012fa990641d302928fe35b6c12a740484583a21e18badf22dcb3d6eecb5",
+      "56": "ece96ca7dd69a17ce1a94d8d33ad2e97a5644f6e5424f95bf44d4427c1cd0524"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1353_0_route0_01_09_16_25_18",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1353_0_route0_01_09_16_25_18/U-E5/reviewed_invading_corridor_instance",
+      "state": "YIELD",
+      "longitudinal": "HOLD"
+    },
+    "edge": "proceed",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_8_U-E5_proceed_120",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 120,
+      "review_end": 129,
+      "reference_frame": 126,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 129,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "120": {
+          "phase": "readiness",
+          "observed_until": 120,
+          "observation": "f120: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "121": {
+          "phase": "readiness",
+          "observed_until": 121,
+          "observation": "f121: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "122": {
+          "phase": "readiness",
+          "observed_until": 122,
+          "observation": "f122: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "123": {
+          "phase": "readiness",
+          "observed_until": 123,
+          "observation": "f123: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "124": {
+          "phase": "uncertain",
+          "observed_until": 124,
+          "observation": "f124: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "125": {
+          "phase": "uncertain",
+          "observed_until": 125,
+          "observation": "f125: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "126": {
+          "phase": "catchup",
+          "observed_until": 126,
+          "observation": "f126: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "127": {
+          "phase": "catchup",
+          "observed_until": 127,
+          "observation": "f127: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "128": {
+          "phase": "catchup",
+          "observed_until": 128,
+          "observation": "f128: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "129": {
+          "phase": "excluded",
+          "observed_until": 129,
+          "observation": "f129: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "120": "d5adfc25cba8069f4986ecf0412ab4863939eb88c05095b613316d08aee9d991",
+      "121": "49e5bf34e2e4259a97b8ab0ea1033aebd0c5415202e5be3a6ba0feeebc9fe5fd",
+      "122": "f1444aec7da7b9a18fdfe9ded4efb6f48bf25f76d87ac3680b3f73bf1afba777",
+      "123": "28d2d01707c9555147554d1713c85a08e67141617465c84aff948345aceaa83d",
+      "124": "2933eb37f16659da694b65782ae00830fbf3b687dd0c3240feba1d06e5780f6a",
+      "125": "5bcd1a81a63f3559fc6746fbb7d04dfb9caeecd534194c3424ee95219ff2a3aa",
+      "126": "288d203ac95ead31e6857c8a2280f1c80903b384c649225a77f53fc7f05786da",
+      "127": "dc0604c203b844f079f271fcb29cc694e307222f2f71faf37bbeae14e5afecc5",
+      "128": "e82175bd29cdc7835728c130f6b9b337c1bc0eb1ff2ea9df9608151697b97f12",
+      "129": "ec65db3db527b583f150d8e20b8f77300b20c84214624100eccc8c2d9a3e129d"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1353_0_route0_01_09_16_25_18",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1353_0_route0_01_09_16_25_18/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "HOLD"
+    },
+    "edge": "release",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_8_U-E5_release_120",
+    "observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 120,
+      "review_end": 129,
+      "reference_frame": 126,
+      "reference_kind": "successor_observed",
+      "reference_observation": "按连续RGB中的侵入车辆、锥桶与本侧走廊逐帧判断；没有从自车实际起动反推许可。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 129,
+        "kind": "next_stage",
+        "reason": "本次审核旧问题止于后续阶段；夜间看不清通道不授予YES。"
+      },
+      "frames": {
+        "120": {
+          "phase": "readiness",
+          "observed_until": 120,
+          "observation": "f120: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "121": {
+          "phase": "readiness",
+          "observed_until": 121,
+          "observation": "f121: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "122": {
+          "phase": "readiness",
+          "observed_until": 122,
+          "observation": "f122: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "123": {
+          "phase": "readiness",
+          "observed_until": 123,
+          "observation": "f123: 来车仍在锥桶收窄处占据/侵入本侧通道，需要保持让行；自车已经移动也不能证明许可。",
+          "facts": {
+            "release_ready": false
+          }
+        },
+        "124": {
+          "phase": "uncertain",
+          "observed_until": 124,
+          "observation": "f124: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "125": {
+          "phase": "uncertain",
+          "observed_until": 125,
+          "observation": "f125: 来车车尾沿近侧驶离，当前侧向余量和清空边界不确定。"
+        },
+        "126": {
+          "phase": "catchup",
+          "observed_until": 126,
+          "observation": "f126: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "127": {
+          "phase": "catchup",
+          "observed_until": 127,
+          "observation": "f127: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "128": {
+          "phase": "catchup",
+          "observed_until": 128,
+          "observation": "f128: 来车已通过，本侧近距通道清楚且可继续沿本侧推进；自车已在前进，仅作为刚转移后的旧让行状态补问，不计起步前readiness。",
+          "facts": {
+            "release_ready": true,
+            "corridor_clear": true,
+            "priority_satisfied": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "129": {
+          "phase": "excluded",
+          "observed_until": 129,
+          "observation": "f129: 进入后续持续行进/接续来车阶段，停止延长本段旧让行问题。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "120": "d5adfc25cba8069f4986ecf0412ab4863939eb88c05095b613316d08aee9d991",
+      "121": "49e5bf34e2e4259a97b8ab0ea1033aebd0c5415202e5be3a6ba0feeebc9fe5fd",
+      "122": "f1444aec7da7b9a18fdfe9ded4efb6f48bf25f76d87ac3680b3f73bf1afba777",
+      "123": "28d2d01707c9555147554d1713c85a08e67141617465c84aff948345aceaa83d",
+      "124": "2933eb37f16659da694b65782ae00830fbf3b687dd0c3240feba1d06e5780f6a",
+      "125": "5bcd1a81a63f3559fc6746fbb7d04dfb9caeecd534194c3424ee95219ff2a3aa",
+      "126": "288d203ac95ead31e6857c8a2280f1c80903b384c649225a77f53fc7f05786da",
+      "127": "dc0604c203b844f079f271fcb29cc694e307222f2f71faf37bbeae14e5afecc5",
+      "128": "e82175bd29cdc7835728c130f6b9b337c1bc0eb1ff2ea9df9608151697b97f12",
+      "129": "ec65db3db527b583f150d8e20b8f77300b20c84214624100eccc8c2d9a3e129d"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_3000_0_route0_01_10_20_01_38",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_3000_0_route0_01_10_20_01_38/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_1_U-E5_complete_60",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 60,
+      "review_end": 68,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 68,
+        "kind": "calibration_anomaly",
+        "reason": "近处车辆突然出现时截止，不延长旧实例标签。"
+      },
+      "frames": {
+        "60": {
+          "phase": "readiness",
+          "observed_until": 60,
+          "observation": "f60: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "61": {
+          "phase": "readiness",
+          "observed_until": 61,
+          "observation": "f61: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "62": {
+          "phase": "readiness",
+          "observed_until": 62,
+          "observation": "f62: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "63": {
+          "phase": "readiness",
+          "observed_until": 63,
+          "observation": "f63: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "64": {
+          "phase": "readiness",
+          "observed_until": 64,
+          "observation": "f64: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "65": {
+          "phase": "uncertain",
+          "observed_until": 65,
+          "observation": "f65: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "66": {
+          "phase": "uncertain",
+          "observed_until": 66,
+          "observation": "f66: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "67": {
+          "phase": "uncertain",
+          "observed_until": 67,
+          "observation": "f67: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "68": {
+          "phase": "excluded",
+          "observed_until": 68,
+          "observation": "f68: 本帧近处来车突然出现，之前画面无连续接近轨迹；按采集异常截止旧问题，不从随后车体消失生成YES。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "60": "11917068b659abab97080e86466874b532c0fc0be6bbcaaf99e0ccfefc6b853c",
+      "61": "1e65a6b232757f952d3a1b805b498614113d804a71ba845913293ce8e548abd9",
+      "62": "ca82fe26084cac81edda108fb9bcd8a8093cd762a6f3c91ce243aa625abaa7ce",
+      "63": "62e094b4301f7c6a244ba1e26989f1516eb55464e73a962175cb1031f386a2c5",
+      "64": "8c2d2864da94e7df2d35d799d1f94be94ce637baa300e811bbadd2214390c663",
+      "65": "de429394bd14033fba5e2e8b95b2bf53300ceca780d79f2aa76181750d17a11c",
+      "66": "408b11050d7522b5895e0fc1f40f9505f1fb0ee3ca4465c29ae0fb3129b4ddfb",
+      "67": "f1adc6c49510572780723f23dd9b9bb9407648aefa185ddb125edf3fffdc93bb",
+      "68": "4a417d9759835923ee1a9d2eebc25951f100bada081f0e3d6d09851551ffb0b0"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_518_0_route0_01_09_02_51_35",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_518_0_route0_01_09_02_51_35/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_2_U-E5_complete_90",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 90,
+      "review_end": 96,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 96,
+        "kind": "calibration_anomaly",
+        "reason": "近处车辆突然出现时截止，不延长旧实例标签。"
+      },
+      "frames": {
+        "90": {
+          "phase": "readiness",
+          "observed_until": 90,
+          "observation": "f90: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "91": {
+          "phase": "readiness",
+          "observed_until": 91,
+          "observation": "f91: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "92": {
+          "phase": "readiness",
+          "observed_until": 92,
+          "observation": "f92: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "93": {
+          "phase": "readiness",
+          "observed_until": 93,
+          "observation": "f93: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "94": {
+          "phase": "readiness",
+          "observed_until": 94,
+          "observation": "f94: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "95": {
+          "phase": "readiness",
+          "observed_until": 95,
+          "observation": "f95: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "96": {
+          "phase": "excluded",
+          "observed_until": 96,
+          "observation": "f96: 本帧近处来车突然出现，之前画面无连续接近轨迹；按采集异常截止旧问题，不从随后车体消失生成YES。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "90": "cb3e1102cb3a9facfc33b2b0456ad6c25330e4412e5e9abf42a80f2decfdb3c7",
+      "91": "081886f3eb039ae42025b4052959eae994ce2ecd31d4137d71a19541f49e389e",
+      "92": "a04c94895c099ce565fbb05971bb05a25d2eeec9bf0d9a931d0c9e7203b78a6e",
+      "93": "cd826a6340cd08dee0d38e47e3de8d1047e6ce5b0825e4ba9370acc5306d32b9",
+      "94": "6ec21c4f5034f7042d6c8e47df2170949a2c04c50f8f43979bd5f3c90c0ea2b7",
+      "95": "cbd9b99acb8a129b47d07385787a210622d51f2b5348e9ce0fbea0253fc68b3b",
+      "96": "bdd21ef07d3d05dfa38ace73edfc38cf31d1b23f15095c685e769b047068dc70"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_3077_0_route0_01_09_19_30_54",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_3077_0_route0_01_09_19_30_54/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_3_U-E5_complete_78",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 78,
+      "review_end": 88,
+      "reference_frame": 85,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 88,
+        "kind": "stable_successor",
+        "reason": "普通行进截止。"
+      },
+      "frames": {
+        "78": {
+          "phase": "readiness",
+          "observed_until": 78,
+          "observation": "f78: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "79": {
+          "phase": "readiness",
+          "observed_until": 79,
+          "observation": "f79: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "80": {
+          "phase": "readiness",
+          "observed_until": 80,
+          "observation": "f80: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "81": {
+          "phase": "readiness",
+          "observed_until": 81,
+          "observation": "f81: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "82": {
+          "phase": "uncertain",
+          "observed_until": 82,
+          "observation": "f82: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "83": {
+          "phase": "uncertain",
+          "observed_until": 83,
+          "observation": "f83: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "84": {
+          "phase": "uncertain",
+          "observed_until": 84,
+          "observation": "f84: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "85": {
+          "phase": "readiness",
+          "observed_until": 85,
+          "observation": "f85: 截至当前帧，末端锥桶和侵入车辆已通过；因果历史中本侧走廊、航向及路面位移连续，稳定行进已建立。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          }
+        },
+        "86": {
+          "phase": "catchup",
+          "observed_until": 86,
+          "observation": "f86: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "87": {
+          "phase": "catchup",
+          "observed_until": 87,
+          "observation": "f87: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "88": {
+          "phase": "excluded",
+          "observed_until": 88,
+          "observation": "f88: 进入普通行进，停止旧完成补问。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "78": "9c52957e2a8b4e37f711a97e7dd61b7031bb89f84024f0ef929071e05fe559c6",
+      "79": "2199b6a5cd138fc92deca7cc4db27b6fc93fc14ded0deedadaad530ce56d49f8",
+      "80": "41d54957e33f351251c63fbac77082cd47198958cfccb7bc49fbd6d82aaba08f",
+      "81": "c9a691ebb3410da123a34e52a535a8a3d904cb4c8356526c2dd2d91b9bf3d644",
+      "82": "8c8e01d7e335173a16f407916b86908abb56559f0cc04ee166d68b87b0d15371",
+      "83": "65acd689e57a0be6ced1dd0204d08b08ba335085c5a315f0783dbb251ba34714",
+      "84": "050b9a098f6b2e1ae95348f890eb456ad4a8e812e5cb7860e18a7e179198a170",
+      "85": "28dc0d38685504f155da3c566ddd6f8fd99b7be8043a53f12db08d16339453b6",
+      "86": "58fb932d4da2552ad07f5a6dae99e49bb02e4826d83ef2ba73945e575cd698fa",
+      "87": "75f5677b01a762f5ad8343f42c0a5db7cdc95fd5c896c7ad9cc46f97ad71152e",
+      "88": "fa4ec440d64ec739f973e5bbdfbefc5a9649efb63ca49fccde2e7603edf72165"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_4195_0_route0_01_09_08_28_04",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_4195_0_route0_01_09_08_28_04/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_4_U-E5_complete_153",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 153,
+      "review_end": 162,
+      "reference_frame": 159,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 162,
+        "kind": "stable_successor",
+        "reason": "普通行进截止。"
+      },
+      "frames": {
+        "153": {
+          "phase": "readiness",
+          "observed_until": 153,
+          "observation": "f153: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "154": {
+          "phase": "readiness",
+          "observed_until": 154,
+          "observation": "f154: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "155": {
+          "phase": "readiness",
+          "observed_until": 155,
+          "observation": "f155: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "156": {
+          "phase": "uncertain",
+          "observed_until": 156,
+          "observation": "f156: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "157": {
+          "phase": "uncertain",
+          "observed_until": 157,
+          "observation": "f157: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "158": {
+          "phase": "uncertain",
+          "observed_until": 158,
+          "observation": "f158: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "159": {
+          "phase": "readiness",
+          "observed_until": 159,
+          "observation": "f159: 截至当前帧，末端锥桶和侵入车辆已通过；因果历史中本侧走廊、航向及路面位移连续，稳定行进已建立。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          }
+        },
+        "160": {
+          "phase": "catchup",
+          "observed_until": 160,
+          "observation": "f160: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "161": {
+          "phase": "catchup",
+          "observed_until": 161,
+          "observation": "f161: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "162": {
+          "phase": "excluded",
+          "observed_until": 162,
+          "observation": "f162: 进入普通行进，停止旧完成补问。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "153": "bcd4d25dded0819051618fe07afa10fc6d7a1a8f7e953737cda48080b8a4ec41",
+      "154": "667b1a0e12b448d8856cdd6a0886816b9727aaaaf324c0c37095260b86da721b",
+      "155": "841e1e78d1a071670d1e8c4f1369f3f2bb9f0d8f323b43a5e1a2ca0533b5faf1",
+      "156": "ab20ea8522326d1cbbc60e71aa6934d8d9ca679bb53dae35bcdc44f495be46de",
+      "157": "232089c0d04f7310a7f7bc85fc8ece0a4b60dc100364cb43e5afd65faf2eca40",
+      "158": "d5f1cddbef81130975028a58781dc3e76e23007d2a8f9de4bbd60cfe19b6a7e8",
+      "159": "991fe22e0dc9ffb6914c13118c67ce62f447e13af8986cab6fe622e93dcb5fa1",
+      "160": "1fa926427acb3eaae6824bd3083651512ce129f60c5c4170f4f877f7aa2bde6d",
+      "161": "c4f8a708ab329b269b1e1cb998ed25060a61fc9dc8e983c0935c81cc75b96f8e",
+      "162": "08f342c062e9de8350acd1770e3cf16e306c84f55749855a995b9be29de04384"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_78_0_route0_01_09_12_29_40",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_78_0_route0_01_09_12_29_40/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_5_U-E5_complete_90",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 90,
+      "review_end": 102,
+      "reference_frame": 99,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 102,
+        "kind": "stable_successor",
+        "reason": "普通行进截止。"
+      },
+      "frames": {
+        "90": {
+          "phase": "readiness",
+          "observed_until": 90,
+          "observation": "f90: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "91": {
+          "phase": "readiness",
+          "observed_until": 91,
+          "observation": "f91: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "92": {
+          "phase": "readiness",
+          "observed_until": 92,
+          "observation": "f92: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "93": {
+          "phase": "readiness",
+          "observed_until": 93,
+          "observation": "f93: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "94": {
+          "phase": "uncertain",
+          "observed_until": 94,
+          "observation": "f94: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "95": {
+          "phase": "uncertain",
+          "observed_until": 95,
+          "observation": "f95: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "96": {
+          "phase": "uncertain",
+          "observed_until": 96,
+          "observation": "f96: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "97": {
+          "phase": "uncertain",
+          "observed_until": 97,
+          "observation": "f97: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "98": {
+          "phase": "uncertain",
+          "observed_until": 98,
+          "observation": "f98: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "99": {
+          "phase": "readiness",
+          "observed_until": 99,
+          "observation": "f99: 截至当前帧，末端锥桶和侵入车辆已通过；因果历史中本侧走廊、航向及路面位移连续，稳定行进已建立。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          }
+        },
+        "100": {
+          "phase": "catchup",
+          "observed_until": 100,
+          "observation": "f100: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "101": {
+          "phase": "catchup",
+          "observed_until": 101,
+          "observation": "f101: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "102": {
+          "phase": "excluded",
+          "observed_until": 102,
+          "observation": "f102: 进入普通行进，停止旧完成补问。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "90": "da0a7e3eb95bda60dca9a837fa8d2e637e5c61d4f48454e31ebfd0bfcd4a50cf",
+      "91": "f760a3c570dbc8be5535f43289fc004c21c0f833fb543271d1221650c9ebe4ec",
+      "92": "d48d2a906a344f0b85778fec0a1e2f34545805ddc11e3bcfc5ae6a266247a3a7",
+      "93": "0f29f9eb61e6d8fd78c61a3bfc27a0441fbbbabcc48da1bcdda9860ce9f84ddc",
+      "94": "fe45465a9bb21b9c1f2562cc93c5ead48f4c2778713e79a7a449d105b6bfd1ea",
+      "95": "fe4dbf43aef800069691061460b302025b8ef19240692cce95bbbb6958138560",
+      "96": "aa02bc96e6768d4fade13968b8464a1880ef76627c5c1a59725f7f9b26511cdf",
+      "97": "c38e4d919a6023993b6071198ac46a30ee8532f821cd07ee7c3b8dc4bda6b1e9",
+      "98": "8fbdb4ac7128da22004f4163247ac0ddcd1e5faf9725d578a3c2fedb81db6b12",
+      "99": "bed6d550e4fab017e874654924f55fe51535f947a48db38d7912d974aa9e54f6",
+      "100": "eeda7586114eaa1168dc9c866a2871ea1eb04196f79b1d498b2b818de8f8506e",
+      "101": "eeff35374d8a36117e470f1aaa4d4bcaf96939ec538d9febe63f21fad3e8cd48",
+      "102": "64482222f091e4e54a8642d97d4f28832992aae7733c572c4308ac708d0b5ed7"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1205_0_route0_01_08_21_23_12",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1205_0_route0_01_08_21_23_12/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_6_U-E5_complete_104",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 104,
+      "review_end": 113,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 113,
+        "kind": "calibration_anomaly",
+        "reason": "近处车辆突然出现时截止，不延长旧实例标签。"
+      },
+      "frames": {
+        "104": {
+          "phase": "readiness",
+          "observed_until": 104,
+          "observation": "f104: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "105": {
+          "phase": "readiness",
+          "observed_until": 105,
+          "observation": "f105: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "106": {
+          "phase": "readiness",
+          "observed_until": 106,
+          "observation": "f106: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "107": {
+          "phase": "readiness",
+          "observed_until": 107,
+          "observation": "f107: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "108": {
+          "phase": "readiness",
+          "observed_until": 108,
+          "observation": "f108: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "109": {
+          "phase": "readiness",
+          "observed_until": 109,
+          "observation": "f109: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "110": {
+          "phase": "readiness",
+          "observed_until": 110,
+          "observation": "f110: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "111": {
+          "phase": "uncertain",
+          "observed_until": 111,
+          "observation": "f111: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "112": {
+          "phase": "uncertain",
+          "observed_until": 112,
+          "observation": "f112: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "113": {
+          "phase": "excluded",
+          "observed_until": 113,
+          "observation": "f113: 本帧近处来车突然出现，之前画面无连续接近轨迹；按采集异常截止旧问题，不从随后车体消失生成YES。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "104": "75f152d98ae6ca7dcec6ab20402e13367a28a6554b5a95908194a60518ac8aea",
+      "105": "c82a8f432475251217ca79d5eba0dd80c9c2f9694bdf2d7bd5e41fc0a82dab4b",
+      "106": "7c86d8726439b187a729fa8ef0d1e36e2663e4dfbdad0faf1c0129411a27e9b8",
+      "107": "081c0807ecc48af8e9c0a154d5a181e38c493600832fd265f87ced857e1f69c7",
+      "108": "58d11246929a082950591aeb6d92c6c781ee5d76299961bf46392b0b4873c1cd",
+      "109": "c2f2263b8f836c2e29c4676e00a6014f8e36043b602487eb1ae461e139e81016",
+      "110": "d85cb52ba09b7a63700970fba536d176fe16c2771c783262c595619cd9b56450",
+      "111": "10ef3c3c3657beda0de1a2d5d3b7aba76b5f1fa6d55c26e6a484794544276cb0",
+      "112": "e2035d6095be1c2bb880b6f5056d4135a5f2bb29158531d1538d94d4744ed633",
+      "113": "81769114968ce6c9e8cad83f12094f3544c654b12aeea524cbe9554b6e203e37"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1337_0_route0_01_10_22_00_49",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1337_0_route0_01_10_22_00_49/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_7_U-E5_complete_63",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 63,
+      "review_end": 73,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 73,
+        "kind": "calibration_anomaly",
+        "reason": "近处车辆突然出现时截止，不延长旧实例标签。"
+      },
+      "frames": {
+        "63": {
+          "phase": "readiness",
+          "observed_until": 63,
+          "observation": "f63: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "64": {
+          "phase": "readiness",
+          "observed_until": 64,
+          "observation": "f64: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "65": {
+          "phase": "readiness",
+          "observed_until": 65,
+          "observation": "f65: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "66": {
+          "phase": "readiness",
+          "observed_until": 66,
+          "observation": "f66: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "67": {
+          "phase": "readiness",
+          "observed_until": 67,
+          "observation": "f67: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "68": {
+          "phase": "readiness",
+          "observed_until": 68,
+          "observation": "f68: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "69": {
+          "phase": "readiness",
+          "observed_until": 69,
+          "observation": "f69: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "70": {
+          "phase": "readiness",
+          "observed_until": 70,
+          "observation": "f70: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "71": {
+          "phase": "uncertain",
+          "observed_until": 71,
+          "observation": "f71: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "72": {
+          "phase": "uncertain",
+          "observed_until": 72,
+          "observation": "f72: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "73": {
+          "phase": "excluded",
+          "observed_until": 73,
+          "observation": "f73: 本帧近处来车突然出现，之前画面无连续接近轨迹；按采集异常截止旧问题，不从随后车体消失生成YES。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "63": "c817d14da6565df3f043d45fe4b3907c544802af75c64e79c98471bef7289f6c",
+      "64": "974d5ade68d41c9deed49ad71d4e0ab8733e5f8f922881196616a8f1e317dd15",
+      "65": "d58fa1c60d24dfc5e9b1252edd3706cd2b3fd7de2410b9dc5fb8c7f1aec94467",
+      "66": "283ef8a71bc0b88d249fc10704872db4150150c3b318e4926e8225913f099c98",
+      "67": "3037ca0c2e4e96418c7e13e2f531ab92f03a9cc718e2b559a9f31246219b61a6",
+      "68": "4f8a87021eb670b5730968d2c421a9adb8a4faf2866a9cc13bd41dc4747e1b29",
+      "69": "1d6ce4eb2b5aabd3fc34662c912168fc754ca7e0ca2813e5124bbce0e3f9c3b7",
+      "70": "88fda492581fc2203ee48e46b8d324fc79eab9b7b96d4480a9f37037d9d7b562",
+      "71": "6ce881feef075c528c373fafded64e2c7e3e541b1c2c79df9c19ebcfe5d93c88",
+      "72": "65fbf913d571b4a2558f134fa535ef472e32647155fbf1ec4d085912aa994ee5",
+      "73": "20fde63706b0b7c45a0b779fb96ea9a89ef5244708606570958308a75ee16429"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town13_Rep0_1353_0_route0_01_09_16_25_18",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town13_Rep0_1353_0_route0_01_09_16_25_18/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_8_U-E5_complete_171",
+    "observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 171,
+      "review_end": 184,
+      "reference_frame": 181,
+      "reference_kind": "milestone_observed",
+      "reference_observation": "逐帧核对侵入区末端与本侧稳定行进；完成必须已经观察到，不能因车辆刚出画、启动或元信息事件结束提前YES。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 184,
+        "kind": "calibration_anomaly",
+        "reason": "近处车辆突然出现时截止，不延长旧实例标签。"
+      },
+      "frames": {
+        "171": {
+          "phase": "readiness",
+          "observed_until": 171,
+          "observation": "f171: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "172": {
+          "phase": "readiness",
+          "observed_until": 172,
+          "observation": "f172: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "173": {
+          "phase": "readiness",
+          "observed_until": 173,
+          "observation": "f173: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "174": {
+          "phase": "readiness",
+          "observed_until": 174,
+          "observation": "f174: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "175": {
+          "phase": "readiness",
+          "observed_until": 175,
+          "observation": "f175: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "176": {
+          "phase": "readiness",
+          "observed_until": 176,
+          "observation": "f176: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "177": {
+          "phase": "readiness",
+          "observed_until": 177,
+          "observation": "f177: 仍在锥桶收窄段内或侵入车辆尚未通过，当前事件尚不能完成退出。",
+          "facts": {
+            "event_resolved": false
+          }
+        },
+        "178": {
+          "phase": "uncertain",
+          "observed_until": 178,
+          "observation": "f178: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "179": {
+          "phase": "uncertain",
+          "observed_until": 179,
+          "observation": "f179: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "180": {
+          "phase": "uncertain",
+          "observed_until": 180,
+          "observation": "f180: 刚驶离侵入目标/末端锥桶，出口及稳定本侧行进的转折边界保留不确定。"
+        },
+        "181": {
+          "phase": "readiness",
+          "observed_until": 181,
+          "observation": "f181: 截至当前帧，末端锥桶和侵入车辆已通过；因果历史中本侧走廊、航向及路面位移连续，稳定行进已建立。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          }
+        },
+        "182": {
+          "phase": "catchup",
+          "observed_until": 182,
+          "observation": "f182: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "183": {
+          "phase": "catchup",
+          "observed_until": 183,
+          "observation": "f183: 刚完成侵入区通过并建立稳定行进，旧PROCEED完成问题仍应推进。",
+          "facts": {
+            "event_resolved": true,
+            "stable_progress_established": true
+          },
+          "successor_confirmed": true,
+          "current_conflict": false,
+          "transition_blocking_conflict": false
+        },
+        "184": {
+          "phase": "excluded",
+          "observed_until": 184,
+          "observation": "f184: 本帧近处来车突然出现，之前画面无连续接近轨迹；按采集异常截止旧问题，不从随后车体消失生成YES。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "171": "1267092416889543d8fd577b7c384a904c6556218cc3cc80cacd237042a76c33",
+      "172": "a3fa16fb98c8e98119262ba2c22f1a294c6af9723635fdfd1209b7107ad552b1",
+      "173": "daf5e8006232ab67cab44da2343abfe48f9a0733b3f9c46d6dcc0883d91a9c15",
+      "174": "b8c044d818c163be3dc3127e2e63c1ab35e8c02b05a75f884b036a2be90c685a",
+      "175": "ed099ce49944ddb4e3882dd2fd71461efc7970fa25b4633ba6157af035f1fb7f",
+      "176": "5b65d9fa42f9f78e84dcabb05ba527418a430ab593827d2ac668148c7e12c351",
+      "177": "ebd30f4654e5c6073a4f96fda380e5cd4e1b840f4291e171c1a8b1df93101bbc",
+      "178": "58c42c2005c0cea66f8f51e421ac203ef3c26a406c98d190f563d045e9c764ab",
+      "179": "f8d7bb9a635a081c66897fa195b0efd955b1a8e03d0a88924c6a8cd418517091",
+      "180": "76b6b5d6a8f6d07ab2faf72d09f6f837fd636a94862922c47cbf80edd4ee129c",
+      "181": "f9e180d34179155a2285683d741f739cc8d5bdf9aff833da944e2dde7b84f381",
+      "182": "c53a3562e00c833fdfdd6ba79fd2c8618ee61a1f79fa0d175935390a52cc8cdb",
+      "183": "c421b1fec98ff62939cbfc152b353aacbc167f2e8ff1225f9cfbe248cd64e2fb",
+      "184": "44eb21af70b7a29139209c9cf8445b1e9d3340f6d64aeabe08da3908c379c800"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  },
+  {
+    "scenario": "InvadingTurn",
+    "route_id": "Town12_Rep0_1520_0_route0_01_10_04_48_36",
+    "episode": {
+      "event": "U-E5",
+      "instance_id": "InvadingTurn/Town12_Rep0_1520_0_route0_01_10_04_48_36/U-E5/reviewed_invading_corridor_instance",
+      "state": "PROCEED",
+      "longitudinal": "FOLLOW"
+    },
+    "edge": "complete",
+    "reviewer": "Codex prospective label-only evaluation annotation 2026-09-30; frozen rubric; no model feedback",
+    "evidence_id": "holdout_v3_formal_data_0_U-E5_complete_128",
+    "observation": "夜间只能确认部分照明区域，完整侵入区出口及稳定性不足以确认；f130红车突然出现在近侧。",
+    "label_basis": "reviewed_transition_band",
+    "context_valid": true,
+    "transition_band": {
+      "review_start": 128,
+      "review_end": 130,
+      "reference_frame": null,
+      "reference_kind": "not_observed",
+      "reference_observation": "夜间只能确认部分照明区域，完整侵入区出口及稳定性不足以确认；f130红车突然出现在近侧。",
+      "start_reason": "独立逐帧条件审核；起点选取有可见条件证据的片段，不按时间距离自动扩窗。",
+      "stop": {
+        "frame": 130,
+        "kind": "calibration_anomaly",
+        "reason": "f130起不再继续旧完成问题。"
+      },
+      "frames": {
+        "128": {
+          "phase": "uncertain",
+          "observed_until": 128,
+          "observation": "f128: 低照度下完整走廊及侵入区结束不确定，不能因前方暂时无车标完成。"
+        },
+        "129": {
+          "phase": "uncertain",
+          "observed_until": 129,
+          "observation": "f129: 低照度下完整走廊及侵入区结束不确定，不能因前方暂时无车标完成。"
+        },
+        "130": {
+          "phase": "excluded",
+          "observed_until": 130,
+          "observation": "f130: 红色车辆突然出现在近侧；异常截止，不以其后来出画生成完成YES。"
+        }
+      }
+    },
+    "frame_sha256": {
+      "128": "7e8a250e358629e5c7ea8bb1ef3df15612f8f1f14d6342dfd86c90383b38f818",
+      "129": "03a831dc9044e995ab0beed25e8d96f0e6fc2d38415f6fc1008d00f511ff2d8f",
+      "130": "735a5b2615314a6275cb78908df2b3586809d2e09550479cdb580e7fa60b2927"
+    },
+    "evaluation_annotation_protocol": "formal_holdout_plan_20260930.json"
+  }
+]

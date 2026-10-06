@@ -1,0 +1,803 @@
+{
+  "policy": "phase4_transition_review_queue_v2",
+  "cards": [
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 70,
+      "episode": {
+        "event": "U-E1",
+        "instance_id": "rgb24/HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/U-E1",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 64,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0064.jpg",
+          "sha256": "304e14a53742d720c94b1aa2adf70d42a34f374805823290329dca2eabb8e160"
+        },
+        {
+          "frame_id": 65,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0065.jpg",
+          "sha256": "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f"
+        },
+        {
+          "frame_id": 66,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0066.jpg",
+          "sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b"
+        },
+        {
+          "frame_id": 67,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0067.jpg",
+          "sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40"
+        },
+        {
+          "frame_id": 68,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame_id": 69,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0069.jpg",
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame_id": 70,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0070.jpg",
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        }
+      ],
+      "risk_ids": [],
+      "id": "f893c79d01c615fdf2b08b76a091fb523aaae722f77a5e52ef3edf54a2def76e"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 71,
+      "episode": {
+        "event": "U-E1",
+        "instance_id": "rgb24/HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/U-E1",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 65,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0065.jpg",
+          "sha256": "2f777ae19c5443cbb2492b1aed19b9e6a746de75e2f926017658c82a13096f1f"
+        },
+        {
+          "frame_id": 66,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0066.jpg",
+          "sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b"
+        },
+        {
+          "frame_id": 67,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0067.jpg",
+          "sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40"
+        },
+        {
+          "frame_id": 68,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame_id": 69,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0069.jpg",
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame_id": 70,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0070.jpg",
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        },
+        {
+          "frame_id": 71,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0071.jpg",
+          "sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+        }
+      ],
+      "risk_ids": [],
+      "id": "8a62c232d7ec790b0540c0d60fed34629f03b952d5116fdd9b8f66ead18f24dd"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 72,
+      "episode": {
+        "event": "U-E1",
+        "instance_id": "rgb24/HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/U-E1",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 66,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0066.jpg",
+          "sha256": "b7233951e20901725c7c47fdcbd403f627d85ffa17c3fa3fcd01cbafd6dde99b"
+        },
+        {
+          "frame_id": 67,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0067.jpg",
+          "sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40"
+        },
+        {
+          "frame_id": 68,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame_id": 69,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0069.jpg",
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame_id": 70,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0070.jpg",
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        },
+        {
+          "frame_id": 71,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0071.jpg",
+          "sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+        },
+        {
+          "frame_id": 72,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0072.jpg",
+          "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+        }
+      ],
+      "risk_ids": [],
+      "id": "b2e11f5047edfa08fea53fc0d562dbaf588c902b18ac35aeb152e0f91005569b"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 73,
+      "episode": {
+        "event": "U-E1",
+        "instance_id": "rgb24/HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/U-E1",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 67,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0067.jpg",
+          "sha256": "a37581aa723fddb0aa1ed62d85cffc79f6c880f08e07dbde2ed0571ba69fbe40"
+        },
+        {
+          "frame_id": 68,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame_id": 69,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0069.jpg",
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame_id": 70,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0070.jpg",
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        },
+        {
+          "frame_id": 71,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0071.jpg",
+          "sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+        },
+        {
+          "frame_id": 72,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0072.jpg",
+          "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+        },
+        {
+          "frame_id": 73,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0073.jpg",
+          "sha256": "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03"
+        }
+      ],
+      "risk_ids": [],
+      "id": "0b034d753d5deefe0181cf698f15897698b00ee2607333bfb7234bffe00c81ec"
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town13_Rep0_1030_0_route0_01_10_20_42_39",
+      "frame_id": 74,
+      "episode": {
+        "event": "U-E1",
+        "instance_id": "rgb24/HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/U-E1",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 68,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+          "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+        },
+        {
+          "frame_id": 69,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0069.jpg",
+          "sha256": "277af5120fc71dd363af90ab0d4d53c489f3a692045939b637a1479ee9966cb7"
+        },
+        {
+          "frame_id": 70,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0070.jpg",
+          "sha256": "61764c8dd3f5c1c50421be1b920914e4c2818610e3b376abba956eb54fba9743"
+        },
+        {
+          "frame_id": 71,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0071.jpg",
+          "sha256": "2fd92b544c7416596c793a545212288195fc3d3b3ba655c4769b5a9f709cb6db"
+        },
+        {
+          "frame_id": 72,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0072.jpg",
+          "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+        },
+        {
+          "frame_id": 73,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0073.jpg",
+          "sha256": "cfea3fd4063b4a354cff877bf78e1a5c415b1252019cb6e5ce4f87f5e1840a03"
+        },
+        {
+          "frame_id": 74,
+          "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0074.jpg",
+          "sha256": "6c7925eee07b0ca8b547458d97609d919fd8bc170605842a83c928899aaf78df"
+        }
+      ],
+      "risk_ids": [],
+      "id": "9d7856d8395e4c0ff52f14a0ef4b8f9e06f9efcb4c7723521f9916f071f3e0c6"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 47,
+      "episode": {
+        "event": "U-E4",
+        "instance_id": "rgb24/DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/U-E4",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 41,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0041.jpg",
+          "sha256": "192b492bc182aeb9c67c1d578511b5d458461edc42de804eed719e02ea502cc3"
+        },
+        {
+          "frame_id": 42,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0042.jpg",
+          "sha256": "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0"
+        },
+        {
+          "frame_id": 43,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0043.jpg",
+          "sha256": "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406"
+        },
+        {
+          "frame_id": 44,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0044.jpg",
+          "sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97"
+        },
+        {
+          "frame_id": 45,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0045.jpg",
+          "sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b"
+        },
+        {
+          "frame_id": 46,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0046.jpg",
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame_id": 47,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0047.jpg",
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        }
+      ],
+      "risk_ids": [],
+      "id": "2156a150c6f3ec53e53ea287c789996728d1ee81031f01ae1e06a51333517685"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 48,
+      "episode": {
+        "event": "U-E4",
+        "instance_id": "rgb24/DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/U-E4",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 42,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0042.jpg",
+          "sha256": "168dd84db051ffbbbee6d7cef30a0deef42c55c223cb58f3ee3aacc47228a7b0"
+        },
+        {
+          "frame_id": 43,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0043.jpg",
+          "sha256": "adfd2277f0f0bad990304fa74a3df28978eaed31bbd283b165765eb080343406"
+        },
+        {
+          "frame_id": 44,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0044.jpg",
+          "sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97"
+        },
+        {
+          "frame_id": 45,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0045.jpg",
+          "sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b"
+        },
+        {
+          "frame_id": 46,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0046.jpg",
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame_id": 47,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0047.jpg",
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        },
+        {
+          "frame_id": 48,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0048.jpg",
+          "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+        }
+      ],
+      "risk_ids": [],
+      "id": "f760e65aff9a8187cb113aac3077424113b6231ed719d0aeeffd8c612ff5e3f6"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 50,
+      "episode": {
+        "event": "U-E4",
+        "instance_id": "rgb24/DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/U-E4",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 44,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0044.jpg",
+          "sha256": "819bafdc7ff18bab1919dca62db1146f741a317a953b3d7d72e128fd4718ba97"
+        },
+        {
+          "frame_id": 45,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0045.jpg",
+          "sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b"
+        },
+        {
+          "frame_id": 46,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0046.jpg",
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame_id": 47,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0047.jpg",
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        },
+        {
+          "frame_id": 48,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0048.jpg",
+          "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+        },
+        {
+          "frame_id": 49,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0049.jpg",
+          "sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6"
+        },
+        {
+          "frame_id": 50,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0050.jpg",
+          "sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+        }
+      ],
+      "risk_ids": [],
+      "id": "5b9019b44c11a4b915c9b0c8e4a2f7b1e11534d060646e2c913ee3faa3e57285"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 51,
+      "episode": {
+        "event": "U-E4",
+        "instance_id": "rgb24/DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/U-E4",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 45,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0045.jpg",
+          "sha256": "d438890c3b271d956a9ca74ee42c22418baec82c51791c0e617624868437ed7b"
+        },
+        {
+          "frame_id": 46,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0046.jpg",
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame_id": 47,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0047.jpg",
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        },
+        {
+          "frame_id": 48,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0048.jpg",
+          "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+        },
+        {
+          "frame_id": 49,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0049.jpg",
+          "sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6"
+        },
+        {
+          "frame_id": 50,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0050.jpg",
+          "sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+        },
+        {
+          "frame_id": 51,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0051.jpg",
+          "sha256": "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe"
+        }
+      ],
+      "risk_ids": [],
+      "id": "388e6014ed914978890beec345ba384867c4c552fc9b856d009ff128d1c5d156"
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "frame_id": 52,
+      "episode": {
+        "event": "U-E4",
+        "instance_id": "rgb24/DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/U-E4",
+        "state": "YIELD",
+        "longitudinal": "HOLD"
+      },
+      "edge": "proceed",
+      "criteria": [
+        "release_ready",
+        "corridor_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 46,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0046.jpg",
+          "sha256": "2ec802b281e672d0a238ba528e7ffcc30ffcbfa94d37da541ba6cdb74a57f2c7"
+        },
+        {
+          "frame_id": 47,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0047.jpg",
+          "sha256": "61769bdd2af500d034445346cbdbd78c83946cae6896cb258b6719a004ad49db"
+        },
+        {
+          "frame_id": 48,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0048.jpg",
+          "sha256": "e9fcb21aea7f16cc6fec4539e800a574e3c4953ab5b7137abe3a3492abd45ab5"
+        },
+        {
+          "frame_id": 49,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0049.jpg",
+          "sha256": "cf79eb37c96d4d365569d4e2eefb4f027b4abb201f0015c12d5482b31a24f8f6"
+        },
+        {
+          "frame_id": 50,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0050.jpg",
+          "sha256": "3ce38468b7c43414fba7c450084878f6a660e1799fcae4a088cc557c959133ed"
+        },
+        {
+          "frame_id": 51,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0051.jpg",
+          "sha256": "c7b8a7c4c212427e2da789afa237db331bcf8a70781a1bcc0ac4e91985e355fe"
+        },
+        {
+          "frame_id": 52,
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0052.jpg",
+          "sha256": "20de5d20fd48007682a3e1e72e1bb0b0903063e33923b63b8d0eac6383f3a6b5"
+        }
+      ],
+      "risk_ids": [],
+      "id": "523cbdfe27b5a952f95bc942d505d0e98fac6f19517d894c84b9d191e9b70c48"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_002000_route0_01_09_12_27_42",
+      "frame_id": 33,
+      "episode": {
+        "event": "U-E2",
+        "instance_id": "rgb24/ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/U-E2",
+        "state": "WAIT",
+        "longitudinal": "HOLD",
+        "direction": "RIGHT",
+        "target_corridor": "right adjacent lane around the construction obstruction"
+      },
+      "edge": "depart",
+      "criteria": [
+        "target_corridor_known",
+        "entry_gap_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 27,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0027.jpg",
+          "sha256": "81a41f72df5e542ddef3198d0b1ca2e64c05bfac5018d2e7bac15d9930a07e53"
+        },
+        {
+          "frame_id": 28,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0028.jpg",
+          "sha256": "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56"
+        },
+        {
+          "frame_id": 29,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0029.jpg",
+          "sha256": "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519"
+        },
+        {
+          "frame_id": 30,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0030.jpg",
+          "sha256": "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa"
+        },
+        {
+          "frame_id": 31,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0031.jpg",
+          "sha256": "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7"
+        },
+        {
+          "frame_id": 32,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0032.jpg",
+          "sha256": "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6"
+        },
+        {
+          "frame_id": 33,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0033.jpg",
+          "sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+        }
+      ],
+      "risk_ids": [
+        "968b0d8af7bddd3256344f2c2ac43a4b8186bdfde1e502b203ce4578ef1597f0"
+      ],
+      "id": "244f158be336d0819889521e8fd80ba0579f32697958b2b82a09485262e5e611"
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_002000_route0_01_09_12_27_42",
+      "frame_id": 34,
+      "episode": {
+        "event": "U-E2",
+        "instance_id": "rgb24/ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/U-E2",
+        "state": "WAIT",
+        "longitudinal": "HOLD",
+        "direction": "RIGHT",
+        "target_corridor": "right adjacent lane around the construction obstruction"
+      },
+      "edge": "depart",
+      "criteria": [
+        "target_corridor_known",
+        "entry_gap_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 28,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0028.jpg",
+          "sha256": "959c07c360b7269c08f26ec865348bfd4c7740e1b36e809f3c2af4f855b05c56"
+        },
+        {
+          "frame_id": 29,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0029.jpg",
+          "sha256": "4dbf267147fc20c1bc4af6a60cf098f8547a3143708d8a877e662120157a7519"
+        },
+        {
+          "frame_id": 30,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0030.jpg",
+          "sha256": "766991a86a7804360f09daf0279ba2c220c696b736b2875b856e3e3db45940fa"
+        },
+        {
+          "frame_id": 31,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0031.jpg",
+          "sha256": "a12eeadc015bd4389e1d6e9857f0fdc92ff92dbfd39d11e63f17c70bef185cd7"
+        },
+        {
+          "frame_id": 32,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0032.jpg",
+          "sha256": "b4dd93430a7436496c3ccc3132b46e04b1de3209a132778f1dff412942b358d6"
+        },
+        {
+          "frame_id": 33,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0033.jpg",
+          "sha256": "04c9ea80cf1eb8f925b03f54d2e9a59b46c53daed74c5c600560384e3fccf1f7"
+        },
+        {
+          "frame_id": 34,
+          "path": "ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/rgb/0034.jpg",
+          "sha256": "3f3ed77c96ed6d8e45d5acad67fc7561bf2b0739de2b11d2986182eacfb9554c"
+        }
+      ],
+      "risk_ids": [
+        "968b0d8af7bddd3256344f2c2ac43a4b8186bdfde1e502b203ce4578ef1597f0"
+      ],
+      "id": "53dbe70115948af1fcd3be6fbb7048550f669a65c62dd360f3fd06837e3054bc"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_route_000839_route0_01_08_10_26_04",
+      "frame_id": 44,
+      "episode": {
+        "event": "R-E3",
+        "instance_id": "rgb24/HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/R-E3",
+        "state": "WAIT",
+        "longitudinal": "HOLD",
+        "direction": "FORWARD",
+        "target_corridor": "left exit branch along the current route"
+      },
+      "edge": "enter",
+      "criteria": [
+        "target_corridor_known",
+        "entry_gap_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 38,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0038.jpg",
+          "sha256": "25fc1274414593c3fbaf5b793f02ec66f148ba04bf78aecadcf52f4fd2b08c7f"
+        },
+        {
+          "frame_id": 39,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0039.jpg",
+          "sha256": "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c"
+        },
+        {
+          "frame_id": 40,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0040.jpg",
+          "sha256": "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b"
+        },
+        {
+          "frame_id": 41,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0041.jpg",
+          "sha256": "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1"
+        },
+        {
+          "frame_id": 42,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0042.jpg",
+          "sha256": "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799"
+        },
+        {
+          "frame_id": 43,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0043.jpg",
+          "sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc"
+        },
+        {
+          "frame_id": 44,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0044.jpg",
+          "sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+        }
+      ],
+      "risk_ids": [],
+      "id": "a56cde40ddd508e2884735c9c0b1dd889543d49b1504a869b9d563d5b6da3cf4"
+    },
+    {
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_route_000839_route0_01_08_10_26_04",
+      "frame_id": 45,
+      "episode": {
+        "event": "R-E3",
+        "instance_id": "rgb24/HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/R-E3",
+        "state": "WAIT",
+        "longitudinal": "HOLD",
+        "direction": "FORWARD",
+        "target_corridor": "left exit branch along the current route"
+      },
+      "edge": "enter",
+      "criteria": [
+        "target_corridor_known",
+        "entry_gap_clear",
+        "priority_satisfied"
+      ],
+      "images": [
+        {
+          "frame_id": 39,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0039.jpg",
+          "sha256": "2a11bac9c856705b54d01a318e61f3f15a8f6830ef3f28aab66f138e322c607c"
+        },
+        {
+          "frame_id": 40,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0040.jpg",
+          "sha256": "7512632831c2b7b1c6220bc6f298976d1bb50f8ed312966e1d7b8e16c97ba48b"
+        },
+        {
+          "frame_id": 41,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0041.jpg",
+          "sha256": "849f4ac57f8d215fb5235e63bfddd74d1ffd400a4a29e4505e9fa35605d33de1"
+        },
+        {
+          "frame_id": 42,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0042.jpg",
+          "sha256": "6e26f6d4b65355a3947cde7ae9e37cf58612ebe75d79066fcf576c16eb0dd799"
+        },
+        {
+          "frame_id": 43,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0043.jpg",
+          "sha256": "a37c8f2457c39e92ff90de8e2893304e46466af25987aeb3c7a5d0f4b73df7dc"
+        },
+        {
+          "frame_id": 44,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0044.jpg",
+          "sha256": "c9345aa6118f153a876634666a960f3e6bee1a8f940981c901516288fe69d4d8"
+        },
+        {
+          "frame_id": 45,
+          "path": "HighwayExit/Town13_Rep0_route_000839_route0_01_08_10_26_04/rgb/0045.jpg",
+          "sha256": "58fa1754d2bc905cfecf02028edc45a211865295b2a8429a066c93c313447b17"
+        }
+      ],
+      "risk_ids": [],
+      "id": "a57941bbed6ccf8b6f01dd97585fec14a11b2b04019a0e2fe9e76b9607277c6a"
+    }
+  ],
+  "selection": "Reaudit v24 anchors after independent user challenge; suggestions not copied to labels",
+  "supervision_approved": false
+}

@@ -1,0 +1,1895 @@
+{
+  "version": "phase4_v28",
+  "date": "2026-10-05",
+  "teacher": {
+    "version": "ue1_ue4_causal_teacher_v3",
+    "parameters": {
+      "local_horizon_m": 18.0,
+      "seed_horizon_m": 30.0,
+      "vru_margin_m": 1.0,
+      "boundary_band_m": 0.25,
+      "lead_growth_m": 1.0,
+      "lead_min_gap_m": 3.0,
+      "min_pixel_change": 6.0,
+      "stable_gap_m": 3.0,
+      "stable_time_gap_s": 0.5,
+      "relative_speed_mps": 3.0,
+      "relative_speed_range_mps": 1.5,
+      "max_closing_speed_mps": 0.5,
+      "max_gap_loss_m": 0.5,
+      "receipt_displacement_m": 0.75,
+      "receipt_max_lateral_m": 0.5,
+      "receipt_heading_tolerance": 0.05,
+      "lead_min_forward_speed_mps": 0.5
+    },
+    "sources": {
+      "teacher_rules.py": "289f4cf00d66c8ed84dbc1821b082e9077706f6bc25d492c27a5b696261dfe5e",
+      "teacher_replay.py": "843953cdee435ef7eddcd14098797ddaf8a2732cbfd1e223555cd2faad7e94a7",
+      "teacher_approval.py": "e714037a08590d0f607dace738508720eabce0bb2af66aca757db99fd567be8b",
+      "teacher_data.py": "e07c3f59082e2bcd3cb12e57f706a3fec6ec75c71d9cf37d23127009f81a098d",
+      "teacher_review.py": "cceea607137b21df0e4ce3fc5694c0ed58eb1a959e806fe1cbc5877def3fd6b5",
+      "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+      "privileged_geometry.py": "5e73322a5e2cf5825e6a287f7db090b271acb91a7039183ee5d8ea345af02260",
+      "privileged_visibility.py": "bf984ad8e0c6f21fe0b945cd51e11b51cc164643f6d65c66315c26c75d65f7e9",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "route_prompts.py": "4b798bc4607e50bf0546ca31bd9270550b03b14c2ba632d97d05fe47eadaa36a",
+      "risk_review.py": "23cf162b545113d0c93021acf2e5dd5d253ff459576ca4e99d3ec07a762297d1",
+      "dataset.py": "3114a1d0aaf97a0cc5e951188e4a40b586beb90ba5dac92cc625bac282722482",
+      "candidate_pool.py": "b6511f80eaf7390d91d4768d27d6211e5784594c22c098e22db8c8b764fdb393",
+      "preflight.py": "061cde191b2ae69658cd5ee47067f77ac85ed18a383fccd2d03b0caada64cc13",
+      "evaluate.py": "79cc5abcd9506a75adfe4749f70715c8ca2161450406c76155c7961f30cc9ee8",
+      "identity.py": "7b301f6baf6c49552bb0e70b5028b4433fac6011b77a8f6bf4be575a07562fb4"
+    }
+  },
+  "tests": {
+    "passed": 766,
+    "log_sha256": "354ae3f48fd3a60175d4410fb7d093202d10a29cbacc7279ab7073d958d43599"
+  },
+  "inventory": {
+    "routes": 9712,
+    "rgb_frames": 1637680,
+    "split_routes": {
+      "train": 8166,
+      "val": 765,
+      "test": 781
+    }
+  },
+  "datasets": {
+    "2": {
+      "counts": {
+        "train": 443,
+        "val": 273,
+        "test": 186
+      },
+      "train_routes": 45,
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 902,
+      "pending_rgb_verified": 539,
+      "identical_to_v27": {
+        "train.jsonl": true,
+        "val.jsonl": true,
+        "test.jsonl": true,
+        "review_queue.jsonl": true
+      },
+      "sampling_repetition": {
+        "R-E2": {
+          "pool_questions": 32,
+          "presentations": 45,
+          "distinct_questions": 32,
+          "repeated_presentations": 13,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.40625
+        },
+        "R-E3": {
+          "pool_questions": 23,
+          "presentations": 45,
+          "distinct_questions": 23,
+          "repeated_presentations": 22,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.9565217391304348
+        },
+        "R-E5": {
+          "pool_questions": 32,
+          "presentations": 45,
+          "distinct_questions": 32,
+          "repeated_presentations": 13,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.40625
+        },
+        "U-E1": {
+          "pool_questions": 90,
+          "presentations": 45,
+          "distinct_questions": 45,
+          "repeated_presentations": 0,
+          "max_question_repeat": 1,
+          "presentations_per_pool_question": 0.5
+        },
+        "U-E2": {
+          "pool_questions": 44,
+          "presentations": 45,
+          "distinct_questions": 44,
+          "repeated_presentations": 1,
+          "max_question_repeat": 2,
+          "presentations_per_pool_question": 1.0227272727272727
+        },
+        "U-E3": {
+          "pool_questions": 21,
+          "presentations": 45,
+          "distinct_questions": 21,
+          "repeated_presentations": 24,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 2.142857142857143
+        },
+        "U-E4": {
+          "pool_questions": 97,
+          "presentations": 45,
+          "distinct_questions": 45,
+          "repeated_presentations": 0,
+          "max_question_repeat": 1,
+          "presentations_per_pool_question": 0.4639175257731959
+        },
+        "U-E5": {
+          "pool_questions": 35,
+          "presentations": 45,
+          "distinct_questions": 35,
+          "repeated_presentations": 10,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.2857142857142858
+        },
+        "U-E6": {
+          "pool_questions": 41,
+          "presentations": 45,
+          "distinct_questions": 41,
+          "repeated_presentations": 4,
+          "max_question_repeat": 5,
+          "presentations_per_pool_question": 1.0975609756097562
+        },
+        "U-E7": {
+          "pool_questions": 28,
+          "presentations": 45,
+          "distinct_questions": 28,
+          "repeated_presentations": 17,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.6071428571428572
+        }
+      },
+      "seven_epoch_coverage": {
+        "1": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 1,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 346,
+              "missing": 97,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 45
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 45
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 436,
+              "missing": 7,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 90
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        },
+        "4": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 4,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 348,
+              "missing": 95,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 46
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 46
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 438,
+              "missing": 5,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 92
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        }
+      },
+      "teacher_compile_counts": {
+        "route_budget_excluded": 0,
+        "considered": 1021,
+        "rule_abstained": 697,
+        "rule_class_not_approved": 324,
+        "compiled": 0
+      }
+    },
+    "4": {
+      "counts": {
+        "train": 443,
+        "val": 273,
+        "test": 186
+      },
+      "train_routes": 45,
+      "trainable": true,
+      "formal_data_ready": false,
+      "rgb_verified": 902,
+      "pending_rgb_verified": 539,
+      "identical_to_v27": {
+        "train.jsonl": true,
+        "val.jsonl": true,
+        "test.jsonl": true,
+        "review_queue.jsonl": true
+      },
+      "sampling_repetition": {
+        "R-E2": {
+          "pool_questions": 32,
+          "presentations": 45,
+          "distinct_questions": 32,
+          "repeated_presentations": 13,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.40625
+        },
+        "R-E3": {
+          "pool_questions": 23,
+          "presentations": 45,
+          "distinct_questions": 23,
+          "repeated_presentations": 22,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.9565217391304348
+        },
+        "R-E5": {
+          "pool_questions": 32,
+          "presentations": 45,
+          "distinct_questions": 32,
+          "repeated_presentations": 13,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.40625
+        },
+        "U-E1": {
+          "pool_questions": 90,
+          "presentations": 45,
+          "distinct_questions": 45,
+          "repeated_presentations": 0,
+          "max_question_repeat": 1,
+          "presentations_per_pool_question": 0.5
+        },
+        "U-E2": {
+          "pool_questions": 44,
+          "presentations": 45,
+          "distinct_questions": 44,
+          "repeated_presentations": 1,
+          "max_question_repeat": 2,
+          "presentations_per_pool_question": 1.0227272727272727
+        },
+        "U-E3": {
+          "pool_questions": 21,
+          "presentations": 45,
+          "distinct_questions": 21,
+          "repeated_presentations": 24,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 2.142857142857143
+        },
+        "U-E4": {
+          "pool_questions": 97,
+          "presentations": 45,
+          "distinct_questions": 45,
+          "repeated_presentations": 0,
+          "max_question_repeat": 1,
+          "presentations_per_pool_question": 0.4639175257731959
+        },
+        "U-E5": {
+          "pool_questions": 35,
+          "presentations": 45,
+          "distinct_questions": 35,
+          "repeated_presentations": 10,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.2857142857142858
+        },
+        "U-E6": {
+          "pool_questions": 41,
+          "presentations": 45,
+          "distinct_questions": 41,
+          "repeated_presentations": 4,
+          "max_question_repeat": 5,
+          "presentations_per_pool_question": 1.0975609756097562
+        },
+        "U-E7": {
+          "pool_questions": 28,
+          "presentations": 45,
+          "distinct_questions": 28,
+          "repeated_presentations": 17,
+          "max_question_repeat": 8,
+          "presentations_per_pool_question": 1.6071428571428572
+        }
+      },
+      "seven_epoch_coverage": {
+        "1": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 1,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 346,
+              "missing": 97,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 45
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 45
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 436,
+              "missing": 7,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 90
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        },
+        "4": {
+          "feasible": true,
+          "epochs": 7,
+          "world_size": 4,
+          "pool": 443,
+          "timeline": [
+            {
+              "epoch": 0,
+              "seen": 348,
+              "missing": 95,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 46
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 46
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 1,
+              "seen": 438,
+              "missing": 5,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 92
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 2,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 3,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 4,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 5,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            },
+            {
+              "epoch": 6,
+              "seen": 443,
+              "missing": 0,
+              "event_coverage": {
+                "R-E2": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "R-E3": {
+                  "pool": 23,
+                  "seen": 23
+                },
+                "R-E5": {
+                  "pool": 32,
+                  "seen": 32
+                },
+                "U-E1": {
+                  "pool": 90,
+                  "seen": 90
+                },
+                "U-E2": {
+                  "pool": 44,
+                  "seen": 44
+                },
+                "U-E3": {
+                  "pool": 21,
+                  "seen": 21
+                },
+                "U-E4": {
+                  "pool": 97,
+                  "seen": 97
+                },
+                "U-E5": {
+                  "pool": 35,
+                  "seen": 35
+                },
+                "U-E6": {
+                  "pool": 41,
+                  "seen": 41
+                },
+                "U-E7": {
+                  "pool": 28,
+                  "seen": 28
+                }
+              }
+            }
+          ],
+          "complete": true,
+          "missing_ids": []
+        }
+      },
+      "teacher_compile_counts": {
+        "route_budget_excluded": 0,
+        "considered": 1021,
+        "rule_abstained": 697,
+        "rule_class_not_approved": 324,
+        "compiled": 0
+      }
+    }
+  },
+  "development": {
+    "original17": {
+      "routes": 17,
+      "frames": 1615,
+      "questions_per_mode": 198,
+      "answers_per_mode": {
+        "UNKNOWN": 125,
+        "NO": 55,
+        "YES": 18
+      },
+      "yes_by_edge_per_mode": {
+        "U-E4/restrict": 1,
+        "U-E4/hold": 1,
+        "U-E4/proceed": 10,
+        "U-E1/restrict": 1,
+        "U-E1/hold": 1,
+        "U-E1/proceed": 2,
+        "U-E1/recover_follow": 1,
+        "U-E1/complete": 1
+      },
+      "completed_instances": 1,
+      "end_reasons": {
+        "instance_rgb_discontinuity": 1,
+        "finished": 1
+      },
+      "hardbreak_positive_trace": {
+        "34": [
+          [
+            "restrict",
+            "YES"
+          ],
+          [
+            "hold",
+            "YES"
+          ]
+        ],
+        "72": [
+          [
+            "proceed",
+            "YES"
+          ]
+        ],
+        "73": [
+          [
+            "proceed",
+            "YES"
+          ]
+        ],
+        "75": [
+          [
+            "recover_follow",
+            "YES"
+          ]
+        ],
+        "76": [
+          [
+            "complete",
+            "YES"
+          ]
+        ]
+      }
+    },
+    "expanded23": {
+      "routes": 23,
+      "frames": 2598,
+      "questions_per_mode": 1021,
+      "answers_per_mode": {
+        "UNKNOWN": 697,
+        "NO": 264,
+        "YES": 60
+      },
+      "yes_by_edge_per_mode": {
+        "U-E1/hold": 2,
+        "U-E4/restrict": 7,
+        "U-E4/hold": 7,
+        "U-E4/proceed": 35,
+        "U-E1/proceed": 6,
+        "U-E1/restrict": 1,
+        "U-E1/recover_follow": 1,
+        "U-E1/complete": 1
+      },
+      "completed_instances": 1,
+      "end_reasons": {
+        "instance_rgb_discontinuity": 8,
+        "finished": 1
+      },
+      "hardbreak_positive_trace": {
+        "34": [
+          [
+            "restrict",
+            "YES"
+          ],
+          [
+            "hold",
+            "YES"
+          ]
+        ],
+        "72": [
+          [
+            "proceed",
+            "YES"
+          ]
+        ],
+        "73": [
+          [
+            "proceed",
+            "YES"
+          ]
+        ],
+        "75": [
+          [
+            "recover_follow",
+            "YES"
+          ]
+        ],
+        "76": [
+          [
+            "complete",
+            "YES"
+          ]
+        ]
+      }
+    }
+  },
+  "review_packets": {
+    "development": {
+      "routes_processed": 23,
+      "frames_processed": 2598,
+      "cards": 240,
+      "rgb_modes": [
+        2
+      ],
+      "public_sha256": "9f004d66fcf0dcee7d98745299bbc4ac69a24969d0b73c8a93986591cce915ce",
+      "public_dir": "/tmp/phase4_v28_work/development_review",
+      "decisions": "/tmp/phase4_v28_work/development_review/decisions.json",
+      "private_snapshot": "/tmp/phase4_v28_work/development_private.json",
+      "no_reference_filled": true,
+      "independent_images_not_viewed": false
+    },
+    "independent": {
+      "routes_processed": 109,
+      "frames_processed": 21608,
+      "cards": 1485,
+      "rgb_modes": [
+        2
+      ],
+      "public_sha256": "0d10e364ff2a08b9c96155f2dab591e1f1a4ebc0003f0a1e3f2225956ec58657",
+      "public_dir": "/tmp/phase4_v28_work/independent_review",
+      "decisions": "/tmp/phase4_v28_work/independent_review/decisions.json",
+      "private_snapshot": "/tmp/phase4_v28_work/independent_private.json",
+      "no_reference_filled": true,
+      "independent_images_not_viewed": true
+    }
+  },
+  "approval": {
+    "approved": {},
+    "decisions": {},
+    "registry_sha256": "a623a45edb93c28bba5dc5b855459cc13bdb7cd042448bc322c226977104c9da",
+    "teacher_sha256": "2cf6f502852d119fbaa78f027ae1d22070720e237539940426596d4e228b4f7b"
+  },
+  "approval_budget": {
+    "answers": {
+      "YES": {
+        "min_all_correct_judgments": 73,
+        "min_distinct_routes": 20
+      },
+      "NO": {
+        "min_all_correct_judgments": 35,
+        "min_distinct_routes": 20
+      }
+    },
+    "min_total_judgments": 100,
+    "note": "Necessary best-case counts, not a promise of approval. UNKNOWN human judgments count as errors."
+  },
+  "new_human_labels": 0,
+  "new_complete_rgb_sequences": 0,
+  "new_exposure_groups": 0,
+  "independent_review_completed": false,
+  "formal_training_started": false,
+  "limitations": [
+    "Only UE1/UE4 teacher implemented; visual catchup unsupported",
+    "No real independent rule approval; no population accuracy claim",
+    "Instance-only reservations do not guarantee per-edge YES/NO route support",
+    "2-image review does not automatically approve 4-image classes",
+    "No full-9712-route production or GPU/4B/DDP/CARLA acceptance",
+    "Known-risk routes still require separate review before teacher compilation"
+  ],
+  "independent_reservations": {
+    "original_preserved": 40,
+    "new_routes": 69,
+    "total": 109,
+    "event_routes": {
+      "U-E1": 40,
+      "U-E4": 40
+    },
+    "screened_routes": 384,
+    "source_frame_errors": 19260,
+    "selection": "instance existence only; deterministic scenario/Town rotation; no answer screening"
+  },
+  "protected_files_unchanged": {
+    "taxonomy.py": true,
+    "prompts.py": true,
+    "calibration.py": true,
+    "observation.py": true,
+    "controller.py": true,
+    "maneuver_safety.py": true,
+    "sampling.py": true,
+    "train.py": true,
+    "selection.py": true,
+    "reviewed_state_pairs_v9.json": true,
+    "formal_holdout_plan_20260930.json": true
+  },
+  "visual_review": {
+    "source": "rule_author_development_recheck_only",
+    "images": [
+      {
+        "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0068.jpg",
+        "sha256": "e6e093fb206ec08494f7856f87a26642884295729db361af2cba5743bb84ce3b"
+      },
+      {
+        "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0072.jpg",
+        "sha256": "2585aafe167cdba7b90f0406e012ea8e2c9720a216eb37d8c5d830fcd009f562"
+      },
+      {
+        "path": "HardBreakRoute/Town13_Rep0_1030_0_route0_01_10_20_42_39/rgb/0076.jpg",
+        "sha256": "37dc6fde50ca77514cb846d1f9e8ca7f9dc1a64397241b028c8af1db36616cad"
+      },
+      {
+        "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0134.jpg",
+        "sha256": "376df29540682cefc43f74496369cdc7b6fe34210694f94416d97812fe5f3d7f"
+      },
+      {
+        "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0138.jpg",
+        "sha256": "66682a18b2665b199f53756094ed2b9fce7df6d1ef494d56116e6a3ae3a392cd"
+      },
+      {
+        "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_23_route0_01_10_14_17_03/rgb/0142.jpg",
+        "sha256": "a3a31e93ab62abddc6fa011506fcc5c1d803078de3e52f69330e85a681bc8c74"
+      },
+      {
+        "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36/rgb/0125.jpg",
+        "sha256": "b69d3ce09c610b8c00b0a9aa6ae65b40dc2b0077a4d998a26cd060947f5d94ca"
+      },
+      {
+        "path": "DynamicObjectCrossing/Town04_Rep0_Town04_Scenario3_10_route0_01_10_17_25_36/rgb/0129.jpg",
+        "sha256": "feb88a9f12f020650ba9e9cf3d2d1366ec75e6fd4e65b3bf1329f0c930e65a43"
+      }
+    ],
+    "comments": [
+      "Lead grows smaller between 68/72 and remains observable at 76; brake lamps not used as speed evidence",
+      "Pedestrians move left out of ego lane; fog/rain and geometry uncertainty still require independent review"
+    ],
+    "independent_certification": false
+  }
+}

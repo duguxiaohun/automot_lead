@@ -1,0 +1,3155 @@
+{
+  "protocol": "Prospectively reserved label-only evaluation annotation against frozen rubric; not development review. No model predictions consulted.",
+  "plan_sha256": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+  "pre_view_session_sha256": "0c0ad46d993379ee7047c777e65b513a02f784eab4e09a392b663734a7359944",
+  "frozen_rubric_sha256": {
+    "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+    "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+    "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+    "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994"
+  },
+  "usage": "evaluation labels only; no development decisions or model feedback",
+  "new_full_sequences": 4,
+  "new_unique_rgb": 548,
+  "native_resolution_rgb": 68,
+  "development_three_id_coverage_increment": 0,
+  "all_event_town_audit_complete": false,
+  "sequences": [
+    {
+      "sequence": {
+        "physical_group": "HardBreakRoute/Town13_1520_0",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town13_Rep0_1520_0_route0_01_10_08_11_17",
+        "town": "Town13",
+        "split": "val",
+        "frame_count": 120,
+        "candidate_events": [
+          "R-E5",
+          "U-E1"
+        ],
+        "requested_events": [
+          "U-E1"
+        ],
+        "status": "reserved_unviewed_unlabelled"
+      },
+      "status": "full_sequence_viewed_partial_edges_labelled",
+      "pages": [
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h0/000.jpg",
+          "sha256": "90711ada68ceb693e8270b57922a0c4b1fa839fd8b4543683fe4602f6a343822",
+          "frames": [
+            {
+              "frame": 0,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0000.jpg",
+              "sha256": "dbc0bb5ca1cfb7f4de48fa2808117af929db9fcd199f90d7be98c773d6947719"
+            },
+            {
+              "frame": 1,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0001.jpg",
+              "sha256": "cf150d06bdca7b164c2b97d54eed9d35a3e02e3ff957e75cb269444a51d067fc"
+            },
+            {
+              "frame": 2,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0002.jpg",
+              "sha256": "b721cf8178fcb959c9b20330c9cd63fb6416166fe16497493d9a90fa7177b229"
+            },
+            {
+              "frame": 3,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0003.jpg",
+              "sha256": "20d530e43f129392a444d10a43d8d8e2e91f91d1f3e58f4370bd23e8bcd1a013"
+            },
+            {
+              "frame": 4,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0004.jpg",
+              "sha256": "d036b1bbcb1ebb5065c5817533db5da23595153b5659749b5d7409fdcf150b0a"
+            },
+            {
+              "frame": 5,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0005.jpg",
+              "sha256": "585d763d55b19766f124082e716b253d1bd61e7cc8260b0ad3b202889334c914"
+            },
+            {
+              "frame": 6,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0006.jpg",
+              "sha256": "8546f95e5c8df9230bd29153c42b565b0c7008f8764268adbfb65115a51b405f"
+            },
+            {
+              "frame": 7,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0007.jpg",
+              "sha256": "958656d8536bb0a427928e68c8625bfafc6373c4e2bfb3082e930fe364509b6d"
+            },
+            {
+              "frame": 8,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0008.jpg",
+              "sha256": "8f88b797a5b02771ec57d5cbb94d0b317f55a617b3fb9dc2a661a37129b57d3f"
+            },
+            {
+              "frame": 9,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0009.jpg",
+              "sha256": "906247a2626ba93714d41e72f0e32baeb957eb1fb7c8ae749ceeef3eb9808834"
+            },
+            {
+              "frame": 10,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0010.jpg",
+              "sha256": "46e187524c5478fc72cb8f20fe21aac9f558a6e8f58b3f5077382a906b15c776"
+            },
+            {
+              "frame": 11,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0011.jpg",
+              "sha256": "e4cbd4a63ff15767953de02b24a99af41e53cfc1440cedfaa05190a6afecd986"
+            },
+            {
+              "frame": 12,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0012.jpg",
+              "sha256": "86888a649cbf51e2ca95d1a0c3d20e8cc7d3afc8074a4077ec51c7ea98e94584"
+            },
+            {
+              "frame": 13,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0013.jpg",
+              "sha256": "110a8a6cc0323c7c4665cedd90bd3553164eb52da324c6efaa56239adf1606dc"
+            },
+            {
+              "frame": 14,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0014.jpg",
+              "sha256": "4dd9a21984deaf2436f1cd8d11f3e971d5499550cedd378545e40ad0a2616419"
+            },
+            {
+              "frame": 15,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0015.jpg",
+              "sha256": "a558b3fb4c1f59e2ed046e1a2cdf8bae0767431e2f9338b898b1450efe3291fa"
+            },
+            {
+              "frame": 16,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0016.jpg",
+              "sha256": "a40a126c8f9f8a76b280ccaacbfeca8e66a9776e53532827dd0adbd21a962bcf"
+            },
+            {
+              "frame": 17,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0017.jpg",
+              "sha256": "cf8aeed79e8fd51b6a7e9cb3833b9909ee16642f3333417d1cc02b9cb230b1bf"
+            },
+            {
+              "frame": 18,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0018.jpg",
+              "sha256": "3ea6397b9f1a48644a4f2f48dff3096a43487eef90aeff0d2b951f88d3817370"
+            },
+            {
+              "frame": 19,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0019.jpg",
+              "sha256": "e618bf1d27852f8516600f602c0ed2cb198f4b5c31c4883d490eda9933b2952b"
+            },
+            {
+              "frame": 20,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0020.jpg",
+              "sha256": "cfaba1cc67ea6916f77feed973989b41c78197a61902adaa9d87e90f44556c84"
+            },
+            {
+              "frame": 21,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0021.jpg",
+              "sha256": "6fa4ed5241a3e7ea0b83fb39b51322289d5481a1a846746f07a29914e3cb7d61"
+            },
+            {
+              "frame": 22,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0022.jpg",
+              "sha256": "70d8a494881df8aadddd2b2f8f47922c7b276e61b312b9b298524b25cb79ec1f"
+            },
+            {
+              "frame": 23,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0023.jpg",
+              "sha256": "7e444a7aeb5b66e1b1149bcf5ab7e1306911e8f1e67afc8ab49eabafd7619c07"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h0/001.jpg",
+          "sha256": "c90a88a0e2dd7adb00cbed8bd81195968725b831341fb320aa55c1e29270eacf",
+          "frames": [
+            {
+              "frame": 24,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0024.jpg",
+              "sha256": "8dea6dc4f70c3f1982ce2735cdf06e138ec672474d3a59c7b09fd3eef69b2750"
+            },
+            {
+              "frame": 25,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0025.jpg",
+              "sha256": "6813ba7d96ec8157556db21f36f938906d28a81006d937c7b30b17d3811a3181"
+            },
+            {
+              "frame": 26,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0026.jpg",
+              "sha256": "9a2f966b66a167c94c6160443e8e4024469bef5c0e1e3bbdf5f1f224cb1715e4"
+            },
+            {
+              "frame": 27,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0027.jpg",
+              "sha256": "8e5934cf2ee4ca421eac1b0c93b04c622c904ed64e8429a29b86cc1f159de206"
+            },
+            {
+              "frame": 28,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0028.jpg",
+              "sha256": "bd922795a00e3b09b5f9e62896768843ab5efd7c675525f44fc1ba5ccd9c7517"
+            },
+            {
+              "frame": 29,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0029.jpg",
+              "sha256": "02b4c6dda522506440756328dddebce27075c5e33da8fdb24e8d95e805184f33"
+            },
+            {
+              "frame": 30,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0030.jpg",
+              "sha256": "b34af09ef5d8ad736a94081fda649dc66c9ff715ac386f2509d5dc3b70d152e1"
+            },
+            {
+              "frame": 31,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0031.jpg",
+              "sha256": "b651d6074041eff2e6a8dc1272a8f51e5794e5ef9cfd2e97607dba87d13ab8a8"
+            },
+            {
+              "frame": 32,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0032.jpg",
+              "sha256": "9ae563df5fa82d1c25e8be33f131bf321e7ef82523d579bbe13a81d8eed91f9f"
+            },
+            {
+              "frame": 33,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0033.jpg",
+              "sha256": "2bd61f97c7fc1604bb948e86e07f425912e6453096781c5335fd2e8e4baf11c1"
+            },
+            {
+              "frame": 34,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0034.jpg",
+              "sha256": "3bb3db3afcb06c4fcca8bea1f25dafb0e52340af1336728998fff2f48ec12d83"
+            },
+            {
+              "frame": 35,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0035.jpg",
+              "sha256": "f9ceb527f8d4144c5015d3dec34499494251bf4a573dd8b7da602e6025ff5f1e"
+            },
+            {
+              "frame": 36,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0036.jpg",
+              "sha256": "70a19062bc810ae9a2afeaeb3fca236cdbe6bc2a3d2913e11d28b9bdd56c4d82"
+            },
+            {
+              "frame": 37,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0037.jpg",
+              "sha256": "0eb9db62d54622739f4626354bd633646d72ebc8cf45600448fdb2df1c53120a"
+            },
+            {
+              "frame": 38,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0038.jpg",
+              "sha256": "0ce3f7afa97b0c54ec3c9faef842858bc3384286b3c7988cac3c85a475b9558e"
+            },
+            {
+              "frame": 39,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0039.jpg",
+              "sha256": "05e2b19b0cdc5275741d3b05f0fee439a512864b47d8588e9f288f6d498f7fd9"
+            },
+            {
+              "frame": 40,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0040.jpg",
+              "sha256": "c0eb88ede81c2788435d9051cfc70cfca3ee44686d19aa886da0500d7ac618ff"
+            },
+            {
+              "frame": 41,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0041.jpg",
+              "sha256": "2e7da9e8a26ce825d7e44e75ddbe0fde9358a8b50f63b5e7e6c15a8112543eba"
+            },
+            {
+              "frame": 42,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0042.jpg",
+              "sha256": "1c7abe3bd626670ce591f9218a449b13fdbbc0f75ec07489cd71aa23aa0019ed"
+            },
+            {
+              "frame": 43,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0043.jpg",
+              "sha256": "020e8100a3a4b43616b70ebdb03a877f592726acfe697ec7f4e2d5691136f309"
+            },
+            {
+              "frame": 44,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0044.jpg",
+              "sha256": "69e6ca32184950295b2fb4c4d4b25b715afcd265675d8a2f3f54e6fc69024238"
+            },
+            {
+              "frame": 45,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0045.jpg",
+              "sha256": "82465571e7056496b89cf58ddee82ff8ea34df4c2e530045b50e03913e436177"
+            },
+            {
+              "frame": 46,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0046.jpg",
+              "sha256": "b639167160fafe565f726defe02c417884e0ef70987cbe1a18bca583d2d8e7a7"
+            },
+            {
+              "frame": 47,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0047.jpg",
+              "sha256": "9b9e855eb8f323969e46b072731e087c2520cc45d94bb5a71874df0f7ebbaeee"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h0/002.jpg",
+          "sha256": "47c2c009eca75778f3fcf53d04a45fbe471861d84a927dc47fe8a48a862c5307",
+          "frames": [
+            {
+              "frame": 48,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0048.jpg",
+              "sha256": "239a5dacf991a334efa2f67ffcd4ddf537765a6f1523d839f3a8597623ab78cd"
+            },
+            {
+              "frame": 49,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0049.jpg",
+              "sha256": "bd8998d5e1d57042123055144603b47ff0954b4098ea703ecfc48a5f9f6b260e"
+            },
+            {
+              "frame": 50,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0050.jpg",
+              "sha256": "20845dbbb0ab9036bd2e43169b6e43ad089ce00d11b9f2477396f2fea83f2f7e"
+            },
+            {
+              "frame": 51,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0051.jpg",
+              "sha256": "873d8a68fcd5538d85787ac38f33e5e44a047297405c75ba4f35210aae766161"
+            },
+            {
+              "frame": 52,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0052.jpg",
+              "sha256": "f8f103b1b6e2da9bb5dfe45c3b90d779ad601c99eee222a85dbf2ea086a96893"
+            },
+            {
+              "frame": 53,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0053.jpg",
+              "sha256": "cd40a86d7618a74d066b78182d8a46c928aaef2a4515ba6cfa1c1979b02fc558"
+            },
+            {
+              "frame": 54,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0054.jpg",
+              "sha256": "0e44dbdd541bdd2baf9ad26bd79b276e3fb852a6ec9fa7d24eb544b431e5d17b"
+            },
+            {
+              "frame": 55,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0055.jpg",
+              "sha256": "5f49d6d6f95c037298c7c750bfd7e783643e569f56eb01edc1b47731d5337df7"
+            },
+            {
+              "frame": 56,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0056.jpg",
+              "sha256": "17e32b103a8296492bb0d20bd65be4753931e12b4f0cf2bfb73b47379aea405e"
+            },
+            {
+              "frame": 57,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0057.jpg",
+              "sha256": "8da446d39d23e6e684dbd008bb19ea8a487c16c0a94c98bb959ac5c56d9ee40d"
+            },
+            {
+              "frame": 58,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0058.jpg",
+              "sha256": "2fcc7c2cbeabc3b95249c9295076d411abbce25fbe99eee739f0179a1bee0b60"
+            },
+            {
+              "frame": 59,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0059.jpg",
+              "sha256": "79a5db6f861469782fcb6ccc1f2c2c4789c781328f0b096fee3c713e0e06d99d"
+            },
+            {
+              "frame": 60,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0060.jpg",
+              "sha256": "afd50be481b6520ee14aa989cd1148785a594eed1c9f927abe56d86467a56142"
+            },
+            {
+              "frame": 61,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0061.jpg",
+              "sha256": "c25d3acffd3b2f9d9871a4e1301138c1a31749d2f07c65cab05ffe21a35f0899"
+            },
+            {
+              "frame": 62,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0062.jpg",
+              "sha256": "45f90d9ebee44a4a3459715dd00d986742cbd91c254070add3a334fa61e601fb"
+            },
+            {
+              "frame": 63,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0063.jpg",
+              "sha256": "dd9f71c4186815a4538530b67316ff49aa7a28b4a9b1f84cebf872e2c04293c4"
+            },
+            {
+              "frame": 64,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0064.jpg",
+              "sha256": "76dbc280244a0a8cc36bf4550a15a2572e039db184cc6c4dc01477d0033fa804"
+            },
+            {
+              "frame": 65,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0065.jpg",
+              "sha256": "a168e29a7862cfe7e652725629b4fffa69ff1050fdfc6216be5a78798f700f4e"
+            },
+            {
+              "frame": 66,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0066.jpg",
+              "sha256": "393e00b308357142b7f88909eed263a0bf79eeda442d9382de0f47c6c76ea47c"
+            },
+            {
+              "frame": 67,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0067.jpg",
+              "sha256": "d18f3cd05f0d3ea545056c015fd290ccfe0973dafb1c5acc880d6cf89f0a291f"
+            },
+            {
+              "frame": 68,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0068.jpg",
+              "sha256": "6dde6da815b27654418c7897c48fcf53710f012823aeb36b2293a3dc720ae2b6"
+            },
+            {
+              "frame": 69,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0069.jpg",
+              "sha256": "3ce11d05f6f6eccd3fbde8ff3f376be019907a9f3d0f9683c1bc1fa176c94c8f"
+            },
+            {
+              "frame": 70,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0070.jpg",
+              "sha256": "5601f5246b7de61410f74326b3fb814f1dacc475c240419d7b86815a5e22788d"
+            },
+            {
+              "frame": 71,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0071.jpg",
+              "sha256": "6099ca9893d0dbd0fbe8bb9a27b165e7dbdb738faaba1fae2c245ed618ac39e2"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h0/003.jpg",
+          "sha256": "af8f9f66b706bd8dc42239590f1864fe64c2941476f41e75d1bb78993d273659",
+          "frames": [
+            {
+              "frame": 72,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0072.jpg",
+              "sha256": "93fb1347084616717de04ea4b5e846aa6ea1a0624d550889fe756455682e8733"
+            },
+            {
+              "frame": 73,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0073.jpg",
+              "sha256": "85ed8515b7f147791b3e068bb4abcb5b467c5248f64f6dc3300f1d289988427a"
+            },
+            {
+              "frame": 74,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0074.jpg",
+              "sha256": "d8233b7c53938e861c9f647fa51b0f08cd3bde5bf52971bb0db294099e3e5eb4"
+            },
+            {
+              "frame": 75,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0075.jpg",
+              "sha256": "a4a2cbf106afb9da8ae26eed4b0a94bc21d1f6e4de5e8d1bf61ccc648f433486"
+            },
+            {
+              "frame": 76,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0076.jpg",
+              "sha256": "7320aef9519f6cbc56bbfa4f908747201cb8f68506c4f0d9462d49268b8910ad"
+            },
+            {
+              "frame": 77,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0077.jpg",
+              "sha256": "d9eaac66436dc4dc91095a33d9e5f9e93814406a146f7c17ed9a3e9388ffb93e"
+            },
+            {
+              "frame": 78,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0078.jpg",
+              "sha256": "93a1f57c1d586e0db65c91fbee0f65c5fecca56aa2cb1380457009ba7e01db8b"
+            },
+            {
+              "frame": 79,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0079.jpg",
+              "sha256": "8cba6d31d2448f5a0d9ec532ce5f8ee868265aaa54e245da91650779815d8d68"
+            },
+            {
+              "frame": 80,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0080.jpg",
+              "sha256": "92cbe0dbd0ec1105af444e77b97485295f7989ed861f7e850c2e61e162b13fb7"
+            },
+            {
+              "frame": 81,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0081.jpg",
+              "sha256": "adb80282153e336cd1c0880c0fc3e884a02b096a5b4043be3ba31ff8d95cb16f"
+            },
+            {
+              "frame": 82,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0082.jpg",
+              "sha256": "ec7859cb673eaeb09eb8b86b2f89726587952d74deb2420cfa77f947983676b4"
+            },
+            {
+              "frame": 83,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0083.jpg",
+              "sha256": "13c7f4c8ae39b489b24d9f067179a88bb339297bcaba94f2efd91a109dbda909"
+            },
+            {
+              "frame": 84,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0084.jpg",
+              "sha256": "27ae22129058ed707b571dcaf84bab45b4cc686320ada03ab387267c8d52756b"
+            },
+            {
+              "frame": 85,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0085.jpg",
+              "sha256": "80a5c824f7517652c3058de0e0c77c5706c027c80b2a76693a29c07da612652f"
+            },
+            {
+              "frame": 86,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0086.jpg",
+              "sha256": "f20d6ace8464aec14e5f6498d744646ef28c47240e459d63ce07b1a564838eac"
+            },
+            {
+              "frame": 87,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0087.jpg",
+              "sha256": "5a5e9609eb6112e1f83b998623e1a2071fc72cbeeb03c7b994d48cdf8c4a83f7"
+            },
+            {
+              "frame": 88,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0088.jpg",
+              "sha256": "275d9215943e8bff161bb3476712d0ef93e83d5e5ab663fa7bc55c687238bb80"
+            },
+            {
+              "frame": 89,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0089.jpg",
+              "sha256": "5045eafcb3ad8100d94bcd4f6f50725a81699e1c861cc55fb857127e07447e99"
+            },
+            {
+              "frame": 90,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0090.jpg",
+              "sha256": "cbe02b364b63e6af90377f1b5337eee1030c4051dcefb5a9e010eafc6313d1c2"
+            },
+            {
+              "frame": 91,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0091.jpg",
+              "sha256": "ccc81011280bca0c19b304fa93ce0b46b89bbba353880fd812a9bfd93471f1d3"
+            },
+            {
+              "frame": 92,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0092.jpg",
+              "sha256": "c9f339bf90399e8e809af1e16913f2f9dd2c8794cc7477e9d3c0fa78564747e6"
+            },
+            {
+              "frame": 93,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0093.jpg",
+              "sha256": "8c599efbf18b894a78f22649ea7a3fc5273a345b8e89e26ec1528d8782a92696"
+            },
+            {
+              "frame": 94,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0094.jpg",
+              "sha256": "e6dae6ff46d3d7cda6727ead8cb5508616cdeb077b9560a7e9211a0d30821248"
+            },
+            {
+              "frame": 95,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0095.jpg",
+              "sha256": "fc3f575976b54961dcfad204f37388ac2d96fb9f21faf3877661b00a05fa8267"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h0/004.jpg",
+          "sha256": "56a0888762cf52c9201a323d17272a2b559bd3eb1432c090960a839354578c17",
+          "frames": [
+            {
+              "frame": 96,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0096.jpg",
+              "sha256": "3b3442d2936c7c75393bbbc2fa01fbc345ac7567860b0f56c9390afd10b25237"
+            },
+            {
+              "frame": 97,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0097.jpg",
+              "sha256": "c447598d64f4156081f26c984946bc74cfdfa48bde30f899809ed77fbd34c887"
+            },
+            {
+              "frame": 98,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0098.jpg",
+              "sha256": "dc5015d12a80ff47a06b2eaae349fa336cc1d6aa101b0712ef52f39fbbb3b1ed"
+            },
+            {
+              "frame": 99,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0099.jpg",
+              "sha256": "09f06a7457b22e9c3887620b11a83a35ca1f00f5e10baa1c618e74efa64abdf0"
+            },
+            {
+              "frame": 100,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0100.jpg",
+              "sha256": "ea006647f7aa31d2d72809fb7012aeb9919c04eda639b0cc2f85990f63d671eb"
+            },
+            {
+              "frame": 101,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0101.jpg",
+              "sha256": "564a8e63c2f7bf26561d8324a6d1a709dfe026121dee6f7415c2eb0cf3d491ac"
+            },
+            {
+              "frame": 102,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0102.jpg",
+              "sha256": "82aad3263783e1270992aea627b52f9affcce42926de0e56224edc732372bc2c"
+            },
+            {
+              "frame": 103,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0103.jpg",
+              "sha256": "9af1fe23bc28093f94e88f8637486fe2b66ba494512d2de1bbf4885a7eeb2a95"
+            },
+            {
+              "frame": 104,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0104.jpg",
+              "sha256": "d1190e8da170a9dbdda23e1b1ab4b8d9b89f859c730ca516e43f09bb5f0875ff"
+            },
+            {
+              "frame": 105,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0105.jpg",
+              "sha256": "8fa79afcf9507927ad2b4e0e5282142e6ee7ffea911effe1518621868d0257f9"
+            },
+            {
+              "frame": 106,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0106.jpg",
+              "sha256": "c765375f7364cb8002be6f5e4c8b6771cd548b54207a5dc56423bc7a55e91840"
+            },
+            {
+              "frame": 107,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0107.jpg",
+              "sha256": "282fde21773ad8b788606c5a0b809d073d862e1e2a48d67eac45fc6f7e553bf9"
+            },
+            {
+              "frame": 108,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0108.jpg",
+              "sha256": "f5c05a5b23fed86b9f5217c623bf0795928cd620214b729643ed728de926dd90"
+            },
+            {
+              "frame": 109,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0109.jpg",
+              "sha256": "20ef5f11c02311ea03b053ea14374d3bf0545e49eb54ed0bce03eb7d9714143e"
+            },
+            {
+              "frame": 110,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0110.jpg",
+              "sha256": "d1fdf46fedb231053770f968c0e42148411fca917c945b646630598fa414f01c"
+            },
+            {
+              "frame": 111,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0111.jpg",
+              "sha256": "5c7252b4e9ea6393f0f145740ad89ce76a64a25579a67976b1efc4930ce6bea5"
+            },
+            {
+              "frame": 112,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0112.jpg",
+              "sha256": "3604b59fca1149adf94203a89c23aa04363ac206aaf2ab75e098cc45468abf65"
+            },
+            {
+              "frame": 113,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0113.jpg",
+              "sha256": "79dc733d7bee27a606ef6024bb4344156a5194c39231eec457be05d19941d6be"
+            },
+            {
+              "frame": 114,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0114.jpg",
+              "sha256": "fa9d3a1b179e1c221145c766beb22dbdd48abf768bfdf7669ba48fe8aae35658"
+            },
+            {
+              "frame": 115,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0115.jpg",
+              "sha256": "de8f603fdac65f34e50071781b26fb079bf70369600c80a3c032e12dccfd3a6d"
+            },
+            {
+              "frame": 116,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0116.jpg",
+              "sha256": "8d2dc1ee5071ee4dccbf8e224057fc96f1ce2bab0e07f451fd8dc907c5b450a1"
+            },
+            {
+              "frame": 117,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0117.jpg",
+              "sha256": "0f487bc34d3936d0d694cb1e0d27192b921e3a6e4d549436fc830eaa3783440c"
+            },
+            {
+              "frame": 118,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0118.jpg",
+              "sha256": "9b8559d12a586ada9bff90e71eb6cc62d5da023316f395dd7452d2408eb18c7c"
+            },
+            {
+              "frame": 119,
+              "rgb": "HardBreakRoute/Town13_Rep0_1520_0_route0_01_10_08_11_17/rgb/0119.jpg",
+              "sha256": "a6f8f46fd208804e5919b0d453eb409007a38aff60add78e4da6d4522c25b530"
+            }
+          ]
+        }
+      ],
+      "native_frames": {
+        "94": "e6dae6ff46d3d7cda6727ead8cb5508616cdeb077b9560a7e9211a0d30821248",
+        "95": "fc3f575976b54961dcfad204f37388ac2d96fb9f21faf3877661b00a05fa8267",
+        "96": "3b3442d2936c7c75393bbbc2fa01fbc345ac7567860b0f56c9390afd10b25237",
+        "97": "c447598d64f4156081f26c984946bc74cfdfa48bde30f899809ed77fbd34c887",
+        "98": "dc5015d12a80ff47a06b2eaae349fa336cc1d6aa101b0712ef52f39fbbb3b1ed",
+        "99": "09f06a7457b22e9c3887620b11a83a35ca1f00f5e10baa1c618e74efa64abdf0",
+        "100": "ea006647f7aa31d2d72809fb7012aeb9919c04eda639b0cc2f85990f63d671eb",
+        "101": "564a8e63c2f7bf26561d8324a6d1a709dfe026121dee6f7415c2eb0cf3d491ac",
+        "102": "82aad3263783e1270992aea627b52f9affcce42926de0e56224edc732372bc2c",
+        "103": "9af1fe23bc28093f94e88f8637486fe2b66ba494512d2de1bbf4885a7eeb2a95",
+        "104": "d1190e8da170a9dbdda23e1b1ab4b8d9b89f859c730ca516e43f09bb5f0875ff",
+        "105": "8fa79afcf9507927ad2b4e0e5282142e6ee7ffea911effe1518621868d0257f9",
+        "106": "c765375f7364cb8002be6f5e4c8b6771cd548b54207a5dc56423bc7a55e91840",
+        "107": "282fde21773ad8b788606c5a0b809d073d862e1e2a48d67eac45fc6f7e553bf9"
+      },
+      "evidence_ids": [
+        "holdout_v1_formal_data_0_U-E1_proceed_94",
+        "holdout_v1_formal_data_0_U-E1_release_94",
+        "holdout_v1_formal_data_0_U-E1_complete_100"
+      ]
+    },
+    {
+      "sequence": {
+        "physical_group": "HardBreakRoute/Town13_1775_0",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town13_Rep0_1775_0_route0_01_10_23_19_49",
+        "town": "Town13",
+        "split": "val",
+        "frame_count": 135,
+        "candidate_events": [
+          "R-E5",
+          "U-E1"
+        ],
+        "requested_events": [
+          "U-E1"
+        ],
+        "status": "reserved_unviewed_unlabelled"
+      },
+      "status": "full_sequence_viewed_partial_edges_labelled",
+      "pages": [
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h1/000.jpg",
+          "sha256": "785c2940842ae6a324d82b4f8bb8cce0ff694a92bf37e9bc8b9b89ccb991ee51",
+          "frames": [
+            {
+              "frame": 0,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0000.jpg",
+              "sha256": "bbdeb6c2ee4914982801be360eb7688e85236b6c3ba601bbd70a37a4fd38718a"
+            },
+            {
+              "frame": 1,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0001.jpg",
+              "sha256": "8b916ddaaed81316ad190703958f2f65357bb2d9b102687b2698ead8b960bb86"
+            },
+            {
+              "frame": 2,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0002.jpg",
+              "sha256": "750b19be6e668d544b8adcfc9b4f38671d73da81565354a2d60bd290b03b38a5"
+            },
+            {
+              "frame": 3,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0003.jpg",
+              "sha256": "cce2daef473c281bfb02db914213d5fef0124adbcdeeaea628b9d70d33a377c3"
+            },
+            {
+              "frame": 4,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0004.jpg",
+              "sha256": "6170af51e4eaddafe1232ed3d9a1352a8581c4304c2c19c06d14b9591ab5508b"
+            },
+            {
+              "frame": 5,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0005.jpg",
+              "sha256": "836318b313bb59a5dc7d3375e4822b43faa2eedf4459088e73966375e9c2b07c"
+            },
+            {
+              "frame": 6,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0006.jpg",
+              "sha256": "5e36fbf7505003b7205e45ae74d2263b2c5473a2a70b9c163d732566e74132fc"
+            },
+            {
+              "frame": 7,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0007.jpg",
+              "sha256": "cafd8e460b425e9bc98d26f02814ec003c71018bb0fdeaa094d5ebcb6f33ac79"
+            },
+            {
+              "frame": 8,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0008.jpg",
+              "sha256": "fc42991f4733ddf9edece2f54899bc19a63528160d877ecdea16d77e58019b71"
+            },
+            {
+              "frame": 9,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0009.jpg",
+              "sha256": "ef233933dc5114b2effbc472fc2198da89b02e00519d40d0ca4885793a9d795b"
+            },
+            {
+              "frame": 10,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0010.jpg",
+              "sha256": "9bd6a67a01b863092a82f5a6373bd7f90b0bb4cb2a4df7957f9e48cb90afe533"
+            },
+            {
+              "frame": 11,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0011.jpg",
+              "sha256": "992db5c789a33c6c1a018e0de4e7f22b138d0a8b39acba036b4733344509b8fc"
+            },
+            {
+              "frame": 12,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0012.jpg",
+              "sha256": "41a5f2417b9550ebeb05b990674ea7e4be8cfe9563741e10213be8cfe27b2df1"
+            },
+            {
+              "frame": 13,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0013.jpg",
+              "sha256": "4bb81563caf15b3c948484da65d0fb83c7f374e2a349e7b6ebc644a91c066404"
+            },
+            {
+              "frame": 14,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0014.jpg",
+              "sha256": "1c0effbf581ca4489c9512138bda223a8b357393f08730e776038f395bb60a21"
+            },
+            {
+              "frame": 15,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0015.jpg",
+              "sha256": "b75b78a93d06607ea74f3f6a3476d2299a05a74c5743ea391288ca58ff6a851b"
+            },
+            {
+              "frame": 16,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0016.jpg",
+              "sha256": "37c0e0f3ec916c78282fb74fac094ea7192dc9b4cc3d3af33462a8fc91f35103"
+            },
+            {
+              "frame": 17,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0017.jpg",
+              "sha256": "e15bae9459d909f3cea2f27f262f703d53fb4195680c2885767ca855c161a6af"
+            },
+            {
+              "frame": 18,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0018.jpg",
+              "sha256": "264d0ea22861b941e686a4b588a9eb470051cc79363228d8e399230893cfbb25"
+            },
+            {
+              "frame": 19,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0019.jpg",
+              "sha256": "a60227c7f2e5ff353ef42bba1b58cd916d8e930ea5c615eb482f63333c055919"
+            },
+            {
+              "frame": 20,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0020.jpg",
+              "sha256": "20dbd118d8c872fbf8c9ffd62cc8d5ba38e762f53f4f46e94add70aa5d3d30ff"
+            },
+            {
+              "frame": 21,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0021.jpg",
+              "sha256": "3872244fb63706fd12d21f4d2d1a644d8010a293b4260ee45ab2c185a9909c89"
+            },
+            {
+              "frame": 22,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0022.jpg",
+              "sha256": "7bd5c5f02ea1276de9250ceb76ce4f44c130009d1eb3fce703aca12888d1b360"
+            },
+            {
+              "frame": 23,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0023.jpg",
+              "sha256": "4eef06f675832f51532bc0e755d3f3f5533159523ca6011a166aa7d4704e7311"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h1/001.jpg",
+          "sha256": "6ddf1f8b99d87f31852cb80dd2de4bea7d81618a4c4263a873f62582e8b628c9",
+          "frames": [
+            {
+              "frame": 24,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0024.jpg",
+              "sha256": "69eae4739fc6902fa53f9a5776c14542b4ab992c589a71c4a762946292e4675a"
+            },
+            {
+              "frame": 25,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0025.jpg",
+              "sha256": "a72cd67b0e04f515ca76a125a48de9d027b20679ece6da9f819849800ad2eb58"
+            },
+            {
+              "frame": 26,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0026.jpg",
+              "sha256": "cf3cbbaf8c7907e7b4038322d1bdb219496cb83150a647a189848102416b35af"
+            },
+            {
+              "frame": 27,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0027.jpg",
+              "sha256": "71986146c0e6e7420c7cb74bc2374dcca1d79d17eb8eda0af735f9248ef4feb6"
+            },
+            {
+              "frame": 28,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0028.jpg",
+              "sha256": "bfaa9e9efdf9b821771c4669bfd7dd0088bd93eefe1597d36ca0a7dbcdc08688"
+            },
+            {
+              "frame": 29,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0029.jpg",
+              "sha256": "7d5fc706c62e8bc1b3f8c12315ac8f3bc3bdfbd656a71b1b336664694e725227"
+            },
+            {
+              "frame": 30,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0030.jpg",
+              "sha256": "ff20036aa7aa1fdda2b5fbd9df688fd1eeb5eec1d18d7887bbe6561487a2d0b2"
+            },
+            {
+              "frame": 31,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0031.jpg",
+              "sha256": "90677e0073eb5d2ebdc22c740e411719163ff08c1551c930d88f88c6185fe944"
+            },
+            {
+              "frame": 32,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0032.jpg",
+              "sha256": "1d9dfc7c8e725fdbcc7fc12720f4e04016eeef9c0a543663e83fa1294530dbbb"
+            },
+            {
+              "frame": 33,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0033.jpg",
+              "sha256": "2b53e9e12f5997ddfaea506cd688959454e7e547c11f0407c967e4260a8b5d6f"
+            },
+            {
+              "frame": 34,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0034.jpg",
+              "sha256": "3c180ac46a89497805794593356ab315e47b2b8570931d8d67d955368277af6d"
+            },
+            {
+              "frame": 35,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0035.jpg",
+              "sha256": "f90f3998462a62e352f27a1d5e702dba06b0f0d2bd50c936cc1d5bf2bf044259"
+            },
+            {
+              "frame": 36,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0036.jpg",
+              "sha256": "f95560727253fcadc1a67ab028456a03085da9ca0ebc321aa46ebc2f70630d0e"
+            },
+            {
+              "frame": 37,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0037.jpg",
+              "sha256": "37fcc80e74a0d4ea61680eb9f518340dabe3307b6946ce6bdb7126b608ebd474"
+            },
+            {
+              "frame": 38,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0038.jpg",
+              "sha256": "68a1b7c48845521aeddf9716f6d8629749329a0cab3b063736b4db2dbaa0516d"
+            },
+            {
+              "frame": 39,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0039.jpg",
+              "sha256": "dd10994fd5459a6672d29bf44b4cb279d9d94c1076913a9b4ece168ea9c5498f"
+            },
+            {
+              "frame": 40,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0040.jpg",
+              "sha256": "d91ea536683d326b7b4d6d4022eb9b28896a6c59c67a5f03a9a6963fcbe91cb6"
+            },
+            {
+              "frame": 41,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0041.jpg",
+              "sha256": "45b4a4ae2517bfca11046af927634c0e3ea627e5011378dfcd094a6e97142628"
+            },
+            {
+              "frame": 42,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0042.jpg",
+              "sha256": "fceb5186ad0b320a50d796e59493a7f574bb5739fe87b2756d328bfcfdc30528"
+            },
+            {
+              "frame": 43,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0043.jpg",
+              "sha256": "c6e5500f41313319f85cadc7ce2cbd1743e2e6577eaddf15aa86c7f0646e74f3"
+            },
+            {
+              "frame": 44,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0044.jpg",
+              "sha256": "e1edb2b582b3734f4432164ab0a27221d08a09eb0b1db8a375861bcd75e864cd"
+            },
+            {
+              "frame": 45,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0045.jpg",
+              "sha256": "54856d625decbaf8c0e87f53f17f33fc1ecc53584c6701c55d6ff43ca206c4d1"
+            },
+            {
+              "frame": 46,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0046.jpg",
+              "sha256": "bbdd1ae366b9f415308e43f5d6d435c4be4e9cd740df405d6008229ff4f903b3"
+            },
+            {
+              "frame": 47,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0047.jpg",
+              "sha256": "8191f0f0c675ccadd1373439a0bf9b22ccb07253612f6e675ad6c732a4c5fa1f"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h1/002.jpg",
+          "sha256": "853bfac8f1fb768d764915ccf7dc0d28f0fcf4769472f8b026b50d8791d4b491",
+          "frames": [
+            {
+              "frame": 48,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0048.jpg",
+              "sha256": "e1220e4a3a2ab74acd7bf5c9b514e26431eda8c3628eb5bc4092248a271410eb"
+            },
+            {
+              "frame": 49,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0049.jpg",
+              "sha256": "8695f13569cf98119b5eb738c5d5fd275d0f190ff09f90874c3ffe705f3a1d0c"
+            },
+            {
+              "frame": 50,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0050.jpg",
+              "sha256": "fe0d2be0eec38ebdd2de8d0a38c2cb2b151e06758dadbbd13f3fbde93250c7d3"
+            },
+            {
+              "frame": 51,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0051.jpg",
+              "sha256": "f6aa2d7f35cc754a1f352c96e2f86de266c666d8a2d0cf66770be6365051dc63"
+            },
+            {
+              "frame": 52,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0052.jpg",
+              "sha256": "0b81ea9485652bc5f638eac1fd24ef1332dd21890e82f87807cfe2b484f2d203"
+            },
+            {
+              "frame": 53,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0053.jpg",
+              "sha256": "189fbefa83d2c879a89ce38a6c16e3a7870196a76ad4911201b1ab3607d02f4c"
+            },
+            {
+              "frame": 54,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0054.jpg",
+              "sha256": "5d3cf5b683d043ddcda38140280b01eb8b2f7d758304e0f588757a4753e029c7"
+            },
+            {
+              "frame": 55,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0055.jpg",
+              "sha256": "a0137e73906e6f354ccfa3c603a5d7d7ec4da43e7364e5b41524ca1d654fd79c"
+            },
+            {
+              "frame": 56,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0056.jpg",
+              "sha256": "5195feeaf32668e8462075a78108db40de9cac35efe877a64ccfb0a0c7688f0d"
+            },
+            {
+              "frame": 57,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0057.jpg",
+              "sha256": "c554e3456231ae0ff96e4545bd4af819bbd89d9f892e1b539e18a68e3ddc49ab"
+            },
+            {
+              "frame": 58,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0058.jpg",
+              "sha256": "cd47988e2d34381a1bfbd45f8d38d88700348f86acd64feb27d710b75deeed06"
+            },
+            {
+              "frame": 59,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0059.jpg",
+              "sha256": "6b2def5116c2c57da1cf4365874b57bb84e673e662aba5aaceeb5e9a7f08bf2a"
+            },
+            {
+              "frame": 60,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0060.jpg",
+              "sha256": "af6736701239960bf03c553684019b8f02c498c02c0813b3bb6121ea4a73a531"
+            },
+            {
+              "frame": 61,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0061.jpg",
+              "sha256": "82086ea962649a3ec093b365f21215b0477f9ff6b83d5bf1702232a84af1114a"
+            },
+            {
+              "frame": 62,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0062.jpg",
+              "sha256": "0891921653e85fae851f47c37d113f995802ec4bfe8d47c68bc7751c1f01fdce"
+            },
+            {
+              "frame": 63,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0063.jpg",
+              "sha256": "cdc4b05636fd886a377237a4c7dabd3a0395ab82a0077712b8dd0a2859dc586a"
+            },
+            {
+              "frame": 64,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0064.jpg",
+              "sha256": "7c19cb021261ea451d69432083b6401d8dffebc0241d96960f56de36188f3296"
+            },
+            {
+              "frame": 65,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0065.jpg",
+              "sha256": "bfb24ea891ffb1ac6865a20302223e52c3d2417518f8aa008bd1cc6c75bebe43"
+            },
+            {
+              "frame": 66,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0066.jpg",
+              "sha256": "7d6014e653ad380deceda234068f8c2d2b8566287d47de6a6f71e860d753157c"
+            },
+            {
+              "frame": 67,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0067.jpg",
+              "sha256": "b1302601b1e969305b5816a718f9094243cc66a2eacebbd9c502db82f03e1d7b"
+            },
+            {
+              "frame": 68,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0068.jpg",
+              "sha256": "83b55b4fea2f96f54de7136c739a2061d676c6c636b7cd1b087fa2a637614abb"
+            },
+            {
+              "frame": 69,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0069.jpg",
+              "sha256": "1a1cad3b43ed1b1e7da0c56db41d7b2bdb34f65373d540b58d1d519c5549c824"
+            },
+            {
+              "frame": 70,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0070.jpg",
+              "sha256": "c40dd48258534ba3355ea721ec2db2e6ffba19a4e1f717171afa5233580bd382"
+            },
+            {
+              "frame": 71,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0071.jpg",
+              "sha256": "9b94dfbadfdbfc30a79b20ecb9068212572661eff3327c0858fd368a278173c7"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h1/003.jpg",
+          "sha256": "49d63f27e59f28bbaa4c77824e0a40c2f74b449e0acc9798d4e51fe8597ad954",
+          "frames": [
+            {
+              "frame": 72,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0072.jpg",
+              "sha256": "91b7734526d517845231d408149909a3453baf1620e6300af20aeb37bed8311d"
+            },
+            {
+              "frame": 73,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0073.jpg",
+              "sha256": "af8f1561b6fc5afadb6da462084441f6a9c937841b5de2eaec0de7495787efc0"
+            },
+            {
+              "frame": 74,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0074.jpg",
+              "sha256": "03ec32be721ae250e92612cb655cd8d96b6b692033171e273c145774310ffef4"
+            },
+            {
+              "frame": 75,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0075.jpg",
+              "sha256": "5035e113bdc62d70b42d10738ae1333c946d70a77567f7a424bf1723953c1dd6"
+            },
+            {
+              "frame": 76,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0076.jpg",
+              "sha256": "647443211389170f2a0c17d6c5f8e961d96977ce8187a7d99ba84ece4b4f959b"
+            },
+            {
+              "frame": 77,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0077.jpg",
+              "sha256": "701e9e75b4c2be717c95513d6e264a6c6cd62e8bc6351bf3b3ba77f4a3283c4f"
+            },
+            {
+              "frame": 78,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0078.jpg",
+              "sha256": "c0283bbb82a5a6eb4b8dacace7aa69b40e764af5b8dc7999e278b5ca6bdf884a"
+            },
+            {
+              "frame": 79,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0079.jpg",
+              "sha256": "73ae76b23b830f2e7b767bb509adb657d4d1e3299e2aa3f7296e66d9dfc26d6c"
+            },
+            {
+              "frame": 80,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0080.jpg",
+              "sha256": "5fac59da42a0ba96fe202147c3537a11a4dd5883b2aeb6c67cee10f91bad94d8"
+            },
+            {
+              "frame": 81,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0081.jpg",
+              "sha256": "fe440e568783874b02ed18a655e1e633a07768dfd90bfd9f4ec535e3b8f1cbf8"
+            },
+            {
+              "frame": 82,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0082.jpg",
+              "sha256": "c7a1da5801951197b77d8e0181ec2cc41da8093f99cdf9cb8b7c4677aec652bb"
+            },
+            {
+              "frame": 83,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0083.jpg",
+              "sha256": "c3976c6fbe53e4eb87c2d10f40cf531adfc2b3da6dd33b3d21509d9d909b7326"
+            },
+            {
+              "frame": 84,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0084.jpg",
+              "sha256": "4e8dbec231afb4204670f68c9fc54c8e90601db450bd1b375c47a97763e4de63"
+            },
+            {
+              "frame": 85,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0085.jpg",
+              "sha256": "7608836614654614549a8ba8135038c3b4d74b99221802b2d1698398449d36a7"
+            },
+            {
+              "frame": 86,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0086.jpg",
+              "sha256": "163ba0941823557d69e92ad078d2f6b67ebef2f9506cdc4a39a30648a4b877ee"
+            },
+            {
+              "frame": 87,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0087.jpg",
+              "sha256": "3e3d595042fe1dd9b30583d02a09abcd959381146c701dfdc731b8f6a0761821"
+            },
+            {
+              "frame": 88,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0088.jpg",
+              "sha256": "4fb102a95679b53820691df57ea4f25ff8829e47525e102bdf637a703ab017bf"
+            },
+            {
+              "frame": 89,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0089.jpg",
+              "sha256": "092cf580744259de94a17cca5b372b435a0975392cafa26418a551e81588eefd"
+            },
+            {
+              "frame": 90,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0090.jpg",
+              "sha256": "59fe9ceaa9bbfb75c0681f1bcef5dc9af3811f99437f5e942fc4b6ad5cd6a473"
+            },
+            {
+              "frame": 91,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0091.jpg",
+              "sha256": "003bd3c12825e70d230d1c47bed2a234df2d634cc2629e81279cd8ce793b835a"
+            },
+            {
+              "frame": 92,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0092.jpg",
+              "sha256": "5e58c19d5a8f5ba70ad9ce34c443eb4f965e7e4555a010398ee65d169b252835"
+            },
+            {
+              "frame": 93,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0093.jpg",
+              "sha256": "e54580a7d30b2c990d85c8ef3c54d5931919242185bb3e1686432f9c51200bbf"
+            },
+            {
+              "frame": 94,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0094.jpg",
+              "sha256": "740b359abb61ad503f8a5a7727ac29cf26d5eadf863e3340d43ae9455173913c"
+            },
+            {
+              "frame": 95,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0095.jpg",
+              "sha256": "e44c6c93b80d78f0c0374489844b40fb4e86658c22b5d569cef1f56ab9f4222f"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h1/004.jpg",
+          "sha256": "b33eb36a547682075ed8279e6d979497a14d73f4362297bdc02911d9a7a0b2e9",
+          "frames": [
+            {
+              "frame": 96,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0096.jpg",
+              "sha256": "0913133f3688b710e62fdf70cec6aa3568640c64de6d8d4a8c7121196f532a27"
+            },
+            {
+              "frame": 97,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0097.jpg",
+              "sha256": "d8eff5167878742c9b8fc67f4198dbe6607b1dbe559ae9e24c829a86cbd6f146"
+            },
+            {
+              "frame": 98,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0098.jpg",
+              "sha256": "ebf0dffc3deb8766859c05f80080fb6bba906eee33318bd4bb4ac41ccf9cb83d"
+            },
+            {
+              "frame": 99,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0099.jpg",
+              "sha256": "ce95e0222f2b7a33b810c2f97918cae30816b9f97156854e66689287d89752e7"
+            },
+            {
+              "frame": 100,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0100.jpg",
+              "sha256": "43a4c1c35edb05d925607561e63cc663df2862f9b76d1b673478cbcb88cd636f"
+            },
+            {
+              "frame": 101,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0101.jpg",
+              "sha256": "d0111fa99be865a33e21f46163fc20f6947fa1c31c337bb8be8a94134210b279"
+            },
+            {
+              "frame": 102,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0102.jpg",
+              "sha256": "bba96b90648862161d71ba97bfe1e7e4abffaeea918afc47561a7ad3354f57b3"
+            },
+            {
+              "frame": 103,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0103.jpg",
+              "sha256": "cb3f53f09064f1d93f6c23abc8a66b42da1d97b232660b20a2b984a143d2b60a"
+            },
+            {
+              "frame": 104,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0104.jpg",
+              "sha256": "f3e63d3aa16209a927995c17cd2b6ae15b14e0b6bc18ea4f607692bbcd2a187c"
+            },
+            {
+              "frame": 105,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0105.jpg",
+              "sha256": "ad7fbe009f579901b07bf37fd9d27b3e37011721ecd332c32a4bc7048ac5e6cf"
+            },
+            {
+              "frame": 106,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0106.jpg",
+              "sha256": "580b8dd05c08099b94be4fefa866227ac16633cada5b792aaeceb0f365cb55d8"
+            },
+            {
+              "frame": 107,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0107.jpg",
+              "sha256": "f63663dc4db028613ceb8be23b75a4ee9b8414bc3ec3e288ef8a20f15659e2a0"
+            },
+            {
+              "frame": 108,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0108.jpg",
+              "sha256": "dbc8ded88d3e1087fff290dc77e911fb472cdb2a4b0200ac1a77a57b7f7794e2"
+            },
+            {
+              "frame": 109,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0109.jpg",
+              "sha256": "6af5919d29dfecf6e507939b561c8db0a29e5cd59b014fa54f33847ca83fb249"
+            },
+            {
+              "frame": 110,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0110.jpg",
+              "sha256": "c2c57fc3571a030e81c86e04b681b424c0ae499339a6a1a27c49112748678c27"
+            },
+            {
+              "frame": 111,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0111.jpg",
+              "sha256": "9045198d0823f5a5bd6ff83b48f3f1235f12245073595b6470305709e9cb85e7"
+            },
+            {
+              "frame": 112,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0112.jpg",
+              "sha256": "0e75c9328f375cf4f38dd1c79514e00bf25cd750c5fc086014e69b60102b66f9"
+            },
+            {
+              "frame": 113,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0113.jpg",
+              "sha256": "e13ce73a3f4572c282417a8bcbe25fcb4d17fc55d926cde4580b23cd6325d4e8"
+            },
+            {
+              "frame": 114,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0114.jpg",
+              "sha256": "fca94a05c4e1497819614d78c62fda83bbbd614611c1544ee11e63ece2705f60"
+            },
+            {
+              "frame": 115,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0115.jpg",
+              "sha256": "95ae968abb835c19543e5ee79b4d3e8f700a46fd2e0c1c8b5edd2bc69107b421"
+            },
+            {
+              "frame": 116,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0116.jpg",
+              "sha256": "8c9edfb2282330e3fb4036b167408cdcd1403dfe2cd5a7b243a37a39dac2b608"
+            },
+            {
+              "frame": 117,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0117.jpg",
+              "sha256": "b19caad95c19b04e308d08be69833b1cc754bb9ec811c8acb2ce1034c8ec2dc9"
+            },
+            {
+              "frame": 118,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0118.jpg",
+              "sha256": "d72cb2c9970f0a1705c7df01a63e1674016332d70fcee0b8a6b24e0e17719981"
+            },
+            {
+              "frame": 119,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0119.jpg",
+              "sha256": "e3e0713ae833f60355b48cca757e7e4672e0a81f1b20e982cf31f6502facfadf"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h1/005.jpg",
+          "sha256": "0134d94f84281d0a43d26b48e22218369e58b65406d22cc97f247caa37bc6be8",
+          "frames": [
+            {
+              "frame": 120,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0120.jpg",
+              "sha256": "2f3412a07f1920ed7b3139e169460b3434ff7a70b9dbb436c96a2186d82be1a4"
+            },
+            {
+              "frame": 121,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0121.jpg",
+              "sha256": "bee920fb66a60cbfb7e7bd635aa0b90dd78a4771c58af5405d551871dc7dfa65"
+            },
+            {
+              "frame": 122,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0122.jpg",
+              "sha256": "f8a81074107d0d9d56ce0f831efb225b70691b8f48ff149136073da283c86491"
+            },
+            {
+              "frame": 123,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0123.jpg",
+              "sha256": "0f9711516561507cd8bd7189f13d6462a8db983b1e42a0466da954475f99646c"
+            },
+            {
+              "frame": 124,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0124.jpg",
+              "sha256": "607c65b879747898c55f7b51c405241f27e4f99ab2da5ca0b3f69e74b1d659da"
+            },
+            {
+              "frame": 125,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0125.jpg",
+              "sha256": "3ff12bb115536533a08bfd6cff47354e4240ae9e56c8b719f39de63c30d87afd"
+            },
+            {
+              "frame": 126,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0126.jpg",
+              "sha256": "297872014ed889d8187dca56d9426ce4192d549ce038f8b78a4578349df453fa"
+            },
+            {
+              "frame": 127,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0127.jpg",
+              "sha256": "e6318ffdd42907deca181b6ff8bdd0817e67e36aab6ee00961caf7ea891fb69a"
+            },
+            {
+              "frame": 128,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0128.jpg",
+              "sha256": "022ad1fa6a01df8271021c26de56e1f57e1aa437c6206544550706b26087dc01"
+            },
+            {
+              "frame": 129,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0129.jpg",
+              "sha256": "aa95b751a4f84499d140b15c9c276c6fa9c5afa91a00bf2a3ec0a0b73afde025"
+            },
+            {
+              "frame": 130,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0130.jpg",
+              "sha256": "4e7af27d75f848007641a17418104305b4c97562d08ad8be554ef56488c6f226"
+            },
+            {
+              "frame": 131,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0131.jpg",
+              "sha256": "db479ba27f3401798b14493f2ddf704a0cbb30935ae44507090163c8c1407527"
+            },
+            {
+              "frame": 132,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0132.jpg",
+              "sha256": "dfed10bd2580b74e9c3d9adba80b94ed6cbf43b3d461d6c2ef31ea8b67f39161"
+            },
+            {
+              "frame": 133,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0133.jpg",
+              "sha256": "7dcb48a442a8f238de548208ee3cebd6a486e503e2cf738e2028f056bfd27b11"
+            },
+            {
+              "frame": 134,
+              "rgb": "HardBreakRoute/Town13_Rep0_1775_0_route0_01_10_23_19_49/rgb/0134.jpg",
+              "sha256": "195fb3f1ad9461941c6fdb99b5c4fbb7deb728b967b60b979f71f48bdc86e604"
+            }
+          ]
+        }
+      ],
+      "native_frames": {
+        "110": "c2c57fc3571a030e81c86e04b681b424c0ae499339a6a1a27c49112748678c27",
+        "111": "9045198d0823f5a5bd6ff83b48f3f1235f12245073595b6470305709e9cb85e7",
+        "112": "0e75c9328f375cf4f38dd1c79514e00bf25cd750c5fc086014e69b60102b66f9",
+        "113": "e13ce73a3f4572c282417a8bcbe25fcb4d17fc55d926cde4580b23cd6325d4e8",
+        "114": "fca94a05c4e1497819614d78c62fda83bbbd614611c1544ee11e63ece2705f60",
+        "115": "95ae968abb835c19543e5ee79b4d3e8f700a46fd2e0c1c8b5edd2bc69107b421",
+        "116": "8c9edfb2282330e3fb4036b167408cdcd1403dfe2cd5a7b243a37a39dac2b608",
+        "117": "b19caad95c19b04e308d08be69833b1cc754bb9ec811c8acb2ce1034c8ec2dc9",
+        "118": "d72cb2c9970f0a1705c7df01a63e1674016332d70fcee0b8a6b24e0e17719981",
+        "119": "e3e0713ae833f60355b48cca757e7e4672e0a81f1b20e982cf31f6502facfadf",
+        "120": "2f3412a07f1920ed7b3139e169460b3434ff7a70b9dbb436c96a2186d82be1a4",
+        "121": "bee920fb66a60cbfb7e7bd635aa0b90dd78a4771c58af5405d551871dc7dfa65",
+        "122": "f8a81074107d0d9d56ce0f831efb225b70691b8f48ff149136073da283c86491",
+        "123": "0f9711516561507cd8bd7189f13d6462a8db983b1e42a0466da954475f99646c",
+        "124": "607c65b879747898c55f7b51c405241f27e4f99ab2da5ca0b3f69e74b1d659da",
+        "125": "3ff12bb115536533a08bfd6cff47354e4240ae9e56c8b719f39de63c30d87afd"
+      },
+      "evidence_ids": [
+        "holdout_v1_formal_data_1_U-E1_proceed_110",
+        "holdout_v1_formal_data_1_U-E1_release_110",
+        "holdout_v1_formal_data_1_U-E1_complete_118"
+      ]
+    },
+    {
+      "sequence": {
+        "physical_group": "HardBreakRoute/Town12_2325_0",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_2325_0_route0_01_10_01_35_10",
+        "town": "Town12",
+        "split": "test",
+        "frame_count": 187,
+        "candidate_events": [
+          "U-E1"
+        ],
+        "requested_events": [
+          "U-E1"
+        ],
+        "status": "reserved_unviewed_unlabelled"
+      },
+      "status": "full_sequence_viewed_partial_edges_labelled",
+      "pages": [
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/000.jpg",
+          "sha256": "1195b555c62eab2fa325169ce309e77c0a354051bff750d446506eddefccd942",
+          "frames": [
+            {
+              "frame": 0,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0000.jpg",
+              "sha256": "afadc2a50dada9082dd55eb07c36c958b4f13493869cc19611fdd0fc2409385b"
+            },
+            {
+              "frame": 1,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0001.jpg",
+              "sha256": "e13542a46307f78ecdc153f70c0867707717a23a395f88ce452a6c5622182bc7"
+            },
+            {
+              "frame": 2,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0002.jpg",
+              "sha256": "6a0e675cb085dfc80cfe43a875acd930c3b64a17f2943df3bda74ad2ee2047c7"
+            },
+            {
+              "frame": 3,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0003.jpg",
+              "sha256": "6065d978193a048fe7a256882ebeaca4e7ecce3cbb67dd5c7a486d9abf02e3b3"
+            },
+            {
+              "frame": 4,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0004.jpg",
+              "sha256": "a850738200e9e084f26905d223c47112d8c94a2d70a9d000ee1932fcbe767c38"
+            },
+            {
+              "frame": 5,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0005.jpg",
+              "sha256": "08b81aaad7de2807118311dd135dfca77688c6ab6c93d935db93bc7410602dce"
+            },
+            {
+              "frame": 6,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0006.jpg",
+              "sha256": "9587511806d0a6f25b44e414999ebd05ce0539cccdb3832238cab650d6f5fd66"
+            },
+            {
+              "frame": 7,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0007.jpg",
+              "sha256": "d2d998e7829a837d0b78029bbaaa5823ed09f5ae4ba5eeb74d04734188d1cd27"
+            },
+            {
+              "frame": 8,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0008.jpg",
+              "sha256": "36975ba553cbbcf45bee2573db6050bf06796e029e2b718c8a73bee23d50bbd3"
+            },
+            {
+              "frame": 9,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0009.jpg",
+              "sha256": "e103277789a1273ee8a4e20e3f068388e086986470a87009165abfa5166183ba"
+            },
+            {
+              "frame": 10,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0010.jpg",
+              "sha256": "909bea854ffa511174bd9725f9e1e07db518260cd993cb70a949c1d23951e962"
+            },
+            {
+              "frame": 11,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0011.jpg",
+              "sha256": "85e8d2168dbdb2592b5c5829b655907e278f944a8eb21cb1043c5496c25fb39e"
+            },
+            {
+              "frame": 12,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0012.jpg",
+              "sha256": "ee8b272142f1bd896a476d0eb82543b9f331e8bc4c28b27261b40fc28cf955cc"
+            },
+            {
+              "frame": 13,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0013.jpg",
+              "sha256": "e5ac5021c217febf25257a9745f801a25edabc1f55f91afca5b8fd7743fce52a"
+            },
+            {
+              "frame": 14,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0014.jpg",
+              "sha256": "518eedf21450c62b468d31d4299ba3a287cc4b6030c0ae6a2117304baa40b26b"
+            },
+            {
+              "frame": 15,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0015.jpg",
+              "sha256": "75056a3e32bd3b945aa9c0d16c398cabe4a3f0d8be47ce319a775e95fbced786"
+            },
+            {
+              "frame": 16,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0016.jpg",
+              "sha256": "15be40c9d8201d05317324e8169ac6c0b0f3fd0c10429c9dfc8aed2bab9bddcc"
+            },
+            {
+              "frame": 17,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0017.jpg",
+              "sha256": "a9586a1dbf0596a7691eeded65b7c6a7f4f93f3fc9bf74151dcfc3512f270c0a"
+            },
+            {
+              "frame": 18,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0018.jpg",
+              "sha256": "17156d03bd9489b4f4514047d24afe66783b0580c67578a15991bc4e06265203"
+            },
+            {
+              "frame": 19,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0019.jpg",
+              "sha256": "e846b7b65025c1730223ef0447f6699f30bc4e3a28ab0414ad0748fa3ea51831"
+            },
+            {
+              "frame": 20,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0020.jpg",
+              "sha256": "6e919ba77a56d228843535a8149c8553ec272e8717ede5d4b8d1b069d54855ad"
+            },
+            {
+              "frame": 21,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0021.jpg",
+              "sha256": "ad30455ca6f3d7a86bfea3403553103ab27d32cc9e57433a4c4461ed76224c3e"
+            },
+            {
+              "frame": 22,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0022.jpg",
+              "sha256": "03b73c0c335989e2a27bae27d09a9677c59cd2f906ea76adfd5103b1381c3740"
+            },
+            {
+              "frame": 23,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0023.jpg",
+              "sha256": "7df01b51fc56d9c79a8825688662f891abae6d957524e0b70f8e7758c3f10801"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/001.jpg",
+          "sha256": "0e3377a32c34ebfacc5e1c2bc86a95b09647e94548ee3c1e8fd7519a31cfad8f",
+          "frames": [
+            {
+              "frame": 24,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0024.jpg",
+              "sha256": "1f8c93114bc74459c1267b8fd2f117e9e7102bdc6c8953c66bbeb68475e6b363"
+            },
+            {
+              "frame": 25,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0025.jpg",
+              "sha256": "fdbbd699118a5c8a94a274be09468922cf8c5c2acdc46b07514e48ee12abb3a5"
+            },
+            {
+              "frame": 26,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0026.jpg",
+              "sha256": "1c741779664eddd608493303eee49285cf4d61640b038e447511d0db4263bc6e"
+            },
+            {
+              "frame": 27,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0027.jpg",
+              "sha256": "fa155ad277614daa8829708aca55db9b1afc83738269eeafbba6d174878e5138"
+            },
+            {
+              "frame": 28,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0028.jpg",
+              "sha256": "496a99fea1081074898f4d9e5f0314589235e91a1685fd32275a37789f2747bd"
+            },
+            {
+              "frame": 29,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0029.jpg",
+              "sha256": "7371a8daf977740595ac45081c2802a2051e807df251fb94422b560fcc465d87"
+            },
+            {
+              "frame": 30,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0030.jpg",
+              "sha256": "4dfd899cd93a4ef778fd6ba805eea6cf7dfdbf3b6783ba80e048eb7afedc5805"
+            },
+            {
+              "frame": 31,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0031.jpg",
+              "sha256": "4929232a2a4bcd0b115803d6cea209296248f6262337ffd0a46510c7e6557bff"
+            },
+            {
+              "frame": 32,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0032.jpg",
+              "sha256": "382b3b3b2a019e497312445ea455428ed34a1871f264350a7bd27101924a45c0"
+            },
+            {
+              "frame": 33,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0033.jpg",
+              "sha256": "a1a5bbb04ec9206b98d9be0f98ad47d98d65a018718a8018038f22ad6105025b"
+            },
+            {
+              "frame": 34,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0034.jpg",
+              "sha256": "bd0793a60ac3f3add57c635918ca477d9fe81e4377dbb228d0681a8f5051c48e"
+            },
+            {
+              "frame": 35,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0035.jpg",
+              "sha256": "7ff56a4e0f80d55e3db7f70aec415b724894a07d1462e347246eea6215a84b58"
+            },
+            {
+              "frame": 36,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0036.jpg",
+              "sha256": "67016477bdeea8cb4439eff2eb9797deb54d8eb6d3822c71f72b41d6c4e06d38"
+            },
+            {
+              "frame": 37,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0037.jpg",
+              "sha256": "18f61ee4a41d204f93c667938149232442d4e40ca94bcd47d5999c5f99faba48"
+            },
+            {
+              "frame": 38,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0038.jpg",
+              "sha256": "57d832ab05df0744779eb6adaf9cdbfbd644dea8b3f4cd122f24258cd240da50"
+            },
+            {
+              "frame": 39,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0039.jpg",
+              "sha256": "b456f6c4aaca4982b4d853586658dce0c245187323bc923775a1a3dce794b246"
+            },
+            {
+              "frame": 40,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0040.jpg",
+              "sha256": "6f505b2ed6bd36edccf3a1038890101e073ab826c5281e754348600b3fc6bcaf"
+            },
+            {
+              "frame": 41,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0041.jpg",
+              "sha256": "99e07bfaa9e1187bdc1ce05d756450d34daea1f9e35ab97f7ecf44c5412f14aa"
+            },
+            {
+              "frame": 42,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0042.jpg",
+              "sha256": "a54b685dac10eeea0b55567466cedaac52511c2391d21a4e517fa65370f89f89"
+            },
+            {
+              "frame": 43,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0043.jpg",
+              "sha256": "a73c47681ce8bd454b1f398dd443173fdd84d22894a0691d8b533ef9aa8e5d72"
+            },
+            {
+              "frame": 44,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0044.jpg",
+              "sha256": "9a70e508a3dbaaec6bcd27e08fa24ca66d63bb6b69f5ca8522601e40ac2e0d32"
+            },
+            {
+              "frame": 45,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0045.jpg",
+              "sha256": "9432b0d36b84ec04aa2b0623aebdca816a458a78984b504bb35a2e021d0275dc"
+            },
+            {
+              "frame": 46,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0046.jpg",
+              "sha256": "00d92f77eaeaf51586f64a6afe32069b851271dbe47ee671757bb0a5fb5046ff"
+            },
+            {
+              "frame": 47,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0047.jpg",
+              "sha256": "6458686076a0eafe1ddf27050e8fe2bede40ee9eaea9a3324c1f808e1f19e7a4"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/002.jpg",
+          "sha256": "866e3a3bd6f3ae6f56da845a995ab3387beccd85b477bb71d6216c3988bec4fc",
+          "frames": [
+            {
+              "frame": 48,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0048.jpg",
+              "sha256": "d4be4bfa81224a9e28413398a76def457577ff052ae2d90bca3a16719f4492d9"
+            },
+            {
+              "frame": 49,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0049.jpg",
+              "sha256": "3d3c158b162c64e21b859b71889f54af0705fc27be363e39ff880d0ece7682ee"
+            },
+            {
+              "frame": 50,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0050.jpg",
+              "sha256": "438d4fa6812409f4eb2cedbbd8358231fb44cecf5a28a92ab5638b895f73de23"
+            },
+            {
+              "frame": 51,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0051.jpg",
+              "sha256": "82c4c9565eb05a279225ceb7fe57664aac538c1a6beeb53f904b4fe5b8b93560"
+            },
+            {
+              "frame": 52,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0052.jpg",
+              "sha256": "c13b217ea11e809cb7d43256595a7b6b4a23fc552b9591c889ce416470be399d"
+            },
+            {
+              "frame": 53,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0053.jpg",
+              "sha256": "14427207715bda2b71e130f9dd74b79f84d0cc696177fea6a56db0afeb0ccb29"
+            },
+            {
+              "frame": 54,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0054.jpg",
+              "sha256": "c7c9f7fb54a2506b91a095a35a7722d45f7dff84c65301e88e9b159ea7c94337"
+            },
+            {
+              "frame": 55,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0055.jpg",
+              "sha256": "129e43550a441f4f4466388cf22acd34b650511f2a338833e3e4e2a1a5b16235"
+            },
+            {
+              "frame": 56,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0056.jpg",
+              "sha256": "bf719a5aad5a05351ffb3445845dfbbcc6dc3dad1a1ed337ea4f2abf2ca4b1eb"
+            },
+            {
+              "frame": 57,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0057.jpg",
+              "sha256": "15dac0ed10b31130ac89c00bc51652f3d0e67e73e375b2e56873772009bfeaa2"
+            },
+            {
+              "frame": 58,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0058.jpg",
+              "sha256": "b52e7c42bfb8c28aede86ffd883d5c340c41fd65f6286c30bb3e76928d928962"
+            },
+            {
+              "frame": 59,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0059.jpg",
+              "sha256": "9752f01ec35de7f0102c542fde4bc01100401692353982a0349aa1f3303aa693"
+            },
+            {
+              "frame": 60,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0060.jpg",
+              "sha256": "957f268250034bb058ba6bcb1bd9402e27dafebcb42968334d25e19dcbbb1c88"
+            },
+            {
+              "frame": 61,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0061.jpg",
+              "sha256": "97cc9292e1b894a01b5251c930d65c96f5c8e92b562f2a9b6d0f11112d37c8d5"
+            },
+            {
+              "frame": 62,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0062.jpg",
+              "sha256": "7febe4ef7cc6cae2424bc5bedf4fb0bcaa4ebdad32f50f98e9aeb892c18ad5ce"
+            },
+            {
+              "frame": 63,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0063.jpg",
+              "sha256": "5cae971cdd1f0935bf9476cce3105c1c9ed22a3bb12d7dc47ff9a1f43e84a82f"
+            },
+            {
+              "frame": 64,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0064.jpg",
+              "sha256": "751c1cb168d2e0283d615973a63d32751408ba3772d53f6110e7a04a26a5171b"
+            },
+            {
+              "frame": 65,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0065.jpg",
+              "sha256": "b7a41b38e96309a3e582f17f8a4f97b531b57348cf9f7a49eb0112e7ca3f0b70"
+            },
+            {
+              "frame": 66,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0066.jpg",
+              "sha256": "809dfb575b9b68fa3c581a287118d3708875a71f2a50ee68e868be89d4b15473"
+            },
+            {
+              "frame": 67,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0067.jpg",
+              "sha256": "f932ae46a2ee773cc09c90dff216548eeeee313554d6445ad71da869e87a09d7"
+            },
+            {
+              "frame": 68,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0068.jpg",
+              "sha256": "46ec7c38a3e400fb15879e1b8b6e758767d06851b665fbe89b88edddaee9a901"
+            },
+            {
+              "frame": 69,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0069.jpg",
+              "sha256": "7c720fdac7b2e76c0647851d111d09eac35a2171c7fafd5d82d9a69bb1f620a7"
+            },
+            {
+              "frame": 70,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0070.jpg",
+              "sha256": "83cda0484ac766c367b852fa2b613ebd18a3a4c98b49c99882fbb727ba6fb5fc"
+            },
+            {
+              "frame": 71,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0071.jpg",
+              "sha256": "60e72417608a90d643dea193f02f8de9c49420f82a04de1386f8309adf20cce5"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/003.jpg",
+          "sha256": "71da32f6cade9b2281d915b0d62a3270d5611824c72b74481923454cad77b066",
+          "frames": [
+            {
+              "frame": 72,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0072.jpg",
+              "sha256": "37271b7ff6152964c0e1ddf46acf26ed735eb02b05dcacb25cff0f5495ef4473"
+            },
+            {
+              "frame": 73,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0073.jpg",
+              "sha256": "6f5c9046e9a3f2a4259f3fea87d7493dd4ae3caee55c59bdb8dbf503d443a574"
+            },
+            {
+              "frame": 74,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0074.jpg",
+              "sha256": "58dd8d205bcbe900052e2b922fddaa8b1b035f770f5f316a16c04fed675db866"
+            },
+            {
+              "frame": 75,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0075.jpg",
+              "sha256": "9c53e364d5500c836fbadbfe597776ee05c2c71abea2c323241124768dccd935"
+            },
+            {
+              "frame": 76,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0076.jpg",
+              "sha256": "27d3d86816d465f5acb30eb6e58a7b9323f98b0747047ecaa4befd589819d982"
+            },
+            {
+              "frame": 77,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0077.jpg",
+              "sha256": "bfeb77b56b1e884f688a0c45593e8cf1bb32ac02e79b768f4d1271c6274353a7"
+            },
+            {
+              "frame": 78,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0078.jpg",
+              "sha256": "bc371160274d49089347e8ebc9391961dacb6a9a8d9024afba0321f6dae464a3"
+            },
+            {
+              "frame": 79,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0079.jpg",
+              "sha256": "1646c3b967e7c218c3c1bfe1dc12f582ec9fb2c6c8ff6b163c7024cef6539f41"
+            },
+            {
+              "frame": 80,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0080.jpg",
+              "sha256": "59dbdd35aa62071f8167699c03f41613d8021743bd3415bd86e6d090cbbfc257"
+            },
+            {
+              "frame": 81,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0081.jpg",
+              "sha256": "e74862652c6e406c4a06c8a46f8fa1cd8b4a5bc3bf8e18da3454e7f235700986"
+            },
+            {
+              "frame": 82,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0082.jpg",
+              "sha256": "7eb6d7f1e4eb1a59de08e49bd44737e047f4b8de993c2de0b236d161a2b6c4f8"
+            },
+            {
+              "frame": 83,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0083.jpg",
+              "sha256": "a338755bc8223c4da53bf618b1f1d8c54648327227134b7ee6355a44f8934b50"
+            },
+            {
+              "frame": 84,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0084.jpg",
+              "sha256": "caafaec3435e33b92cfc35c536269c81ca6c15121a1febb3f35ad233a191d913"
+            },
+            {
+              "frame": 85,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0085.jpg",
+              "sha256": "f5e0c8404f2b826314ed79a2ccde1302aadd12ba13b550ec0c7c34bc819da568"
+            },
+            {
+              "frame": 86,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0086.jpg",
+              "sha256": "ff715c745bbe5514bc98aaada18cbb60a43563a5c09b42ae6b16eeb5fbf83ff5"
+            },
+            {
+              "frame": 87,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0087.jpg",
+              "sha256": "ce18d1c41543e3efce07e8bffdcc6a1992b671eb2cccb0539ddd20de977e03d1"
+            },
+            {
+              "frame": 88,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0088.jpg",
+              "sha256": "8594bf8f1fc53b382e635015f95de6f94d8c50436c50f1a64aee10d1b0f43ada"
+            },
+            {
+              "frame": 89,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0089.jpg",
+              "sha256": "c4e94d26317116e65d10bcdf324b8daad441dd1f6b30dfe392600916d42a6324"
+            },
+            {
+              "frame": 90,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0090.jpg",
+              "sha256": "96380a224df50d31ffea9545bb01ca684b0a77fc86ef24a08a20668e79ebc484"
+            },
+            {
+              "frame": 91,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0091.jpg",
+              "sha256": "6d295292a483bad45ee8edd2750aeffee4c760ba846972605cf339cbce43f285"
+            },
+            {
+              "frame": 92,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0092.jpg",
+              "sha256": "8e377c539ddd6b77b5efea5703b2d28fd4e445efb6d8e87fb63b3073d9bf387a"
+            },
+            {
+              "frame": 93,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0093.jpg",
+              "sha256": "a8d85911afc2495ceb66023828ceeb548168d29a9e94edd2b8328078dc4e1946"
+            },
+            {
+              "frame": 94,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0094.jpg",
+              "sha256": "df0a8dd187160219ba6d183070424d4a1e342b4058c721130c288ee47402012b"
+            },
+            {
+              "frame": 95,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0095.jpg",
+              "sha256": "2fab11276789511b9c747fe231b255b78856c390d57097457fef9be64b2554fa"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/004.jpg",
+          "sha256": "bbdf4b12d3ba63bf3fa11c9586a95a49bf309625c770050673424051dd6911d2",
+          "frames": [
+            {
+              "frame": 96,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0096.jpg",
+              "sha256": "4e2cde0b947aab7f85b1fcb9d67dccc33f0476de9e8ebc0d0b8908da55b3a868"
+            },
+            {
+              "frame": 97,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0097.jpg",
+              "sha256": "0dbcc7bc6ba58a8bbc5bf72c11ff008eeef1d70ecf6c02c9f6fee05ac4cee336"
+            },
+            {
+              "frame": 98,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0098.jpg",
+              "sha256": "06997603e50f49266e11ac46e774ecc4f0a4a95015eee296f796580c88de8840"
+            },
+            {
+              "frame": 99,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0099.jpg",
+              "sha256": "3f3ac02680390112305d8782b2d3eee14b34e0b64a830904adb234be0b513495"
+            },
+            {
+              "frame": 100,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0100.jpg",
+              "sha256": "43705514e71fb780e44e67ab324916e2165257817af098ec489fbe980ed1699f"
+            },
+            {
+              "frame": 101,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0101.jpg",
+              "sha256": "e48a6115b925f9e2d162cc48fe4ed4dd07f7b705dbf310d0897a845d89a1e948"
+            },
+            {
+              "frame": 102,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0102.jpg",
+              "sha256": "cd40bd3bc78170f5ffba222054319fc3c4b8f39357c605746d8a5b3ab969fc33"
+            },
+            {
+              "frame": 103,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0103.jpg",
+              "sha256": "011d65d27adb36509d009f4c7bcfaca4a8c7b099d8c738f4e992e131013939bb"
+            },
+            {
+              "frame": 104,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0104.jpg",
+              "sha256": "4e6078649e242ac7bbc082dbfc9169a321a535a7a93e9b2b42b46f5c007e67ee"
+            },
+            {
+              "frame": 105,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0105.jpg",
+              "sha256": "80050078fd2cd7bb1cd772a9f1c3e9536f973b12cad7873655fa4f23827ee2e3"
+            },
+            {
+              "frame": 106,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0106.jpg",
+              "sha256": "322dea2c990c1ebad9b514d9dcafcaeee39fd628b22bdbd50beab3f29e1e9b1b"
+            },
+            {
+              "frame": 107,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0107.jpg",
+              "sha256": "29a7af99256009dae7f588800731c3a16af73dda5aef181a5e72418f23e72b47"
+            },
+            {
+              "frame": 108,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0108.jpg",
+              "sha256": "7cc8a3e181063be7b6181a67ad174f801df0adcd3fc0a3c8aa09ea778c811beb"
+            },
+            {
+              "frame": 109,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0109.jpg",
+              "sha256": "190ed9f7c12d209eabc2b7faa0a9c41e5558e9840b4a1b5a8cf07097ee93040b"
+            },
+            {
+              "frame": 110,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0110.jpg",
+              "sha256": "75c63ba2f136783ca5793cde24151ad139ea7abf4033ff5474af5376335076aa"
+            },
+            {
+              "frame": 111,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0111.jpg",
+              "sha256": "1ab351eb4de09bfc2f896ab5261204ca0c98b8be5d4820a3d8462ebe70d87229"
+            },
+            {
+              "frame": 112,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0112.jpg",
+              "sha256": "3525cf399abf9f2b154cf4f47ba04fc69cb0c0e2ce81d4b647cd7fddd3e7916f"
+            },
+            {
+              "frame": 113,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0113.jpg",
+              "sha256": "1746dbe8bc2210f25b1bdf567da513add33d19f4c02d5a70fde5a37fa5d45c71"
+            },
+            {
+              "frame": 114,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0114.jpg",
+              "sha256": "8be232b75cf39540a4baa22682f53c1a25125e285faae312443a8de28f5772de"
+            },
+            {
+              "frame": 115,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0115.jpg",
+              "sha256": "63b5f07c2a977bcf27ee1b6e839cfc8863ae5b7b587424cecd954207e8ef8382"
+            },
+            {
+              "frame": 116,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0116.jpg",
+              "sha256": "12922076a9bb2966947d065f6586f7bf4e271719d3a569ff83ff5c88ce0c548b"
+            },
+            {
+              "frame": 117,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0117.jpg",
+              "sha256": "a492d075d9ca2cd21d30d486d4f7b9e3cc0b947f66e5c8c5a4afa5a9ad7a4f2f"
+            },
+            {
+              "frame": 118,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0118.jpg",
+              "sha256": "ddd0f45ea12ab5eff31cc8f13825d4bba6c916e78c43369fb4a6cc0551d844b7"
+            },
+            {
+              "frame": 119,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0119.jpg",
+              "sha256": "ce2d4f4627142740ef52b3aa77dd05c672c72bbdb6fe4ac59e28a77d18c0f80b"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/005.jpg",
+          "sha256": "5cfec1b4280e4dd38f120f5f16ad21cb65cea1c7290d211d939d058458a5a3eb",
+          "frames": [
+            {
+              "frame": 120,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0120.jpg",
+              "sha256": "7fc03c26c230aff434d8f55a1d22d716d25506f159908c7efc6a7c5e863992eb"
+            },
+            {
+              "frame": 121,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0121.jpg",
+              "sha256": "3da97c0a9e313357c41a76a319eeb81d26be64f73b64b3d6db9af6a0c3ca9045"
+            },
+            {
+              "frame": 122,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0122.jpg",
+              "sha256": "fdcc74cee4874c23ce2ceab82e82d736acea0b4d65d0e8093fb35b988d08b37e"
+            },
+            {
+              "frame": 123,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0123.jpg",
+              "sha256": "b9bad080aff9c365948b0449b846c5a5fea0dbfa081541dfa61be2b17485ffe2"
+            },
+            {
+              "frame": 124,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0124.jpg",
+              "sha256": "f347bc8d70ec0ab851b17669d1d7bf8f1b00e18fd096d90ec251ff4e9e710142"
+            },
+            {
+              "frame": 125,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0125.jpg",
+              "sha256": "23866e3b0cf903d45586185ace39cc8841e5804431a77f0562def8f862edf936"
+            },
+            {
+              "frame": 126,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0126.jpg",
+              "sha256": "b56050b3c848b3bc5de23080ae44f9c25de8e0ba8d3af58fbf295286d68f86d7"
+            },
+            {
+              "frame": 127,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0127.jpg",
+              "sha256": "11e8e3ed53c8ce7253e8f671abec7ffdc0d49f54fab8fa277712805b1d99fbb3"
+            },
+            {
+              "frame": 128,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0128.jpg",
+              "sha256": "1b17c863eccd9ca2f61592119d841aa43eebf513216a9ccb25c4978051392b43"
+            },
+            {
+              "frame": 129,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0129.jpg",
+              "sha256": "f5e5d8b833342fa66e001e058a99b0821f6ecbe987ebd95317afef9929e18511"
+            },
+            {
+              "frame": 130,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0130.jpg",
+              "sha256": "8e88a418ea25d3c010afbb46c9c5697f39776eabb02d1670671b0c8e79eea94e"
+            },
+            {
+              "frame": 131,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0131.jpg",
+              "sha256": "f8bda293b1961d51c1aae4fdd1d91c12183cced4be6c50cdd8cdf4bcf52d7ecd"
+            },
+            {
+              "frame": 132,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0132.jpg",
+              "sha256": "3ddc40be7f6a3cd7faf1460adc45f05d61261a69d0bcc7e6547d398781ffa6f8"
+            },
+            {
+              "frame": 133,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0133.jpg",
+              "sha256": "faa9a79256bcc87838253a3c0bfd4da7b231b77711164e46c775bf3ef2795ea8"
+            },
+            {
+              "frame": 134,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0134.jpg",
+              "sha256": "86d99b422b507b2ba657069dc62aff19037f524c5862a9ad35b029a25fff28ec"
+            },
+            {
+              "frame": 135,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0135.jpg",
+              "sha256": "961737dcbb33f1d4a27b474294b50477fab3b8512aac40f877e83762b51a6597"
+            },
+            {
+              "frame": 136,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0136.jpg",
+              "sha256": "e8aa8356bb8e098fd57f9193cc5ac481ed8dbfa48a7b314913cadbe21d0a6438"
+            },
+            {
+              "frame": 137,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0137.jpg",
+              "sha256": "12410105f1df99d8717c8444323515241dff379a45ba4910fc0b0e377b85e6c5"
+            },
+            {
+              "frame": 138,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0138.jpg",
+              "sha256": "a87884a5e56557fedca7ea93a32e3e82d483d2a88ddc77408bc987f269e0666f"
+            },
+            {
+              "frame": 139,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0139.jpg",
+              "sha256": "9a9f215135c2ea36c8c34a9949dc600d11130f318e09c623e8fc3d011d0c5039"
+            },
+            {
+              "frame": 140,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0140.jpg",
+              "sha256": "f23b0cd9113074933c62845dd4dd7f2fcaa6a7056face2220168497e94acfe04"
+            },
+            {
+              "frame": 141,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0141.jpg",
+              "sha256": "37c853ce0bee082c89f71745b308db6eacd57f3d8f4ff4939d6c64db9b7142eb"
+            },
+            {
+              "frame": 142,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0142.jpg",
+              "sha256": "96e2cd87873edb8b05112f6b016fa7d326924ccc5aa1ccd657a98aba606a8793"
+            },
+            {
+              "frame": 143,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0143.jpg",
+              "sha256": "f141abdde00f58ddc234f379cf9c2c75f00d557a4a20f0a60529d3144a17289e"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/006.jpg",
+          "sha256": "0d78cb1723e0e1fb4b4fa2335975d9e07f9dbffe50414a2938a186f185afae38",
+          "frames": [
+            {
+              "frame": 144,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0144.jpg",
+              "sha256": "ad6cfb7ae5c0781ce67d097dd4587ffd67d839bbafcf755f106cc1f2ff1e76a5"
+            },
+            {
+              "frame": 145,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0145.jpg",
+              "sha256": "fc83821d91c9226c44d6fe3a3d80c422dc0b64710bdc61953f8b42dc22d46e51"
+            },
+            {
+              "frame": 146,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0146.jpg",
+              "sha256": "97ba8f47134b64a6ab47cf46d031053067cd5d820e24ac5095ac113bc7aefd6d"
+            },
+            {
+              "frame": 147,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0147.jpg",
+              "sha256": "34220e3177454aa7943f473acdf5e3d4552db0d2e501896673ac32ded2721925"
+            },
+            {
+              "frame": 148,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0148.jpg",
+              "sha256": "9e468598e0b71f189bb49d781e084c11075cf7da9f364bf36c36fd00ba6e904e"
+            },
+            {
+              "frame": 149,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0149.jpg",
+              "sha256": "eb5dd014e3765c1560a0341e858e66e4d4269f46b99125c0adcf4f643c78a398"
+            },
+            {
+              "frame": 150,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0150.jpg",
+              "sha256": "be1b36ff3144fbd15b831321de8e03a77e875426ddeee832f274f0e22bb191ab"
+            },
+            {
+              "frame": 151,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0151.jpg",
+              "sha256": "282bfcbe428d0e2590d7a82969eb49da25cf321ec4a459c74c212164fc4b5e3d"
+            },
+            {
+              "frame": 152,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0152.jpg",
+              "sha256": "4630d4be73c80c9f02a42c92b1b042b7f71e9b56c862778eeee5c6d56a7ccdf7"
+            },
+            {
+              "frame": 153,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0153.jpg",
+              "sha256": "a05a705f2eb14f93af2f12b26f66d25376032e98451ce3e4d195b6cd5147049f"
+            },
+            {
+              "frame": 154,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0154.jpg",
+              "sha256": "42f8ba6e7295788e16f214d3eac8dcb37c5f1a5723831292b47c0ae86e7e912c"
+            },
+            {
+              "frame": 155,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0155.jpg",
+              "sha256": "01a5133fccb5915b6d56bb3a257359107dedce7b8926afe9be7caad9661f74d0"
+            },
+            {
+              "frame": 156,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0156.jpg",
+              "sha256": "45eef6e57a3a36cb7f1832f36bb5312aca5a4173eb9ee53a12ee7e017a75d9e5"
+            },
+            {
+              "frame": 157,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0157.jpg",
+              "sha256": "b1c4c448be25edbfa35062304e58d3af77dca20793d1e04d448c867f582aa5bd"
+            },
+            {
+              "frame": 158,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0158.jpg",
+              "sha256": "5eae95c3a1d04e65aa35dbf155ca230bea0b8f8ab77a827214b0f012b2edac98"
+            },
+            {
+              "frame": 159,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0159.jpg",
+              "sha256": "22ad1e3db9028507d716767177a897df53a4cdb30cda6b3fea3fd351a61980f7"
+            },
+            {
+              "frame": 160,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0160.jpg",
+              "sha256": "c06c2b4a427dce6579dd726e8ff3c2bab8da268d3acde64521ea5460f3250aaa"
+            },
+            {
+              "frame": 161,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0161.jpg",
+              "sha256": "28c32e384b91a8e7b62b2f395bfadaa0a98f6246d2c15b8504ee10f797f0b658"
+            },
+            {
+              "frame": 162,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0162.jpg",
+              "sha256": "9bed4293750736ff3cfc29e8e288ea6aeb8a0cf42788b313f9400c369255e2b0"
+            },
+            {
+              "frame": 163,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0163.jpg",
+              "sha256": "eeaafa9af6b5c68aaf386ce1588f3d87a502f507dc591d9911f8dbf792b4d57a"
+            },
+            {
+              "frame": 164,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0164.jpg",
+              "sha256": "5c6617b0edfd866c540ffa07743331da25a511253667230b44cd88f8cc12bfaf"
+            },
+            {
+              "frame": 165,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0165.jpg",
+              "sha256": "298d38ce7fdfa3620d20fb5d18f8050c138c762816019222eeb7cd17f8aebcf4"
+            },
+            {
+              "frame": 166,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0166.jpg",
+              "sha256": "511d98b55daf39fd2cdeff4528ba807ebdd40ce76997ac999f5d6322060a466d"
+            },
+            {
+              "frame": 167,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0167.jpg",
+              "sha256": "9746a64b1b495ca369370214fd74adb2824f559fb0010edd741688a885df8a36"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h2/007.jpg",
+          "sha256": "a430055ed9d63462ee28b05eaebe1031601a52eaff68da84d1ed1a46adf04463",
+          "frames": [
+            {
+              "frame": 168,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0168.jpg",
+              "sha256": "4f6f6aa3d700cf9ff8fd71ff7d1aa2f18dc87cab97fbd2cbeafa060f5cc24c97"
+            },
+            {
+              "frame": 169,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0169.jpg",
+              "sha256": "8880939bba74668bedfa97a9b03c26c95cd6e789db67745297181f45be0a2575"
+            },
+            {
+              "frame": 170,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0170.jpg",
+              "sha256": "b77a92889a0e87abee9815d30f38572641012b734dd8f93ca3b8bb26cd1bda40"
+            },
+            {
+              "frame": 171,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0171.jpg",
+              "sha256": "5f9bc85b62146c2f402f9ba89114a4ec15e2534d49d333340a2eaae918b1888a"
+            },
+            {
+              "frame": 172,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0172.jpg",
+              "sha256": "cc92b69e970afd750aaac43c91d78e2cb714e368017b0bcf7b667a28d1478cc6"
+            },
+            {
+              "frame": 173,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0173.jpg",
+              "sha256": "d23adf99c7f9ec7bae9b749d4f29998b8dc2ce339f5135979ece7d36c0ae21d9"
+            },
+            {
+              "frame": 174,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0174.jpg",
+              "sha256": "5f7386f0212a456750dbf6566c108f8f80b052d3b2da0941ffdd00597d332cbd"
+            },
+            {
+              "frame": 175,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0175.jpg",
+              "sha256": "c25d68c7ebbbfaae52fbfa0aa9ec4a054e8a2bc372c661366f5c7bc7034290ea"
+            },
+            {
+              "frame": 176,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0176.jpg",
+              "sha256": "604f6aa84adf3b48fd36e1f7f139dc835eb91a9c1e762e9b8ae97557ec952292"
+            },
+            {
+              "frame": 177,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0177.jpg",
+              "sha256": "d5f2f2c7f16ae92475e1299fb549c6dd0e65c8018c275365f8cc5d7999639c60"
+            },
+            {
+              "frame": 178,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0178.jpg",
+              "sha256": "a1201647bdc51f8f49613d9f9f0462f6e6b79da0ffd8c555aabbd3828ebd0c34"
+            },
+            {
+              "frame": 179,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0179.jpg",
+              "sha256": "498b961faf6c9243261720a7a8322607dd5cd038cfb3dc905eed42cd5a84b77b"
+            },
+            {
+              "frame": 180,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0180.jpg",
+              "sha256": "628e4f9d41c6672ddcf894ee5b2f1fa4c9ef88e85732233bd316ad2356da35b8"
+            },
+            {
+              "frame": 181,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0181.jpg",
+              "sha256": "18c9df92d0f44341c7e640dbbfb3bc3737ed9ff8c4f04d075b27b4bfada8058f"
+            },
+            {
+              "frame": 182,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0182.jpg",
+              "sha256": "eb3eacf3a2ff75571db57e127baa0a7faee6648689adb133a5b9e6acf0df1e5f"
+            },
+            {
+              "frame": 183,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0183.jpg",
+              "sha256": "2d1eabfbca5e6dc3831691c3fbab5ddd54f6961bbdbf1a8c2a626f36de60b4cb"
+            },
+            {
+              "frame": 184,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0184.jpg",
+              "sha256": "b43919b50cff7ff0097e3bd7fb6715d8e900e8a04ca1cabd6013b64109aa13de"
+            },
+            {
+              "frame": 185,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0185.jpg",
+              "sha256": "57b3e8425059affd69a8a48a2b1b556a2b3b783f5ad3a099a8d2d1269fda25b2"
+            },
+            {
+              "frame": 186,
+              "rgb": "HardBreakRoute/Town12_Rep0_2325_0_route0_01_10_01_35_10/rgb/0186.jpg",
+              "sha256": "87889e180153c9024664d13af3c1c694a02e58d7616d7c372d1b21bedd81c9e5"
+            }
+          ]
+        }
+      ],
+      "native_frames": {
+        "80": "59dbdd35aa62071f8167699c03f41613d8021743bd3415bd86e6d090cbbfc257",
+        "81": "e74862652c6e406c4a06c8a46f8fa1cd8b4a5bc3bf8e18da3454e7f235700986",
+        "82": "7eb6d7f1e4eb1a59de08e49bd44737e047f4b8de993c2de0b236d161a2b6c4f8",
+        "83": "a338755bc8223c4da53bf618b1f1d8c54648327227134b7ee6355a44f8934b50",
+        "84": "caafaec3435e33b92cfc35c536269c81ca6c15121a1febb3f35ad233a191d913",
+        "85": "f5e0c8404f2b826314ed79a2ccde1302aadd12ba13b550ec0c7c34bc819da568",
+        "86": "ff715c745bbe5514bc98aaada18cbb60a43563a5c09b42ae6b16eeb5fbf83ff5",
+        "87": "ce18d1c41543e3efce07e8bffdcc6a1992b671eb2cccb0539ddd20de977e03d1",
+        "88": "8594bf8f1fc53b382e635015f95de6f94d8c50436c50f1a64aee10d1b0f43ada",
+        "89": "c4e94d26317116e65d10bcdf324b8daad441dd1f6b30dfe392600916d42a6324",
+        "90": "96380a224df50d31ffea9545bb01ca684b0a77fc86ef24a08a20668e79ebc484",
+        "91": "6d295292a483bad45ee8edd2750aeffee4c760ba846972605cf339cbce43f285",
+        "92": "8e377c539ddd6b77b5efea5703b2d28fd4e445efb6d8e87fb63b3073d9bf387a",
+        "93": "a8d85911afc2495ceb66023828ceeb548168d29a9e94edd2b8328078dc4e1946",
+        "94": "df0a8dd187160219ba6d183070424d4a1e342b4058c721130c288ee47402012b",
+        "95": "2fab11276789511b9c747fe231b255b78856c390d57097457fef9be64b2554fa",
+        "96": "4e2cde0b947aab7f85b1fcb9d67dccc33f0476de9e8ebc0d0b8908da55b3a868",
+        "97": "0dbcc7bc6ba58a8bbc5bf72c11ff008eeef1d70ecf6c02c9f6fee05ac4cee336",
+        "98": "06997603e50f49266e11ac46e774ecc4f0a4a95015eee296f796580c88de8840",
+        "99": "3f3ac02680390112305d8782b2d3eee14b34e0b64a830904adb234be0b513495",
+        "100": "43705514e71fb780e44e67ab324916e2165257817af098ec489fbe980ed1699f",
+        "101": "e48a6115b925f9e2d162cc48fe4ed4dd07f7b705dbf310d0897a845d89a1e948"
+      },
+      "evidence_ids": [
+        "holdout_v1_formal_data_2_U-E1_proceed_80",
+        "holdout_v1_formal_data_2_U-E1_release_80"
+      ]
+    },
+    {
+      "sequence": {
+        "physical_group": "HardBreakRoute/Town12_767_0",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_767_0_route0_01_10_23_36_16",
+        "town": "Town12",
+        "split": "test",
+        "frame_count": 106,
+        "candidate_events": [
+          "U-E1"
+        ],
+        "requested_events": [
+          "U-E1"
+        ],
+        "status": "reserved_unviewed_unlabelled"
+      },
+      "status": "full_sequence_viewed_partial_edges_labelled",
+      "pages": [
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h3/000.jpg",
+          "sha256": "6d7f7a6b27339aaf2da446e97c1e863e282d7aa64a34887e3e7b420901ed4d1a",
+          "frames": [
+            {
+              "frame": 0,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0000.jpg",
+              "sha256": "31375da1dc5ca3a55a2e34b8a5e9eede1e2710ae67da32c8eef2146cbe823e38"
+            },
+            {
+              "frame": 1,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0001.jpg",
+              "sha256": "80a98e27ef713c2b7fa057b7a602ee02ee22b430a9ad235267aa5368f2fb8ec4"
+            },
+            {
+              "frame": 2,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0002.jpg",
+              "sha256": "fb74d236c0a2891d9e21c8107b1559fa18907c2f4bd3d46f2faaf20a60688f85"
+            },
+            {
+              "frame": 3,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0003.jpg",
+              "sha256": "ac5ad211a00dfd793ab4fdfe633a37c06b98e8451e3144b456cdc12175d39191"
+            },
+            {
+              "frame": 4,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0004.jpg",
+              "sha256": "58cccaedc8795fdb709f183aab281c95eb78dcfa15f0ad67c011394a150ff9f9"
+            },
+            {
+              "frame": 5,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0005.jpg",
+              "sha256": "49405cb1567349b9ccd0c1ee463673f55be4f5bf01f91c617f59952eaab81da0"
+            },
+            {
+              "frame": 6,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0006.jpg",
+              "sha256": "1a4ed0b64b95227dd0e4ec2c179992bad1c03ba1ed24758439c83cd4b907e25c"
+            },
+            {
+              "frame": 7,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0007.jpg",
+              "sha256": "c25e127d569033c6c77afa9a6601469281aa4852f9da58c93f5613de108dfeff"
+            },
+            {
+              "frame": 8,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0008.jpg",
+              "sha256": "225ada10b98b2054b3acf3a3a2b70c8c0f0eb91a467e36890035f2ab6724619f"
+            },
+            {
+              "frame": 9,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0009.jpg",
+              "sha256": "cf61adaf0dacaf638e9d6183cabf95e61e43d865a75e2154c3b7e25500998bbb"
+            },
+            {
+              "frame": 10,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0010.jpg",
+              "sha256": "09e67ac6a287f77b264c5c54e9ad83ddf0490944585db4923217c4169dbb478a"
+            },
+            {
+              "frame": 11,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0011.jpg",
+              "sha256": "bbb1331ad7982000e485e5b4c5e636602a587cab0012215d3f57e47222e5257f"
+            },
+            {
+              "frame": 12,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0012.jpg",
+              "sha256": "8a505add212da570780df35126a19b344529a69a4be3d3e0bb8c69228533776c"
+            },
+            {
+              "frame": 13,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0013.jpg",
+              "sha256": "24bedd7afcc62a0d8e6c90b956449ad3a21897202bf957572b898c3a885c9238"
+            },
+            {
+              "frame": 14,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0014.jpg",
+              "sha256": "a86abd3eb9c3b1eb1cc8b6332a9136447df295994b904586b614b714efa8c313"
+            },
+            {
+              "frame": 15,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0015.jpg",
+              "sha256": "69e43c5ffd24884166c226379927dd92aef2a09cfe2750d5ad1b542b29309d62"
+            },
+            {
+              "frame": 16,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0016.jpg",
+              "sha256": "3aa32afb4c827e8af6a9da327287994e81816ac9d601672b948acb68212840d6"
+            },
+            {
+              "frame": 17,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0017.jpg",
+              "sha256": "de6c4703015dee1cc996ae8efd7168216d1ed52b14ddb7db447f17527d0b8108"
+            },
+            {
+              "frame": 18,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0018.jpg",
+              "sha256": "94ac44ff94bf536dc9c8cce6312780f1e61c8a4f819d7314ad9ae85e6741d9be"
+            },
+            {
+              "frame": 19,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0019.jpg",
+              "sha256": "27cc33ab5e9b1e0c7810b6e0dd1887b2119d75409d9d1a70fb91c3fd72d87631"
+            },
+            {
+              "frame": 20,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0020.jpg",
+              "sha256": "c93c26ff6a674b1e32d3596d8c9f79487acb58bee522a6c741cbc746dd60144f"
+            },
+            {
+              "frame": 21,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0021.jpg",
+              "sha256": "c8548881ca6d3c733f811dfed0fdcb68e88d01a1275d4cc3f19296f9224c8c10"
+            },
+            {
+              "frame": 22,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0022.jpg",
+              "sha256": "174ef70c0023864d9fd44c26dc42fc63a381185d37589c611f710cd20b153c79"
+            },
+            {
+              "frame": 23,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0023.jpg",
+              "sha256": "42530f9fef64db4cf4d73ad6feb8c2aed6e94721760eb6d85e94cdc5c75b02f5"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h3/001.jpg",
+          "sha256": "ecbff1503f6b17692e6918c39859560001eb1969c95795d4851cc27381a2e56d",
+          "frames": [
+            {
+              "frame": 24,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0024.jpg",
+              "sha256": "fe22ab85055a468f54f9742fe74bf7b2be408e5f723d4b13986346444a79ef80"
+            },
+            {
+              "frame": 25,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0025.jpg",
+              "sha256": "02c3784f8a82c148943110c79f311e3feb03e9db633ccaf8386d20f716899144"
+            },
+            {
+              "frame": 26,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0026.jpg",
+              "sha256": "b619f7fa61b85c689ec06037bc4ebbe95cf6bf25985370c906ba2e2093780b07"
+            },
+            {
+              "frame": 27,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0027.jpg",
+              "sha256": "2985c859dff06ab461a28cf1b5f867587e737815f38748d3c2c0133f5bebd8bb"
+            },
+            {
+              "frame": 28,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0028.jpg",
+              "sha256": "5fdf8f19b7188a56f7e2e41592c1dfaa61df8ac90debd43653847959dc039c23"
+            },
+            {
+              "frame": 29,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0029.jpg",
+              "sha256": "16e3893ec97825ae87f94368dd6471222c7b1149153596b00d848863069a6a90"
+            },
+            {
+              "frame": 30,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0030.jpg",
+              "sha256": "531d9fe522e1b12aec19b1584ec6fb857b5b275478fae139bc3d29a1476282a7"
+            },
+            {
+              "frame": 31,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0031.jpg",
+              "sha256": "76aee248259f984fee10219469666dd22a1c7831c0c16d5d56c6330d3634d8e3"
+            },
+            {
+              "frame": 32,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0032.jpg",
+              "sha256": "dfe7bbef742a8588c852d7e995513a1055fbc35a9b440da401dd60464b88bf63"
+            },
+            {
+              "frame": 33,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0033.jpg",
+              "sha256": "f6ae1b3a231f280ed2b6b44419a1ecf3554304184f5a8e4b063792037bb5cc84"
+            },
+            {
+              "frame": 34,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0034.jpg",
+              "sha256": "c01ae187d0b422e24e0ea2c1720404a21119ecf23ec5a2672711a7a618a4f6ec"
+            },
+            {
+              "frame": 35,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0035.jpg",
+              "sha256": "293431c0a2b1118ef618bc28edf21f228dc7552c56688c4ec23ccf6efbcdeb1c"
+            },
+            {
+              "frame": 36,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0036.jpg",
+              "sha256": "9a781a49fe872a2dc1a4824808b41c8856f29f3810634171035d2b4a3856d3bd"
+            },
+            {
+              "frame": 37,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0037.jpg",
+              "sha256": "5f2cb54528106468ceae20857110da540010700be4058bcd7ee7833db7d0bd81"
+            },
+            {
+              "frame": 38,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0038.jpg",
+              "sha256": "cb2760573e15877437d8fc0b5e4542bf7cbceec8448f1d2814538cc7d518dcef"
+            },
+            {
+              "frame": 39,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0039.jpg",
+              "sha256": "c56e87a1c3bb0cb4e56ab247f085d47224917d3ee05e27645e81151f0c479cbb"
+            },
+            {
+              "frame": 40,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0040.jpg",
+              "sha256": "b1d290997d5ccaa81d14b29b51bc851af37eaf3fb736b77ec237882ea6adf795"
+            },
+            {
+              "frame": 41,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0041.jpg",
+              "sha256": "f103bcbc420be1d0b0bf40a9d351ce8e89bbcdefa110b181e56e6a62dcb1e069"
+            },
+            {
+              "frame": 42,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0042.jpg",
+              "sha256": "da01ed1b3890bdb43cbe9835869782efa959d5302925130be2ea88cb32ee6e07"
+            },
+            {
+              "frame": 43,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0043.jpg",
+              "sha256": "d7ec1daf9af62dd19c17a181d213a7a5aa45152adc18e3ab710cce0d1c062738"
+            },
+            {
+              "frame": 44,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0044.jpg",
+              "sha256": "873fc00d51b4a1731be3c4df00161f92fc0bba328706451bfc79dc8dc74c4f04"
+            },
+            {
+              "frame": 45,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0045.jpg",
+              "sha256": "c12253db5dee8257851ba761e728e2b8b48a66b532aff3a0baf20509b60105a6"
+            },
+            {
+              "frame": 46,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0046.jpg",
+              "sha256": "22fe62bce09d67b84bc1fbbea57c4d75e7612b5ccd2c2a6ee78878ebc7da0b8a"
+            },
+            {
+              "frame": 47,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0047.jpg",
+              "sha256": "02319780bd825c3d17572db2fb23d5c63d33875dabd20b4742d9f79efc8ebd63"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h3/002.jpg",
+          "sha256": "c4214894e74ae9df264c76bbbbdd71738752d4da8d1b61914af2c5b443d99989",
+          "frames": [
+            {
+              "frame": 48,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0048.jpg",
+              "sha256": "fe17bed0e92f65da8497c85a01eb21b5bf36f632864754d01d2b0ee276f35e24"
+            },
+            {
+              "frame": 49,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0049.jpg",
+              "sha256": "ac61e03199d60f2944b8cf669272440297f75d4737cd6212ba55a52305071967"
+            },
+            {
+              "frame": 50,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0050.jpg",
+              "sha256": "c244cac21396aa7389475a05f1cd4257482d1cbe2167826efbd0cd6b213b078f"
+            },
+            {
+              "frame": 51,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0051.jpg",
+              "sha256": "164473af701be1698b4f3c633533f540385e618ab36d3c8dab81f61a212929ae"
+            },
+            {
+              "frame": 52,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0052.jpg",
+              "sha256": "b70f91fc5872a37a4f5d6b8ed0f480329d67a19162127493e06367db9ec5ad4c"
+            },
+            {
+              "frame": 53,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0053.jpg",
+              "sha256": "f0670a8771c15f702ab575d6fb98188f9b1ddfeee679a6f98d24be8bc24ef4db"
+            },
+            {
+              "frame": 54,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0054.jpg",
+              "sha256": "938c3572790fbc137f4a941984c0cfb67398059e9853a19b50b2f18102d84d2e"
+            },
+            {
+              "frame": 55,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0055.jpg",
+              "sha256": "27a338c80802f3b3a5d87cf75a47820d7750e7fd2902be68ca039e82b14529eb"
+            },
+            {
+              "frame": 56,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0056.jpg",
+              "sha256": "9b309daf25da29510488f4c939b74b99679aa97e14f142b5d4a454798425775d"
+            },
+            {
+              "frame": 57,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0057.jpg",
+              "sha256": "2b72d449a484f95adc3192892e5c1e23a3fb02a9c3f75ab9bc4f6e9dac07566a"
+            },
+            {
+              "frame": 58,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0058.jpg",
+              "sha256": "25bd1082553997b63bb09a0d49c32a051dd8a70556e9f2b0ba04c99d7729d1cf"
+            },
+            {
+              "frame": 59,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0059.jpg",
+              "sha256": "fc73ba1582a75c2f15bfe94c931129f3ba22f4b74c5783906771d6fbeb58dd75"
+            },
+            {
+              "frame": 60,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0060.jpg",
+              "sha256": "154d1ab4f895958cbb17acd96639fecd085efb5aa21348081dbe5ee90afe1da1"
+            },
+            {
+              "frame": 61,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0061.jpg",
+              "sha256": "6e93ace3f2317cf7992cda09f9e78981efa1a682bdc1f16d7afcb699fc24b52c"
+            },
+            {
+              "frame": 62,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0062.jpg",
+              "sha256": "11c17d7ad098d9e80f70f8da18ca2c5ae101e441af08295d783bcb5f99113457"
+            },
+            {
+              "frame": 63,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0063.jpg",
+              "sha256": "f8b0012c21cd7d86308b2c961cad6c2a7c078dd8e12f78ac379a9eed8651895a"
+            },
+            {
+              "frame": 64,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0064.jpg",
+              "sha256": "6b8046e25c9510ab54779e599ee814fda0acc2c15866f83e42f2c94b65f2c62d"
+            },
+            {
+              "frame": 65,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0065.jpg",
+              "sha256": "4f3fbc3dd06200c602b03d9a595f2d4c2bb96d14aed9024c0242cc997c486631"
+            },
+            {
+              "frame": 66,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0066.jpg",
+              "sha256": "fe0ecc236867e7b77d5adc6f7fe3393f1011540066ead6f800a4f5014ea5ac4d"
+            },
+            {
+              "frame": 67,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0067.jpg",
+              "sha256": "1c2a1d266fe0b7ea7cf0598f538e7c083739d5e4a8ae11a624a6fbb939a98bdf"
+            },
+            {
+              "frame": 68,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0068.jpg",
+              "sha256": "fd86196af4a13322f02cf9fe20618e0f2893f4aafa8394184fb0f1c93c178ada"
+            },
+            {
+              "frame": 69,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0069.jpg",
+              "sha256": "0bf5c0160388c8c26056b5fcb3d86abb63d6f5e8fbaf7331d7c9acf4e2dc5b1a"
+            },
+            {
+              "frame": 70,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0070.jpg",
+              "sha256": "14962cb3513be21ef817b5935c7c82db9d4ea4378996bf1267e2b036d2443a99"
+            },
+            {
+              "frame": 71,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0071.jpg",
+              "sha256": "da2576e424e0c22953c5291f03e84406e9dcbe2c52699039ffd7ed0e23bb16d5"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h3/003.jpg",
+          "sha256": "3614d46139fd9fea9aa067b2830634aad8c0b03c6c03aea2e81e6e2aec227fd6",
+          "frames": [
+            {
+              "frame": 72,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0072.jpg",
+              "sha256": "b4ce997e38905d325b335293a21609f6727ae62393a1b36480b50bf46b01c779"
+            },
+            {
+              "frame": 73,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0073.jpg",
+              "sha256": "ef3e10e6ffaee0eafa232dd34606db1fc8080228a0071c745291aedad55a2897"
+            },
+            {
+              "frame": 74,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0074.jpg",
+              "sha256": "7d834d471da605c78ad377ccbd48c0bff61ad57871cd2fef1c4ec759a6b5ee2e"
+            },
+            {
+              "frame": 75,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0075.jpg",
+              "sha256": "106b22ca420459c783edef72863cbcf569faa72236fad4f7dc5905e3832acf76"
+            },
+            {
+              "frame": 76,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0076.jpg",
+              "sha256": "97c578389d2a66cfd9344897d867e37f9bfcef6485dd3dd09f5f16dc6e05648a"
+            },
+            {
+              "frame": 77,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0077.jpg",
+              "sha256": "d73c21f3ca1c4e0dd452c8c437d36d1d5a7d447652a58bfcf5abe5e8f1572764"
+            },
+            {
+              "frame": 78,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0078.jpg",
+              "sha256": "a49f8e33e0e017d23b89b18a1e89f69619829e591434bc64b2bafa545c27abb0"
+            },
+            {
+              "frame": 79,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0079.jpg",
+              "sha256": "9498b298cb25924659906ec893aa08d3007c2b097b037891fac3d6fb23cc49eb"
+            },
+            {
+              "frame": 80,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0080.jpg",
+              "sha256": "c58b2d7b8699b779f457a6aae84d0a20b30b4c50a18bf73aaba7a3263f1b9e81"
+            },
+            {
+              "frame": 81,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0081.jpg",
+              "sha256": "9672033763fc6bab12d50016482d9dc16382126ab129b34289d52d9ba0cd2086"
+            },
+            {
+              "frame": 82,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0082.jpg",
+              "sha256": "064309535c75dbf4c2befc2389c9110d5a7dab52798af8e85f72b43b5e9e1c52"
+            },
+            {
+              "frame": 83,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0083.jpg",
+              "sha256": "0c317ec380fde20495b6937feca2c51bbef9dfa4295ba46a51f18a44ae8a1e1f"
+            },
+            {
+              "frame": 84,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0084.jpg",
+              "sha256": "59091d508d341de6c1dcb8c91e9474cd3e0e1126033f5667d7792b7cf4de81e5"
+            },
+            {
+              "frame": 85,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0085.jpg",
+              "sha256": "e30609444901fff5d4646d584ccc9bd6b62205c428e0e754a1a2f222c2bdea14"
+            },
+            {
+              "frame": 86,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0086.jpg",
+              "sha256": "572b4e1a2d4e0a6b701c104bbf5b67dfe9e996fe82cc4b33ceb8d92ac6dc4e3f"
+            },
+            {
+              "frame": 87,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0087.jpg",
+              "sha256": "8694012c824e51f85dad1a7c9ec24ccd0761bee1bc3832fb32fd48d173b489b6"
+            },
+            {
+              "frame": 88,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0088.jpg",
+              "sha256": "38ffc0edbd26d3692fdab7bef637c1d1218b6c83472a2ddb5d952731181d9588"
+            },
+            {
+              "frame": 89,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0089.jpg",
+              "sha256": "30d8a91d72efd0f384230d43e0b8241c192e90f354b816dcdbc2c4fe692d43c2"
+            },
+            {
+              "frame": 90,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0090.jpg",
+              "sha256": "1b1820cca582b6a49fe8867a260ac0c4ac6d25d7ef0c5585a813568252c1d54a"
+            },
+            {
+              "frame": 91,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0091.jpg",
+              "sha256": "c1d81d868e33e30541d1c8caad3e552a3629716c2bb4fffa289adbf9bf08d782"
+            },
+            {
+              "frame": 92,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0092.jpg",
+              "sha256": "40e1e1c5807ac4ca4d6eea4367ff135e0465751885013c3398b7273c04435593"
+            },
+            {
+              "frame": 93,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0093.jpg",
+              "sha256": "1aa23fe79b2cceb091aee68f6a8452ad611f48faddc2a09d4b900e9945ecb221"
+            },
+            {
+              "frame": 94,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0094.jpg",
+              "sha256": "ad98a82acab83e4c63d94c7ea8cb95bea940f4b1511d8b4ed1973eccbc4f3f18"
+            },
+            {
+              "frame": 95,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0095.jpg",
+              "sha256": "cd3adecae47859dfda5b0623001e57e1c9ab74f11ddabc2cb541214e5d6c9860"
+            }
+          ]
+        },
+        {
+          "path": "/tmp/phase4_formal_data_20260930/holdout_panels/h3/004.jpg",
+          "sha256": "4fadf20ad69353177ba2b627973df0593282dfede361794f2c683bb080707409",
+          "frames": [
+            {
+              "frame": 96,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0096.jpg",
+              "sha256": "fcad8861e66ad9b11c0ddbd6843f09560e58154800c9c5d9abefa134b092375d"
+            },
+            {
+              "frame": 97,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0097.jpg",
+              "sha256": "9975cc4958dcdd7090e55b90f72449dac5d999587b261097ba421dee0a3c6f82"
+            },
+            {
+              "frame": 98,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0098.jpg",
+              "sha256": "468be86f0c53458b5b2359805d25e349518f9b04d0c99ba3b7bac12d190152f9"
+            },
+            {
+              "frame": 99,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0099.jpg",
+              "sha256": "889207a06f71334a1f1f18c9ba6b47b3c610d18803b1546f7c58caa562577318"
+            },
+            {
+              "frame": 100,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0100.jpg",
+              "sha256": "81823e6e3aa70f9238a090c8051fef227214f064f95a7818ccddc89f1688c57f"
+            },
+            {
+              "frame": 101,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0101.jpg",
+              "sha256": "1a5b654f71503c34980246969e294ec519ac2bc071ed65fc7ae301b85f872c61"
+            },
+            {
+              "frame": 102,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0102.jpg",
+              "sha256": "b2788484f296748436fd7eb5b1b5b5d4e1760731dfb0194e1e237ff7024dc562"
+            },
+            {
+              "frame": 103,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0103.jpg",
+              "sha256": "1d87028825184fdfbe582731ea8f95f71facff5da8345784d191cfdfcec43a51"
+            },
+            {
+              "frame": 104,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0104.jpg",
+              "sha256": "ae8fdbdb1999f6fa9605e5c89193d11de45b0eef4b9ee3c51763c03c9fa38f1a"
+            },
+            {
+              "frame": 105,
+              "rgb": "HardBreakRoute/Town12_Rep0_767_0_route0_01_10_23_36_16/rgb/0105.jpg",
+              "sha256": "a3b58bf2a023c184255148bf1089e02f4ad66ff7a862256a32bce2077968cd24"
+            }
+          ]
+        }
+      ],
+      "native_frames": {
+        "70": "14962cb3513be21ef817b5935c7c82db9d4ea4378996bf1267e2b036d2443a99",
+        "71": "da2576e424e0c22953c5291f03e84406e9dcbe2c52699039ffd7ed0e23bb16d5",
+        "72": "b4ce997e38905d325b335293a21609f6727ae62393a1b36480b50bf46b01c779",
+        "73": "ef3e10e6ffaee0eafa232dd34606db1fc8080228a0071c745291aedad55a2897",
+        "74": "7d834d471da605c78ad377ccbd48c0bff61ad57871cd2fef1c4ec759a6b5ee2e",
+        "75": "106b22ca420459c783edef72863cbcf569faa72236fad4f7dc5905e3832acf76",
+        "76": "97c578389d2a66cfd9344897d867e37f9bfcef6485dd3dd09f5f16dc6e05648a",
+        "77": "d73c21f3ca1c4e0dd452c8c437d36d1d5a7d447652a58bfcf5abe5e8f1572764",
+        "78": "a49f8e33e0e017d23b89b18a1e89f69619829e591434bc64b2bafa545c27abb0",
+        "79": "9498b298cb25924659906ec893aa08d3007c2b097b037891fac3d6fb23cc49eb",
+        "80": "c58b2d7b8699b779f457a6aae84d0a20b30b4c50a18bf73aaba7a3263f1b9e81",
+        "81": "9672033763fc6bab12d50016482d9dc16382126ab129b34289d52d9ba0cd2086",
+        "82": "064309535c75dbf4c2befc2389c9110d5a7dab52798af8e85f72b43b5e9e1c52",
+        "83": "0c317ec380fde20495b6937feca2c51bbef9dfa4295ba46a51f18a44ae8a1e1f",
+        "84": "59091d508d341de6c1dcb8c91e9474cd3e0e1126033f5667d7792b7cf4de81e5",
+        "85": "e30609444901fff5d4646d584ccc9bd6b62205c428e0e754a1a2f222c2bdea14"
+      },
+      "evidence_ids": [
+        "holdout_v1_formal_data_3_U-E1_proceed_70",
+        "holdout_v1_formal_data_3_U-E1_release_70",
+        "holdout_v1_formal_data_3_U-E1_complete_78"
+      ]
+    }
+  ],
+  "native_panels": [
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h0_94.png",
+      "sha256": "6741f224580ab2da8e4ab192e26e25e41cb2267f10ef818e07c8cfaed69eee20"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h0_98.png",
+      "sha256": "b30f710dbae47a4353e5ca84822a7f94421d19a0edb37bb2ea996e5e56b326c9"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h0_102.png",
+      "sha256": "e6ed1b4338676247ae4fb2308999dd4e9f710312eacb7a5b8ed03925568b759f"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h0_106.png",
+      "sha256": "5657e8e44eae6906b82a6ff5ebaa1af95c38768eeac9f354cdf347c27afbc107"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h1_110.png",
+      "sha256": "e33d4ff1c2d1033499fb64fac922795e7bb92a9680a9e45211af4f326f2af828"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h1_114.png",
+      "sha256": "153f61f8d98d393b2e093a105631ea9de702c6fbe8ed414abf86f65c22020c7d"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h1_118.png",
+      "sha256": "db3d1592c5d78b13f8662a35539f6b77ba6285316780feb14b2708638ec7c597"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h1_122.png",
+      "sha256": "8e1023361fc851f6168d2a788ab546efb7e7e75cd5b6705e640c2ebb4becf641"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h2_80.png",
+      "sha256": "e97c1b73a5dafff2f292d7e377a6374e8d5869689a3030f26d9db63235953e41"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h2_84.png",
+      "sha256": "8dd420f7cefaaf5f19e55bc1b2fac05c4b5089f5e67eb9ef62d778929e2dd9e5"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h2_88.png",
+      "sha256": "47e030cd5f26204b9f2cf0077dcf76c7e680a35571725c7d8a950797dbdd306f"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h2_92.png",
+      "sha256": "4d3d4b046b061280ddbd81008747d03adcfb2e31b25ed8ee34909cff46abf290"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h2_96.png",
+      "sha256": "f711588ee32b1bf6c21eaa333ffa00055aa72cba959f362551792a9d7ecd83bc"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h2_100.png",
+      "sha256": "80ebf937b55296d9372c0eec46c4f8a711beab232302a2826459c0e04dceb1ff"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h3_70.png",
+      "sha256": "31f0903b7699805012c932d4b8150e1d1e3f6fc750fedbbedf5cfcd9e13ff747"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h3_74.png",
+      "sha256": "be6ff7f573f8f89e94546390d21c8fb72f12390373fcf2116862d14d3496fcb8"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h3_78.png",
+      "sha256": "92cad35d9922b16f6db64990a395fb1ebe2ff24799f620c27a725072111226da"
+    },
+    {
+      "path": "/tmp/phase4_formal_data_20260930/holdout_native_h3_82.png",
+      "sha256": "78af97925ad5403d56c5fe5f97b93ee3f9235dbeeeaf366b74dce9f07186af54"
+    }
+  ],
+  "annotation_sha256": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb"
+}

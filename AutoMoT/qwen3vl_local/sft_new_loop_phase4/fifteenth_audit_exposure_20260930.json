@@ -1,0 +1,257 @@
+{
+  "train_only_groups": [
+    "BlockedIntersection/Town12_1509_0",
+    "BlockedIntersection/Town12_1858_0",
+    "BlockedIntersection/Town12_3350_0",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_2",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_37",
+    "DynamicObjectCrossing/Town05_Town05_Scenario3_9",
+    "OppositeVehicleRunningRedLight/Town13_1047_0",
+    "OppositeVehicleRunningRedLight/Town13_1047_1",
+    "OppositeVehicleRunningRedLight/Town13_1047_2",
+    "StaticCutIn/Town13_1135_0",
+    "StaticCutIn/Town13_1247_0",
+    "StaticCutIn/Town13_53_1"
+  ],
+  "calibration_risks": [
+    {
+      "scenario": "StaticCutIn",
+      "route_id": "Town13_Rep0_53_1_route0_01_09_03_18_08",
+      "physical_group": "StaticCutIn/Town13_53_1",
+      "audit_id": "000",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–112帧连续目视。雨雾多车道，先过路边停放车约51–55帧，另一个黑色目标约67–82帧斜向侵入；76–80有对向绿车，83–86从目标旁通过。原图确认17→18左前白车突变消失。前一个停放车通过不等于目标切入完成，不把旁侧通行硬编码成左绕右返。",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "StaticCutIn/Town13_Rep0_53_1_route0_01_09_03_18_08/rgb/0017.jpg",
+          "sha256": "950961028a6f4ae32eb13b3733f7024f35e6ad9e5c9267e6357a2b63e432950c"
+        },
+        {
+          "frame": 18,
+          "path": "StaticCutIn/Town13_Rep0_53_1_route0_01_09_03_18_08/rgb/0018.jpg",
+          "sha256": "e836b37e16f102083c5deee3341313c30a98997ce2761c0c45caea40dd3de832"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "StaticCutIn",
+      "route_id": "Town13_Rep0_1135_0_route0_01_09_17_54_18",
+      "physical_group": "StaticCutIn/Town13_1135_0",
+      "audit_id": "001",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–252帧。依次经过路边黑车、蓝车、警车，再遇69–82帧蓝色切入车；73–79有对向车，82–84通过。之后108–189附近前方排队，190后再次移动。原图纠正异常边界：15、16仍见左前灰车，17已消失，是16→17。189/190原图不支持车辆突变消失。不可将旧切入catchup延伸至后续长队列。",
+      "rgb_evidence": [
+        {
+          "frame": 16,
+          "path": "StaticCutIn/Town13_Rep0_1135_0_route0_01_09_17_54_18/rgb/0016.jpg",
+          "sha256": "9945d5fea181add4e2acc4bdf3d8964584f9b252d8000b9bdcc38a7ab94f7c67"
+        },
+        {
+          "frame": 17,
+          "path": "StaticCutIn/Town13_Rep0_1135_0_route0_01_09_17_54_18/rgb/0017.jpg",
+          "sha256": "384c8eb2fbe3da6021786601b0c6003c2c1670066ce1444545d1b005cdf5e195"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "StaticCutIn",
+      "route_id": "Town13_Rep0_1247_0_route0_01_08_18_52_46",
+      "physical_group": "StaticCutIn/Town13_1247_0",
+      "audit_id": "002",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–108帧。雨天，64–78红色SUV斜向占道，65–75等待，79–81通过；原图确认13→14左前车消失、98→99右近红色Mini消失。后一个异常不能作为自然完成或纵向恢复证据。",
+      "rgb_evidence": [
+        {
+          "frame": 13,
+          "path": "StaticCutIn/Town13_Rep0_1247_0_route0_01_08_18_52_46/rgb/0013.jpg",
+          "sha256": "6c2edab17f28576b34150101fbbbb91a59a44a4bf486f384fcf977d3b45f9d06"
+        },
+        {
+          "frame": 14,
+          "path": "StaticCutIn/Town13_Rep0_1247_0_route0_01_08_18_52_46/rgb/0014.jpg",
+          "sha256": "8d721a467d0415c871a3a06836ea46d7a34a5e47257531e2cfc54bec658516fb"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "StaticCutIn",
+      "route_id": "Town13_Rep0_1247_0_route0_01_08_18_52_46",
+      "physical_group": "StaticCutIn/Town13_1247_0",
+      "audit_id": "002",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–108帧。雨天，64–78红色SUV斜向占道，65–75等待，79–81通过；原图确认13→14左前车消失、98→99右近红色Mini消失。后一个异常不能作为自然完成或纵向恢复证据。",
+      "rgb_evidence": [
+        {
+          "frame": 98,
+          "path": "StaticCutIn/Town13_Rep0_1247_0_route0_01_08_18_52_46/rgb/0098.jpg",
+          "sha256": "269ed1b8f48668a25c5e43c95dd9db8fef637d0995133d58888ca48a755a8470"
+        },
+        {
+          "frame": 99,
+          "path": "StaticCutIn/Town13_Rep0_1247_0_route0_01_08_18_52_46/rgb/0099.jpg",
+          "sha256": "78e1dbd794eef84cefa138771e3b0b00fe4b718227691266ddc03a8bd5034854"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_1858_0_route0_01_10_10_46_56",
+      "physical_group": "BlockedIntersection/Town12_1858_0",
+      "audit_id": "003",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–118帧。乡间路口，33–44减速停车、44–64等待、65–77右转，目的车道绿车阻挡，79–111长时间等待并有对向车。原图确认27→28前车消失及111→112阻挡绿车消失，115后自车移动不能反证自然解除。近处对向蓝车同帧不见可能出画，不登记其突变。",
+      "rgb_evidence": [
+        {
+          "frame": 27,
+          "path": "BlockedIntersection/Town12_Rep0_1858_0_route0_01_10_10_46_56/rgb/0027.jpg",
+          "sha256": "f8fe2d4b704e5a43649e5a7c129aab821095db6e3962d5725f635225d27eea5f"
+        },
+        {
+          "frame": 28,
+          "path": "BlockedIntersection/Town12_Rep0_1858_0_route0_01_10_10_46_56/rgb/0028.jpg",
+          "sha256": "5ec79eaddf3e00bccfb2245cf8e66545a03fd61b3e7aa5df6cdf3f537326b8f6"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_1858_0_route0_01_10_10_46_56",
+      "physical_group": "BlockedIntersection/Town12_1858_0",
+      "audit_id": "003",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–118帧。乡间路口，33–44减速停车、44–64等待、65–77右转，目的车道绿车阻挡，79–111长时间等待并有对向车。原图确认27→28前车消失及111→112阻挡绿车消失，115后自车移动不能反证自然解除。近处对向蓝车同帧不见可能出画，不登记其突变。",
+      "rgb_evidence": [
+        {
+          "frame": 111,
+          "path": "BlockedIntersection/Town12_Rep0_1858_0_route0_01_10_10_46_56/rgb/0111.jpg",
+          "sha256": "802a1c04198e4d980049c54108de3c6b4d25d0338c7db1fe7ee2fe7e7a530a2b"
+        },
+        {
+          "frame": 112,
+          "path": "BlockedIntersection/Town12_Rep0_1858_0_route0_01_10_10_46_56/rgb/0112.jpg",
+          "sha256": "40a1c4a9fc5bcdd89c9f9af8557097e9337d5c13a08015771c982f217a081acf"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_3350_0_route0_01_08_19_37_38",
+      "physical_group": "BlockedIntersection/Town12_3350_0",
+      "audit_id": "004",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–110帧。乡间路口，37–57等候、58–69右转，蓝色SUV阻挡目的车道，70–105等待。原图确认17→18前蓝车消失、105→106阻挡SUV消失，109后移动不能据此批准release YES。",
+      "rgb_evidence": [
+        {
+          "frame": 17,
+          "path": "BlockedIntersection/Town12_Rep0_3350_0_route0_01_08_19_37_38/rgb/0017.jpg",
+          "sha256": "52de2759fef592426298597377aa96c9d8e726c570380f193bf380d50541d285"
+        },
+        {
+          "frame": 18,
+          "path": "BlockedIntersection/Town12_Rep0_3350_0_route0_01_08_19_37_38/rgb/0018.jpg",
+          "sha256": "cf18c0e1a3a0cb00a3b397346c624ba3acaf6e8b0956ef3a191b0f2a20b4ac9f"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_3350_0_route0_01_08_19_37_38",
+      "physical_group": "BlockedIntersection/Town12_3350_0",
+      "audit_id": "004",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–110帧。乡间路口，37–57等候、58–69右转，蓝色SUV阻挡目的车道，70–105等待。原图确认17→18前蓝车消失、105→106阻挡SUV消失，109后移动不能据此批准release YES。",
+      "rgb_evidence": [
+        {
+          "frame": 105,
+          "path": "BlockedIntersection/Town12_Rep0_3350_0_route0_01_08_19_37_38/rgb/0105.jpg",
+          "sha256": "ea9cfc221a585b38cae5b7e4090651378646cf20e0c6a887348fec388552772e"
+        },
+        {
+          "frame": 106,
+          "path": "BlockedIntersection/Town12_Rep0_3350_0_route0_01_08_19_37_38/rgb/0106.jpg",
+          "sha256": "f349617fd132ec7f2e4306527a777071f75e27d3e318913cf05b6795c82e8a07"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_1509_0_route0_01_10_17_31_08",
+      "physical_group": "BlockedIntersection/Town12_1509_0",
+      "audit_id": "005",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–106帧。极暗夜间路口，32–40停车、40–54等候、55–64右转，64–98前方车阻挡并有对向交通。原图确认18→19最近前车/尾灯消失、98→99阻挡车两尾灯及车牌消失，对向车仍存在。暗部降低几何置信度，不批准精确YES区间。",
+      "rgb_evidence": [
+        {
+          "frame": 18,
+          "path": "BlockedIntersection/Town12_Rep0_1509_0_route0_01_10_17_31_08/rgb/0018.jpg",
+          "sha256": "8cdaa9049bba4bf05019c381ab2eab909a2835d8ae10173d057944600dbc7f1e"
+        },
+        {
+          "frame": 19,
+          "path": "BlockedIntersection/Town12_Rep0_1509_0_route0_01_10_17_31_08/rgb/0019.jpg",
+          "sha256": "9680811801d2b5306f0c08553ca3655a7ec7963980a35cad95604ca235eb59a4"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    },
+    {
+      "scenario": "BlockedIntersection",
+      "route_id": "Town12_Rep0_1509_0_route0_01_10_17_31_08",
+      "physical_group": "BlockedIntersection/Town12_1509_0",
+      "audit_id": "005",
+      "kind": "visual_actor_discontinuity",
+      "reported_observations": "全0–106帧。极暗夜间路口，32–40停车、40–54等候、55–64右转，64–98前方车阻挡并有对向交通。原图确认18→19最近前车/尾灯消失、98→99阻挡车两尾灯及车牌消失，对向车仍存在。暗部降低几何置信度，不批准精确YES区间。",
+      "rgb_evidence": [
+        {
+          "frame": 98,
+          "path": "BlockedIntersection/Town12_Rep0_1509_0_route0_01_10_17_31_08/rgb/0098.jpg",
+          "sha256": "40ac04e58131a5ef6915b0fb96145e771a27dff006c6752dd60340dc23ad2d53"
+        },
+        {
+          "frame": 99,
+          "path": "BlockedIntersection/Town12_Rep0_1509_0_route0_01_10_17_31_08/rgb/0099.jpg",
+          "sha256": "867e4baabfd68ed4122561fbedc06de9d071d23963fd8f9c310d2464aef10b5a"
+        }
+      ],
+      "status": "requires_per_frame_calibration_review_not_training_labels"
+    }
+  ],
+  "source_files": {
+    "/tmp/phase4_fifteenth_readonly_20260930/REPORT.txt": "1597500326de15927ed80ebbf26d55894e9b76045704474952ca01135a8f873f",
+    "/tmp/phase4_fifteenth_readonly_20260930/selected.json": "3b8dc1d2908cd200c1e1131d5e17ba832d9645cfa77eb8b63f6b15de72652825",
+    "/tmp/phase4_fifteenth_readonly_20260930/observations.json": "0d3d63ae55b9b62a7e7f18797bd86b7dbc0c81adc2822b75c15e803e6f82e229",
+    "/tmp/phase4_fifteenth_readonly_20260930/originals.json": "c45bd990534117ee6c792a82ab45c17cdd7f7688275b504e43378659174e8777",
+    "/tmp/phase4_fifteenth_readonly_20260930/new_risks.json": "71a5ebdcb01a33cb6d06ce7f643efabcd3346c13691c9a400bbeeedfa9b68a69",
+    "/tmp/phase4_fifteenth_readonly_20260930/coverage_progress.json": "c477124a5ebcfed26df5e45df2e06f76778d7dd548d5515aabc35e6146a1b946"
+  },
+  "local_review": {
+    "new_labels": 0,
+    "new_complete_sequences": 0,
+    "rgb_hash_checks": 20
+  },
+  "reported_coverage": {
+    "new_sequences": 12,
+    "new_distinct_rgb": 2287,
+    "contact_sheets": 100,
+    "original_resolution_rechecks": 34,
+    "cumulative_sequences": 403,
+    "cumulative_frames": 48357,
+    "reviewed_cells": 196,
+    "meets_three_ids": 169,
+    "total_cells": 278,
+    "shortfall_cells": 18,
+    "remaining_selected_sequences": 297,
+    "remaining_selected_rgb": 50311,
+    "all_requested_rgb_audit_complete": false,
+    "prior_counts_are_inherited": true
+  }
+}

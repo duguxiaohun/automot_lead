@@ -1,0 +1,233 @@
+{
+  "train_only_groups": [
+    "ConstructionObstacle/Town04_route_001997",
+    "ConstructionObstacle/Town04_route_002000",
+    "ControlLoss/Town07_Town07_Scenario1_1",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+    "HighwayExit/Town13_route_000839",
+    "T_Junction/Town10HD_Town10HD_Scenario7_28",
+    "VehicleOpensDoorTwoWays/Town12_552_0",
+    "VehicleTurningRoute/Town03_Town03_Scenario4_38",
+    "noScenarios/Town06_route_000702"
+  ],
+  "selected_routes": [
+    {
+      "audit_id": "TJ1",
+      "scenario": "T_Junction",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04",
+      "physical_group": "T_Junction/Town10HD_Town10HD_Scenario7_28",
+      "reported_review": "full"
+    },
+    {
+      "audit_id": "HX1",
+      "scenario": "HighwayExit",
+      "route_id": "Town13_Rep0_route_000839_route0_01_08_10_26_04",
+      "physical_group": "HighwayExit/Town13_route_000839",
+      "reported_review": "full"
+    },
+    {
+      "audit_id": "CO1",
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_002000_route0_01_09_12_27_42",
+      "physical_group": "ConstructionObstacle/Town04_route_002000",
+      "reported_review": "full"
+    },
+    {
+      "audit_id": "CO2",
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_001997_route0_01_10_10_10_03",
+      "physical_group": "ConstructionObstacle/Town04_route_001997",
+      "reported_review": "full"
+    },
+    {
+      "audit_id": "VT1",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town03_Rep0_Town03_Scenario4_38_route0_01_09_07_07_15",
+      "physical_group": "VehicleTurningRoute/Town03_Town03_Scenario4_38",
+      "reported_review": "full"
+    },
+    {
+      "audit_id": "NS1",
+      "scenario": "noScenarios",
+      "route_id": "Town06_Rep0_route_000702_route0_01_09_01_28_54",
+      "physical_group": "noScenarios/Town06_route_000702",
+      "reported_review": "rendered_not_reviewed"
+    },
+    {
+      "audit_id": "VD1",
+      "scenario": "VehicleOpensDoorTwoWays",
+      "route_id": "Town12_Rep0_552_0_route0_01_09_23_49_02",
+      "physical_group": "VehicleOpensDoorTwoWays/Town12_552_0",
+      "reported_review": "partial"
+    },
+    {
+      "audit_id": "DO3",
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "physical_group": "DynamicObjectCrossing/Town07_Town07_Scenario3_1",
+      "reported_review": "rendered_not_reviewed"
+    },
+    {
+      "audit_id": "CL4",
+      "scenario": "ControlLoss",
+      "route_id": "Town07_Rep0_Town07_Scenario1_1_route0_01_09_10_58_47",
+      "physical_group": "ControlLoss/Town07_Town07_Scenario1_1",
+      "reported_review": "rendered_not_reviewed"
+    }
+  ],
+  "previous_splits": {
+    "T_Junction/Town10HD_Town10HD_Scenario7_28": "train",
+    "HighwayExit/Town13_route_000839": "train",
+    "ConstructionObstacle/Town04_route_002000": "train",
+    "ConstructionObstacle/Town04_route_001997": "train",
+    "VehicleTurningRoute/Town03_Town03_Scenario4_38": "train",
+    "noScenarios/Town06_route_000702": "train",
+    "VehicleOpensDoorTwoWays/Town12_552_0": "train",
+    "DynamicObjectCrossing/Town07_Town07_Scenario3_1": "train",
+    "ControlLoss/Town07_Town07_Scenario1_1": "train"
+  },
+  "calibration_risks": [
+    {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town12_Rep0_146_1_route0_01_09_05_52_22",
+      "physical_group": "ParkedObstacle/Town12_146_1",
+      "kind": "same_id_world_position_jump",
+      "reported_status": "causal_geometry_confirmed_rgb_previously_confirmed",
+      "reported_observations": [
+        "补充既有18→19消失风险的几何机制：3824世界位移59.41m，同帧3823位移59.91m；不是两处新RGB消失。"
+      ],
+      "training_label_approved": false,
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 18,
+          "path": "ParkedObstacle/Town12_Rep0_146_1_route0_01_09_05_52_22/rgb/0018.jpg",
+          "sha256": "85eb55250111d80bc4c01ac72c80bc6da0bbe686930696480e894886d7d1c0c3"
+        },
+        {
+          "frame": 19,
+          "path": "ParkedObstacle/Town12_Rep0_146_1_route0_01_09_05_52_22/rgb/0019.jpg",
+          "sha256": "2319cf1446ed92e63d5ff590d7ef41a8423ce2a918ff1b1da1cc4f2ddbcb2abf"
+        }
+      ]
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_001997_route0_01_10_10_10_03",
+      "physical_group": "ConstructionObstacle/Town04_route_001997",
+      "kind": "unmatched_visible_participant_identity",
+      "reported_status": "original_rgb_rechecked_identity_unresolved",
+      "reported_observations": [
+        "原图可见车旁人形，但本帧bboxes无walker/bicycle；不能确认独立行人，亦不能宣称参与者清单完整。保留参与者/渲染身份待审。"
+      ],
+      "training_label_approved": false,
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 18,
+          "path": "ConstructionObstacle/Town04_Rep0_route_001997_route0_01_10_10_10_03/rgb/0018.jpg",
+          "sha256": "0bacff4644d60acd21a2d1c91bc41ddc474457de79ab000566484cb50959cbb1"
+        },
+        {
+          "frame": 27,
+          "path": "ConstructionObstacle/Town04_Rep0_route_001997_route0_01_10_10_10_03/rgb/0027.jpg",
+          "sha256": "fe850f0ceb5838c94d98c93a73cefa02d3ee0b177f66ed122bf7437364e8fb8c"
+        }
+      ]
+    },
+    {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town04_Rep0_route_001997_route0_01_10_10_10_03",
+      "physical_group": "ConstructionObstacle/Town04_route_001997",
+      "kind": "multiple_obstacles_instance_boundary",
+      "reported_status": "reported_requires_causal_review",
+      "reported_observations": [
+        "末尾第二障碍需独立实例/边界审核，未复看原图。"
+      ],
+      "training_label_approved": false,
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 76,
+          "path": "ConstructionObstacle/Town04_Rep0_route_001997_route0_01_10_10_10_03/rgb/0076.jpg",
+          "sha256": "8e4d2261863cc1e70f8525843688ef8c6900e4f3def867d7fece6b817f0b75a1"
+        },
+        {
+          "frame": 79,
+          "path": "ConstructionObstacle/Town04_Rep0_route_001997_route0_01_10_10_10_03/rgb/0079.jpg",
+          "sha256": "8fba321f1761ceba519fc3407ca5c4c6430428987134599ab589be89b4c4ded1"
+        }
+      ]
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town03_Rep0_Town03_Scenario4_38_route0_01_09_07_07_15",
+      "physical_group": "VehicleTurningRoute/Town03_Town03_Scenario4_38",
+      "kind": "rgb_visibility_semantics_disagreement",
+      "reported_status": "original_rgb_rechecked",
+      "reported_observations": [
+        "夜雾自行车仅暗色轮廓；语义可见计数不能证明可辨，class=car/base_type=bicycle应属UE4。图像门槛仅开发候选，不认证准确率。"
+      ],
+      "training_label_approved": false,
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 50,
+          "path": "VehicleTurningRoute/Town03_Rep0_Town03_Scenario4_38_route0_01_09_07_07_15/rgb/0050.jpg",
+          "sha256": "69725eb5c7f022d1cd7fb94df6c84ac2f78a9a8e0fc0592b792f0d75b9e4eea9"
+        }
+      ]
+    },
+    {
+      "scenario": "T_Junction",
+      "route_id": "Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04",
+      "physical_group": "T_Junction/Town10HD_Town10HD_Scenario7_28",
+      "kind": "source_instance_boundary_mismatch",
+      "reported_status": "reported_requires_causal_review",
+      "reported_observations": [
+        "源RE5覆盖信号灯路口，T路口冲突后段与末尾删失须逐帧复核。"
+      ],
+      "training_label_approved": false,
+      "status": "requires_per_frame_calibration_review_not_training_labels",
+      "rgb_evidence": [
+        {
+          "frame": 20,
+          "path": "T_Junction/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04/rgb/0020.jpg",
+          "sha256": "ebf8f03267bb3df4a3764515bd52a9594fc5b6272ca95ba9d1d09408168661e1"
+        },
+        {
+          "frame": 39,
+          "path": "T_Junction/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04/rgb/0039.jpg",
+          "sha256": "6d7acc635daadb28782fae279dadccfa8fd791b975b9bb849322fa412a864691"
+        },
+        {
+          "frame": 55,
+          "path": "T_Junction/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04/rgb/0055.jpg",
+          "sha256": "ba5714e099a9b653f90710318ea7af7fd413741ddda4b317e1bc5210262f74e3"
+        },
+        {
+          "frame": 64,
+          "path": "T_Junction/Town10HD_Rep0_Town10HD_Scenario7_28_route0_01_10_23_29_04/rgb/0064.jpg",
+          "sha256": "b9d8af6747bc2a88ead68865b9dc11f4c287ac87706da67511ef90af022bdaf3"
+        }
+      ]
+    }
+  ],
+  "source_report": {
+    "path": "/tmp/phase4_audit20_20261001/notes.md",
+    "sha256": "0b6d18880edff4b76dd69bf91139fb77e9f29f0e054686dfba3424070574a61b"
+  },
+  "training_labels_added": 0,
+  "audit_accounting": {
+    "reported_this_round_full": 5,
+    "reported_this_round_partial": 1,
+    "reported_three_rounds_full": 11,
+    "reported_three_rounds_partial": 11,
+    "new_original_rgb_rechecked": 3,
+    "new_full_sequences_reviewed": 0,
+    "inherited_cells_complete": 192,
+    "total_cells": 278,
+    "inherited_remaining_sequences": 240,
+    "coverage_recomputed": false
+  }
+}

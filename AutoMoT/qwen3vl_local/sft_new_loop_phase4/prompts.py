@@ -2,7 +2,7 @@
 import math
 from .taxonomy import EVENTS, STATE_TEXT, get_edge, applicable, UE3_RELEASE_CONDITION
 
-PROMPT_VERSION = 'phase4_state_pair_binary_v5'
+PROMPT_VERSION = 'phase4_state_pair_binary_v6'
 MODEL_ANSWERS = ('YES','NO')
 OBSERVATION_FIELDS = {'frame_id','speed_mps','history_frames'}
 SYSTEM = ('Use the chronological RGB observations to judge the proposed state transition. '
@@ -53,6 +53,9 @@ def state_pair(episode, edge_key):
         corridor = episode.return_corridor if returning else episode.target_corridor
         if direction:
             destination += f' ({direction.lower()}: {corridor or "established route corridor"})'
+    if episode.route_segments and e.axis == 'event':
+        source += '; only the current adjacent route segment is under consideration'
+        destination += '; this entry or completion applies only to that segment, without permission for further lateral movement'
     return source, '; '.join(causes) + ', so ' + destination
 
 
