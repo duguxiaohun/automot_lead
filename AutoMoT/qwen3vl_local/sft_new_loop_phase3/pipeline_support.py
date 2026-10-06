@@ -32,7 +32,22 @@ def adapter_contract(root, rgb, output, variant):
     raise FileNotFoundError(f'no Phase3 adapter under {root}')
 
 
+class HistoricalInputsMissing(FileNotFoundError):
+    """An actionable prerequisite error, not a model or training failure."""
+
+
 def validate_history(cases_path, variant, automot_root):
+    cases_path = Path(cases_path)
+    if not cases_path.exists() or (cases_path.is_dir() and not any(cases_path.glob('cases*.jsonl'))):
+        archive = cases_path.parent.with_name(cases_path.parent.name + '.tar.gz')
+        archive_hint = (f'发现压缩包 {archive.resolve()}，请先解压并保留包内目录结构。'
+                        if archive.is_file() else '请将对应旧审计包放到此处，或用 AUDIT_ROOT 指向四个包的共同父目录。')
+        raise HistoricalInputsMissing(
+            f'缺少历史回归 case 文件：{cases_path.resolve()}/cases*.jsonl\n'
+            '当前 RUN_REGRESSION=1；尚未开始本次训练。历史审计包是本地产物，不随 Git 源码同步。\n'
+            f'{archive_hint}\n'
+            '还需保留 case 引用的原始 RGB；REPLAY_AUTOMOT_ROOT 可指定它们的根目录。\n'
+            '若明确只做训练和新 test 评测，可设置 RUN_REGRESSION=0；这会跳过旧成功题回归，不能视为无退化验收。')
     from .paired_eval import load_cases
     from .replay_prompt_candidate import requests
     cases, hashes = load_cases(cases_path)
@@ -112,7 +127,8 @@ def main():
     state_path = pipeline/'pipeline_manifest.json'
     if args.stage == 'start':
         state = dict(group=f'{rgb}_{output}', prompt_variant=variant, status='preflight',
-            automatic_promotion=False, source_sha256=source_identity(),
+            automatic_promotion=False, audits_enabled=env.get('RUN_AUDITS', '0') == '1',
+            historical_regression_enabled=env['RUN_REGRESSION'] == '1', source_sha256=source_identity(),
             index=str(index.resolve()), run_root=env['RUN_ROOT'])
         write(state_path, state)
         if env['SKIP_TRAIN'] != '1' and Path(env['RUN_ROOT']).exists():
@@ -196,4 +212,7 @@ if __name__ == '__main__':
             state = json.loads(path.read_text())
             state.update(status='failed', error=str(exc))
             write(path, state)
+        if isinstance(exc, HistoricalInputsMissing):
+            print(f'[phase3-pipeline] {exc}', file=sys.stderr)
+            raise SystemExit(2) from None
         raise

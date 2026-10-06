@@ -36,11 +36,18 @@ MAX_EVAL_FRAMES="${MAX_EVAL_FRAMES:-0}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
 AUDIT_PER_TARGET="${AUDIT_PER_TARGET:-8}"
 RUN_BASE_EVAL="${RUN_BASE_EVAL:-1}"
+# Standalone eval retains its historical default; the full pipeline opts out.
+RUN_AUDITS="${RUN_AUDITS:-1}"
+case "${RUN_AUDITS}" in 0|1) ;; *) echo "RUN_AUDITS must be 0 or 1" >&2; exit 2 ;; esac
 RUN_VISUAL_AUDIT="${RUN_VISUAL_AUDIT:-1}"
 SCAN_VISUAL_RISKS="${SCAN_VISUAL_RISKS:-0}"
 # choice 的 audit prompt 与 production 完全相同，默认不重复生成；binary 保留原 audit。
 # 显式设为 0 或 1 可以覆盖 auto。
 RUN_AUDIT_PROMPT_EVAL="${RUN_AUDIT_PROMPT_EVAL:-auto}"
+if [[ "${RUN_AUDITS}" == 0 ]]; then
+  RUN_VISUAL_AUDIT=0
+  RUN_AUDIT_PROMPT_EVAL=0
+fi
 TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-checkpoints/sft_new_loop_phase3_eval_review/${TIMESTAMP}}"
 ADAPTER_INPUT="${ADAPTER_DIR:-${CKPT_DIR:-${1:-}}}"
@@ -630,17 +637,21 @@ if [[ "${RUN_AUDIT_PROMPT_EVAL}" == "1" ]]; then
     --output-dir "${OUTPUT_ROOT}/lora_audit"
 fi
 
-python "${AUDIT_PY}" \
-  --eval-dir "${OUTPUT_ROOT}/lora_production" \
-  --output-dir "${OUTPUT_ROOT}/lora_production_audit_samples" \
-  --data-root "${DATA_ROOT}" \
-  --per-target "${AUDIT_PER_TARGET}" \
-  --overwrite
+if [[ "${RUN_AUDITS}" == 1 ]]; then
+  python "${AUDIT_PY}" \
+    --eval-dir "${OUTPUT_ROOT}/lora_production" \
+    --output-dir "${OUTPUT_ROOT}/lora_production_audit_samples" \
+    --data-root "${DATA_ROOT}" \
+    --per-target "${AUDIT_PER_TARGET}" \
+    --overwrite
 
-echo
-echo "========== <=${BUNDLE_MAX_MB}MB audit bundle =========="
-build_bundle
+  echo
+  echo "========== <=${BUNDLE_MAX_MB}MB audit bundle =========="
+  build_bundle
+fi
 
 echo
 echo "[phase3-eval] done: ${OUTPUT_ROOT}"
-echo "[phase3-eval] audit bundle: ${OUTPUT_ROOT}/${BUNDLE_BASENAME}.tar.gz"
+if [[ "${RUN_AUDITS}" == 1 ]]; then
+  echo "[phase3-eval] audit bundle: ${OUTPUT_ROOT}/${BUNDLE_BASENAME}.tar.gz"
+fi

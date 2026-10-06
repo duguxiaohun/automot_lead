@@ -25,6 +25,11 @@ python fake_stage "$0" "$@"
     bin_dir.joinpath('python').write_text(f'#!{sys.executable}\n'+r'''
 import json,os,pathlib,sys
 args=sys.argv[1:]
+if args[0]=='-':
+    code=sys.stdin.read()
+    if 'adapter_prompt_variant' in code: print('v23_rgb_stage_candidate_20261006')
+    elif 'history_rgb_mode' in code: print('4rgb')
+    elif 'action_output_mode' in code: print('binary')
 with open(os.environ['CALLS'],'a') as f: f.write(json.dumps(dict(args=args,env=dict(os.environ)))+'\n')
 if args[0].endswith('build_dataset.py'):
     path=pathlib.Path(args[args.index('--output-dir')+1]);path.mkdir(parents=True)
@@ -63,6 +68,8 @@ def test_exact_four_group_chain_builds_once_and_propagates_candidate(shell_env):
     assert all(c['env']['PROMPT_VARIANT']==CANDIDATE_NAME for c in calls)
     evals=[c for c in calls if c['args'][0]=='fake_stage' and c['args'][1].endswith('eval.sh')]
     assert len(evals)==4
+    assert all(c['env']['RUN_REGRESSION']=='0' and c['env']['RUN_AUDITS']=='0' for c in calls)
+    assert not any('audit' in Path(c['args'][0]).name for c in calls)
     assert all(c['env']['SPLIT']=='test' and c['env']['CASES_PER_BIN']=='0' for c in evals)
     assert len([c for c in calls if c['args'][-1]=='finish'])==4
     # Fixed stamp repeats cannot append over existing results.
@@ -112,3 +119,62 @@ def test_binding_detects_dataset_and_source_mutation(tmp_path, monkeypatch):
     manifest.write_text('{}')
     monkeypatch.setattr(support,'source_identity',lambda:{'code':'two'})
     with pytest.raises(ValueError,match='source'): support.assert_binding(index,state)
+
+
+@pytest.mark.parametrize('kind', ['missing', 'archive_only', 'empty_directory'])
+def test_missing_history_explains_sync_and_keeps_regression_required(tmp_path, kind):
+    cases=tmp_path/'old_audit_bundle/lora_production'
+    archive=tmp_path/'old_audit_bundle.tar.gz'
+    if kind=='archive_only': archive.write_bytes(b'archive placeholder; must never be unpacked automatically')
+    if kind=='empty_directory': cases.mkdir(parents=True)
+    with pytest.raises(support.HistoricalInputsMissing) as exc:
+        support.validate_history(cases,CANDIDATE_NAME,tmp_path)
+    message=str(exc.value)
+    assert str(cases.resolve()) in message
+    assert '不随 Git' in message
+    assert ('请先解压' if kind=='archive_only' else 'AUDIT_ROOT') in message
+    assert 'RUN_REGRESSION=0' in message and '不能视为无退化验收' in message
+    if kind=='archive_only':
+        assert str(archive.resolve()) in message and not cases.exists()
+
+
+def test_eval_without_audits_keeps_base_lora_and_paired_test(shell_env):
+    root, env=shell_env
+    script=root/'qwen3vl_local/sft_new_loop_phase3/eval.sh'
+    script.write_bytes(Path(__file__).with_name('eval.sh').read_bytes())
+    adapter=root/'adapter';adapter.mkdir()
+    (adapter/'sft_new_loop_phase3_adapter_config.json').write_text('{}')
+    env.update(ADAPTER_DIR=str(adapter),OUTPUT_ROOT=str(root/'evaluation'),GPU_IDS='0',
+               RUN_AUDITS='0',RUN_VISUAL_AUDIT='1',RUN_AUDIT_PROMPT_EVAL='1')
+    result=run_shell(root,env,'bash qwen3vl_local/sft_new_loop_phase3/eval.sh')
+    assert result.returncode==0,result.stdout+result.stderr
+    calls=[json.loads(line)['args'] for line in Path(env['CALLS']).read_text().splitlines()]
+    evaluations=[args for args in calls if args[0].endswith('/eval.py')]
+    assert len(evaluations)==2
+    assert all('--no-audit-prompt' in args and args[args.index('--cases-per-bin')+1]=='0' for args in evaluations)
+    assert sum(args[0].endswith('/paired_eval.py') for args in calls)==1
+    assert not any('audit' in Path(args[0]).name for args in calls)
+    assert len([args for args in calls if args[0]=='-'])==3  # config reads only; no bundle builder
+    assert 'audit bundle:' not in result.stdout
+
+
+def test_start_without_regression_does_not_read_old_cases(tmp_path,monkeypatch):
+    from qwen3vl_local.qwen35 import preflight
+    import torch
+    env=dict(PIPELINE_ROOT=str(tmp_path),INDEX=str(tmp_path/'index.jsonl'),
+             HISTORY_RGB_MODE='4rgb',ACTION_OUTPUT_MODE='binary',PROMPT_VARIANT=CANDIDATE_NAME,
+             RUN_ROOT=str(tmp_path/'new_train'),SKIP_TRAIN='0',SKIP_EVAL='0',RUN_REGRESSION='0',
+             RUN_AUDITS='0',MODEL_DIR=str(tmp_path/'model'),GPU_IDS='0',TRAIN_MODE='single')
+    for key,value in env.items(): monkeypatch.setenv(key,value)
+    for key in ('AUDIT_ROOT','REPLAY_AUTOMOT_ROOT'): monkeypatch.delenv(key,raising=False)
+    monkeypatch.setattr(sys,'argv',['pipeline_support','start'])
+    monkeypatch.setattr(preflight,'check',lambda path:dict(ready=True,errors=[]))
+    monkeypatch.setattr(support.importlib,'import_module',lambda name:None)
+    monkeypatch.setattr(torch.cuda,'is_available',lambda:True)
+    monkeypatch.setattr(torch.cuda,'device_count',lambda:1)
+    def forbidden(*args): raise AssertionError('historical case access forbidden')
+    monkeypatch.setattr(support,'validate_history',forbidden)
+    support.main()
+    state=json.loads((tmp_path/'pipeline_manifest.json').read_text())
+    assert state['historical_regression_enabled'] is False
+    assert state['audits_enabled'] is False and 'historical_input' not in state

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # v23 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
-# 默认 RGB-stage 候选：隔离建库 -> 完整训练 -> test评测 -> 原错例/成功题回归。
+# 默认 RGB-stage 候选：隔离建库 -> 完整训练 -> test评测；无需历史审计包。
 # PROMPT_VARIANT=baseline 可显式运行冻结 v23；标签/阈值不随候选更改。
 #
 # 从 AutoMoT/ 目录运行，默认 v23 四图 + choice（选择题）：
@@ -36,10 +36,8 @@ export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 PROMPT_VARIANT="${PROMPT_VARIANT:-v23_rgb_stage_candidate_20261006}"
 if [[ "${PROMPT_VARIANT}" == "baseline" ]]; then
   DEFAULT_DATA_DIR="checkpoints/sft_new_loop_phase3_data_v23"
-  DEFAULT_REGRESSION=0
 else
   DEFAULT_DATA_DIR="checkpoints/sft_new_loop_phase3_data_rgb_stage_20261006_isolated"
-  DEFAULT_REGRESSION=1
 fi
 DATA_DIR="${DATA_DIR:-${DEFAULT_DATA_DIR}}"
 INDEX="${INDEX:-${DATA_DIR}/frame_index.jsonl}"
@@ -52,7 +50,8 @@ TRAIN_MODE="${TRAIN_MODE:-ddp}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 SKIP_EVAL="${SKIP_EVAL:-0}"
-RUN_REGRESSION="${RUN_REGRESSION:-${DEFAULT_REGRESSION}}"
+RUN_REGRESSION="${RUN_REGRESSION:-0}"
+RUN_AUDITS="${RUN_AUDITS:-0}"
 AUDIT_ROOT="${AUDIT_ROOT:-checkpoints}"
 REPLAY_AUTOMOT_ROOT="${REPLAY_AUTOMOT_ROOT:-${AUTOMOT_ROOT}}"
 if [[ "${PIPELINE_CHECK_ONLY:-0}" == "1" ]]; then SKIP_TRAIN=1; SKIP_EVAL=1; fi
@@ -65,7 +64,7 @@ RUN_ROOT="${RUN_ROOT:-${OUTPUT_DIR:-${PIPELINE_ROOT}/train}}"
 mkdir -p "$(dirname "${PIPELINE_ROOT}")"
 mkdir "${PIPELINE_ROOT}"
 exec > >(tee "${PIPELINE_ROOT}/pipeline.log") 2>&1
-for flag in SKIP_BUILD SKIP_TRAIN SKIP_EVAL RUN_REGRESSION; do
+for flag in SKIP_BUILD SKIP_TRAIN SKIP_EVAL RUN_REGRESSION RUN_AUDITS; do
   if [[ "${!flag}" != 0 && "${!flag}" != 1 ]]; then echo "Invalid ${flag}=${!flag}" >&2; exit 2; fi
 done
 case "${TRAIN_MODE}" in single|ddp) ;; *) echo "Use TRAIN_MODE=single/ddp; PIPELINE_CHECK_ONLY=1 for CPU checks" >&2; exit 2 ;; esac
@@ -77,7 +76,7 @@ if [[ "${EVAL_SPLIT:-val}" != val || "${SPLIT:-test}" != test || -n "${EXCLUDE_C
   echo "Full pipeline requires validation on val, testing on test, without exclusions" >&2; exit 2
 fi
 export PROMPT_VARIANT INDEX DATA_ROOT MODEL_DIR HISTORY_RGB_MODE ACTION_OUTPUT_MODE
-export TRAIN_MODE PIPELINE_ROOT RUN_ROOT SKIP_TRAIN SKIP_EVAL RUN_REGRESSION AUDIT_ROOT REPLAY_AUTOMOT_ROOT
+export TRAIN_MODE PIPELINE_ROOT RUN_ROOT SKIP_TRAIN SKIP_EVAL RUN_REGRESSION RUN_AUDITS AUDIT_ROOT REPLAY_AUTOMOT_ROOT
 if [[ "${SKIP_BUILD}" == 1 && ! -f "${INDEX}" ]]; then echo "SKIP_BUILD=1 requires existing ${INDEX}" >&2; exit 2; fi
 python -m qwen3vl_local.sft_new_loop_phase3.pipeline_support start
 
@@ -88,16 +87,18 @@ esac
 echo "[phase3-pipeline] root=${PIPELINE_ROOT} index=${INDEX} history_rgb_mode=${HISTORY_RGB_MODE} action_output_mode=${ACTION_OUTPUT_MODE} prompt=${PROMPT_VARIANT}"
 
 echo
-echo "========== 1/4 RGB audit coverage =========="
-python qwen3vl_local/sft_new_loop_phase3/visual_audit.py \
-  --output "${PIPELINE_ROOT}/visual_audit_manifest.json"
+if [[ "${RUN_AUDITS}" == 1 ]]; then
+  echo "========== optional RGB audit coverage =========="
+  python qwen3vl_local/sft_new_loop_phase3/visual_audit.py \
+    --output "${PIPELINE_ROOT}/visual_audit_manifest.json"
+fi
 
 echo
-echo "========== 2/4 build action index =========="
+echo "========== 1/3 build action index =========="
 if [[ "${SKIP_BUILD}" == "1" ]]; then
   echo "[skip] SKIP_BUILD=1; reusing ${INDEX}"
 elif [[ -f "${INDEX}" ]]; then
-  echo "[reuse] Existing index; all contracts and raw labels will be rechecked. Use a fresh DATA_DIR to rebuild."
+  echo "[reuse] Existing index; index contracts and split isolation will be rechecked. Use a fresh DATA_DIR to rebuild."
 else
   if [[ "${INDEX}" != "${DATA_DIR}/frame_index.jsonl" || -e "${DATA_DIR}" ]]; then
     echo "Refusing partial/custom build destination; use a fresh DATA_DIR (INDEX=DATA_DIR/frame_index.jsonl)" >&2; exit 2
@@ -130,26 +131,29 @@ fi
 
 python -m qwen3vl_local.sft_new_loop_phase3.pipeline_support bind
 
-# 标签完整精度复算、RGB路径与split核验结果随pipeline保存，失败时不启动训练。
-python qwen3vl_local/sft_new_loop_phase3/audit_rebuilt_index.py \
-  --index "${INDEX}" --data-root "${DATA_ROOT}" \
-  --action-output-mode "${ACTION_OUTPUT_MODE}" \
-  --output "${PIPELINE_ROOT}/index_audit.json"
+if [[ "${RUN_AUDITS}" == 1 ]]; then
+  # 标签完整精度复算、RGB路径与split核验结果随pipeline保存，失败时不启动训练。
+  python qwen3vl_local/sft_new_loop_phase3/audit_rebuilt_index.py \
+    --index "${INDEX}" --data-root "${DATA_ROOT}" \
+    --action-output-mode "${ACTION_OUTPUT_MODE}" \
+    --output "${PIPELINE_ROOT}/index_audit.json"
 
-echo
-# 再从原始 meta 复算，不能只用索引自己保存的未来速度自证。
-python qwen3vl_local/sft_new_loop_phase3/audit_raw_index.py \
-  --index "${INDEX}" --data-root "${DATA_ROOT}" \
-  --action-output-mode "${ACTION_OUTPUT_MODE}" \
-  --workers "${AUDIT_WORKERS:-8}" --output "${PIPELINE_ROOT}/raw_index_audit.json"
+  echo
+  # 再从原始 meta 复算，不能只用索引自己保存的未来速度自证。
+  python qwen3vl_local/sft_new_loop_phase3/audit_raw_index.py \
+    --index "${INDEX}" --data-root "${DATA_ROOT}" \
+    --action-output-mode "${ACTION_OUTPUT_MODE}" \
+    --workers "${AUDIT_WORKERS:-8}" --output "${PIPELINE_ROOT}/raw_index_audit.json"
 
-python qwen3vl_local/sft_new_loop_phase3/audit_temporal_slices.py \
-  --index "${INDEX}" --output "${PIPELINE_ROOT}/temporal_slices.json"
+  python qwen3vl_local/sft_new_loop_phase3/audit_temporal_slices.py \
+    --index "${INDEX}" --output "${PIPELINE_ROOT}/temporal_slices.json"
 
-# 包括被隔离而未进入索引的源帧，保留修复前后字段便于继续逐帧回查。
-python qwen3vl_local/sft_new_loop_phase3/audit_annotation_repairs.py \
-  --data-root "${DATA_ROOT}" --collection-dir "${COLLECTION_DIR}" --scenarios "${SCENARIOS:-all}" \
-  --output-dir "${PIPELINE_ROOT}/annotation_repair_audit"
+  # 包括被隔离而未进入索引的源帧，保留修复前后字段便于继续逐帧回查。
+  python qwen3vl_local/sft_new_loop_phase3/audit_annotation_repairs.py \
+    --data-root "${DATA_ROOT}" --collection-dir "${COLLECTION_DIR}" --scenarios "${SCENARIOS:-all}" \
+    --output-dir "${PIPELINE_ROOT}/annotation_repair_audit"
+
+fi
 
 # Exercise the actual sampler with the same requested process count before loading weights.
 SAMPLING_WORLD="${DDP_GPU_COUNT:-${NPROC_PER_NODE:-4}}"
@@ -158,7 +162,7 @@ if [[ "${TRAIN_MODE}" == single ]]; then SAMPLING_WORLD=1; fi
 NPROC_PER_NODE="${SAMPLING_WORLD}" bash qwen3vl_local/sft_new_loop_phase3/train.sh sampling
 python -m qwen3vl_local.sft_new_loop_phase3.pipeline_support verify
 
-echo "========== 3/4 train LoRA =========="
+echo "========== 2/3 train LoRA =========="
 if [[ "${SKIP_TRAIN}" == "1" ]]; then
   echo "[skip] SKIP_TRAIN=1"
 else
@@ -168,7 +172,7 @@ else
 fi
 
 echo
-echo "========== 4/4 standalone eval + error audit =========="
+echo "========== 3/3 standalone test evaluation =========="
 if [[ "${SKIP_EVAL}" == "1" ]]; then
   echo "[skip] SKIP_EVAL=1"
 elif [[ ! -e "${RUN_ROOT}" ]]; then
@@ -181,9 +185,11 @@ else
   TIMESTAMP="${TIMESTAMP}" BUNDLE_BASENAME="${BUNDLE_NAME}" BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
   OUTPUT_ROOT="${PIPELINE_ROOT}/eval" \
     bash qwen3vl_local/sft_new_loop_phase3/eval.sh
-  echo "[phase3-pipeline] audit bundle: ${PIPELINE_ROOT}/eval/${BUNDLE_NAME}.tar.gz"
+  if [[ "${RUN_AUDITS}" == 1 ]]; then
+    echo "[phase3-pipeline] audit bundle: ${PIPELINE_ROOT}/eval/${BUNDLE_NAME}.tar.gz"
+  fi
 fi
 
 echo
 python -m qwen3vl_local.sft_new_loop_phase3.pipeline_support finish
-echo "[phase3-pipeline] done: ${PIPELINE_ROOT}; see pipeline_manifest.json and regression_gate.json"
+echo "[phase3-pipeline] done: ${PIPELINE_ROOT}; see pipeline_manifest.json"
