@@ -3,6 +3,7 @@ import argparse
 from collections import Counter
 import json
 from pathlib import Path
+from .data_paths import data_path
 from .identity import ROOT,contract,digest,write_json
 
 POLICY='phase4_filtered_rgb_inventory_v3'
@@ -18,7 +19,7 @@ def scan(data_root,output,seed=20260929):
         if not scenario.is_dir():continue
         for route in sorted(scenario.iterdir()):
             if not route.is_dir() or not (route/'rgb').is_dir():continue
-            if not route.resolve().is_relative_to(root):raise ValueError('candidate route escapes data root')
+            data_path(root, f'{scenario.name}/{route.name}')
             rgb=sorted(int(p.stem) for p in (route/'rgb').glob('*.jpg') if p.stem.isdigit())
             metas=sorted(int(p.stem) for p in (route/'metas').glob('*.pkl') if p.stem.isdigit())
             if not rgb:continue

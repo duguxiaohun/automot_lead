@@ -7,6 +7,7 @@ import lzma
 import math
 import pickle
 from pathlib import Path
+from .data_paths import data_path
 from .identity import file_sha, digest
 
 META_FIELDS = ('speed','road_id','lane_id','ego_lane_width','ego_matrix','is_junction',
@@ -66,16 +67,13 @@ def project(meta, boxes, frame):
 def load_frame(root, scenario, route_id, frame):
     from .dataset import source_route
     source_route(dict(scenario=scenario,route_id=route_id))
-    root=Path(root).resolve();run=(root/scenario/route_id).resolve()
-    if not run.is_relative_to(root):raise ValueError('source escapes data root')
+    root=Path(root).resolve();run=data_path(root, f'{scenario}/{route_id}')
     values={};sources=[]
     for kind in ('metas','bboxes'):
         path=run/kind/f'{frame:04d}.pkl'
-        if not path.resolve().is_relative_to(root):raise ValueError('source escapes data root')
         with lzma.open(path,'rb') as f:values[kind]=pickle.load(f)
         sources.append(dict(path=str(path.relative_to(root)),frame_id=frame,kind=kind,sha256=file_sha(path)))
     rgb=run/'rgb'/f'{frame:04d}.jpg'
-    if not rgb.resolve().is_relative_to(root):raise ValueError('RGB escapes data root')
     sources.append(dict(path=str(rgb.relative_to(root)),frame_id=frame,kind='rgb',sha256=file_sha(rgb)))
     result=project(values['metas'],values['bboxes'],frame)
     result.update(scenario=scenario,route_id=route_id,sources=sources)

@@ -3,6 +3,7 @@ import argparse
 from collections import Counter,defaultdict
 import json
 from pathlib import Path
+from .data_paths import data_path
 from .identity import ROOT,digest,file_sha,write_json
 
 POLICY='known_visual_risk_admission_v1'
@@ -141,8 +142,7 @@ def annotation_review(annotation,data_root,rgb_mode,known):
     # Legacy interval declarations cannot resolve known visual ambiguity.
     if annotation['label_basis']!='reviewed_transition_band':
         raise ValueError('known visual risk requires reviewed_transition_band')
-    run=(Path(data_root)/annotation['scenario']/annotation['route_id']).resolve()
-    if not run.is_relative_to(Path(data_root).resolve()):raise ValueError('risk source escapes data root')
+    run=data_path(data_root, f"{annotation['scenario']}/{annotation['route_id']}")
     hashes=[file_sha(run/'rgb'/f'{f:04d}.jpg') for f in frames]
     validate_review(review,risks,frames,hashes)
     return review
@@ -189,8 +189,7 @@ def templates(annotations,data_root,rgb_mode):
     for index,ann in enumerate(annotations):
         risks=manual_risks(known.get((ann['scenario'],ann['route_id']),[]),required_frames(ann,rgb_mode))
         if not risks:continue
-        run=(Path(data_root)/ann['scenario']/ann['route_id']).resolve()
-        if not run.is_relative_to(Path(data_root).resolve()):raise ValueError('risk source escapes data root')
+        run=data_path(data_root, f"{ann['scenario']}/{ann['route_id']}")
         frames=required_frames(ann,rgb_mode)
         review=dict(policy=POLICY,reviewer='',evidence_id='',risk_ids=[r['risk_id'] for r in risks],
                     frames={str(f):dict(status='uncertain',reason='',observed_until=f,

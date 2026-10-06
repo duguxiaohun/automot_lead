@@ -2,6 +2,7 @@
 from pathlib import Path
 from .controller import Episode
 from .route_prompts import messages, parse_answer
+from .data_paths import data_path
 from .identity import file_sha, digest
 from .observation import check_observation_contract,validate_observation
 
@@ -19,10 +20,10 @@ def load_images(row,data_root):
     if len(row['images']) != len(row['observation']['history_frames']):
         raise ValueError('image/history count mismatch')
     for index,(rel,expected) in enumerate(zip(row['images'],row['image_sha256'],strict=True)):
-        path = (root/rel).resolve()
+        path = data_path(root, rel)
         if path.stem != f"{row['observation']['history_frames'][index]:04d}":
             raise ValueError('image timestamp does not match causal history')
-        if not path.is_relative_to(root) or file_sha(path) != expected:
+        if file_sha(path) != expected:
             raise ValueError('RGB source mismatch')
         with Image.open(path) as source:
             rgb = source.convert('RGB')

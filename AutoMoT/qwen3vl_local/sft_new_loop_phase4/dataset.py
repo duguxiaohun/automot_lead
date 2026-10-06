@@ -15,6 +15,7 @@ from .route_context import episode_edge, route_bound, validate_source_context, R
 from . import risk_review, visible_scope
 from .maneuver_safety import GUARDED
 from .admission import training_report
+from .data_paths import data_path
 from .identity import ROOT, contract, digest, file_sha, write_json, check_contract
 from .route_prompts import prompt
 from .input_identity import rgb_content_sha, model_input_key, validate_model_inputs
@@ -56,7 +57,7 @@ def groups():
 
 
 HOLDOUT_PLAN = 'formal_holdout_plan_20260930.json'
-PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v18_20261007.json'
+PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v19_20261007.json'
 
 
 def producer_check_reservations():
@@ -206,8 +207,8 @@ def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidat
         validate_source_context(ann)
         ep = Episode(**ep_fields)
         edge = episode_edge(ep,ann['edge'])
-        run = data_root/ann['scenario']/ann['route_id']
-        if not run.resolve().is_relative_to(data_root) or is_abnormal_lead_route(run,ann['scenario'])[0]:
+        run = data_path(data_root, f"{ann['scenario']}/{ann['route_id']}")
+        if is_abnormal_lead_route(run,ann['scenario'])[0]:
             raise ValueError('invalid/abnormal source route')
         split = split_for(group,exposed,seed,reservations=reservations)
         check_evaluation_protocol(dict(ann,physical_group=group),reservations)

@@ -243,7 +243,8 @@ def test_ledger_rejects_incomplete_or_modified_artifacts(tmp_path,case):
 
 
 @pytest.mark.parametrize('weak',[False,True])
-def test_approved_teacher_compiles_builds_and_loads_with_distinct_provenance(tmp_path,monkeypatch,weak):
+@pytest.mark.parametrize('external_links',[False,True])
+def test_approved_teacher_compiles_builds_and_loads_with_distinct_provenance(tmp_path,monkeypatch,weak,external_links):
     from qwen3vl_local.sft_new_loop_phase4.tests.test_privileged_producer import write_source
     for n in range(4,12):write_source(tmp_path/'data',n)
     import lzma,pickle
@@ -251,6 +252,9 @@ def test_approved_teacher_compiles_builds_and_loads_with_distinct_provenance(tmp
         with lzma.open(path,'rb') as stream:meta=pickle.load(stream)
         meta['speed']=0.
         with lzma.open(path,'wb') as stream:pickle.dump(meta,stream)
+    if external_links:
+        (tmp_path/'data'/'Scenario').rename(tmp_path/'external_scenario')
+        (tmp_path/'data'/'Scenario').symlink_to(tmp_path/'external_scenario',target_is_directory=True)
     monkeypatch.setattr(dataset,'groups',lambda:set())
     monkeypatch.setattr(dataset,'holdout_reservations',lambda:{})
     monkeypatch.setattr(dataset,'producer_check_reservations',lambda:{})

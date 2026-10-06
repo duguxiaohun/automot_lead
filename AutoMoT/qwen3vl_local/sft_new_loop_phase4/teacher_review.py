@@ -7,6 +7,7 @@ import argparse
 from collections import Counter,defaultdict
 import json
 from pathlib import Path
+from .data_paths import data_path
 from .identity import ROOT,digest,file_sha,write_json
 from . import teacher_rules as rules
 from .teacher_replay import accounting,validate_question
@@ -119,8 +120,8 @@ def render(snapshot,data_root,output):
     # Validate all sources before writing a partially misleading review packet.
     for q in snapshot['questions']:
         for s in q['input_sources']:
-            path=(root/s['path']).resolve()
-            if not path.is_relative_to(root) or file_sha(path)!=s['sha256']:raise ValueError('review RGB source changed')
+            path=data_path(root, s['path'])
+            if file_sha(path)!=s['sha256']:raise ValueError('review RGB source changed')
     output.mkdir(parents=True)
     import shutil
     public=public_packet(snapshot)

@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from .controller import Episode
 from .route_context import episode_edges, validate_source_context
+from .data_paths import data_path
 from .identity import ROOT, digest, file_sha, write_json
 from .taxonomy import transitions, applicable, EVENTS
 
@@ -75,8 +76,8 @@ def validate_record(record, producer, data_root=None):
         seen.add(expected)
         if kind=='rgb' and f==frame:current_rgb=sha
         if root is not None:
-            path=(root/expected).resolve()
-            if not path.is_relative_to(root) or file_sha(path)!=sha:
+            path=data_path(root, expected)
+            if file_sha(path)!=sha:
                 raise ValueError('condition source content mismatch')
     if current_rgb is None:
         raise ValueError('condition record must bind the current RGB')

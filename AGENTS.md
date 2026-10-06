@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-07 Phase4 v39 外部软链接数据兼容
+
+修复 candidate route escapes data root：数据路径按逻辑 scenario/route/frame 读取，允许场景、路线、子目录及文件链接到外部磁盘；扫描、回放、建库、审核、RGB加载统一处理。绝对路径/父目录穿越仍拒绝，帧身份与文件/像素SHA保留。
+合同v39、预约v19、空严格registry v14绑定新源码；老师v8条件、独立预约路线及split不变。run.sh自动新建匹配题库，旧产物不改hash、不删除，日常命令与全覆盖/严格1:1/四图→两图保持。
+完整回归1005项通过，追加老师入库四组合专项通过（含两项新增外部软链接组合）；18项路径专项包含于全套。真实人工两图/四图建库经外部路线链接后监督逐字节一致。无全量重放、GPU训练或新增人工RGB审计；详见Phase4/SYMLINK_DATA_V39.md及symlink_data_v39_verification_20261007.json。
+
 ### 2026-10-07 Phase4 无参数一行入口
 
 新增 `Phase4/run.sh` + `auto_run.py`：自动选择兼容训练环境、模型及匹配的全量配对题库，按四图→两图串行完成训练/测试/打包；用户无需 DATA_DIR/MODEL_DIR/SKIP_BUILD 参数。缺题库自动生成，源码变化自动另选内容寻址目录，匹配 v38 时直接复用。

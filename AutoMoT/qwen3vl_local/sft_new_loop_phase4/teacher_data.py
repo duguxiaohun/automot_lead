@@ -2,6 +2,7 @@
 from collections import Counter,defaultdict,deque
 import json
 from pathlib import Path
+from .data_paths import data_path
 from .identity import digest,file_sha
 from .teacher_approval import validate_registry,target
 from .teacher_replay import validate_question,accounting
@@ -42,8 +43,8 @@ def validate_annotation(ann,approval,root,mode):
     root=Path(root).resolve()
     control_sources=[s for r in q.get('control_evidence',{}).values() for o in r['observations'] for s in o['sources']]
     for source in q['causal_sources']+control_sources:
-        path=(root/source['path']).resolve()
-        if not path.is_relative_to(root) or file_sha(path)!=source['sha256']:raise ValueError('teacher causal source changed: '+source['path'])
+        path=data_path(root, source['path'])
+        if file_sha(path)!=source['sha256']:raise ValueError('teacher causal source changed: '+source['path'])
     from qwen3vl_local.sft_new_loop_phase3.trajectory_action import _load_meta
     current=next(s for s in q['causal_sources'] if s['kind']=='metas' and s['frame_id']==q['frame_id'])
     if float(_load_meta(root/current['path'])['speed'])!=q['ego_speed']:

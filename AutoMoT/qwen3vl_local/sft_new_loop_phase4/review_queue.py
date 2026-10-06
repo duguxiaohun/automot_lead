@@ -9,6 +9,7 @@ import argparse
 import json
 from collections import defaultdict,Counter
 from pathlib import Path
+from .data_paths import data_path
 from .identity import ROOT,digest,file_sha,write_json
 
 POLICY='phase4_transition_review_queue_v2'
@@ -33,8 +34,7 @@ def card(root,scenario,route_id,frame,episode,edge, *, expected_split='train'):
     if type(frame) is not int or frame<10:raise ValueError('review requires complete 2/4 RGB history')
     images=[];root=Path(root).resolve()
     for f in range(frame-6,frame+1):
-        path=Path(scenario)/route_id/'rgb'/f'{f:04d}.jpg';absolute=(root/path).resolve()
-        if not absolute.is_relative_to(root):raise ValueError('review RGB escapes root')
+        path=Path(scenario)/route_id/'rgb'/f'{f:04d}.jpg';absolute=data_path(root, path)
         images.append(dict(frame_id=f,path=str(path),sha256=file_sha(absolute)))
     body=dict(**row,frame_id=frame,episode=episode,edge=edge,criteria=list(transition.criteria),images=images,
               risk_ids=[r['risk_id'] for r in manual_risks(registry().get((scenario,route_id),[]),
