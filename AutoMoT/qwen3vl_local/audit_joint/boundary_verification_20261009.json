@@ -1,0 +1,182 @@
+{
+  "schema": "joint_audit_boundary_verification_v1",
+  "date": "2026-10-09",
+  "source_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/__init__.py": "6fa34971a5d978c86794bfe712f8e0cd577d1c9e657a28b50a2fec6222f69008",
+    "AutoMoT/qwen3vl_local/audit_joint/__main__.py": "eca23397255a571b29180ae564dea607ea8bf2751f72ac3dbc67eb710aff0a5c",
+    "AutoMoT/qwen3vl_local/audit_joint/action_pool.py": "393f84d10a745745a698db6e98e8f66b8c48780727dc53732d9b74d1ff4d4759",
+    "AutoMoT/qwen3vl_local/audit_joint/baseline.py": "1f1e16cb44c1c3a341849abecc6b16b7d240b1f77a28f0da347de91d23dbc58c",
+    "AutoMoT/qwen3vl_local/audit_joint/config.py": "a06e4e4f40c31d3d286a9fefe7fe5203dca5c108d1040fe31625380f2b57dbe5",
+    "AutoMoT/qwen3vl_local/audit_joint/guard.py": "1bfe9bce17cc9224cd887c0c75d142475d90dc7c1b9f2328d3635dedf9c3b949",
+    "AutoMoT/qwen3vl_local/audit_joint/handoff.py": "f2a355c1a8e4a6587fe0ed0de826e07e44cb751849c1146e74bd254f826ee5e8",
+    "AutoMoT/qwen3vl_local/audit_joint/io.py": "ca894e8e1a2c2fefbdef5e7dff939d122e7e9b95fd9ed2ad83e2b178612d3543",
+    "AutoMoT/qwen3vl_local/audit_joint/pairing.py": "838918d7d244af7c355a0d6d8c9a343e273cb20d87c5ed30e20459a93f497a9b",
+    "AutoMoT/qwen3vl_local/audit_joint/splits.py": "b61f5d35a80933349ad195e168483d3d19127b69572f42761f323739e490e3b9",
+    "AutoMoT/qwen3vl_local/audit_joint/storage.py": "910c135cce4beafdbaa9cea23feae251462d8a25db6a4a885d67b1494c315ac9",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_audit_boundaries.py": "b52a8bd9d0478989379df0bbe89c395dcba44c26ea4daca496dcac4fa8d7f5ed",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_g0.py": "e182ea6753b0658e29c39f3a8bfa8cfc41ebc55f04ca99583ac1fb9c7b3b88d3",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_handoff.py": "bcbcdde87d22fd1ea9b885d3efa1a4230533e916d639c9bed2c0422bfff4eda4",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_storage.py": "ef9a841e5a25e1a23de76bafed1c4596e841bc3937bbae4c5e6ddcb6549945eb"
+  },
+  "tests": {
+    "related_regression": {
+      "passed": 1187,
+      "seconds": 101.41,
+      "log": "/tmp/joint_boundaries_full_20261009.log",
+      "scope": "audit_joint, Phase3 prompt candidate, Phase4 tests, Action split support; before final pairing manifest stability guard"
+    },
+    "final_g0_suite": {
+      "passed": 74,
+      "scope": "after final pairing manifest stability guard"
+    },
+    "new_g0_regressions": 28
+  },
+  "real_capture": {
+    "path": "AutoMoT/checkpoints/joint_g0_20261009_boundaries",
+    "exit_code": 2,
+    "source_snapshot_sha256": "da593278adf64cb39a8d9625d2ce04b3624b9b3d131abb035985f396fca74580",
+    "phase4_pairing": {
+      "status": "verified",
+      "pairs": 8058,
+      "mode_directories": {
+        "2": "/tmp/phase4_v42_final/build2",
+        "4": "/tmp/phase4_v42_final/build4"
+      },
+      "scope": "All training IDs, semantics and shared RGB identities; does not evaluate label accuracy or model outputs."
+    },
+    "native_contracts_unchanged": true,
+    "reproducible_baseline_ready": false,
+    "conflict_pairs": 5,
+    "conflicting_groups": 13,
+    "blockers": [
+      {
+        "kind": "asset",
+        "id": "phase3_data_manifest",
+        "status": "missing"
+      },
+      {
+        "kind": "asset",
+        "id": "action_data_manifest",
+        "status": "missing"
+      },
+      {
+        "kind": "asset",
+        "id": "action_effective_manifest",
+        "status": "missing"
+      },
+      {
+        "kind": "asset",
+        "id": "phase3_selected_adapter_weights",
+        "status": "missing"
+      },
+      {
+        "kind": "model",
+        "status": "missing"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "phase3",
+        "role": "train_pool"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "phase3",
+        "role": "dev_val"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "phase3",
+        "role": "final_test"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "phase4",
+        "role": "train_pool"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "phase4",
+        "role": "dev_val"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "phase4",
+        "role": "final_test"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "action",
+        "role": "train_pool"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "action",
+        "role": "dev_val"
+      },
+      {
+        "kind": "missing_full_pool",
+        "phase": "action",
+        "role": "final_test"
+      },
+      {
+        "kind": "split_source",
+        "id": "phase3_full_index",
+        "status": "missing"
+      },
+      {
+        "kind": "split_source",
+        "id": "action_raw_train",
+        "status": "missing"
+      },
+      {
+        "kind": "split_source",
+        "id": "action_raw_val",
+        "status": "missing"
+      },
+      {
+        "kind": "split_source",
+        "id": "action_raw_test",
+        "status": "missing"
+      },
+      {
+        "kind": "split_source",
+        "id": "action_effective_index",
+        "status": "missing"
+      },
+      {
+        "kind": "cross_task_isolation",
+        "conflict_pairs": 5
+      },
+      {
+        "kind": "execution",
+        "status": "not_run",
+        "item": "same_checkpoint_full_evaluation"
+      },
+      {
+        "kind": "execution",
+        "status": "not_run",
+        "item": "fixed_update_numeric_performance"
+      },
+      {
+        "kind": "execution",
+        "status": "not_run",
+        "item": "four_rank_kernel_probe"
+      }
+    ],
+    "bundle_verified_files": 1049,
+    "package_verified_files": 1179,
+    "archive_bytes": 8309301,
+    "archive_sha256": "38a6d951797191fa61df52f69296b6c055ecfa876e979b570ac65646634b776b",
+    "external_reference_checks": 66,
+    "external_references_status": "verified",
+    "verify_inputs_status": "incomplete",
+    "model_status": "unavailable_at_capture"
+  },
+  "limitations": [
+    "No server execution, GPU training, CARLA or independent label accuracy validation.",
+    "Local Phase4 inputs are the existing 140-route development subset, not full server production.",
+    "Action export tests simulate native read_rows; actual dependency inventory and duration checks are exercised.",
+    "No existing data, weights, core files or historical manifests were deleted or rewritten.",
+    "Archive and capture remain local under checkpoints and are excluded from Git."
+  ]
+}

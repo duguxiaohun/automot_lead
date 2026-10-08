@@ -1,5 +1,12 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-09 联合审计六项边界修复
+
+resolved-route别名传递归并参与跨任务冲突/候选排除，图像重复不当路线等价；Phase3/Action/候选实际data_root接线。guard主进程退出后清理本进程组残留并保留退出码。verify-inputs覆盖已登记基座资产与资产集合，缺模型incomplete、漂移failed。
+Action默认/显式路径统一v2导出合同及实际准入门，覆盖稳定Phase3外部依赖、时长规则与原始路线帧数/判定；旧v1需另目录重新导出小索引，不重写旧hash。损坏manifest/metadata转invalid诊断并可打包。两/四图库不同目录、模式、绑定及全训练语义/共享RGB流式配对核对。Phase4生产合同未改；服务器仅见18GB回放/13GB data2，未认定完整，不重建或删除30GB。
+
+相关回归1187项、最终G0专项74项通过（新增28项）；本机8058对训练题完整配对通过，原生产合同保持。新版阻塞态G0的66项外部引用、回执及8309301字节ZIP核验通过；模型缺失明确incomplete，5对用途冲突仍保留，E0/E1/G1/G2未运行。证据：`AutoMoT/qwen3vl_local/audit_joint/boundary_verification_20261009.json`。
+
 ### 2026-10-09 联合审计低磁盘占用与启动保护
 
 G0默认references：冻结源码/小JSON，完整索引及adapter只记原路径/大小/SHA；full输入副本须显式选择，原数据必须保留，verify-inputs核对引用漂移。新增storage-plan预估及storage-inventory只读盘点，绝不自动删core/模型/历史产物。run_guarded.sh每次设core软硬限制0，管道收集器拒绝启动；每秒检查指定文件系统余量，低于预留仅停止本次进程组，周期检查非硬配额。

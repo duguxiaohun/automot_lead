@@ -16,6 +16,8 @@ def main():
     prepare.add_argument('--data-root', type=Path, default=Path(__file__).resolve().parents[2] / 'lead_data')
     prepare.add_argument('--phase3-prompt-variant', required=True,
                          choices=['baseline', 'v23_rgb_stage_candidate_20261006'])
+    for name in ('phase3-data-root', 'action-data-root', 'candidate-data-root'):
+        prepare.add_argument('--' + name, type=Path, help='Actual native data root; defaults to --data-root')
     for name in ('phase3-index', 'phase3-adapter', 'phase4-data2', 'phase4-data4',
                  'action-data', 'action-effective-index', 'model-dir', 'candidate-val'):
         prepare.add_argument('--' + name, type=Path)

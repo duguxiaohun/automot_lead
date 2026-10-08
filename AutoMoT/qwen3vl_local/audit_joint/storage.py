@@ -75,11 +75,42 @@ def verify_inputs(capture):
         try:
             valid = path.stat().st_size == item['bytes'] and file_sha(path) == item['sha256']
             result = dict(path=str(path), status='verified' if valid else 'changed')
-        except OSError as error:
+        except (OSError, RuntimeError) as error:
             result = dict(path=str(path), status='unavailable', error=str(error))
         results.append(result)
-    return dict(status='verified' if all(r['status'] == 'verified' for r in results) else 'failed',
-                references=results, scope='External bytes only; no semantic or experiment approval.')
+    model = baseline.get('model', {})
+    model_report = dict(status='unavailable_at_capture', checked_files=0, files=[], added=[], missing=[])
+    if model.get('status') == 'hashed' and model.get('assets'):
+        from qwen3vl_local.qwen35.identity import base_asset_hashes
+        directory = Path(model['path'])
+        expected = model['assets']
+        try:
+            current = base_asset_hashes(directory)
+            model_report.update(added=sorted(current.keys() - expected.keys()),
+                                missing=sorted(expected.keys() - current.keys()))
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+            current = {}
+            model_report['inventory_error'] = str(error)
+        for name, sha in expected.items():
+            path = directory / name
+            try:
+                if Path(name).is_absolute() or '..' in Path(name).parts:
+                    raise ValueError('unsafe recorded model asset path')
+                actual = current[name] if name in current else file_sha(path)
+                row = dict(path=str(path), status='verified' if actual == sha else 'changed')
+            except (OSError, ValueError, RuntimeError) as error:
+                row = dict(path=str(path), status='unavailable', error=str(error))
+                if name not in model_report['missing']:
+                    model_report['missing'].append(name)
+            model_report['files'].append(row)
+        model_report['checked_files'] = len(expected)
+        model_report['status'] = ('verified' if not model_report.get('inventory_error')
+                                  and not model_report['added'] and not model_report['missing']
+                                  and all(r['status'] == 'verified' for r in model_report['files']) else 'failed')
+    failed = any(r['status'] != 'verified' for r in results) or model_report['status'] == 'failed'
+    return dict(status='failed' if failed else ('verified' if model_report['status'] == 'verified' else 'incomplete'),
+                references=results, model=model_report, checked_files=len(results) + model_report['checked_files'],
+                scope='External input and recorded base assets, including asset-set drift; no experiment approval.')
 
 
 def inventory(root, core_dir=None, top=20):

@@ -56,11 +56,19 @@ def native_contracts(phase3_variant):
 def check_native_artifact(spec, contracts):
     """Validate native recorded contracts without substituting current hashes."""
     path = Path(spec['path'])
+    if spec.get('prepare_error'):
+        raise ValueError('prepare input error: ' + spec['prepare_error'])
     kind = spec.get('check')
     if kind is None:
         return dict(check='hash_only_no_native_compatibility_claim')
     value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError('artifact must be a JSON object')
+    if kind == 'json_object':
+        return dict(check='parsed_json_object_no_native_compatibility_claim')
     if kind == 'phase4_manifest':
+        if spec.get('expected_rgb_mode') is not None and value.get('rgb_mode') != spec['expected_rgb_mode']:
+            raise ValueError('dataset RGB mode differs from requested slot')
         from qwen3vl_local.sft_new_loop_phase4.identity import contract_differences
         differences = contract_differences(value.get('contract'), contracts['phase4'])
         if differences:
@@ -91,14 +99,10 @@ def check_native_artifact(spec, contracts):
                     action_output_mode=value['action_output_mode'], metadata_only=True,
                     training_index_sha256=value['training_index_sha256'])
     if kind == 'action_effective_manifest':
-        from .action_pool import export_contract
-        if value.get('schema') != 'joint_action_effective_pool_v1' or value.get('source_contract') != export_contract():
-            raise ValueError('Action effective-pool source contract mismatch; re-export with native reader')
-        if file_sha(path.with_name('effective_pool_audit.jsonl')) != value['index_sha256']:
-            raise ValueError('Action effective-pool index SHA mismatch')
-        for name, sha in value['input_sha256'].items():
-            if file_sha(name) != sha:
-                raise ValueError(f'Action effective-pool input changed: {name}')
+        from .action_pool import validate_export
+        dependencies = validate_export(value, spec.get('index_path', path.with_name('effective_pool_audit.jsonl')))
+        if spec.get('expected_data_root') and Path(spec['expected_data_root']).resolve() != Path(dependencies['data_root']).resolve():
+            raise ValueError('Action actual data root differs from audit request')
         return dict(counts=value['counts'], scope=value['scope'])
     raise ValueError(f'unknown native check: {kind}')
 
@@ -140,7 +144,7 @@ def run(config, output):
             item.update(status='verified', native=check_native_artifact(spec, contracts))
             if file_sha(path) != item['sha256']:
                 raise ValueError('artifact changed during native verification')
-        except (ValueError, KeyError, OSError) as error:
+        except (ValueError, KeyError, OSError, TypeError, RuntimeError) as error:
             item.update(status='invalid', error=str(error))
     model = dict(path=config['model_dir'], status='missing')
     if Path(config['model_dir']).is_dir():
@@ -150,9 +154,31 @@ def run(config, output):
             local_model_dir(config['model_dir'])
             model.update(status='hashed', assets=base_asset_hashes(config['model_dir']),
                          weights_copied=False, execution='not_run')
-        except (ValueError, OSError) as error:
+        except (ValueError, OSError, KeyError, TypeError, RuntimeError) as error:
             model.update(status='invalid', error=str(error))
-    split_report, ledger = audit_sources(config['split_sources'])
+    checked = {item['id']: item for item in artifacts}
+    pairing = dict(status='not_requested')
+    if config.get('phase4_pair'):
+        try:
+            if any(checked.get(f'phase4_rgb{mode}_manifest', {}).get('status') != 'verified' for mode in (2, 4)):
+                raise ValueError('both verified dataset manifests are required')
+            from .pairing import check_pair
+            pairing = check_pair(config['phase4_pair'], {mode: checked[f'phase4_rgb{mode}_manifest']['sha256'] for mode in (2, 4)})
+        except (ValueError, KeyError, TypeError, OSError, RuntimeError) as error:
+            pairing = dict(status='invalid', error=str(error))
+    validated_sources = []
+    for spec in config['split_sources']:
+        spec = dict(spec)
+        if spec['id'] == 'action_effective_index':
+            spec['required_artifacts'] = sorted(set(spec.get('required_artifacts', [])) | {'action_effective_manifest'})
+        invalid = [name for name in spec.get('required_artifacts', [])
+                   if checked.get(name, {}).get('status') != 'verified']
+        if invalid:
+            spec['validation_error'] = 'required artifact not verified: ' + ', '.join(invalid)
+        if spec['id'].startswith('phase4_rgb') and pairing['status'] == 'invalid':
+            spec['full_pool'] = False
+        validated_sources.append(spec)
+    split_report, ledger = audit_sources(validated_sources)
     # Default: retain identities, not a second full dataset/adapter copy.
     for spec, result in zip(config['split_sources'], split_report['sources'], strict=True):
         if result['status'] == 'audited':
@@ -168,6 +194,8 @@ def run(config, output):
             file_sha(root / name) != record['sha256'] for name, record in source_manifest.items()):
         raise RuntimeError('source tree changed during G0; choose a new output and retry')
     blockers = [dict(kind='asset', id=a['id'], status=a['status']) for a in artifacts if a['status'] != 'verified']
+    if pairing['status'] == 'invalid':
+        blockers.append(dict(kind='phase4_pairing', **pairing))
     if model['status'] != 'hashed':
         blockers.append(dict(kind='model', status=model['status']))
     blockers += [dict(kind='missing_full_pool', **v) for v in split_report['missing_full_pools']]
@@ -182,6 +210,7 @@ def run(config, output):
                     source_snapshot_sha256=digest({k: v['sha256'] for k, v in source_manifest.items()}),
                     source_file_count=len(source_manifest), git=git_state(root), environment=environment(),
                     contracts=contracts, model=model, artifacts=artifacts, blockers=blockers,
+                    phase4_pairing=pairing,
                     storage=storage, external_assets_required=True, full_input_snapshot=mode == 'full',
                     stages={k: 'not_run' for k in ('E0', 'E1', 'G1', 'G2')},
                     invariants=dict(network_used=False, old_artifacts_modified=False, new_labels=0,

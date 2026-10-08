@@ -119,6 +119,9 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
         counts = Counter()
         try:
             sha = file_sha(path)
+            report['sha256'] = sha
+            if spec.get('validation_error'):
+                raise ValueError(spec['validation_error'])
             if spec.get('expected_sha256') and sha != spec['expected_sha256']:
                 raise ValueError('source SHA256 mismatch')
             report['sha256'] = sha
@@ -187,10 +190,26 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as error:
             report.update(status='invalid', reason=f'{type(error).__name__}: {error}')
 
+    # Only a resolved directory is conclusive route-alias evidence. Image
+    # equality remains a review signal and must never union unrelated routes.
+    parents = {group: group for group in members}
+    def canonical(group):
+        while parents[group] != group:
+            parents[group] = parents[parents[group]]
+            group = parents[group]
+        return group
+    for (kind, _), groups in identities.items():
+        if kind == 'resolved_route':
+            keys = sorted({canonical(g) for g in groups})
+            for key in keys[1:]:
+                parents[key] = keys[0]
+    components = defaultdict(set)
+    for group in members:
+        components[canonical(group)].add(group)
     buckets = defaultdict(set)
     for group, entries in members.items():
         for entry in entries.values():
-            buckets[entry['bucket']].add(group)
+            buckets[entry['bucket']].add(canonical(group))
     matrix, conflicts = [], []
     names = sorted(buckets)
     for i, left in enumerate(names):
@@ -199,7 +218,8 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
             matrix.append(dict(left=left, right=right, groups=len(intersection)))
             kind = conflict_kind(left, right)
             if kind and intersection:
-                conflicts.append(dict(kind=kind, left=left, right=right, physical_groups=intersection))
+                conflicts.append(dict(kind=kind, left=left, right=right, physical_groups=intersection,
+                                      logical_groups=sorted({g for key in intersection for g in components[key]})))
     aliases = [dict(kind=kind, identity=identity, physical_groups=sorted(groups),
                     conclusion='potential_duplicate_content' if kind != 'resolved_route' else 'same_resolved_route')
                for (kind, identity), groups in sorted(identities.items()) if len(groups) > 1]
@@ -212,11 +232,16 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
     filtered = []
     for group in sorted(candidates):
         reasons = []
-        for neighbor in sorted({group} | alias_neighbors[group]):
+        neighbors = set(components[canonical(group)])
+        for member in list(neighbors):
+            for neighbor in alias_neighbors[member]:
+                neighbors.update(components[canonical(neighbor)])
+        for neighbor in sorted(neighbors):
             for entry in members[neighbor].values():
                 if entry['bucket'].rsplit(':', 1)[1] in PROHIBITED_FOR_NEW_VAL:
                     reasons.append(dict(group=neighbor, source=entry['source'], bucket=entry['bucket'],
-                                        match='physical_group' if neighbor == group else 'alias_or_content_review'))
+                                        match='physical_group' if neighbor == group else (
+                                            'same_resolved_route' if canonical(neighbor) == canonical(group) else 'content_review')))
         filtered.append(dict(physical_group=group, status='excluded' if reasons else 'eligible_pending_complete_audit',
                              reasons=reasons))
     missing = [dict(phase=p, role=r) for p in required_phases
@@ -231,7 +256,8 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
                   admission_note='Group audit alone cannot certify source/pixel coverage, exposure completeness or label validity.',
                   sources=reports, buckets={k: len(v) for k, v in sorted(buckets.items())},
                   matrix=matrix, conflicts=conflicts, aliases=aliases,
-                  manual_val_support={k: dict(rows=v['rows'], physical_groups=len(v['groups'])) for k, v in sorted(support.items())},
+                  resolved_group_components={k: sorted(v) for k, v in sorted(components.items()) if len(v) > 1},
+                  manual_val_support={k: dict(rows=v['rows'], physical_groups=len({canonical(g) for g in v['groups']})) for k, v in sorted(support.items())},
                   manual_val_observed_events=sorted(observed),
                   manual_val_missing_events=sorted(set(EVENTS) - observed),
                   support_note='Per input-source counts, native motion threshold; no weak-teacher references counted as manual.',

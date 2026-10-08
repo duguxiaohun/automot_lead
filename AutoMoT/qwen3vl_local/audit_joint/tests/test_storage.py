@@ -48,7 +48,9 @@ class StorageTests(unittest.TestCase):
         self.assertNotIn('blob', splits['sources'][0]['snapshot'])
         self.assertFalse((output / 'blobs' / file_sha(self.weights)).exists())
         self.assertFalse((output / 'blobs' / file_sha(self.index)).exists())
-        self.assertEqual(verify_inputs(output)['status'], 'verified')
+        report = verify_inputs(output)
+        self.assertEqual(report['status'], 'incomplete')  # Base model was missing at capture.
+        self.assertTrue(all(r['status'] == 'verified' for r in report['references']))
         archive = pack(output)
         self.assertEqual(verify_package(archive['archive'])['status'], 'verified')
 

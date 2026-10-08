@@ -235,10 +235,12 @@ class G0Tests(unittest.TestCase):
         data.mkdir()
         mapping.mkdir()
         for split in ('train', 'val', 'test'):
-            (data / f'{split}.jsonl').write_text('{}\n')
+            (data / f'{split}.jsonl').write_text(json.dumps(dict(scenario='Scene', run_id=split)) + '\n')
+            (self.root / 'rgb_data' / 'Scene' / split / 'rgb').mkdir(parents=True)
         (mapping / 'index.jsonl').write_text('{}\n')
         (mapping / 'manifest.json').write_text('{}')
-        args = SimpleNamespace(data_dir=str(data), event_balance_index=str(mapping / 'index.jsonl'))
+        args = SimpleNamespace(data_dir=str(data), data_root=str(self.root / 'rgb_data'),
+                               event_balance_index=str(mapping / 'index.jsonl'))
         def native_rows(args, split):
             return [dict(scenario='Scene', run_id=split, route_group='Scene/' + split, split=split,
                          anchor=n, event_balance_original_split='val' if split == 'train' else split)

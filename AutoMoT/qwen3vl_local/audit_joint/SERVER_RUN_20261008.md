@@ -6,6 +6,12 @@
 
 本轮执行第 1–4 步，检查现有服务器资产与交叉隔离；第 4 步结束自动生成 **不超过 30,000,000 字节（30 MB）的 ZIP**，交回该文件即可审计。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收；已有训练/评测结果可按第 6 步合包。
 
+**2026-10-09 外部审计修订：** 同一真实路线目录的不同别名现在计入跨任务冲突；Action 有效池使用 v2 合同，默认路径与显式路径都必须核验 manifest、源码/外部筛选依赖、输入 SHA 和原始路线帧数。损坏的 manifest/metadata 会记录 invalid 并生成阻塞态 G0，不能获得完整池资格。RGB2/RGB4 要求不同目录、正确模式和一致绑定，并流式核对全部训练配对；额外内存只存 ID/摘要，不复制大题库。
+
+已运行的旧 Action 导出不改 hash，也不覆盖原文件：如需纳入本轮完整池，重新导出到 `action_pool_v2`（仅有效池索引和依赖清单），再重新 `prepare` 生成新请求，不能继续用旧请求绕过新增门禁。旧 Phase4 生产合同未改，已有 `full_production`/题库可以继续核验或原生续跑，**不需要因本次修复重新生成 30 GB**。
+
+当前服务器回报：`full_production` 约 18 GB、`data2` 约 13 GB，尚未看到 `data4`。这只能证明这些目录存在，不能证明 `data2` 完整。先检查 `data2/manifest.json`、`data4/manifest.json`、`pipeline_ready.json` 是否存在；缺少四图库时先交缺口报告，不用复制四图库冒充两图库，也不删除原回放。
+
 ## 0. 磁盘已满时，先停止本次仍在写盘的任务并盘点
 
 不要重新启动全量建库，也不要重复运行时间戳命令创建另一份目录。不要使用 `rm -rf checkpoints` 或直接删除所有 `core.*`：目录内可能混有模型、旧实验、可续跑回放和正常源码。
@@ -59,7 +65,7 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path checkpoints -- \
 
 ```bash
 G0_ROOT=checkpoints/joint_audit_20261009
-P4_DATA=checkpoints/phase4_v42_full
+P4_DATA=checkpoints/joint_remote_20261008_211924/phase4_data
 mkdir -p "$G0_ROOT"
 ```
 
@@ -84,7 +90,7 @@ bash qwen3vl_local/audit_joint/run_guarded.sh \
 
 全量规则回放会保存逐路线/逐帧证据，两套训练题库也会写盘；当前并未将它们改成压缩格式或删减版。10 GiB 是停止前的空闲预留，不是预测总需求或总产物上限。源码/配置匹配时原生入口复用已完成结果；如果合同不匹配先报告，保留原目录，不不断换新路径重跑。
 
-`run_guarded.sh` 每次启动重新设置 core 软/硬限制为 0；发现 `core_pattern` 以 `|` 开头会在任务启动前拒绝，因为系统收集器可能绕过 core 限制，需要先核对服务器收集器策略。它不改系统全局配置。运行期间每秒检查指定文件系统的剩余空间，低于预留则停止本次创建的进程组，退出 75；只管本次任务，不影响其它训练，也不自动删除文件。检查存在时间间隔，不能代替文件系统配额或保证其它任务不会写满磁盘。空间路径要指向实际输出所在磁盘；审计 capture 和 ZIP 建议放在同一盘。
+`run_guarded.sh` 每次启动重新设置 core 软/硬限制为 0；发现 `core_pattern` 以 `|` 开头会在任务启动前拒绝，因为系统收集器可能绕过 core 限制，需要先核对服务器收集器策略。它不改系统全局配置。运行期间每秒检查指定文件系统的剩余空间，低于预留则停止本次创建的进程组，退出 75；主进程结束时也会清理同组残留 worker，并保留主进程退出码；只管本次任务，不影响其它训练，也不自动删除文件。检查存在时间间隔，不能代替文件系统配额或保证其它任务不会写满磁盘。空间路径要指向实际输出所在磁盘；审计 capture 和 ZIP 建议放在同一盘。
 
 ## 3. 定位 Phase3 与 Action 原资产
 
@@ -96,6 +102,8 @@ P3_ADAPTER=/替换为所选Phase3适配器目录
 MODEL_DIR=checkpoints/Qwen3.5-4B
 ACTION_DATA=/替换为Action三split目录
 ```
+
+各任务确实使用不同 RGB 数据根目录时，给第 4 步 prepare 添加 `--phase3-data-root`、`--action-data-root`、`--candidate-data-root`。Phase3 和候选默认使用 `--data-root`；Action 优先使用 v2 导出记录的实际 data_root。必须填写实际读取路径，不能用不存在的目录跳过别名检查。
 
 `P3_INDEX` 必须匹配 adapter 记录的 SHA。若找不到旧索引或权重，记 missing；不要用新索引/当前源码替旧 checkpoint 放行。上述 candidate 的 prompt variant 是 `v23_rgb_stage_candidate_20261006`，若选择 baseline 必须同步改 variant 和匹配索引。
 
@@ -116,10 +124,10 @@ ACTION_DATA=/替换为Action三split目录
 bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
   python -m qwen3vl_local.audit_joint export-action-pool \
   --argv-json "$G0_ROOT/action_argv.json" \
-  --output "$G0_ROOT/action_pool"
+  --output "$G0_ROOT/action_pool_v2"
 ```
 
-已有本轮匹配的 `action_pool` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
+已有本轮匹配的 v2 `action_pool_v2` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
 
 ## 4. 跑服务器 G0，自动打包并核验
 
@@ -129,7 +137,7 @@ python -m qwen3vl_local.audit_joint prepare \
   --phase3-index "$P3_INDEX" --phase3-adapter "$P3_ADAPTER" \
   --phase4-data2 "$P4_DATA/data2" --phase4-data4 "$P4_DATA/data4" \
   --action-data "$ACTION_DATA" \
-  --action-effective-index "$G0_ROOT/action_pool/effective_pool_audit.jsonl" \
+  --action-effective-index "$G0_ROOT/action_pool_v2/effective_pool_audit.jsonl" \
   --data-root lead_data --model-dir "$MODEL_DIR" --verify-images \
   --storage-mode references \
   --output "$G0_ROOT/request.json"
@@ -145,7 +153,7 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
 
 默认 `references` 模式只复制源码及不超过 2 MiB 的 JSON 元数据；adapter 权重、训练索引、历史逐题大文件等只记录原路径/大小/SHA，不再复制进 capture/blobs。完整 G0 报告和用途账本仍保留，图像核验不减少题数。`storage-plan` 显示本次预计复制字节数、引用输入字节数和空间预留；这是 G0 估算，不包含可选全量建库。确实需要额外冻结输入字节时才显式选 `full`，基座模型仍只记录身份。
 
-轻量捕获依赖服务器原件保留；`verify` 只验证捕获自身，另用以下命令检查外部引用是否仍存在且 SHA 相同：
+轻量捕获依赖服务器原件保留；`verify` 只验证捕获自身，另用以下命令检查外部引用，以及已登记的基座权重、配置、tokenizer 等资产 SHA 和资产集合是否变化。基座在捕获时缺失则返回 incomplete；漂移/删除返回 failed，均退出 2，不再以空检查列表返回 verified：
 
 ```bash
 python -m qwen3vl_local.audit_joint verify-inputs "$G0_ROOT/capture"

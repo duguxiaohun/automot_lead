@@ -68,6 +68,9 @@ def run(command, space_path, min_free_bytes=2 * GIB, poll_seconds=1):
                 return 75
             try:
                 code = process.wait(timeout=poll_seconds)
+                # A failed/successful leader can leave workers in our group.
+                # Reap/terminate those before relinquishing disk monitoring.
+                stop_group(process)
                 return code if code >= 0 else 128 - code
             except subprocess.TimeoutExpired:
                 pass
