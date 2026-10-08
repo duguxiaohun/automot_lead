@@ -2,7 +2,7 @@
 
 本次已实现 G0 本机快照/隔离检查。E0 计时、四 rank 实际内核探针、E1 稀疏 logits、G1 时间线和 G2 盲标尚未实现；当前七轮流水线仍是 v42 弱监督基线，不会自动执行上述新实验。
 
-本轮先执行第 1–4 步，将完整服务器资产与交叉隔离结果落实。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收。
+本轮先执行第 1–4 步，将完整服务器资产与交叉隔离结果落实；第 4 步结束自动生成 **不超过 30,000,000 字节（30 MB）的 ZIP**，交回该文件即可审计。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收；已有训练/评测结果可按第 6 步合包。
 
 ## 1. 更新源码，核对原训练环境
 
@@ -80,7 +80,7 @@ python -m qwen3vl_local.audit_joint export-action-pool \
 
 导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
 
-## 4. 跑服务器 G0，核验回执，反馈摘要
+## 4. 跑服务器 G0，自动打包并核验
 
 ```bash
 python -m qwen3vl_local.audit_joint prepare \
@@ -101,23 +101,24 @@ python -m qwen3vl_local.audit_joint run \
 ```bash
 python -m qwen3vl_local.audit_joint verify "$G0_ROOT/capture"
 
-python - "$G0_ROOT/capture" <<'PY'
-import json, pathlib, sys
-p = pathlib.Path(sys.argv[1])
-b = json.loads((p / 'baseline_manifest.json').read_text())
-s = json.loads((p / 'split_cross_audit.json').read_text())
-print(json.dumps({
-    'baseline_ready': b['reproducible_baseline_ready'],
-    'blockers': b['blockers'],
-    'full_pool_coverage_complete': s['full_pool_coverage_complete'],
-    'conflicts': s['conflicts'],
-    'manual_val_missing_events': s['manual_val_missing_events'],
-    'non_audited_sources': [r for r in s['sources'] if r['status'] != 'audited'],
-}, ensure_ascii=False, indent=2))
-PY
+python -m qwen3vl_local.audit_joint verify-package "$G0_ROOT/capture.audit.zip"
 ```
 
-反馈以上摘要和失败日志即可。完整快照、模型、数据和 RGB 保留服务器，不进 Git。没有 `receipt.json` 或 `verify` 失败时，先定位错误，不能将残缺目录当完成。
+**交给我的是 `$G0_ROOT/capture.audit.zip`**，无需手工复制摘要。`run` 在报告/回执生成后自动打包并核验 ZIP，再返回 G0 状态码；即使有缺资产、交叉冲突或未执行阶段，也先保留包。终端打印 ZIP 绝对路径、实际字节数和 SHA256。不能用返回 2 代表打包失败；包不存在或核验失败才需查异常。若终端启用了 `set -e`，用 `python ... || g0_status=$?` 接住状态后检查，不能直接忽略所有错误。
+
+包内包含完整 G0 报告、用途账本、冲突/缺额明细、原合同和环境、逐文件 SHA、配置/manifest 元数据及预算允许的冻结源码。完整快照中的数据索引和权重 blob 不复制到交接包，原始 RGB/视频也不打包；这不是可直接恢复训练的完整快照，更不是 RGB 人工目视审计包。
+
+大小按压缩后的实际 ZIP 计算，硬上限 30,000,000 字节。默认带冻结源码；超限先仅移除源码正文，保留完整源码 SHA 清单并显式记录原因。若完整报告/逐题结果仍超限，则拒绝发布 ZIP，保留服务器原件；不截断指标/错例，不把多个包的总大小说成一个 30 MB 包。
+
+旧 G0 已完成、或第一次打包失败修复后，可只打包，**无需重复全量回放**。输出必须使用未存在的路径：
+
+```bash
+python -m qwen3vl_local.audit_joint pack \
+  --capture "$G0_ROOT/capture" --output "$G0_ROOT/g0_handoff_retry.audit.zip"
+python -m qwen3vl_local.audit_joint verify-package "$G0_ROOT/g0_handoff_retry.audit.zip"
+```
+
+完整快照和模型数据保留服务器，不进 Git；工具不自动上传。没有 `receipt.json` 或 `verify` 失败时，先反馈报错，不能将残缺目录打成完成包。
 
 下一步以完整交叉矩阵处理新实验准入/六事件 val 缺额，落实 E0 的固定题序、环境和四卡测量代码；再进行 E1 等价性。当前本机已发现的 13 个交叉用途物理组不能靠改旧 split 或修改 hash 消除。
 
@@ -162,3 +163,26 @@ GPU_IDS=0,1,2,3 INDEX="$P3_INDEX" MODEL_DIR="$MODEL_DIR" \
 `RUN_AUDITS=0` 关闭额外审计/RGB 导出，不代表跳过逐题评估。此命令是生成式验证，不是训练/反向/内核性能验收。最终 test 只在候选和协议冻结后执行；CARLA 真闭环也另立验收。
 
 若明确要跑已有四图→两图、训练→历史 test→打包的整套弱基线，旧入口仍为 `GPU_IDS=0,1,2,3 bash qwen3vl_local/sft_new_loop_phase4/run.sh`；它会执行完整七轮，不能把这条命令当成新方案的一键审计。
+
+## 6. 后续训练/评测完成后，汇总结果再交接
+
+完成并停止写入后，显式选择本轮实际 run 目录。当前 Phase4 原生 `train.sh` 直接写入指定 `OUTPUT_DIR`（目录已存在会拒绝）；下例与第 5 步的路径一致。Phase3 使用 eval 命令实际打印的输出目录。若其它入口使用 `latest` 链接，先解析成固定 run 路径，避免选到下一次运行。不要传整个 checkpoints 或原始数据目录。
+
+例如两套 Phase4 训练均已完成：
+
+```bash
+P4_RUN4="$G0_ROOT/train_rgb4"
+P4_RUN2="$G0_ROOT/train_rgb2"
+python -m qwen3vl_local.audit_joint pack \
+  --capture "$G0_ROOT/capture" \
+  --result-dir "phase4_rgb4=$P4_RUN4" \
+  --result-dir "phase4_rgb2=$P4_RUN2" \
+  --output "$G0_ROOT/training_handoff.audit.zip"
+python -m qwen3vl_local.audit_joint verify-package "$G0_ROOT/training_handoff.audit.zip"
+```
+
+需要合入已完成的 Phase3 评估时，在 `pack` 上另加 `--result-dir "phase3_val=/替换为实际eval输出目录"`。可把这条打包命令放在原训练/评测脚本最后，仅在任务成功完成时执行；G0 的 `run` 则已默认自动打包。
+
+结果白名单收集配置/选优记录、采样与训练指标、逐轮验证及完整 `cases*.jsonl`/逐轮 cases；逐题结果不抽样。`handoff_manifest.json` 列出每个目录实际纳入和排除的文件、每个入包文件的字节数/SHA。训练日志中已有数值指标会保留在对应 JSON/JSONL；任意文本日志、权重、RGB、大型 profiler trace 不自动纳入。尚未实现的 E0/E1 profiler 采集与打包规范需随实现接入，不能靠找到同名结果文件就宣称已验收。
+
+额外结果只作为附件，保留其原状态/覆盖率；工具不会替你判断是不是完整七轮、完整 test，也不会自动启动训练或打开最终 test。合包不会将原 G0 中的 `not_run` 改成通过；收到包后应按实际结果进一步审计。若多 run 合包超限，分别指定单个 run 生成各自不超过 30 MB 的包；单 run 核心结果仍超限时先反馈，不自行裁掉逐题记录。

@@ -21,5 +21,40 @@
     },
     "earlier_pvi_run": "1128 passed, 3 missing-dependency failures, 2 skipped; resolved by using the existing compatible environment, no code or dependency upgrade",
     "model_training_or_gpu_equivalence": "not_run"
+  },
+  "handoff_increment": {
+    "related_regression_passed": 77,
+    "new_handoff_tests": 11,
+    "final_g0_suite_passed": 36,
+    "max_bytes": 30000000,
+    "g0_only_archive_bytes": 8271720,
+    "g0_only_archive_sha256": "758021900e628277e8dc89463f97a9994611fb583c497a9b4cd231d6fe56a310",
+    "g0_receipt_verified_files": 1061,
+    "combined_real_archive": {
+      "archive": "/home/codon/automot_lead/AutoMoT/checkpoints/joint_g0_20261008_historical_results_final.audit.zip",
+      "bytes": 12486935,
+      "sha256": "37fee81ab6992326da038566fee705cf9ce8f46d066ef9dd9ef9394bc79575fc",
+      "source_bytes_included": true,
+      "baseline_ready": false,
+      "stages": {
+        "E0": "not_run",
+        "E1": "not_run",
+        "G1": "not_run",
+        "G2": "not_run"
+      },
+      "verification": {
+        "status": "verified",
+        "files": 1229,
+        "bytes": 12486935,
+        "scope": "archive bytes only, not experiment approval"
+      },
+      "full_case_rows_by_historical_result": {
+        "historical_0": 912,
+        "historical_1": 760,
+        "historical_2": 912,
+        "historical_3": 760
+      }
+    },
+    "scope": "Offline packaging of existing G0 and four historical Phase3 results; no new inference/training/RGB review; original captures unchanged"
   }
 }
