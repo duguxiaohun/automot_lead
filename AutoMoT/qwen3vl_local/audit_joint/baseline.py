@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 from pathlib import Path
 import platform
+import resource
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 from . import SCHEMA
 from .io import digest, file_sha, snapshot_file, source_files, write_json, write_rows
 from .splits import audit_sources
+from .storage import GIB, plan as storage_plan, capture_input, copied_artifact
 
 
 def environment():
@@ -19,7 +21,10 @@ def environment():
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = 'not_installed'
+    core_pattern_path = Path('/proc/sys/kernel/core_pattern')
     return dict(python=sys.version, executable=sys.executable, platform=platform.platform(),
+                core_limits=list(resource.getrlimit(resource.RLIMIT_CORE)),
+                core_pattern=core_pattern_path.read_text().strip() if core_pattern_path.is_file() else 'unavailable',
                 packages=packages, actual_kernel_bindings='not_run', gpu_forward_backward_generate='not_run',
                 note='Package presence is not evidence that the model used a fast kernel.')
 
@@ -107,6 +112,11 @@ def run(config, output):
         raise ValueError('output must be outside source roots')
     if any(not p.is_relative_to(root) for p in files):
         raise ValueError('source snapshots must use logical paths inside project_root')
+    mode = config.get('storage_mode', 'references')
+    storage = storage_plan(config, output, mode, config.get('min_free_bytes', 2 * GIB))
+    if not storage['sufficient']:
+        raise OSError(f"insufficient free disk for G0: {storage}; no capture created")
+    config = dict(config, storage_mode=mode, min_free_bytes=storage['min_free_bytes'])
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / 'request.json', config)
     source_manifest = {}
@@ -122,7 +132,7 @@ def run(config, output):
         if not path.is_file():
             item.update(status='missing')
             continue
-        item.update(snapshot_file(path, output))
+        item.update(capture_input(path, output, copy=copied_artifact(path, mode)))
         if spec.get('expected_sha256') and spec['expected_sha256'] != item['sha256']:
             item.update(status='invalid', error='historical artifact SHA mismatch')
             continue
@@ -143,10 +153,10 @@ def run(config, output):
         except (ValueError, OSError) as error:
             model.update(status='invalid', error=str(error))
     split_report, ledger = audit_sources(config['split_sources'])
-    # Keep exact audit inputs, including route plans; never copy the raw RGB corpus.
+    # Default: retain identities, not a second full dataset/adapter copy.
     for spec, result in zip(config['split_sources'], split_report['sources'], strict=True):
         if result['status'] == 'audited':
-            frozen = snapshot_file(spec['path'], output)
+            frozen = capture_input(spec['path'], output, copy=mode == 'full')
             if frozen['sha256'] != result['sha256']:
                 raise RuntimeError('split input changed after audit')
             result['snapshot'] = frozen
@@ -172,6 +182,7 @@ def run(config, output):
                     source_snapshot_sha256=digest({k: v['sha256'] for k, v in source_manifest.items()}),
                     source_file_count=len(source_manifest), git=git_state(root), environment=environment(),
                     contracts=contracts, model=model, artifacts=artifacts, blockers=blockers,
+                    storage=storage, external_assets_required=True, full_input_snapshot=mode == 'full',
                     stages={k: 'not_run' for k in ('E0', 'E1', 'G1', 'G2')},
                     invariants=dict(network_used=False, old_artifacts_modified=False, new_labels=0,
                                     reservations_written=0, gpu_training_started=False),

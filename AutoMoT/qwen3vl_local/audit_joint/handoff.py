@@ -90,6 +90,9 @@ def pack(capture, output=None, results=(), max_bytes=LIMIT):
         snapshot('source/' + safe_name(name), record)
     for number, record in enumerate(baseline['artifacts']):
         if 'blob' not in record:
+            if record.get('storage') == 'external_reference':
+                omitted.append(dict(kind='artifact', id=record['id'], sha256=record['sha256'],
+                                    bytes=record['bytes'], reason='external_reference_not_copied'))
             continue
         # Only small configuration/manifest evidence, never adapter weight blobs.
         if Path(record['path']).suffix == '.json':
@@ -121,6 +124,8 @@ def pack(capture, output=None, results=(), max_bytes=LIMIT):
     manifest = dict(schema=SCHEMA, max_bytes=max_bytes, capture=str(capture),
                     capture_receipt_sha256=expected['g0/receipt.json'],
                     baseline_ready=baseline['reproducible_baseline_ready'],
+                    storage=baseline.get('storage', {'mode': 'legacy_full'}),
+                    external_assets_required=True,
                     blockers=baseline['blockers'], stages=baseline['stages'],
                     results=result_inventory, omitted_artifacts=omitted,
                     excluded_categories=['raw RGB/video', 'model/optimizer weights', 'full dataset/index blobs'],

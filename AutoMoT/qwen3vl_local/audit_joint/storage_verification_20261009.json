@@ -1,0 +1,36 @@
+{
+  "old_capture_bytes": 296575294,
+  "reference_capture_bytes": 28697111,
+  "archive": {
+    "status": "verified",
+    "files": 1176,
+    "bytes": 8296154,
+    "scope": "archive bytes only, not experiment approval"
+  },
+  "receipt": {
+    "status": "verified",
+    "files": 1046,
+    "scope": "bundle bytes only, not semantic approval"
+  },
+  "reference_inputs_verified": 66,
+  "split_report_equal_except_storage": true,
+  "ledger_byte_identical": true,
+  "native_contracts_identical": true,
+  "old_receipt": {
+    "status": "verified",
+    "files": 1061,
+    "scope": "bundle bytes only, not semantic approval"
+  },
+  "scope": "Existing local development inputs, no full v42 production or GPU training",
+  "date": "2026-10-09",
+  "tests": {
+    "new_storage_guard_tests": 10,
+    "audit_suite_passed": 46,
+    "related_regression_passed": 87,
+    "command": "PYTHONPATH=AutoMoT /tmp/automot-qwen35-env/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_prompt_candidate.py AutoMoT/qwen3vl_local/sft_new_loop_phase4/tests/test_data_paths.py AutoMoT/qwen3vl_local/action_prior/tests/test_split_support.py"
+  },
+  "guard_real_local_piped_collector": "refused before launching child; exit 2; no kernel/collector policy change",
+  "server_crash_root_cause": "unknown",
+  "server_cleanup_performed": false,
+  "storage_note": "Copy savings are from local development capture only. Original datasets stay on disk; full replay format is unchanged. No total-job disk cap claimed."
+}

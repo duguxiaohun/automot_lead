@@ -21,10 +21,23 @@ def main():
         prepare.add_argument('--' + name, type=Path)
     prepare.add_argument('--verify-images', action='store_true', help='Use native Phase4 source and pixel identity checks')
     prepare.add_argument('--output', type=Path, required=True)
+    prepare.add_argument('--storage-mode', choices=['references', 'full'], default='references')
     capture = subs.add_parser('run', allow_abbrev=False)
     capture.add_argument('--config', type=Path, required=True)
     capture.add_argument('--output', type=Path, required=True)
     capture.add_argument('--archive', type=Path, help='Default: sibling OUTPUT.audit.zip; always <=30,000,000 bytes')
+    capture.add_argument('--storage-mode', choices=['references', 'full'])
+    capture.add_argument('--min-free-gib', type=float)
+    space = subs.add_parser('storage-plan', allow_abbrev=False)
+    space.add_argument('--config', type=Path, required=True)
+    space.add_argument('--output', type=Path, required=True)
+    space.add_argument('--storage-mode', choices=['references', 'full'])
+    space.add_argument('--min-free-gib', type=float)
+    originals = subs.add_parser('verify-inputs', allow_abbrev=False)
+    originals.add_argument('capture', type=Path)
+    usage = subs.add_parser('storage-inventory', allow_abbrev=False)
+    usage.add_argument('--root', type=Path, required=True)
+    usage.add_argument('--core-dir', type=Path)
     package = subs.add_parser('pack', allow_abbrev=False)
     package.add_argument('--capture', type=Path, required=True)
     package.add_argument('--output', type=Path)
@@ -39,8 +52,17 @@ def main():
     action.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'prepare':
-        write_json(args.output, make_config(args))
+        write_json(args.output, dict(make_config(args), storage_mode=args.storage_mode))
         print(json.dumps(dict(request=str(args.output), status='prepared'), ensure_ascii=False))
+        return 0
+    if args.command == 'verify-inputs':
+        from .storage import verify_inputs
+        report = verify_inputs(args.capture)
+        print(json.dumps(report, ensure_ascii=False))
+        return 0 if report['status'] == 'verified' else 2
+    if args.command == 'storage-inventory':
+        from .storage import inventory
+        print(json.dumps(inventory(args.root, args.core_dir), ensure_ascii=False, indent=2))
         return 0
     if args.command == 'verify':
         print(json.dumps(verify_bundle(args.output), ensure_ascii=False))
@@ -64,6 +86,18 @@ def main():
     config = json.loads(args.config.read_text())
     if config.get('schema') != 'joint_audit_request_v1':
         raise ValueError('unknown request schema')
+    import math
+    minimum = args.min_free_gib if args.min_free_gib is not None else config.get('min_free_bytes', 2 * 1024 ** 3) / 1024 ** 3
+    if not math.isfinite(minimum) or minimum < 0:
+        parser.error('--min-free-gib must be finite and nonnegative')
+    config['min_free_bytes'] = int(minimum * 1024 ** 3)
+    if args.storage_mode is not None:
+        config['storage_mode'] = args.storage_mode
+    if args.command == 'storage-plan':
+        from .storage import plan
+        report = plan(config, args.output, config.get('storage_mode', 'references'), config['min_free_bytes'])
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report['sufficient'] else 2
     manifest, splits = run(config, args.output)
     handoff = pack(args.output, args.archive)
     print(json.dumps(dict(output=str(args.output), source_files=manifest['source_file_count'],

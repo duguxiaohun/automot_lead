@@ -1,8 +1,30 @@
-# 服务器执行顺序：先 G0，再基线训练与性能审计
+# 服务器执行顺序：先低磁盘占用 G0，再基线训练与性能审计
 
 本次已实现 G0 本机快照/隔离检查。E0 计时、四 rank 实际内核探针、E1 稀疏 logits、G1 时间线和 G2 盲标尚未实现；当前七轮流水线仍是 v42 弱监督基线，不会自动执行上述新实验。
 
-本轮先执行第 1–4 步，将完整服务器资产与交叉隔离结果落实；第 4 步结束自动生成 **不超过 30,000,000 字节（30 MB）的 ZIP**，交回该文件即可审计。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收；已有训练/评测结果可按第 6 步合包。
+**2026-10-09 容量修订：旧手册第 2 步的新目录全量建库不再是默认前置步骤。先盘点并使用已有资产，缺失项如实报告。30 MB 仅是交接 ZIP 上限，不是服务器全过程的磁盘占用上限。**
+
+本轮执行第 1–4 步，检查现有服务器资产与交叉隔离；第 4 步结束自动生成 **不超过 30,000,000 字节（30 MB）的 ZIP**，交回该文件即可审计。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收；已有训练/评测结果可按第 6 步合包。
+
+## 0. 磁盘已满时，先停止本次仍在写盘的任务并盘点
+
+不要重新启动全量建库，也不要重复运行时间戳命令创建另一份目录。不要使用 `rm -rf checkpoints` 或直接删除所有 `core.*`：目录内可能混有模型、旧实验、可续跑回放和正常源码。
+
+在服务器 `AutoMoT/` 下，只读查看（此时还没有新版代码也可执行）：
+
+```bash
+df -h .
+du -h --max-depth=1 checkpoints | sort -h
+cat /proc/sys/kernel/core_pattern
+```
+
+把输出发回即可先定位占用。能更新源码后，可进一步列最大的 20 个文件、各目录实际占用，并在 checkpoints 及当前目录检查 ELF core 文件头，不删除、不复制文件：
+
+```bash
+python -m qwen3vl_local.audit_joint storage-inventory --root checkpoints --core-dir .
+```
+
+该盘点不跟随目录软链接，不搜索整个服务器；仍被进程打开但已删除的文件不在目录清单中。需要清理时先按实际路径确认范围，不由工具猜测并删除。
 
 ## 1. 更新源码，核对原训练环境
 
@@ -17,34 +39,52 @@ ulimit -S -c 0
 激活服务器原来的 Qwen3.5 训练环境。后续命令均从 `AutoMoT/` 运行，`python` 必须是该环境的解释器；不要用另一环境的 `pip` 升级整个依赖栈。
 
 ```bash
-python -m pytest -q \
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path checkpoints -- \
+  python -m pytest -q \
   qwen3vl_local/audit_joint/tests \
   qwen3vl_local/sft_new_loop_phase3/test_prompt_candidate.py \
   qwen3vl_local/sft_new_loop_phase4/tests \
   qwen3vl_local/action_prior/tests/test_split_support.py
 
-python -m qwen3vl_local.qwen35.preflight \
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path checkpoints -- \
+  python -m qwen3vl_local.qwen35.preflight \
   --model-dir checkpoints/Qwen3.5-4B
 ```
 
 模型另存时替换 `--model-dir`。预检只核验本地资产/vendor 与 Transformers 5.3.0，**不是四卡 FLA/conv/attention 实际调用验收**；不自动下载模型。缺依赖先记录原版本及报错，再对照 `qwen3vl_local/qwen35/requirements.txt` 处理。保持原可复现环境，不能将盲目升级后的结果当旧基线。
 
-## 2. 只准备全量 v42 配对题库，不训练
+## 2. 复用已有 Phase4 题库，不默认新建全量回放
 
-新建本轮目录；后续保持同一终端的这些变量。若中断续跑，重新设为原路径，不重新生成时间戳。
+先把 `P4_DATA` 设置为之前实际生成的、同时含 `data2/` 和 `data4/` 的目录。以下默认路径只是常规位置；如果此前输出在 `joint_remote_*/phase4_data`，就直接使用那一份，不要复制或移动。`G0_ROOT` 只存这次轻量审计，失败重试优先复用已完成产物，不自动生成一串时间戳目录。
 
 ```bash
-G0_ROOT="checkpoints/joint_remote_$(date +%Y%m%d_%H%M%S)"
-P4_DATA="$G0_ROOT/phase4_data"
+G0_ROOT=checkpoints/joint_audit_20261009
+P4_DATA=checkpoints/phase4_v42_full
 mkdir -p "$G0_ROOT"
+```
 
-python -m qwen3vl_local.sft_new_loop_phase4.full_pipeline \
+已有 `pipeline_ready.json` 时可只验证原全量回执，**不建库**：
+
+```bash
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$P4_DATA" -- \
+  python -m qwen3vl_local.sft_new_loop_phase4.full_pipeline \
+  --data-root lead_data --data-dir "$P4_DATA" --skip-build
+```
+
+没有完整题库时，本轮可直接进入第 3、4 步收集现状，G0 会记录 missing/invalid/incomplete；这份报告可用于决定后续补跑，不代表全量审计通过。原题库源码合同不匹配时不能修改其 manifest/hash 伪装兼容，也不要仅为消除 missing 又立刻启动全量建库。
+
+只有确实需要补全、已处理容量和 core 问题后，才单独执行以下**可选的重任务**，沿用原部分完成目录以尝试原生续跑：
+
+```bash
+bash qwen3vl_local/audit_joint/run_guarded.sh \
+  --space-path "$P4_DATA" --min-free-gib 10 -- \
+  python -m qwen3vl_local.sft_new_loop_phase4.full_pipeline \
   --data-root lead_data --data-dir "$P4_DATA" --workers 16
 ```
 
-这是全合格路线扫描/规则回放/两图四图编译，会读取整个数据集，可能耗时较长；16 是路线 CPU worker 数，不是 GPU 数。该模块不启动训练、评测或下载。原始数据另存时替换 `lead_data`；支持既有软链接。
+全量规则回放会保存逐路线/逐帧证据，两套训练题库也会写盘；当前并未将它们改成压缩格式或删减版。10 GiB 是停止前的空闲预留，不是预测总需求或总产物上限。源码/配置匹配时原生入口复用已完成结果；如果合同不匹配先报告，保留原目录，不不断换新路径重跑。
 
-完成后应有 `data2/manifest.json`、`data4/manifest.json`、`pipeline_ready.json`。首次全量 v42 的题数由实际结果决定，不能要求等于本机 140 路线开发库的 8058。
+`run_guarded.sh` 每次启动重新设置 core 软/硬限制为 0；发现 `core_pattern` 以 `|` 开头会在任务启动前拒绝，因为系统收集器可能绕过 core 限制，需要先核对服务器收集器策略。它不改系统全局配置。运行期间每秒检查指定文件系统的剩余空间，低于预留则停止本次创建的进程组，退出 75；只管本次任务，不影响其它训练，也不自动删除文件。检查存在时间间隔，不能代替文件系统配额或保证其它任务不会写满磁盘。空间路径要指向实际输出所在磁盘；审计 capture 和 ZIP 建议放在同一盘。
 
 ## 3. 定位 Phase3 与 Action 原资产
 
@@ -73,12 +113,13 @@ ACTION_DATA=/替换为Action三split目录
 必须将示例替换为原实验路径/模式/相关参数。若原来为 `action_balanced` 或启用了 high-level action token，还要填写原 token 索引参数。这个文件不是新训练配置；它用于调用原生读取器恢复实际数据池。
 
 ```bash
-python -m qwen3vl_local.audit_joint export-action-pool \
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
+  python -m qwen3vl_local.audit_joint export-action-pool \
   --argv-json "$G0_ROOT/action_argv.json" \
   --output "$G0_ROOT/action_pool"
 ```
 
-导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
+已有本轮匹配的 `action_pool` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
 
 ## 4. 跑服务器 G0，自动打包并核验
 
@@ -90,10 +131,24 @@ python -m qwen3vl_local.audit_joint prepare \
   --action-data "$ACTION_DATA" \
   --action-effective-index "$G0_ROOT/action_pool/effective_pool_audit.jsonl" \
   --data-root lead_data --model-dir "$MODEL_DIR" --verify-images \
+  --storage-mode references \
   --output "$G0_ROOT/request.json"
 
-python -m qwen3vl_local.audit_joint run \
+python -m qwen3vl_local.audit_joint storage-plan \
   --config "$G0_ROOT/request.json" --output "$G0_ROOT/capture"
+
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
+  python -m qwen3vl_local.audit_joint run \
+  --config "$G0_ROOT/request.json" --output "$G0_ROOT/capture" \
+  --storage-mode references
+```
+
+默认 `references` 模式只复制源码及不超过 2 MiB 的 JSON 元数据；adapter 权重、训练索引、历史逐题大文件等只记录原路径/大小/SHA，不再复制进 capture/blobs。完整 G0 报告和用途账本仍保留，图像核验不减少题数。`storage-plan` 显示本次预计复制字节数、引用输入字节数和空间预留；这是 G0 估算，不包含可选全量建库。确实需要额外冻结输入字节时才显式选 `full`，基座模型仍只记录身份。
+
+轻量捕获依赖服务器原件保留；`verify` 只验证捕获自身，另用以下命令检查外部引用是否仍存在且 SHA 相同：
+
+```bash
+python -m qwen3vl_local.audit_joint verify-inputs "$G0_ROOT/capture"
 ```
 
 **当前 `run` 会返回 2**：即使资产齐全，仍明确保留“同 checkpoint 完整复现、固定更新数值/性能、四 rank 内核”未执行项。它是捕获阶段的未通过状态，不代表一定崩溃，也不应改为 0 伪装验收。不要用 `&&` 把它与下一步串联；另行执行：
@@ -106,7 +161,7 @@ python -m qwen3vl_local.audit_joint verify-package "$G0_ROOT/capture.audit.zip"
 
 **交给我的是 `$G0_ROOT/capture.audit.zip`**，无需手工复制摘要。`run` 在报告/回执生成后自动打包并核验 ZIP，再返回 G0 状态码；即使有缺资产、交叉冲突或未执行阶段，也先保留包。终端打印 ZIP 绝对路径、实际字节数和 SHA256。不能用返回 2 代表打包失败；包不存在或核验失败才需查异常。若终端启用了 `set -e`，用 `python ... || g0_status=$?` 接住状态后检查，不能直接忽略所有错误。
 
-包内包含完整 G0 报告、用途账本、冲突/缺额明细、原合同和环境、逐文件 SHA、配置/manifest 元数据及预算允许的冻结源码。完整快照中的数据索引和权重 blob 不复制到交接包，原始 RGB/视频也不打包；这不是可直接恢复训练的完整快照，更不是 RGB 人工目视审计包。
+包内包含完整 G0 报告、用途账本、冲突/缺额明细、原合同和环境、逐文件 SHA、配置/manifest 元数据及预算允许的冻结源码。默认轻量捕获只引用原数据索引和权重，既不复制进 capture，也不复制到交接包，原始 RGB/视频也不打包；这不是可直接恢复训练的完整快照，更不是 RGB 人工目视审计包。
 
 大小按压缩后的实际 ZIP 计算，硬上限 30,000,000 字节。默认带冻结源码；超限先仅移除源码正文，保留完整源码 SHA 清单并显式记录原因。若完整报告/逐题结果仍超限，则拒绝发布 ZIP，保留服务器原件；不截断指标/错例，不把多个包的总大小说成一个 30 MB 包。
 
@@ -118,11 +173,11 @@ python -m qwen3vl_local.audit_joint pack \
 python -m qwen3vl_local.audit_joint verify-package "$G0_ROOT/g0_handoff_retry.audit.zip"
 ```
 
-完整快照和模型数据保留服务器，不进 Git；工具不自动上传。没有 `receipt.json` 或 `verify` 失败时，先反馈报错，不能将残缺目录打成完成包。
+捕获目录及其引用的原始输入、模型数据保留服务器，不进 Git；工具不自动上传。没有 `receipt.json` 或 `verify` 失败时，先反馈报错，不能将残缺目录打成完成包。
 
 下一步以完整交叉矩阵处理新实验准入/六事件 val 缺额，落实 E0 的固定题序、环境和四卡测量代码；再进行 E1 等价性。当前本机已发现的 13 个交叉用途物理组不能靠改旧 split 或修改 hash 消除。
 
-## 5. 现有训练/评测入口是什么
+## 5. 现有训练/评测入口是什么（当前容量问题解决前不要执行）
 
 以下是已有 **v42 弱基线**入口，供需要复现原任务时使用；它不解决 G0 交叉隔离，也不会实施 E0/E1。按总方案做新联合实验时，先处理第 4 步结果。
 
