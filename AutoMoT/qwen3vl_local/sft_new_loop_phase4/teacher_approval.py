@@ -51,8 +51,8 @@ def weak_registry(rule_classes,experiment):
     from .teacher_rules import rule_class
     from .taxonomy import EVENTS,event_edges,COMMON
     from .route_context import RECOVER_FOLLOW
-    allowed={rule_class(event,edge.key,mode) for event in ('U-E1','U-E4')
-             for edge in (*event_edges(EVENTS[event][1]),*COMMON,RECOVER_FOLLOW) for mode in (2,4)}
+    allowed={rule_class(event,edge.key,mode) for event in EVENTS
+             for edge in (*event_edges(EVENTS[event][1]),*(event_edges('bypass') if event=='U-E4' else ()),*COMMON,RECOVER_FOLLOW) for mode in (2,4)}
     if not rule_classes or set(rule_classes)-allowed:raise ValueError('unsupported weak teacher classes')
     return dict(policy=WEAK_POLICY,teacher=identity(),experiment=experiment,rule_classes=sorted(set(rule_classes)),
                 train_only=True,independently_approved=False)

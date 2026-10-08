@@ -52,3 +52,22 @@ def image_evidence(path, frame):
                                 saturated_fraction=clipped,usable=bool(p95>=MIN_P95 and p90-p10>=MIN_CONTRAST and clipped<.5)))
         results[str(actor['id'])]=dict(policy=POLICY,crops=samples,quality_pass=any(s['usable'] for s in samples))
     return results
+
+
+def scene_evidence(path,frame):
+    """Weak empty-space quality veto; not a proof of unoccluded road coverage."""
+    cameras=frame['meta'].get('sensor_information',{}).get('camera_calibration',{})
+    if not cameras:return dict(quality_pass=False,reason='camera_calibration_missing')
+    with Image.open(path) as image:rgb=np.asarray(image.convert('RGB'),dtype=np.float32)
+    offset=0;checks=[]
+    for key in sorted(cameras,key=lambda k:int(k)):
+        c=cameras[key];w,h=c.get('width'),c.get('height')
+        if type(w) is not int or type(h) is not int or w<=0 or h!=rgb.shape[0]:
+            return dict(quality_pass=False,reason='camera_shape_unresolved')
+        crop=rgb[h//2:,:][..., :3][:,offset+w//4:offset+3*w//4]
+        if not crop.size:return dict(quality_pass=False,reason='camera_crop_empty')
+        gray=crop@np.array([.2126,.7152,.0722]);p10,p90,p95=np.percentile(gray,[10,90,95])
+        checks.append(bool(p95>=MIN_P95 and p90-p10>=MIN_CONTRAST and (gray>=250).mean()<.5))
+        offset+=w
+    return dict(quality_pass=offset==rgb.shape[1] and all(checks),camera_checks=checks,
+                scope='RGB brightness/contrast veto only; occupancy checked separately')

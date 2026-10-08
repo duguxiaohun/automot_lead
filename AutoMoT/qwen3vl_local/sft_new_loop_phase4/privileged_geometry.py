@@ -1,7 +1,8 @@
 """Causal LEAD geometry projection. Outputs are proposals, never reviewed labels.
 
 Only trusted local dataset pickles are read. Current-frame allowlists deliberately
-exclude saved future arrays, controls, expert target speeds and scenario names.
+exclude saved future arrays, controls and expert target speeds. Active scenario
+identity is retained for instance retrieval, never used as permission evidence.
 """
 import lzma
 import math
@@ -14,9 +15,10 @@ META_FIELDS = ('speed','road_id','lane_id','ego_lane_width','ego_matrix','is_jun
                'light_hazard','walker_hazard','vehicle_hazard','stop_sign_hazard',
                'rear_danger_8','rear_danger_16','scenario_obstacles_ids','sensor_information',
                'route','route_original','changed_route','is_intersection','junction_id','distance_to_next_junction','traffic_light_state',
-               'vehicle_affecting_id','walker_affecting_id')
+               'vehicle_affecting_id','walker_affecting_id','current_active_scenario_type','scenario_actors_ids',
+               'previous_active_scenario_type','cut_in_actors_ids','next_commands','lane_type_str','target_lane_width','signed_dist_to_lane_change')
 ACTOR_FIELDS = ('id','class','base_type','type_id','position','extent','yaw','speed','ego_velocity','road_id','lane_id',
-                'visible_pixels','num_points','matrix','state','affects_ego','dummy_traffic_light_bounding_box','same_lane_as_ego','role_name')
+                'visible_pixels','num_points','matrix','state','affects_ego','dummy_traffic_light_bounding_box','same_lane_as_ego','role_name','is_cut_in')
 # Initial proposal thresholds, not calibrated safety limits or formal label rules.
 DEFAULTS = dict(min_visible_pixels=20, following_time_gap_s=2.0, min_following_gap_m=5.0,
                 max_relative_speed_mps=2.0, max_lateral_speed_mps=0.5, heading_tolerance_rad=0.25,
@@ -77,8 +79,9 @@ def load_frame(root, scenario, route_id, frame):
     sources.append(dict(path=str(rgb.relative_to(root)),frame_id=frame,kind='rgb',sha256=file_sha(rgb)))
     result=project(values['metas'],values['bboxes'],frame)
     result.update(scenario=scenario,route_id=route_id,sources=sources)
-    from .privileged_visibility import image_evidence
+    from .privileged_visibility import image_evidence,scene_evidence
     result['image_evidence']=image_evidence(rgb,result)
+    result['scene_visibility']=scene_evidence(rgb,result)
     result['causal_sha256']=digest({k:result[k] for k in ('frame_id','meta','actors')})
     return result
 

@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-08",
+  "command": "PYTHONPATH=AutoMoT /home/codon/anaconda3/envs/pvi/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_prompt_candidate.py AutoMoT/qwen3vl_local/sft_new_loop_phase4/tests/test_data_paths.py AutoMoT/qwen3vl_local/action_prior/tests/test_split_support.py",
+  "passed": 66,
+  "failed": 0,
+  "new_g0_tests": 25,
+  "scope": "CPU audit contracts plus existing prompt/path/split regressions; native Action export uses mocked runtime rows in this test",
+  "model_loaded": false,
+  "gpu_equivalence": "not_run",
+  "independent_label_accuracy": "not_run",
+  "production_defaults_changed": false,
+  "pre_push_full_regression": {
+    "command": "PYTHONPATH=AutoMoT /tmp/automot-qwen35-env/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_prompt_candidate.py AutoMoT/qwen3vl_local/sft_new_loop_phase4/tests AutoMoT/qwen3vl_local/action_prior/tests/test_split_support.py",
+    "passed": 1138,
+    "failed": 0,
+    "duration_seconds": 91.22,
+    "environment": {
+      "torch": "2.5.1+cu124",
+      "transformers": "5.3.0",
+      "peft": "0.18.1"
+    },
+    "earlier_pvi_run": "1128 passed, 3 missing-dependency failures, 2 skipped; resolved by using the existing compatible environment, no code or dependency upgrade",
+    "model_training_or_gpu_equivalence": "not_run"
+  }
+}

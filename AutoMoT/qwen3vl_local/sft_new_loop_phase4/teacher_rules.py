@@ -1,4 +1,4 @@
-"""Versioned UE1/UE4 weak teacher. Current/past evidence only; approval separate.
+"""Versioned ten-event weak teacher. Current/past evidence only; approval separate.
 
 Scene names and privileged affected IDs retrieve seeds; visible local conflict
 must independently establish the instance. No expert controls/future arrays.
@@ -9,15 +9,15 @@ from . import privileged_geometry as g
 from .event_scope import local_navigation
 from .automatic_context import route_intersection
 
-VERSION='ue1_ue4_causal_teacher_v8'
+VERSION='ten_event_causal_teacher_v10'
 PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band_m=.25,
             lead_growth_m=1.,lead_min_gap_m=3.,min_pixel_change=6.,
             stationary_lead_displacement_m=.75,stationary_ego_displacement_m=.25,
             stable_gap_m=3.,stable_time_gap_s=.5,relative_speed_mps=3.,
             relative_speed_range_mps=1.5,max_closing_speed_mps=.5,max_gap_loss_m=.5,
             receipt_displacement_m=.75,receipt_max_lateral_m=.5,receipt_heading_tolerance=.05,
-            lead_min_forward_speed_mps=.5,resumption_observations=5,resumption_distance_m=2.)
-SOURCES=('phase3_sampling.py','data_paths.py','branch_support.py','paired_eval.py','route_quality.py','weighted_sampling.py','teacher_evaluation.py','teacher_controls.py','teacher_rules.py','teacher_replay.py','teacher_approval.py','teacher_data.py','teacher_review.py','teacher_pool.py',
+            lead_min_forward_speed_mps=.5,resumption_observations=5,resumption_distance_m=2.,ordinary_max_closing_mps=2.,ordinary_min_ttc_s=5.)
+SOURCES=('teacher_exposure_v42_20261008.json','teacher_exposure_v41_20261008.json','visible_scope.py','teacher_events.py','phase3_sampling.py','data_paths.py','branch_support.py','paired_eval.py','route_quality.py','weighted_sampling.py','teacher_evaluation.py','teacher_controls.py','teacher_rules.py','teacher_replay.py','teacher_approval.py','teacher_data.py','teacher_review.py','teacher_pool.py',
          'privileged_geometry.py','privileged_visibility.py','event_scope.py','automatic_context.py',
          'controller.py','taxonomy.py','route_context.py','route_calibration.py','calibration.py',
          'observation.py','prompts.py','route_prompts.py','risk_review.py',
@@ -25,7 +25,8 @@ SOURCES=('phase3_sampling.py','data_paths.py','branch_support.py','paired_eval.p
 
 
 def identity():
-    return dict(version=VERSION,parameters=PARAMS,sources={n:file_sha(ROOT/n) for n in SOURCES})
+    from .teacher_events import PARAMS as event_parameters
+    return dict(version=VERSION,parameters=PARAMS,event_parameters=event_parameters,sources={n:file_sha(ROOT/n) for n in SOURCES})
 
 
 def rule_class(event,edge,mode,phase='readiness'):
@@ -73,7 +74,8 @@ def seeds(frames):
              and a.get('road_id')==m.get('road_id') and a.get('lane_id')==m.get('lane_id')
              and route_intersection(a,nav) is True]
     nearest=min(aligned,key=lambda a:a['position'][0]) if aligned else None
-    return [s for s in out if s['event']!='U-E1' or s is lead and nearest is not None and s['actor_id']==nearest['id']]
+    from .teacher_events import seeds as extended_seeds
+    return [s for s in out if s['event']!='U-E1' or s is lead and nearest is not None and s['actor_id']==nearest['id']] + extended_seeds(frames)
 
 
 def route_motion(frame, participant):
@@ -131,18 +133,24 @@ def ordinary_cyclist(frames,ident):
 
 
 def ordinary_lead(frames,ident):
-    """A visible moving following gap is not another stationary obstruction."""
-    if len(frames)<3:return False
+    """Route-aligned moving lead, with separation and closing-time constraints.
+
+    These are weak-teacher thresholds, not certified driving limits. Lane IDs
+    alone cannot establish following through a junction or across a cut-in.
+    """
+    if not g.history_valid(frames,3):return False
     for f in frames[-3:]:
         a=actor(f,ident)
         if (a is None or a['class']!='car' or g.vulnerable(a) or g.visible(a,f) is not True
-                or abs(a['yaw'])>.25 or not g.vector(a.get('ego_velocity'),2)
                 or any(f['meta'].get(k) is None or a.get(k)!=f['meta'][k] for k in ('road_id','lane_id'))):return False
-        ego=next(x for x in f['actors'] if x['class']=='ego_car')
-        gap=g.aabb(a)[0]-ego['extent'][0];speed=f['meta']['speed']
-        if (gap<max(PARAMS['stable_gap_m'],speed*PARAMS['stable_time_gap_s'])
-                or a['ego_velocity'][0]<.5 or a['ego_velocity'][0]-speed<-.5
-                or abs(a['ego_velocity'][1])>.25):return False
+        motion=route_motion(f,a)
+        if motion is None:return False
+        speed=max(0.,f['meta']['speed']);gap=motion['gap']
+        longitudinal,lateral=motion['ego_velocity'];closing=max(0.,speed-longitudinal)
+        if (abs(motion['yaw'])>.25 or abs(lateral)>.35 or longitudinal<.5
+                or gap<max(PARAMS['stable_gap_m'],speed*PARAMS['stable_time_gap_s'])
+                or closing>PARAMS['ordinary_max_closing_mps']
+                or closing>0 and gap/closing<PARAMS['ordinary_min_ttc_s']):return False
     return True
 
 
@@ -423,7 +431,7 @@ def observed_resumption(frames,episode,status):
     HOLD alive. Reverse/sideways motion, jumps and gaps cannot establish this.
     The runtime's permission-bound execution receipt remains unchanged.
     """
-    if episode.event!='U-E1' or episode.state!='YIELD':return None
+    if episode.event not in ('U-E1','U-E3','U-E4','U-E5','U-E6','U-E7','R-E5') or episode.state!='YIELD':return None
     if g.history_valid(frames,3) and all(abs(f['meta']['speed'])<.5 for f in frames[-3:]):
         status['stop']=[dict(frame_id=f['frame_id'],sources=f['sources']) for f in frames[-3:]]
     count=PARAMS['resumption_observations'];fs=frames[-count:]

@@ -1,0 +1,72 @@
+{
+  "train_only_groups": [
+    "ConstructionObstacle/Town03_route_001978",
+    "EnterActorFlow/Town12_1388_0",
+    "HighwayExit/Town12_4081_0",
+    "InterurbanActorFlow/Town12_1975_0",
+    "ParkedObstacle/Town03_route_001880"
+  ],
+  "observations": {
+    "U-E3": {
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town03_Rep0_route_001978_route0_01_08_03_03_52",
+      "frame_id": 36,
+      "edge": "proceed",
+      "facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": true
+      },
+      "ego_speed": 3.0537827266794513
+    },
+    "R-E2": {
+      "scenario": "EnterActorFlow",
+      "route_id": "Town12_Rep0_1388_0_route0_01_10_05_04_45",
+      "frame_id": 64,
+      "edge": "enter",
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": true,
+        "priority_satisfied": true
+      },
+      "ego_speed": 14.835099563407493
+    },
+    "R-E3": {
+      "scenario": "HighwayExit",
+      "route_id": "Town12_Rep0_4081_0_route0_01_08_20_49_10",
+      "frame_id": 56,
+      "edge": "enter",
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": true,
+        "priority_satisfied": true
+      },
+      "ego_speed": 15.642111198371998
+    },
+    "U-E5": {
+      "scenario": "InterurbanActorFlow",
+      "route_id": "Town12_Rep0_1975_0_route0_01_10_11_06_07",
+      "frame_id": 33,
+      "edge": "proceed",
+      "facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": true
+      },
+      "ego_speed": 11.167753238312839
+    },
+    "U-E2": {
+      "scenario": "ParkedObstacle",
+      "route_id": "Town03_Rep0_route_001880_route0_01_10_07_48_34",
+      "frame_id": 36,
+      "edge": "depart",
+      "facts": {
+        "target_corridor_known": true,
+        "entry_gap_clear": true,
+        "priority_satisfied": true
+      },
+      "ego_speed": 11.677207702045267
+    }
+  },
+  "scope": "Five current RGB frames viewed as one contact sheet; no complete sequence or independent review; no manual labels created. All five groups already belonged to train before viewing."
+}

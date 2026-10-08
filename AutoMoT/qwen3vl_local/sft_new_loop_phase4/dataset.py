@@ -48,6 +48,8 @@ def groups():
     twenty_third = json.loads((ROOT/'twenty_third_audit_exposure_20261002.json').read_text())
     twenty_first = json.loads((ROOT/'twenty_first_audit_exposure_20261001.json').read_text())
     return (set(development_route_groups()) | set(reviewed['train_only_groups'])
+            | set(json.loads((ROOT/'teacher_exposure_v41_20261008.json').read_text())['train_only_groups'])
+            | set(json.loads((ROOT/'teacher_exposure_v42_20261008.json').read_text())['train_only_groups'])
             | set(boundaries['train_only_groups']) | set(reaudit['train_only_groups'])
             | set(third['train_only_groups']) | set(increment['train_only_groups'])
             | set(eighth['train_only_groups']) | set(ninth['train_only_groups']) | set(tenth['train_only_groups']) | set(eleventh['train_only_groups'])
@@ -57,7 +59,7 @@ def groups():
 
 
 HOLDOUT_PLAN = 'formal_holdout_plan_20260930.json'
-PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v20_20261008.json'
+PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v22_20261008.json'
 
 
 def producer_check_reservations():

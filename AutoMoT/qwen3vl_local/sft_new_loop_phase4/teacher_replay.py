@@ -15,17 +15,18 @@ from .controller import Episode, STARTS
 from .observation import observation_contract
 from . import teacher_rules as rules
 from . import privileged_geometry as g
+from . import teacher_events as extended
 
-POLICY='causal_episode_teacher_production_v6'
+POLICY='causal_episode_teacher_production_v7'
 EP_FIELDS=('event','instance_id','branch','state','longitudinal','direction','return_direction',
            'return_required','target_corridor','return_corridor','route_segments','segment_index','route_context')
 DISPOSITIONS={'questions','abstained','irrelevant'}
 
 
 def route_records(root, route):
-    history=deque(maxlen=7);active={};seen=set();last_targets={};completed={};motion_status={}
+    history=deque(maxlen=7);active={};seen=set();last_targets={};completed={};motion_status={};stationary_answers={}
     from .teacher_controls import StopDutyTracker
-    controls=StopDutyTracker()
+    controls=StopDutyTracker();navigation_reference=None
     teacher_sha=digest(rules.identity())
     for number in route['rgb_frames']:
         base=dict(kind='frame_disposition',scenario=route['scenario'],route_id=route['route_id'],
@@ -33,15 +34,19 @@ def route_records(root, route):
                   questions=[],traces=[],reasons=[],instance_ends=[])
         try:current=g.load_frame(root,route['scenario'],route['route_id'],number)
         except (OSError,ValueError,EOFError,lzma.LZMAError) as ex:
-            controls=StopDutyTracker()
+            controls=StopDutyTracker();navigation_reference=None
             base['instance_ends']=end_instances(active,'unusable_source');history.clear();active.clear();completed.clear();seen.clear()
             yield dict(base,disposition='abstained',reasons=['unusable_source:'+str(ex)]);continue
         if history and number!=history[-1]['frame_id']+1:
+            navigation_reference=None
             base['instance_ends']=end_instances(active,'observation_gap');history.clear();active.clear();completed.clear();seen.clear()
+        navigation_reference=extended.update_reference(current,navigation_reference)
+        current['_teacher_navigation_reference']=navigation_reference
         current['stop_duties']=controls.observe(current)
         history.append(current);frames=list(history)
         base['sources']=current['sources'];base['causal_sha256']=current['causal_sha256']
         if number==0 or current.get('source_geometry_issues'):
+            navigation_reference=None
             base['instance_ends']+=end_instances(active,'invalid_geometry_or_initialization');history.clear();active.clear();completed.clear();seen.clear()
             yield dict(base,disposition='abstained',reasons=['initialization_frame' if number==0 else 'invalid_geometry']);continue
         if not g.history_valid(frames,7) or frames[0]['frame_id']<4:
@@ -52,14 +57,15 @@ def route_records(root, route):
         rearm_completed(completed,seen,seeds,current)
         for seed in seeds:
             key=seed['event'],seed['actor_id']
-            if key not in active and key not in seen and not rules.scoped_anomalies(frames,seed['actor_id']):
-                candidate=Episode(seed['event'],'candidate',branch=seed.get('branch','default'))
-                evidence,_=rules.facts(frames,candidate,seed['actor_id'])
+            if key not in active and key not in seen and not instance_anomalies(frames,seed):
+                candidate=Episode(seed['event'],'candidate',branch=seed.get('branch','default'),**seed.get('episode_context',{}))
+                if seed['event'] in extended.EVENTS:extended.update_instance(frames,seed)
+                evidence,_=instance_facts(frames,candidate,seed)
                 if evidence.get('event_restriction_observed') is not True:
                     base['reasons'].append('seed_without_observed_event_restriction');continue
                 seed=dict(seed,restriction_frame=number)
                 ident=f"teacher/{route['scenario']}/{route['route_id']}/{seed['event']}/{seed['actor_id']}/{number}"
-                active[key]=(Episode(seed['event'],ident,branch=seed.get('branch','default')),seed);seen.add(key)
+                active[key]=(Episode(seed['event'],ident,branch=seed.get('branch','default'),**seed.get('episode_context',{})),seed);seen.add(key)
         for key,(ep,seed) in list(active.items()):
             # A completion established in the preceding observation stays valid;
             # today's deletion still appears in the route anomaly ledger.
@@ -67,7 +73,7 @@ def route_records(root, route):
                 completed[key]=dict(clear_observations=0,last_frame=number)
                 base['instance_ends'].append(dict(instance_id=ep.instance_id,reason='finished',completed=True))
                 del active[key];continue
-            if rules.scoped_anomalies(frames,seed['actor_id']):
+            if instance_anomalies(frames,seed):
                 base['instance_ends'].append(dict(instance_id=ep.instance_id,reason='instance_rgb_discontinuity',completed=False))
                 base['reasons'].append('instance_rgb_discontinuity')
                 del active[key];seen.discard(key);completed.pop(key,None)
@@ -89,6 +95,13 @@ def route_records(root, route):
             if ep.event=='U-E4' and ep.branch=='default' and rules.parallel_cyclist(frames,seed['actor_id']):
                 base['instance_ends'].append(dict(instance_id=ep.instance_id,reason='cyclist_follow_branch_requires_new_instance',completed=False))
                 del active[key];seen.discard(key);continue
+            if ep.event in extended.EVENTS:
+                extended.update_instance(frames,seed)
+                retired=extended.retirement(frames,ep,seed)
+                if retired:
+                    base['instance_ends'].append(dict(instance_id=ep.instance_id,reason=retired,completed=False))
+                    completed[key]=dict(clear_observations=0,last_frame=number)
+                    del active[key];continue
             edges=ep.questions()
             if not edges:
                 base['reasons'].append('instance_finished' if ep.finished else 'instance_requires_recheck')
@@ -96,16 +109,25 @@ def route_records(root, route):
                 base['instance_ends'].append(dict(instance_id=ep.instance_id,reason='finished' if ep.finished else 'requires_recheck',completed=ep.finished))
                 del active[key];continue
             episode={k:getattr(ep,k) for k in EP_FIELDS}
-            values,reasons=rules.facts(frames,ep,seed['actor_id'])
+            values,reasons=instance_facts(frames,ep,seed)
             answers={e.key:rules.answer(e.criteria,values) for e in edges}
             moving=rules.execution_motion(frames)
+            for edge in edges:
+                if rules.motion_stratum(frames)=='stationary' and answers[edge.key] in ('YES','NO'):
+                    stationary_answers[(ep.instance_id,edge.key)]=dict(target=answers[edge.key],frame_id=number,sources=current['sources'])
             for mode in (2,4):
                 input_frames=[number+x for x in observation_contract(mode)['frame_offsets']]
                 sources=[s for f in frames if f['frame_id'] in input_frames for s in f['sources'] if s['kind']=='rgb']
                 for edge in edges:
                     target=answers[edge.key];phase='readiness';why=list(reasons)
-                    # Current condition evidence remains readiness after ego motion.
-                    # Motion only acknowledges execution; it never manufactures a label.
+                    prior=stationary_answers.get((ep.instance_id,edge.key))
+                    # A release first resolved after resuming from a blocked stop
+                    # is a catchup candidate. Sparse RGB successor visibility has
+                    # no automatic teacher yet; keep the condition fact for replay
+                    # but abstain from supervision instead of calling it readiness.
+                    if (edge.key in ('proceed','depart','enter','return') and target=='YES'
+                            and rules.motion_stratum(frames)=='moving' and prior and prior['target']=='NO'):
+                        phase='catchup';target='UNKNOWN';why.append('post_stop_release_requires_visual_catchup')
                     if target=='UNKNOWN' and not why:why=['required_condition_unresolved']
                     question=dict(teacher_sha256=teacher_sha,scenario=route['scenario'],route_id=route['route_id'],physical_group=route['physical_group'],
                         split=route['split'],frame_id=number,episode=episode,edge=edge.key,rgb_mode=mode,
@@ -113,9 +135,12 @@ def route_records(root, route):
                         causal_sources=[s for f in frames for s in f['sources']],
                         facts={c:values.get(c) for c in edge.criteria},rule_target=target,
                         control_evidence=current.get('stop_duties',{}),
+                        motion_phase_evidence=prior,
                         ego_motion=rules.motion_stratum(frames),ego_speed=current['meta']['speed'],
                         state_rule_target=answers[edge.key],slice=phase,
-                        rule_class=rules.rule_class(ep.event,edge.key,mode,phase),reasons=why,instance=seed,
+                        rule_class=rules.rule_class(ep.event,edge.key,mode,phase),reasons=why,instance=json.loads(json.dumps(seed)),
+                        instance_sources=seed.get('instance_sources',[])+seed.get('negotiated_stop_sources',[])+(prior['sources'] if prior else []),
+                        visible_condition_scope='visible_maneuver_conditions_v1' if edge.key in ('depart','enter','return') else None,
                         near_transition=last_targets.get((ep.instance_id,mode,edge.key)) not in (None,target))
                     last_targets[(ep.instance_id,mode,edge.key)]=target
                     question['question_id']=digest(question)
@@ -129,15 +154,23 @@ def route_records(root, route):
                     successor_observed=True,decision_frame=number,observed_frame=number,started_frame=number,
                     edges=pending)
                 ep.confirm_execution(receipt)
-            base['traces'].append(dict(instance_id=ep.instance_id,before=episode,answers=answers,
+            sync=extended.synchronize_observed(frames,ep,seed) if ep.event in extended.EVENTS else None
+            base['traces'].append(dict(instance_id=ep.instance_id,observed_state_sync=sync,before=episode,answers=answers,
                 after={k:getattr(ep,k) for k in EP_FIELDS},accepted=decision.get('accepted',[]),
                 execution_receipt=receipt,wait_reason=ep.wait_reason,finished=ep.finished,needs_recheck=ep.needs_recheck))
         if not base['questions']:
-            # No supported instance does not prove the frame irrelevant to the
-            # eight event classes not yet implemented by this teacher.
-            base['reasons'].append('no_established_UE1_UE4_instance_other_events_unsupported')
+            # No established instance is abstention, never a negative label.
+            base['reasons'].append('no_established_visible_event_instance')
         base['disposition']='questions' if base['questions'] else 'abstained'
         yield base
+
+
+def instance_facts(frames,ep,seed):
+    return extended.facts(frames,ep,seed) if ep.event in extended.EVENTS else rules.facts(frames,ep,seed['actor_id'])
+
+
+def instance_anomalies(frames,seed):
+    return extended.anomalies(frames,seed) if seed['event'] in extended.EVENTS else rules.scoped_anomalies(frames,seed['actor_id'])
 
 
 def end_instances(active,reason):
@@ -153,7 +186,7 @@ def rearm_completed(completed,seen,seeds,current):
     for key,status in list(completed.items()):
         actor=rules.actor(current,key[1]);frame=current['frame_id']
         clear=(frame==status['last_frame']+1 and key not in conflicts
-               and actor is not None and g.visible(actor,current) is True)
+               and actor is not None and (extended.scene_visible(current) if actor['class']=='ego_car' and key[0] in extended.EVENTS else g.visible(actor,current) is True))
         status['clear_observations']=status['clear_observations']+1 if clear else 0
         status['last_frame']=frame
         if status['clear_observations']>=3:
@@ -211,13 +244,22 @@ def validate_question(q,*,expected_teacher_sha=None):
         raise ValueError('invalid teacher causal input')
     ep=Episode(**q['episode']);edge=episode_edge(ep,q['edge'])
     if not applicable(edge,ep.state,ep.longitudinal):raise ValueError('teacher asked an inapplicable edge')
-    if (q['rule_class']!=rules.rule_class(ep.event,edge.key,mode,phase) or ep.event not in ('U-E1','U-E4')
+    if (q['rule_class']!=rules.rule_class(ep.event,edge.key,mode,phase) or ep.event not in ('U-E1','U-E4',*extended.EVENTS)
             or q['rule_target'] not in ('YES','NO','UNKNOWN') or phase not in ('readiness','catchup')):
         raise ValueError('invalid teacher rule class/answer')
     if set(q['facts'])!=set(edge.criteria):raise ValueError('teacher condition set mismatch')
     if q['state_rule_target']!=rules.answer(edge.criteria,q['facts']):raise ValueError('teacher state answer disagrees with conditions')
     if q['rule_target']!=q['state_rule_target'] and q['rule_target']!='UNKNOWN':raise ValueError('teacher invented a target')
     if phase=='catchup' and q['rule_target']!='UNKNOWN':raise ValueError('catchup requires an implemented visual successor teacher')
+    prior=q.get('motion_phase_evidence')
+    if prior is not None:
+        if (prior.get('target') not in ('YES','NO') or type(prior.get('frame_id')) is not int
+                or not 0<=prior['frame_id']<=f or len(prior.get('sources',[]))!=3
+                or any(s.get('frame_id')!=prior['frame_id'] or s not in q.get('instance_sources',[]) for s in prior['sources'])):
+            raise ValueError('invalid motion phase evidence')
+    if ('post_stop_release_requires_visual_catchup' in q['reasons']
+            and (not prior or prior['target']!='NO' or q['ego_motion']!='moving' or phase!='catchup' or q['rule_target']!='UNKNOWN')):
+        raise ValueError('invalid post-stop catchup')
     if q['rule_target']=='UNKNOWN' and not q['reasons']:raise ValueError('missing abstention reason')
     expected=[dict(path=f"{q['scenario']}/{q['route_id']}/rgb/{n:04d}.jpg",frame_id=n,kind='rgb',sha256=s['sha256'])
               for n,s in zip(q['history_frames'],q['input_sources'])]
@@ -243,6 +285,17 @@ def validate_question(q,*,expected_teacher_sha=None):
                 ext='jpg' if source['kind']=='rgb' else 'pkl'
                 if (source['frame_id']!=observation['frame_id'] or source['path']!=f"{q['scenario']}/{q['route_id']}/{source['kind']}/{source['frame_id']:04d}.{ext}"
                         or not isinstance(source.get('sha256'),str) or len(source['sha256'])!=64):raise ValueError('invalid stop duty source')
+    for source in q.get('instance_sources',[]):
+        n=source.get('frame_id');kind=source.get('kind');ext='jpg' if kind=='rgb' else 'pkl'
+        if (type(n) is not int or not 0<=n<=f or kind not in ('metas','bboxes','rgb')
+                or source.get('path')!=f"{q['scenario']}/{q['route_id']}/{kind}/{n:04d}.{ext}"
+                or not isinstance(source.get('sha256'),str) or len(source['sha256'])!=64
+                or any(c not in '0123456789abcdef' for c in source['sha256'])):
+            raise ValueError('invalid/future instance establishment source')
+    if ep.event in extended.EVENTS and not q.get('instance_sources'):
+        raise ValueError('extended event requires causal establishment evidence')
+    if edge.key in ('depart','enter','return') and q.get('visible_condition_scope')!='visible_maneuver_conditions_v1':
+        raise ValueError('teacher maneuver must use visible condition scope')
     return q
 
 

@@ -10,23 +10,35 @@ import random
 from .identity import digest
 from .sampling import frame_key
 
-POLICY = 'phase3_capacity_route_sampling_v1'
+POLICY = 'phase3_capacity_motion_sampling_v2'
+EDGE_WEIGHTS = dict(proceed=8, depart=8, enter=8, return_=8, complete=8, recover_follow=4)
+EDGE_WEIGHTS['return'] = EDGE_WEIGHTS.pop('return_')
 DEFAULT_PER_EVENT = 1024
 
 
-def capacity_quota(capacities, target):
+def capacity_quota(capacities, target, weights=None):
     """Even partial allocation with overflow returned to supported cells."""
     out = dict.fromkeys(sorted(capacities), 0)
     while target:
         active = [k for k in out if out[k] < capacities[k]]
         if not active:
             raise ValueError('partial quota exceeds capacity')
-        share, extra = divmod(target, len(active))
-        for j, k in enumerate(active):
-            take = min(capacities[k] - out[k], share + (j < extra))
+        weights = weights or {}
+        # Weighted fair allocation with capacity return, deterministic ties.
+        total = sum(weights.get(k, 1) for k in active)
+        amounts = {k: min(capacities[k]-out[k], target*weights.get(k,1)//total) for k in active}
+        if not any(amounts.values()):
+            key = min(active, key=lambda k: ((out[k]+1)/weights.get(k,1), k))
+            amounts[key] = 1
+        for k, take in amounts.items():
             out[k] += take
             target -= take
     return out
+
+
+def motion(row):
+    speed=row.get('observation',{}).get('speed_mps')
+    return 'unknown' if type(speed) not in (int,float) or not math.isfinite(speed) else 'stationary' if abs(speed)<.5 else 'moving'
 
 
 def route_order(indices, rows, counts, seed, epoch):
@@ -69,7 +81,7 @@ def plan(rows, *, epoch, seed=20260929, budget=None, world_size=1,
         raise ValueError(f'event/DDP budget must be a positive multiple of {unit}')
     quota = requested // len(events)
     binding = dict(policy=POLICY, seed=seed, world_size=world_size, budget=requested,
-                   pool_sha256=digest(sorted([r['id'], r['episode']['event'], r['edge'],
+                   edge_weights=EDGE_WEIGHTS, pool_sha256=digest(sorted([motion(r), r['id'], r['episode']['event'], r['edge'],
                        r['target'], r['slice'], r['physical_group'], r.get('model_input_sha256'),
                        frame_key(r)] for r in rows)))
     if history is None:
@@ -94,11 +106,12 @@ def plan(rows, *, epoch, seed=20260929, budget=None, world_size=1,
         edges = defaultdict(list)
         for i in indices:
             edges[rows[i]['edge']].append(i)
-        edge_quota = capacity_quota({e: len(v) for e,v in edges.items()}, remainder)
+        weights={e: EDGE_WEIGHTS.get(e,1) if {rows[i]['target'] for i in v}=={'YES','NO'} else 1 for e,v in edges.items()}
+        edge_quota = capacity_quota({e: len(v) for e,v in edges.items()}, remainder, weights)
         for edge in sorted(edges):
             cells = defaultdict(list)
             for i in edges[edge]:
-                cells[(rows[i]['target'], rows[i]['slice'])].append(i)
+                cells[(rows[i]['target'], rows[i]['slice'], motion(rows[i]))].append(i)
             quotas = capacity_quota({k: len(v) for k,v in cells.items()}, edge_quota[edge])
             for cell in sorted(cells):
                 result.extend(route_order(cells[cell], rows, counts, seed, epoch)[:quotas[cell]])
@@ -115,7 +128,13 @@ def plan(rows, *, epoch, seed=20260929, budget=None, world_size=1,
             max_question_repeat=max(repeats[i] for i in pools[e]),
             repetition_bound=math.ceil(quota / len(pools[e]))) for e in events},
         strata=dict(Counter('/'.join((rows[i]['episode']['event'], rows[i]['edge'],
-                            rows[i]['target'], rows[i]['slice'])) for i in result)),
+                            rows[i]['target'], rows[i]['slice'], motion(rows[i]))) for i in result)),
+        missing_motion_cells=[f'{e}/{edge}/{answer}/{m}' for e in events
+            for edge in sorted({rows[i]['edge'] for i in pools[e]})
+            for answer in ('YES','NO') for m in ('stationary','moving')
+            if not any(rows[i]['edge']==edge and rows[i]['target']==answer and motion(rows[i])==m for i in pools[e])],
+        motion_balance='capacity-aware answer/slice/motion cells; empty or exhausted cells return quota, no fabricated labels',
+        edge_weights=EDGE_WEIGHTS,
         cumulative_unique_questions=sum(n > 0 for n in updated.values()),
         cumulative_missing_questions=sum(n == 0 for n in updated.values()),
         event_coverage={e:dict(pool=len(pools[e]), seen=sum(updated[ids[i]] > 0 for i in pools[e])) for e in events},

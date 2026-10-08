@@ -90,6 +90,7 @@ def teacher_window_check(question,risks):
     Include the entire teacher history and older STOP proof, not just RGB slots.
     """
     observed={s['frame_id'] for s in question['causal_sources']}
+    observed.update(s['frame_id'] for s in question.get('instance_sources',[]))
     observed.update(s['frame_id'] for r in question.get('control_evidence',{}).values() for o in r['observations'] for s in o['sources'])
     affected=[]
     for risk in risks:

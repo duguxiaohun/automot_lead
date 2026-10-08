@@ -75,10 +75,10 @@ def default_registry():
     from . import teacher_rules as rules, teacher_approval as approval
     from .taxonomy import EVENTS, event_edges, COMMON
     from .route_context import RECOVER_FOLLOW
-    classes={rules.rule_class(event,edge.key,mode) for event in ('U-E1','U-E4')
-             for edge in (*event_edges(EVENTS[event][1]),*COMMON,RECOVER_FOLLOW)
+    classes={rules.rule_class(event,edge.key,mode) for event in EVENTS
+             for edge in (*event_edges(EVENTS[event][1]),*(event_edges('bypass') if event=='U-E4' else ()),*COMMON,RECOVER_FOLLOW)
              for mode in (2,4) if edge.key!='restrict'}
-    return approval.weak_registry(classes,'full_pipeline_v40_all_route_pool')
+    return approval.weak_registry(classes,'full_pipeline_v42_scoped_teacher')
 
 
 def prepare(base, data_root, annotations, *, workers=16, skip_build=False,

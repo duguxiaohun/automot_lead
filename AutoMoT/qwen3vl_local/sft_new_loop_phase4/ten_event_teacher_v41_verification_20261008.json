@@ -1,0 +1,873 @@
+{
+  "version": 41,
+  "teacher": {
+    "version": "ten_event_causal_teacher_v9",
+    "parameters": {
+      "local_horizon_m": 18.0,
+      "seed_horizon_m": 30.0,
+      "vru_margin_m": 1.0,
+      "boundary_band_m": 0.25,
+      "lead_growth_m": 1.0,
+      "lead_min_gap_m": 3.0,
+      "min_pixel_change": 6.0,
+      "stationary_lead_displacement_m": 0.75,
+      "stationary_ego_displacement_m": 0.25,
+      "stable_gap_m": 3.0,
+      "stable_time_gap_s": 0.5,
+      "relative_speed_mps": 3.0,
+      "relative_speed_range_mps": 1.5,
+      "max_closing_speed_mps": 0.5,
+      "max_gap_loss_m": 0.5,
+      "receipt_displacement_m": 0.75,
+      "receipt_max_lateral_m": 0.5,
+      "receipt_heading_tolerance": 0.05,
+      "lead_min_forward_speed_mps": 0.5,
+      "resumption_observations": 5,
+      "resumption_distance_m": 2.0
+    },
+    "event_parameters": {
+      "horizon_m": 22.0,
+      "prediction_s": 2.0,
+      "separation_m": 0.75,
+      "entry_margin_m": 0.2,
+      "entry_heading_rad": 0.2,
+      "stable_observations": 3,
+      "detour_offset_m": 0.6
+    },
+    "sources": {
+      "teacher_exposure_v41_20261008.json": "106083f70ef3941a6d83d6e4e6708bad2b7b2c1ebe8bebef4e530e2b06bf21fc",
+      "visible_scope.py": "2bef271c9bcba53c4b23a3808caf755547b22d542e8b9c7275db0a432b46b038",
+      "teacher_events.py": "039f9ff53568ae7260b1f9ae3142805e4a4fa4927de318748115b0521779fc57",
+      "phase3_sampling.py": "f23e6cf9c38b1f196751935f262610ea2765ffde19d0159513c4e0cf3a9e8249",
+      "data_paths.py": "3427a781d96fa6222dda8faab83ec7ad2331a957f558d9e63862250bc382f59d",
+      "branch_support.py": "0ebfb75d366d9e79c8dcff90f2e1de0d2b16a9ec6e80d7179104e8fa5bb707cb",
+      "paired_eval.py": "8d55360c7362e1e64b7b1957ed695f11eea62d5291e66a271b5080aeece8d9fb",
+      "route_quality.py": "7c38bc280f5cccb9c5be6e4d946d0a32e01364832871610ea6972bb3b1cfe26e",
+      "weighted_sampling.py": "d4edc02dcd580cbbf1b8cd839f001506292d061c4f9e451cdd7d6d41dd8a934d",
+      "teacher_evaluation.py": "d4010ffd39f4a10d0bcd2e89a3655bc10afb46ceaceefa112656f6064267926a",
+      "teacher_controls.py": "74b571b62beab34ca7339e8bcf4e03dd7c10eb6d865b30844fb9bd0b807eb5c7",
+      "teacher_rules.py": "85608ae43a53b6b061a47c0ba29d3a7c093eee3d1425a0628f35d136873fe69f",
+      "teacher_replay.py": "520db9027726d81283cefa78ce06ec78e02d90bee3e8febf081c6746d75ac60c",
+      "teacher_approval.py": "b7715788759bc8a296a4ce83bf6199e4a37ec8a3fed2164fb52e815ba9271aba",
+      "teacher_data.py": "ff833a667ee66e80d27c1b7ae9f1d0108bcc8e846a2ddc310b670a02de344193",
+      "teacher_review.py": "b997eec4c4b94964a1158030b8d0ab62734bad6a18d4f0de4e781f44af1a11f6",
+      "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+      "privileged_geometry.py": "e475812ee3e925429c5143a6a08f3ef1e2931653f2124c67e66727adbc13ff76",
+      "privileged_visibility.py": "f4ce5aaacb33963732321ac1025d88607b8e735613cbc1f6419984c1b834279b",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "route_prompts.py": "c466b70f9071be44c12e5e4d4c99eaedfa62b55e5fe38dc246bb143ec56843d6",
+      "risk_review.py": "906409691497d1e63f6a39024bfe4c856015b6971d20fac1eae35b4d6368feed",
+      "dataset.py": "c7f90f01adb97078e05ca6d091a23fb8095ea0681895ca9bfe98bf5d5037cb33",
+      "candidate_pool.py": "87f6e3b844146f8362763ba7a42394d785257387d42343cd0fdaa1452cf3852f",
+      "preflight.py": "76dfbe197e6d0f59d5673b956b5a9c08e04c6dea0bf0c2d203ca6ee66873422f",
+      "evaluate.py": "87d348b9e92c07325efda682afe61a8a2e096897d380ecd8d8204a965238fc13",
+      "identity.py": "a149fbb5d140a48f131a70f8cef4e748468eff251291214433ff8d3353bff7a1"
+    }
+  },
+  "contract_sha256": "05fdfa9ad3f6c425a1bb0c1a3805acb58d1cd3705df488a10289ae95283cace9",
+  "tests": {
+    "passed": 1067,
+    "log": "/tmp/phase4_v41_final_check/suite.log"
+  },
+  "probe": {
+    "routes": 34,
+    "frames": 3601,
+    "splits": [
+      "train"
+    ],
+    "scope": "development probe, not full production or independent error estimate",
+    "route_ids": [
+      {
+        "scenario": "OppositeVehicleRunningRedLight",
+        "route_id": "Town01_Rep0_Town01_Scenario8_10_route0_01_09_00_02_37",
+        "physical_group": "OppositeVehicleRunningRedLight/Town01_Town01_Scenario8_10",
+        "split": "train"
+      },
+      {
+        "scenario": "OppositeVehicleRunningRedLight",
+        "route_id": "Town01_Rep0_Town01_Scenario8_11_route0_01_10_04_44_00",
+        "physical_group": "OppositeVehicleRunningRedLight/Town01_Town01_Scenario8_11",
+        "split": "train"
+      },
+      {
+        "scenario": "PriorityAtJunction",
+        "route_id": "Town12_Rep0_1094_0_route0_01_08_19_47_16",
+        "physical_group": "PriorityAtJunction/Town12_1094_0",
+        "split": "train"
+      },
+      {
+        "scenario": "PriorityAtJunction",
+        "route_id": "Town12_Rep0_1265_0_route0_01_09_11_10_43",
+        "physical_group": "PriorityAtJunction/Town12_1265_0",
+        "split": "train"
+      },
+      {
+        "scenario": "SignalizedJunctionLeftTurn",
+        "route_id": "Town01_Rep0_route_002516_route0_01_08_10_14_49",
+        "physical_group": "SignalizedJunctionLeftTurn/Town01_route_002516",
+        "split": "train"
+      },
+      {
+        "scenario": "SignalizedJunctionLeftTurn",
+        "route_id": "Town01_Rep0_route_002519_route0_01_11_06_26_54",
+        "physical_group": "SignalizedJunctionLeftTurn/Town01_route_002519",
+        "split": "train"
+      },
+      {
+        "scenario": "SignalizedJunctionRightTurn",
+        "route_id": "Town01_Rep0_Town01_Scenario9_14_route0_01_08_21_46_06",
+        "physical_group": "SignalizedJunctionRightTurn/Town01_Town01_Scenario9_14",
+        "split": "train"
+      },
+      {
+        "scenario": "SignalizedJunctionRightTurn",
+        "route_id": "Town01_Rep0_Town01_Scenario9_21_route0_01_08_22_59_34",
+        "physical_group": "SignalizedJunctionRightTurn/Town01_Town01_Scenario9_21",
+        "split": "train"
+      },
+      {
+        "scenario": "ConstructionObstacle",
+        "route_id": "Town03_Rep0_route_001977_route0_01_10_05_03_33",
+        "physical_group": "ConstructionObstacle/Town03_route_001977",
+        "split": "train"
+      },
+      {
+        "scenario": "ConstructionObstacle",
+        "route_id": "Town03_Rep0_route_001978_route0_01_08_03_03_52",
+        "physical_group": "ConstructionObstacle/Town03_route_001978",
+        "split": "train"
+      },
+      {
+        "scenario": "ParkedObstacle",
+        "route_id": "Town03_Rep0_route_001880_route0_01_10_07_48_34",
+        "physical_group": "ParkedObstacle/Town03_route_001880",
+        "split": "train"
+      },
+      {
+        "scenario": "ParkedObstacle",
+        "route_id": "Town03_Rep0_route_001881_route0_01_09_19_46_50",
+        "physical_group": "ParkedObstacle/Town03_route_001881",
+        "split": "train"
+      },
+      {
+        "scenario": "VehicleOpensDoorTwoWays",
+        "route_id": "Town12_Rep0_1544_0_route0_01_09_01_34_14",
+        "physical_group": "VehicleOpensDoorTwoWays/Town12_1544_0",
+        "split": "train"
+      },
+      {
+        "scenario": "VehicleOpensDoorTwoWays",
+        "route_id": "Town12_Rep0_1544_1_route0_01_10_00_59_14",
+        "physical_group": "VehicleOpensDoorTwoWays/Town12_1544_1",
+        "split": "train"
+      },
+      {
+        "scenario": "HighwayCutIn",
+        "route_id": "Town12_Rep0_1394_0_route0_01_10_10_37_32",
+        "physical_group": "HighwayCutIn/Town12_1394_0",
+        "split": "train"
+      },
+      {
+        "scenario": "HighwayCutIn",
+        "route_id": "Town12_Rep0_1394_1_route0_01_08_14_15_49",
+        "physical_group": "HighwayCutIn/Town12_1394_1",
+        "split": "train"
+      },
+      {
+        "scenario": "ParkingCutIn",
+        "route_id": "Town12_Rep0_1091_0_route0_01_09_13_12_55",
+        "physical_group": "ParkingCutIn/Town12_1091_0",
+        "split": "train"
+      },
+      {
+        "scenario": "ParkingCutIn",
+        "route_id": "Town12_Rep0_1091_1_route0_01_09_05_21_50",
+        "physical_group": "ParkingCutIn/Town12_1091_1",
+        "split": "train"
+      },
+      {
+        "scenario": "InvadingTurn",
+        "route_id": "Town12_Rep0_1150_0_route0_01_09_20_35_02",
+        "physical_group": "InvadingTurn/Town12_1150_0",
+        "split": "train"
+      },
+      {
+        "scenario": "InvadingTurn",
+        "route_id": "Town12_Rep0_1229_0_route0_01_08_21_43_40",
+        "physical_group": "InvadingTurn/Town12_1229_0",
+        "split": "train"
+      },
+      {
+        "scenario": "OppositeVehicleTakingPriority",
+        "route_id": "Town12_Rep0_1566_1_route0_01_10_18_22_48",
+        "physical_group": "OppositeVehicleTakingPriority/Town12_1566_1",
+        "split": "train"
+      },
+      {
+        "scenario": "OppositeVehicleTakingPriority",
+        "route_id": "Town12_Rep0_1585_0_route0_01_11_14_49_08",
+        "physical_group": "OppositeVehicleTakingPriority/Town12_1585_0",
+        "split": "train"
+      },
+      {
+        "scenario": "CrossJunctionDefectTrafficLight",
+        "route_id": "Town03_Rep0_route_002130_route0_01_11_13_52_37",
+        "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002130",
+        "split": "train"
+      },
+      {
+        "scenario": "CrossJunctionDefectTrafficLight",
+        "route_id": "Town03_Rep0_route_002131_route0_01_08_16_08_17",
+        "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002131",
+        "split": "train"
+      },
+      {
+        "scenario": "NonSignalizedJunctionLeftTurn",
+        "route_id": "Town03_Rep0_route_000924_route0_01_11_02_27_49",
+        "physical_group": "NonSignalizedJunctionLeftTurn/Town03_route_000924",
+        "split": "train"
+      },
+      {
+        "scenario": "NonSignalizedJunctionLeftTurn",
+        "route_id": "Town03_Rep0_route_000925_route0_01_09_16_26_51",
+        "physical_group": "NonSignalizedJunctionLeftTurn/Town03_route_000925",
+        "split": "train"
+      },
+      {
+        "scenario": "InterurbanActorFlow",
+        "route_id": "Town12_Rep0_1975_0_route0_01_10_11_06_07",
+        "physical_group": "InterurbanActorFlow/Town12_1975_0",
+        "split": "train"
+      },
+      {
+        "scenario": "InterurbanActorFlow",
+        "route_id": "Town12_Rep0_1975_1_route0_01_09_07_10_39",
+        "physical_group": "InterurbanActorFlow/Town12_1975_1",
+        "split": "train"
+      },
+      {
+        "scenario": "ParkingExit",
+        "route_id": "Town03_Rep0_route_001610_route0_01_09_03_04_39",
+        "physical_group": "ParkingExit/Town03_route_001610",
+        "split": "train"
+      },
+      {
+        "scenario": "ParkingExit",
+        "route_id": "Town03_Rep0_route_001612_route0_01_10_02_35_09",
+        "physical_group": "ParkingExit/Town03_route_001612",
+        "split": "train"
+      },
+      {
+        "scenario": "HighwayExit",
+        "route_id": "Town12_Rep0_4081_0_route0_01_08_20_49_10",
+        "physical_group": "HighwayExit/Town12_4081_0",
+        "split": "train"
+      },
+      {
+        "scenario": "HighwayExit",
+        "route_id": "Town12_Rep0_4081_10_route0_01_09_09_48_45",
+        "physical_group": "HighwayExit/Town12_4081_10",
+        "split": "train"
+      },
+      {
+        "scenario": "EnterActorFlow",
+        "route_id": "Town12_Rep0_1388_0_route0_01_10_05_04_45",
+        "physical_group": "EnterActorFlow/Town12_1388_0",
+        "split": "train"
+      },
+      {
+        "scenario": "EnterActorFlow",
+        "route_id": "Town12_Rep0_1388_1_route0_01_10_23_16_12",
+        "physical_group": "EnterActorFlow/Town12_1388_1",
+        "split": "train"
+      }
+    ],
+    "rule_targets_rgb2": {
+      "R-E2/complete/YES": 2,
+      "R-E2/enter/NO": 139,
+      "R-E2/enter/UNKNOWN": 13,
+      "R-E2/enter/YES": 25,
+      "R-E2/hold/NO": 22,
+      "R-E2/hold/UNKNOWN": 19,
+      "R-E2/hold/YES": 7,
+      "R-E2/recover_follow/NO": 2,
+      "R-E2/release/NO": 50,
+      "R-E2/release/YES": 1,
+      "R-E2/renewed_restriction/YES": 2,
+      "R-E2/restrict/NO": 22,
+      "R-E2/restrict/UNKNOWN": 19,
+      "R-E2/restrict/YES": 5,
+      "R-E2/stable/NO": 2,
+      "R-E3/enter/NO": 34,
+      "R-E3/enter/YES": 54,
+      "R-E3/hold/NO": 31,
+      "R-E3/hold/YES": 4,
+      "R-E3/restrict/NO": 31,
+      "R-E3/restrict/YES": 4,
+      "R-E5/complete/NO": 24,
+      "R-E5/complete/YES": 3,
+      "R-E5/hold/NO": 45,
+      "R-E5/hold/UNKNOWN": 1,
+      "R-E5/hold/YES": 14,
+      "R-E5/proceed/NO": 352,
+      "R-E5/proceed/UNKNOWN": 33,
+      "R-E5/proceed/YES": 66,
+      "R-E5/re_yield/NO": 45,
+      "R-E5/re_yield/YES": 2,
+      "R-E5/recover_follow/NO": 20,
+      "R-E5/renewed_restriction/NO": 18,
+      "R-E5/renewed_restriction/YES": 2,
+      "R-E5/restrict/NO": 27,
+      "R-E5/restrict/UNKNOWN": 1,
+      "R-E5/restrict/YES": 12,
+      "R-E5/stable/NO": 15,
+      "R-E5/stable/YES": 5,
+      "U-E1/hold/YES": 4,
+      "U-E1/proceed/NO": 365,
+      "U-E1/proceed/UNKNOWN": 24,
+      "U-E1/restrict/YES": 4,
+      "U-E2/depart/NO": 106,
+      "U-E2/depart/UNKNOWN": 34,
+      "U-E2/depart/YES": 18,
+      "U-E2/hold/NO": 4,
+      "U-E2/hold/UNKNOWN": 5,
+      "U-E2/hold/YES": 7,
+      "U-E2/pass/YES": 5,
+      "U-E2/recover_follow/NO": 5,
+      "U-E2/renewed_restriction/NO": 4,
+      "U-E2/renewed_restriction/UNKNOWN": 1,
+      "U-E2/restrict/UNKNOWN": 4,
+      "U-E2/restrict/YES": 7,
+      "U-E2/stable/NO": 3,
+      "U-E2/stable/YES": 2,
+      "U-E3/complete/NO": 13,
+      "U-E3/complete/YES": 3,
+      "U-E3/hold/NO": 23,
+      "U-E3/hold/UNKNOWN": 9,
+      "U-E3/hold/YES": 15,
+      "U-E3/proceed/NO": 449,
+      "U-E3/proceed/UNKNOWN": 91,
+      "U-E3/proceed/YES": 26,
+      "U-E3/re_yield/NO": 21,
+      "U-E3/re_yield/UNKNOWN": 9,
+      "U-E3/re_yield/YES": 4,
+      "U-E3/recover_follow/NO": 5,
+      "U-E3/recover_follow/UNKNOWN": 5,
+      "U-E3/recover_follow/YES": 10,
+      "U-E3/release/NO": 3,
+      "U-E3/release/UNKNOWN": 2,
+      "U-E3/release/YES": 6,
+      "U-E3/renewed_restriction/NO": 21,
+      "U-E3/renewed_restriction/UNKNOWN": 7,
+      "U-E3/renewed_restriction/YES": 3,
+      "U-E3/restrict/NO": 2,
+      "U-E3/restrict/UNKNOWN": 2,
+      "U-E3/restrict/YES": 12,
+      "U-E3/stable/NO": 14,
+      "U-E3/stable/UNKNOWN": 5,
+      "U-E3/stable/YES": 1,
+      "U-E5/hold/UNKNOWN": 12,
+      "U-E5/hold/YES": 24,
+      "U-E5/proceed/NO": 216,
+      "U-E5/proceed/UNKNOWN": 620,
+      "U-E5/proceed/YES": 1,
+      "U-E5/restrict/UNKNOWN": 12,
+      "U-E5/restrict/YES": 24,
+      "U-E6/hold/UNKNOWN": 3,
+      "U-E6/hold/YES": 8,
+      "U-E6/proceed/NO": 173,
+      "U-E6/proceed/UNKNOWN": 10,
+      "U-E6/proceed/YES": 14,
+      "U-E6/restrict/UNKNOWN": 3,
+      "U-E6/restrict/YES": 8,
+      "U-E7/hold/NO": 28,
+      "U-E7/hold/YES": 3,
+      "U-E7/proceed/NO": 23,
+      "U-E7/proceed/YES": 2,
+      "U-E7/re_yield/NO": 28,
+      "U-E7/recover_follow/NO": 28,
+      "U-E7/renewed_restriction/NO": 28,
+      "U-E7/restrict/YES": 3,
+      "U-E7/stable/NO": 28
+    }
+  },
+  "build": {
+    "reports": {
+      "2": {
+        "counts": {
+          "train": 3071,
+          "val": 273,
+          "test": 186
+        },
+        "teacher_counts": {
+          "U-E2/depart/NO": 106,
+          "U-E2/hold/YES": 7,
+          "U-E3/proceed/NO": 449,
+          "U-E3/hold/YES": 15,
+          "U-E3/proceed/YES": 26,
+          "U-E2/pass/YES": 5,
+          "U-E2/hold/NO": 4,
+          "U-E2/stable/NO": 3,
+          "U-E2/renewed_restriction/NO": 4,
+          "U-E2/recover_follow/NO": 5,
+          "U-E7/proceed/NO": 23,
+          "U-E7/hold/YES": 3,
+          "U-E7/proceed/YES": 2,
+          "U-E7/re_yield/NO": 28,
+          "U-E7/hold/NO": 28,
+          "U-E7/stable/NO": 28,
+          "U-E7/renewed_restriction/NO": 28,
+          "U-E7/recover_follow/NO": 28,
+          "R-E3/enter/YES": 54,
+          "R-E3/hold/NO": 31,
+          "R-E2/enter/YES": 25,
+          "R-E2/hold/NO": 22,
+          "U-E3/re_yield/NO": 21,
+          "U-E3/hold/NO": 23,
+          "U-E3/stable/NO": 14,
+          "U-E3/renewed_restriction/NO": 21,
+          "U-E3/recover_follow/YES": 10,
+          "U-E3/complete/YES": 3,
+          "U-E3/release/YES": 6,
+          "R-E3/enter/NO": 34,
+          "R-E3/hold/YES": 4,
+          "U-E3/complete/NO": 13,
+          "U-E3/re_yield/YES": 4,
+          "U-E3/release/NO": 3,
+          "U-E3/renewed_restriction/YES": 3,
+          "R-E2/enter/NO": 139,
+          "R-E2/hold/YES": 7,
+          "U-E5/proceed/NO": 216,
+          "U-E5/hold/YES": 24,
+          "U-E5/proceed/YES": 1,
+          "R-E5/proceed/NO": 306,
+          "R-E5/hold/YES": 12,
+          "R-E5/proceed/YES": 56,
+          "R-E5/re_yield/NO": 37,
+          "R-E5/hold/NO": 37,
+          "R-E5/stable/YES": 5,
+          "R-E5/renewed_restriction/NO": 10,
+          "R-E5/recover_follow/NO": 11,
+          "R-E5/complete/NO": 24,
+          "R-E5/complete/YES": 3,
+          "U-E6/proceed/NO": 173,
+          "U-E6/hold/YES": 8,
+          "U-E2/stable/YES": 2,
+          "R-E5/stable/NO": 6,
+          "U-E1/proceed/NO": 365,
+          "U-E1/hold/YES": 4,
+          "U-E6/proceed/YES": 14,
+          "R-E5/re_yield/YES": 1,
+          "R-E5/renewed_restriction/YES": 1,
+          "U-E2/depart/YES": 18,
+          "U-E3/recover_follow/NO": 5,
+          "U-E3/stable/YES": 1,
+          "R-E2/complete/YES": 2,
+          "R-E2/stable/NO": 2,
+          "R-E2/renewed_restriction/YES": 2,
+          "R-E2/recover_follow/NO": 2,
+          "R-E2/release/NO": 50,
+          "R-E2/release/YES": 1
+        },
+        "review": 539
+      },
+      "4": {
+        "counts": {
+          "train": 3071,
+          "val": 273,
+          "test": 186
+        },
+        "teacher_counts": {
+          "U-E2/depart/NO": 106,
+          "U-E2/hold/YES": 7,
+          "U-E3/proceed/NO": 449,
+          "U-E3/hold/YES": 15,
+          "U-E3/proceed/YES": 26,
+          "U-E2/pass/YES": 5,
+          "U-E2/hold/NO": 4,
+          "U-E2/stable/NO": 3,
+          "U-E2/renewed_restriction/NO": 4,
+          "U-E2/recover_follow/NO": 5,
+          "U-E7/proceed/NO": 23,
+          "U-E7/hold/YES": 3,
+          "U-E7/proceed/YES": 2,
+          "U-E7/re_yield/NO": 28,
+          "U-E7/hold/NO": 28,
+          "U-E7/stable/NO": 28,
+          "U-E7/renewed_restriction/NO": 28,
+          "U-E7/recover_follow/NO": 28,
+          "R-E3/enter/YES": 54,
+          "R-E3/hold/NO": 31,
+          "R-E2/enter/YES": 25,
+          "R-E2/hold/NO": 22,
+          "U-E3/re_yield/NO": 21,
+          "U-E3/hold/NO": 23,
+          "U-E3/stable/NO": 14,
+          "U-E3/renewed_restriction/NO": 21,
+          "U-E3/recover_follow/YES": 10,
+          "U-E3/complete/YES": 3,
+          "U-E3/release/YES": 6,
+          "R-E3/enter/NO": 34,
+          "R-E3/hold/YES": 4,
+          "U-E3/complete/NO": 13,
+          "U-E3/re_yield/YES": 4,
+          "U-E3/release/NO": 3,
+          "U-E3/renewed_restriction/YES": 3,
+          "R-E2/enter/NO": 139,
+          "R-E2/hold/YES": 7,
+          "U-E5/proceed/NO": 216,
+          "U-E5/hold/YES": 24,
+          "U-E5/proceed/YES": 1,
+          "R-E5/proceed/NO": 306,
+          "R-E5/hold/YES": 12,
+          "R-E5/proceed/YES": 56,
+          "R-E5/re_yield/NO": 37,
+          "R-E5/hold/NO": 37,
+          "R-E5/stable/YES": 5,
+          "R-E5/renewed_restriction/NO": 10,
+          "R-E5/recover_follow/NO": 11,
+          "R-E5/complete/NO": 24,
+          "R-E5/complete/YES": 3,
+          "U-E6/proceed/NO": 173,
+          "U-E6/hold/YES": 8,
+          "U-E2/stable/YES": 2,
+          "R-E5/stable/NO": 6,
+          "U-E1/proceed/NO": 365,
+          "U-E1/hold/YES": 4,
+          "U-E6/proceed/YES": 14,
+          "R-E5/re_yield/YES": 1,
+          "R-E5/renewed_restriction/YES": 1,
+          "U-E2/depart/YES": 18,
+          "U-E3/recover_follow/NO": 5,
+          "U-E3/stable/YES": 1,
+          "R-E2/complete/YES": 2,
+          "R-E2/stable/NO": 2,
+          "R-E2/renewed_restriction/YES": 2,
+          "R-E2/recover_follow/NO": 2,
+          "R-E2/release/NO": 50,
+          "R-E2/release/YES": 1
+        },
+        "review": 539
+      }
+    },
+    "rejected": {
+      "restriction_seed_tautology": 322,
+      "rule_abstained": 1888,
+      "risk_window": 204
+    }
+  },
+  "pair": {
+    "policy": "paired_causal_training_intersection_v1",
+    "pairs": 3071,
+    "semantic_sha256": "02c2fef961154053c7e340ff4fcc083dbf3a7a1fe0c5fb77e4ab2294ffc0ead0",
+    "exclusions": {},
+    "scope": "training intersection only; full val/test retained; not proof of label accuracy"
+  },
+  "manual_counts": {
+    "2": {
+      "train": 443,
+      "val": 273,
+      "test": 186
+    },
+    "4": {
+      "train": 443,
+      "val": 273,
+      "test": 186
+    }
+  },
+  "sampling": {
+    "1": [
+      {
+        "epoch": 0,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 1,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 2,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 3,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 4,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 5,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 6,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      }
+    ],
+    "4": [
+      {
+        "epoch": 0,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 1,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 2,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 3,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 4,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 5,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      },
+      {
+        "epoch": 6,
+        "presentations": 10240,
+        "event_counts": {
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E2": 1024,
+          "U-E3": 1024,
+          "U-E4": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E7": 1024
+        },
+        "unique_questions": 3071,
+        "max_question_repeat": 11,
+        "cumulative_unique_questions": 3071
+      }
+    ]
+  },
+  "independent_reservations_unchanged": true,
+  "rgb_review": {
+    "current_frames": 5,
+    "complete_sequences": 0,
+    "independent_frames": 0,
+    "ledger": "teacher_exposure_v41_20261008.json",
+    "scope": "developer contact-sheet spot check, not label certification"
+  },
+  "limitations": [
+    "No full-route v41 production or GPU training performed here; run.sh rebuilds automatically.",
+    "UE2 return rule positive path tested synthetically; no return supervision in this 34-route probe.",
+    "Automatic no-return/in-lane-pass/cyclist-bypass branch extraction remains unsupported; existing manual labels preserved.",
+    "UE5 and UE7 positives remain sparse in this development probe; no independent accuracy claim.",
+    "Strict approvals remain empty; manual val/test remain four-event references."
+  ]
+}

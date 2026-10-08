@@ -11,6 +11,14 @@ def reviewed(row):
             raise ValueError('visible scope review is only for maneuver permission')
         return True
     if proof is None:
+        if row.get('label_basis') in ('weak_rule_teacher','approved_rule_teacher'):
+            from .teacher_replay import validate_question
+            q=validate_question(row.get('teacher_provenance',{}).get('question',{}))
+            if (q.get('visible_condition_scope')!=POLICY or q['edge']!=row['edge']
+                    or q['rule_target']!=row['target'] or q['history_frames']!=row['observation']['history_frames']
+                    or [s['sha256'] for s in q['input_sources']]!=row['image_sha256']):
+                raise ValueError('teacher visible maneuver evidence mismatch')
+            return True  # rule evidence, explicitly not a human visible_scope_review
         return False
     if (not isinstance(proof, dict) or proof.get('policy') != POLICY
             or any(not isinstance(proof.get(k), str) or not proof[k].strip()
