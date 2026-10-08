@@ -40,7 +40,7 @@ def test_default_runs_full_build_train_test_and_package(tmp_path,history,rgb):
     assert '--skip-build' in calls[0]
     train=next(c for c in calls if 'qwen3vl_local.sft_new_loop_phase4.train' in c)
     for key,value in (('--dataset',str(tmp_path/f'data/data{rgb}')),('--paired-with',str(tmp_path/f'data/data{6-rgb}')),
-                      ('--sampling-policy','full_event_equal'),('--epochs','3'),('--accumulation','16')):
+                      ('--sampling-policy','phase3_balanced'),('--epochs','3'),('--accumulation','16')):
         assert train[train.index(key)+1]==value
     evaluation=next(c for c in calls if 'qwen3vl_local.sft_new_loop_phase4.evaluate' in c)
     assert evaluation[evaluation.index('--split')+1]=='test'
@@ -91,7 +91,7 @@ def test_ddp_receives_full_sampling_and_actual_world(tmp_path):
     preflight=next(c for c in calls if 'qwen3vl_local.sft_new_loop_phase4.preflight' in c)
     assert preflight[preflight.index('--world-size')+1]=='2'
     ddp=next(c for c in calls if 'torch.distributed.run' in c)
-    assert '--nproc_per_node=2' in ddp and 'full_event_equal' in ddp
+    assert '--nproc_per_node=2' in ddp and 'phase3_balanced' in ddp
 
 
 def test_missing_build_cannot_skip(tmp_path):

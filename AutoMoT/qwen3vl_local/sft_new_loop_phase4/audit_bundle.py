@@ -38,6 +38,7 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     a=p.parse_args()
     create(a.run,a.output)
+    print(f"[Phase4 audit] archive={a.output.resolve()} bytes={a.output.stat().st_size}", flush=True)
 
 if __name__=='__main__':
     main()

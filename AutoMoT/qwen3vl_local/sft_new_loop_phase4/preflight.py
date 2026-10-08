@@ -61,7 +61,7 @@ def inspect(dataset,model_dir=None,data_root=None,*,sampling_policy=None,epoch_s
                                     and report['review_capacity']['numerical_floor_met']
                                     and bool(m['production_coverage'].get('approved_rule_classes')))
     report['approved_rule_classes']=(m.get('production_coverage') or {}).get('approved_rule_classes',[])
-    if sampling_policy=='full_event_equal':
+    if sampling_policy in ('phase3_balanced','full_event_equal'):
         from .full_sampling import validate_dataset_scope
         validate_dataset_scope(m,pairing)
     if data['train']:
@@ -146,7 +146,7 @@ def main():
     p.add_argument('--require-ready',action='store_true')
     p.add_argument('--require-trainable',action='store_true')
     p.add_argument('--require-complete-coverage',action='store_true')
-    p.add_argument('--sampling-policy',choices=('full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'))
+    p.add_argument('--sampling-policy',choices=('phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'))
     p.add_argument('--epoch-samples',type=int)
     p.add_argument('--max-question-repeat',type=int,default=4)
     p.add_argument('--cap',type=int,default=8)

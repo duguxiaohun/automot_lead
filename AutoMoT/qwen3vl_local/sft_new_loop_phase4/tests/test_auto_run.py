@@ -58,7 +58,7 @@ def test_sequence_builds_once_then_reuses_separate_runs(tmp_path):
         assert not {'SKIP_TRAIN','SKIP_EVAL','OUTPUT_DIR','RUN_ROOT','RGB_MODE','MODE','ANNOTATIONS'}&env.keys()
     assert first['PIPELINE_ROOT']!=second['PIPELINE_ROOT']
     record=json.loads((output/'automatic_run.json').read_text())
-    assert record['sampling_policy']=='full_event_equal' and record['rgb_order']==[4,2]
+    assert record['sampling_policy']=='phase3_balanced' and record['rgb_order']==[4,2]
 
 
 def test_first_failure_never_runs_second_experiment(tmp_path):

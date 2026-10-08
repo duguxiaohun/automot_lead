@@ -78,7 +78,7 @@ def main():
     p.add_argument('--lora-alpha',type=int,default=32)
     p.add_argument('--vision-scope',choices=('off','merger','last4','all'),default='off')
     p.add_argument('--sampling-only',action='store_true')
-    p.add_argument('--sampling-policy',choices=('full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'),default=None)
+    p.add_argument('--sampling-policy',choices=('phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'),default=None)
     p.add_argument('--max-question-repeat',type=int,default=4)
     p.add_argument('--require-complete-coverage',action='store_true',
                    help='Optional exhaustive coverage acceptance, not needed to start training')
@@ -96,7 +96,7 @@ def main():
             if not coverage_report(sum(data.values(),[]))['ready']:raise ValueError('paired training view lacks exhaustive coverage')
     admission=pairing['training_admission'] if pairing is not None else manifest['training_admission']
     if a.sampling_policy is None:a.sampling_policy='event_weighted' if admission.get('weak_supervision_rows') else 'event_equal'
-    if a.sampling_policy=='full_event_equal':
+    if a.sampling_policy in ('phase3_balanced','full_event_equal'):
         from .full_sampling import validate_dataset_scope
         validate_dataset_scope(manifest,pairing)
     rank=int(os.environ.get('RANK','0'))
@@ -152,7 +152,7 @@ def main():
         state=torch.load(a.resume/'training_state.pt',map_location=device,weights_only=True)
         first,best,best_epoch,best_path=restore_best(a.resume,state,run_contract)
         sampling_history=state.get('sampling_history')
-        if a.sampling_policy in ('full_event_equal','event_equal','event_edge_answer','event_weighted') and sampling_history is None:
+        if a.sampling_policy in ('phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted') and sampling_history is None:
             raise ValueError('resume lacks actual sampling exposure history')
         validate_adapter(best_path,bundle.model)
         if first>=a.epochs:
@@ -176,6 +176,10 @@ def main():
         local_indices=indices[rank::world]
         if rank==0:
             write_json(a.output_dir/f'epoch_{epoch:03d}_sampling.json',audit)
+            print(f"[sampling] epoch={epoch} policy={a.sampling_policy} pool={len(data['train'])} "
+                  f"presentations={len(indices)} unique={audit.get('unique_questions',len(set(indices)))} "
+                  f"microbatches_per_rank={len(local_indices)} optimizer_steps={math.ceil(len(local_indices)/a.accumulation)} "
+                  f"max_question_repeat={audit.get('max_question_repeat','see sampling report')}",flush=True)
         bundle.model.train()
         optimizer.zero_grad(set_to_none=True)
         total_loss=0.

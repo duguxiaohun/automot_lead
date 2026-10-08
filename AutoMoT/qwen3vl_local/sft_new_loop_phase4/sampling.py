@@ -95,6 +95,9 @@ class Flow:
 
 def plan(rows, *, epoch, seed=20260929, cap=8, budget=None, world_size=1,
          policy='event_equal', expected_events=None, history=None, max_question_repeat=4):
+    if policy=='phase3_balanced':
+        from .phase3_sampling import plan as phase3
+        return phase3(rows,epoch=epoch,seed=seed,budget=budget,world_size=world_size,expected_events=expected_events,history=history)
     if policy=='full_event_equal':
         from .full_sampling import plan as full
         return full(rows,epoch=epoch,seed=seed,budget=budget,world_size=world_size,expected_events=expected_events,history=history)

@@ -72,6 +72,14 @@ def test_exact_four_group_chain_builds_once_and_propagates_candidate(shell_env):
     assert not any('audit' in Path(c['args'][0]).name for c in calls)
     assert all(c['env']['SPLIT']=='test' and c['env']['CASES_PER_BIN']=='0' for c in evals)
     assert len([c for c in calls if c['args'][-1]=='finish'])==4
+    packages=[c for c in calls if c['args'][:2]==['-m','qwen3vl_local.sft_new_loop_phase3.pack_results']]
+    assert len(packages)==4
+    assert {c['args'][2] for c in packages}=={c['env']['PIPELINE_ROOT'] for c in trains}
+    assert all(c['env']['PACK_RESULTS']=='1' for c in packages)
+    for c in packages:
+        assert '--receipt' in c['args']
+        group_calls=[x['args'] for x in calls if x['env']['PIPELINE_ROOT']==c['env']['PIPELINE_ROOT']]
+        assert group_calls.index(c['args']) > next(i for i,args in enumerate(group_calls) if args[-1]=='finish')
     # Fixed stamp repeats cannot append over existing results.
     assert run_shell(root,env,f'ACTION_OUTPUT_MODE=binary {script}').returncode!=0
 
@@ -178,3 +186,11 @@ def test_start_without_regression_does_not_read_old_cases(tmp_path,monkeypatch):
     state=json.loads((tmp_path/'pipeline_manifest.json').read_text())
     assert state['historical_regression_enabled'] is False
     assert state['audits_enabled'] is False and 'historical_input' not in state
+
+
+def test_no_automatic_archive_when_evaluation_is_skipped(shell_env):
+    root,env=shell_env
+    result=run_shell(root,env,'PIPELINE_CHECK_ONLY=1 bash qwen3vl_local/sft_new_loop_phase3/run_full_pipeline.sh')
+    assert result.returncode==0,result.stdout+result.stderr
+    calls=[json.loads(line)['args'] for line in Path(env['CALLS']).read_text().splitlines()]
+    assert not any('qwen3vl_local.sft_new_loop_phase3.pack_results' in args for args in calls)

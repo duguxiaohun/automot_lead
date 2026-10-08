@@ -1,3 +1,5 @@
+> 历史 v38 说明：下文的每轮全覆盖采样已于 v40 退出默认入口。当前为全路线题池＋每事件1024次抽样，见 [v40](PHASE3_STYLE_SAMPLING_V40.md)。
+
 日常使用只需 `bash qwen3vl_local/sft_new_loop_phase4/run.sh`，自动连跑四图和两图，详见 [一行入口](QUICKSTART.md)。下文保留高级单实验用法。
 
 # Phase4 一条命令运行全量两图／四图实验

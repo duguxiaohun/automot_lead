@@ -4,7 +4,9 @@
 bash qwen3vl_local/sft_new_loop_phase4/run.sh
 ```
 
-自动准备全量配对题库，依次运行四图和两图；无需手填路径或参数。见 [简明说明](QUICKSTART.md)。
+自动从全部合格路线准备配对题库，依次运行四图和两图；每事件每轮抽样1024次（类似Phase3），不再把小事件重复到最大事件规模。无需手填路径或参数。见 [简明说明](QUICKSTART.md)。
+
+[当前 v40：全路线生产与 Phase3 式有限采样](PHASE3_STYLE_SAMPLING_V40.md)
 
 [v38 一条命令完成全量建库、两图／四图训练、测试与打包](PIPELINE_V38.md)
 

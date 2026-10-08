@@ -36,7 +36,7 @@ for P4_ARG in "$@"; do
   P4_OPTION="${P4_ARG%%=*}"
   for P4_FIXED in --dataset --model-dir --data-root --output-dir --paired-with --sampling-policy; do
     if [[ "$P4_OPTION" == --?* && "$P4_FIXED" == "$P4_OPTION"* ]]; then
-      fail 'Set paths through environment variables; full_event_equal and the RGB pair are fixed by this pipeline.'
+      fail 'Set paths through environment variables; phase3_balanced and the RGB pair are fixed by this pipeline.'
     fi
   done
 done
@@ -45,7 +45,7 @@ export MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 if [[ "$P4_MODE" == ddp || "$P4_MODE" == single || "$P4_MODE" == host-preflight ]]; then
   [[ -f "$MODEL_DIR/config.json" ]] && compgen -G "$MODEL_DIR/*.safetensors" >/dev/null || fail "MODEL_DIR=$MODEL_DIR: local base model missing; set MODEL_DIR to the installed complete Qwen3.5-4B before building/training."
 fi
-DATA_DIR="${DATA_DIR:-checkpoints/phase4_v39_full}"
+DATA_DIR="${DATA_DIR:-checkpoints/phase4_v40_full}"
 # Canonical paths prevent a caller from building one pair and training another.
 mkdir -p -- "$DATA_DIR"
 DATA_DIR="$(cd -- "$DATA_DIR" && pwd)"
@@ -62,14 +62,14 @@ PIPELINE_ROOT="${PIPELINE_ROOT:-checkpoints/sft_new_loop_phase4_pipeline/${P4_ST
 export OUTPUT_DIR="${RUN_ROOT:-${OUTPUT_DIR:-${PIPELINE_ROOT}/train}}"
 mkdir -p -- "$PIPELINE_ROOT"
 exec > >(tee -a "$PIPELINE_ROOT/pipeline.log") 2>&1
-printf '[Phase4 pipeline] RGB=%s, mode=%s, full pool, strict event presentations 1:1\nDATA_DIR=%s\nOUTPUT_DIR=%s\n' "$P4_RGB" "$P4_MODE" "$DATA_DIR" "$OUTPUT_DIR"
+printf '[Phase4 pipeline] RGB=%s, mode=%s, all-route pool, Phase3-style 1024/event epochs\nDATA_DIR=%s\nOUTPUT_DIR=%s\n' "$P4_RGB" "$P4_MODE" "$DATA_DIR" "$OUTPUT_DIR"
 P4_BUILD=(--data-dir "$DATA_DIR" --data-root "$DATA_ROOT" --workers "${BUILD_WORKERS:-16}" --annotations "${ANNOTATIONS:-$P4_DIR/reviewed_state_pairs_v9.json}")
 [[ "${SKIP_BUILD:-0}" != 1 ]] || P4_BUILD+=(--skip-build)
 [[ -z "${CANDIDATE_POOL:-}" ]] || P4_BUILD+=(--candidate-pool "$CANDIDATE_POOL")
 [[ -z "${PRODUCTION_INDEX:-}" ]] || P4_BUILD+=(--production-index "$PRODUCTION_INDEX" --teacher-registry "$TEACHER_REGISTRY")
 "$PYTHON" -m qwen3vl_local.sft_new_loop_phase4.full_pipeline "${P4_BUILD[@]}"
 if [[ "${SKIP_TRAIN:-0}" != 1 ]]; then
-  bash "$P4_DIR/train_full.sh" "$P4_RGB" "$P4_MODE" --epochs "${EPOCHS:-7}" --accumulation "${ACCUMULATION:-8}" "$@"
+  bash "$P4_DIR/train.sh" "$P4_MODE" --sampling-policy phase3_balanced --paired-with "$PAIRED_WITH" --epochs "${EPOCHS:-7}" --accumulation "${ACCUMULATION:-8}" "$@"
 fi
 # Checks must not touch any existing adapter or evaluate a previous run.
 case "$P4_MODE" in check|preflight|host-preflight) exit 0 ;; esac

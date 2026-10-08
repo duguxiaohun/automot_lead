@@ -112,7 +112,7 @@ def execute(config, root, *, environ=None, runner=subprocess.run, model_resolver
     output.mkdir(parents=True,exist_ok=False)
     write_json(output/'automatic_run.json',dict(**config,model_dir=str(model),rgb_order=[4,2],
         launcher_sources={n:file_sha(ROOT/n) for n in ('run.sh','auto_run.py')},
-        sampling_policy='full_event_equal',epochs=7,scope='full admitted weak supervision'))
+        sampling_policy='phase3_balanced',epochs=7,per_event_presentations=1024,scope='all-route production pool; sampled epochs'))
     # Inherited options from another experiment must not silently truncate/skip
     # this no-argument run or make the two experiments overwrite one another.
     for key in ('DATASET','PAIRED_WITH','PRODUCTION_INDEX','TEACHER_REGISTRY','CANDIDATE_POOL',
@@ -123,7 +123,7 @@ def execute(config, root, *, environ=None, runner=subprocess.run, model_resolver
     env.update(PYTHON=sys.executable,DATA_ROOT=config['data_root'],DATA_DIR=config['data_dir'],
                MODEL_DIR=str(model),TRAIN_MODE='ddp',ACTION_OUTPUT_MODE='binary',EPOCHS='7',ACCUMULATION='8',
                HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',HF_DATASETS_OFFLINE='1',HF_HUB_DISABLE_TELEMETRY='1')
-    print('[Phase4] Automatic full-pool RGB4 then RGB2; exact event presentation 1:1.',flush=True)
+    print('[Phase4] Automatic RGB4 then RGB2; all-route pool, Phase3-style 1024/event sampled epochs.',flush=True)
     print(f'[Phase4] Results: {output}',flush=True)
     for mode in (4,2):
         run_env=dict(env,HISTORY_RGB_MODE='4rgb' if mode==4 else '2rgb_endpoints',

@@ -1,4 +1,4 @@
-> 2026-10-07 当前入口：`run_full_pipeline.sh` 默认候选提示词、曝光隔离数据、完整训练和 test 评测；按用户要求默认关闭额外审计与历史回归，无需旧审计包。原四条命令可用，详见 [运行说明](FOUR_RUNS_20261006.md)。
+> 2026-10-08 当前入口：`run_full_pipeline.sh` 默认候选提示词、曝光隔离数据、完整训练和 test 评测，测试后自动生成完整结果压缩包（`PACK_RESULTS=1`）；额外审计与历史回归仍默认关闭，无需旧审计包。已训练完成的四组可运行 `bash qwen3vl_local/sft_new_loop_phase3/pack_results.sh` 补包。详见 [运行说明](FOUR_RUNS_20261006.md)。
 
 > 2026-09-28：当前新训基座默认已迁移为本地 `checkpoints/Qwen3.5-4B`。本文历史记录/旧命令中的 Qwen3-VL 路径不适用于新模型；旧 adapter 需重训。依赖、本地源码、预检与兼容边界见 [Qwen3.5 迁移说明](../qwen35/README.md)。
 

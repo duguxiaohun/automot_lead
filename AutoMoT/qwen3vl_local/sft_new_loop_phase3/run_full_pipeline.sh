@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # v23 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
-# 默认 RGB-stage 候选：隔离建库 -> 完整训练 -> test评测；无需历史审计包。
+# 默认 RGB-stage 候选：隔离建库 -> 完整训练 -> test评测 -> 结果打包；无需历史审计包。
 # PROMPT_VARIANT=baseline 可显式运行冻结 v23；标签/阈值不随候选更改。
 #
 # 从 AutoMoT/ 目录运行，默认 v23 四图 + choice（选择题）：
@@ -52,6 +52,7 @@ SKIP_TRAIN="${SKIP_TRAIN:-0}"
 SKIP_EVAL="${SKIP_EVAL:-0}"
 RUN_REGRESSION="${RUN_REGRESSION:-0}"
 RUN_AUDITS="${RUN_AUDITS:-0}"
+PACK_RESULTS="${PACK_RESULTS:-1}"
 AUDIT_ROOT="${AUDIT_ROOT:-checkpoints}"
 REPLAY_AUTOMOT_ROOT="${REPLAY_AUTOMOT_ROOT:-${AUTOMOT_ROOT}}"
 if [[ "${PIPELINE_CHECK_ONLY:-0}" == "1" ]]; then SKIP_TRAIN=1; SKIP_EVAL=1; fi
@@ -64,7 +65,7 @@ RUN_ROOT="${RUN_ROOT:-${OUTPUT_DIR:-${PIPELINE_ROOT}/train}}"
 mkdir -p "$(dirname "${PIPELINE_ROOT}")"
 mkdir "${PIPELINE_ROOT}"
 exec > >(tee "${PIPELINE_ROOT}/pipeline.log") 2>&1
-for flag in SKIP_BUILD SKIP_TRAIN SKIP_EVAL RUN_REGRESSION RUN_AUDITS; do
+for flag in SKIP_BUILD SKIP_TRAIN SKIP_EVAL RUN_REGRESSION RUN_AUDITS PACK_RESULTS; do
   if [[ "${!flag}" != 0 && "${!flag}" != 1 ]]; then echo "Invalid ${flag}=${!flag}" >&2; exit 2; fi
 done
 case "${TRAIN_MODE}" in single|ddp) ;; *) echo "Use TRAIN_MODE=single/ddp; PIPELINE_CHECK_ONLY=1 for CPU checks" >&2; exit 2 ;; esac
@@ -76,7 +77,7 @@ if [[ "${EVAL_SPLIT:-val}" != val || "${SPLIT:-test}" != test || -n "${EXCLUDE_C
   echo "Full pipeline requires validation on val, testing on test, without exclusions" >&2; exit 2
 fi
 export PROMPT_VARIANT INDEX DATA_ROOT MODEL_DIR HISTORY_RGB_MODE ACTION_OUTPUT_MODE
-export TRAIN_MODE PIPELINE_ROOT RUN_ROOT SKIP_TRAIN SKIP_EVAL RUN_REGRESSION RUN_AUDITS AUDIT_ROOT REPLAY_AUTOMOT_ROOT
+export TRAIN_MODE PIPELINE_ROOT RUN_ROOT SKIP_TRAIN SKIP_EVAL RUN_REGRESSION RUN_AUDITS PACK_RESULTS AUDIT_ROOT REPLAY_AUTOMOT_ROOT
 if [[ "${SKIP_BUILD}" == 1 && ! -f "${INDEX}" ]]; then echo "SKIP_BUILD=1 requires existing ${INDEX}" >&2; exit 2; fi
 python -m qwen3vl_local.sft_new_loop_phase3.pipeline_support start
 
@@ -192,4 +193,10 @@ fi
 
 echo
 python -m qwen3vl_local.sft_new_loop_phase3.pipeline_support finish
+# Packaging is independent of optional audits; it reads completed predictions only.
+if [[ "${SKIP_EVAL}" != 1 && "${PACK_RESULTS}" == 1 ]]; then
+  echo "========== package completed results =========="
+  python -m qwen3vl_local.sft_new_loop_phase3.pack_results "${PIPELINE_ROOT}" \
+    --output-dir "${PIPELINE_ROOT}/eval" --receipt "${PIPELINE_ROOT}/packaging_manifest.json"
+fi
 echo "[phase3-pipeline] done: ${PIPELINE_ROOT}; see pipeline_manifest.json"

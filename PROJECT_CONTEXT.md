@@ -1,5 +1,11 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-08 Phase4 v40 按Phase3比例抽样，替代默认逐轮全覆盖
+
+用户澄清全量指通用规则扫描全部合格路线，不是每轮每题必见再大量重复；本条取代v37默认采样要求。run.sh/run_full_pipeline改phase3_balanced：每事件1024次，共10240；事件内按边/答案容量回流，完整事件池循环后再补余量，物理路线轮转及曝光历史恢复。四卡accum8每卡2560次计算、320次更新；train_full.sh只保留为旧策略显式入口。
+仍全路线生产、不按路线截断、保持完整两图四图配对及冻结split；通用老师仅UE1/UE4，八事件人工题不冒称自动规则。当前小事件仍重复，不宣称无重复或七轮全覆盖。
+对SHA核验的v38两库88986题实跑world1/4各七轮：每轮10240、首轮2304不同题、七轮7807不同题、最大单题49次，两图四图题序一致。1019专项通过。合同v40/预约v20/空registry v15，事实规则v8未变；未全量重建v40、未GPU训练/新增RGB审计。见Phase4/PHASE3_STYLE_SAMPLING_V40.md及配套verification JSON。
+
 ### 2026-10-07 Phase4 v39 外部软链接数据兼容
 
 修复 candidate route escapes data root：数据路径按逻辑 scenario/route/frame 读取，允许场景、路线、子目录及文件链接到外部磁盘；扫描、回放、建库、审核、RGB加载统一处理。绝对路径/父目录穿越仍拒绝，帧身份与文件/像素SHA保留。
