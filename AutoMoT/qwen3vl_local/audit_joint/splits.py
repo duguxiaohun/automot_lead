@@ -117,13 +117,12 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
         # Stage this source so a malformed last row cannot partially pass admission.
         staged, alias_keys, cells = {}, defaultdict(set), defaultdict(lambda: dict(rows=0, groups=set()))
         counts = Counter()
+        certification_errors = {spec['validation_error']} if spec.get('validation_error') else set()
         try:
             sha = file_sha(path)
             report['sha256'] = sha
-            if spec.get('validation_error'):
-                raise ValueError(spec['validation_error'])
             if spec.get('expected_sha256') and sha != spec['expected_sha256']:
-                raise ValueError('source SHA256 mismatch')
+                certification_errors.add('source SHA256 mismatch')
             report['sha256'] = sha
             for n, row in enumerate(records(spec), 1):
                 group, role = group_of(row), role_of(row, spec)
@@ -137,8 +136,9 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
                 if spec.get('data_root') and route:
                     route_path = Path(spec['data_root']) / row['scenario'] / route
                     if not route_path.is_dir():
-                        raise ValueError(f'route directory unavailable: {route_path}')
-                    alias_keys[('resolved_route', str(route_path.resolve()))].add(group)
+                        certification_errors.add(f'route directory unavailable: {route_path}')
+                    else:
+                        alias_keys[('resolved_route', str(route_path.resolve()))].add(group)
                 hashes = row.get('image_sha256', [])
                 pixels = row.get('image_rgb_sha256', [])
                 if hashes or pixels:
@@ -168,23 +168,29 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
                 raise ValueError('empty source is not evidence of complete coverage')
             if file_sha(path) != sha:
                 raise ValueError('source changed while auditing')
+            certification_errors = sorted(set(certification_errors))
+            source_status = 'invalid' if certification_errors else 'audited'
             for (group, role), value in staged.items():
                 bucket = f"{spec['phase']}:{role}"
-                members[group][spec['id'] + ':' + role] = dict(source=spec['id'], bucket=bucket, **value)
+                members[group][spec['id'] + ':' + role] = dict(source=spec['id'], bucket=bucket,
+                                                            source_status=source_status, **value)
                 if role == 'candidate_dev_val':
                     candidates.add(group)
             for key, groups in alias_keys.items():
                 identities[key].update(groups)
-            for key, cell in cells.items():
+            for key, cell in (cells.items() if not certification_errors else []):
                 # Keep input configurations separate, rather than doubling support with 2/4 RGB.
                 target = support[spec['id'] + '/' + key]
                 target['rows'] += cell['rows']
                 target['groups'].update(cell['groups'])
-            if spec.get('full_pool') is True:
+            if spec.get('full_pool') is True and not certification_errors:
                 full_pools.update((spec['phase'], role) for role in counts)
             if spec.get('verify_images') and any(k[0] == 'pixel_sha256' for k in alias_keys):
                 content_sources.add(spec['id'])
-            report.update(status='audited', rows=sum(counts.values()), roles=dict(counts),
+            report.update(status=source_status, observation_status='observed',
+                          certification_errors=certification_errors,
+                          reason='; '.join(certification_errors),
+                          rows=sum(counts.values()), roles=dict(counts),
                           physical_groups=len({g for g, _ in staged}),
                           image_hashes_verified=spec['id'] in content_sources)
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as error:
@@ -218,7 +224,11 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
             matrix.append(dict(left=left, right=right, groups=len(intersection)))
             kind = conflict_kind(left, right)
             if kind and intersection:
-                conflicts.append(dict(kind=kind, left=left, right=right, physical_groups=intersection,
+                evidence = [dict(physical_group=g, **entry)
+                            for key in intersection for g in sorted(components[key])
+                            for entry in members[g].values() if entry['bucket'] in (left, right)]
+                conflicts.append(dict(evidence_status='suspected' if any(e['source_status'] != 'audited' for e in evidence) else 'observed',
+                                      sources=evidence, kind=kind, left=left, right=right, physical_groups=intersection,
                                       logical_groups=sorted({g for key in intersection for g in components[key]})))
     aliases = [dict(kind=kind, identity=identity, physical_groups=sorted(groups),
                     conclusion='potential_duplicate_content' if kind != 'resolved_route' else 'same_resolved_route')
@@ -238,8 +248,9 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
                 neighbors.update(components[canonical(neighbor)])
         for neighbor in sorted(neighbors):
             for entry in members[neighbor].values():
-                if entry['bucket'].rsplit(':', 1)[1] in PROHIBITED_FOR_NEW_VAL:
+                if entry['bucket'].rsplit(':', 1)[1] in PROHIBITED_FOR_NEW_VAL or entry['source_status'] != 'audited':
                     reasons.append(dict(group=neighbor, source=entry['source'], bucket=entry['bucket'],
+                                        source_status=entry['source_status'],
                                         match='physical_group' if neighbor == group else (
                                             'same_resolved_route' if canonical(neighbor) == canonical(group) else 'content_review')))
         filtered.append(dict(physical_group=group, status='excluded' if reasons else 'eligible_pending_complete_audit',

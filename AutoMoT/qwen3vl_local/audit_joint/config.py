@@ -110,7 +110,8 @@ def make_config(args):
             if item['phase'] == 'action':
                 item['data_root'] = roots['action']
     artifact('action_effective_manifest', effective_manifest, check='action_effective_manifest',
-             index_path=str(effective_path.absolute()), expected_data_root=roots['action'])
+             index_path=str(effective_path.absolute()), expected_data_root=roots['action'],
+             expected_split_paths={split: str((action / f'{split}.jsonl').absolute()) for split in SPLIT_ROLES})
     source('action_effective_index', 'action', effective_path,
            'complete native runtime pool only after manifest/dependency verification',
            split_roles=SPLIT_ROLES, full_pool=effective.get('schema') == 'joint_action_effective_pool_v2',

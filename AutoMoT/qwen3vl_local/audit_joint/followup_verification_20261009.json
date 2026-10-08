@@ -1,0 +1,75 @@
+{
+  "schema": "joint_audit_followup_verification_v1",
+  "date": "2026-10-09",
+  "base_commit": "ec8239c3fd04f14efe3625372f2ffe0bfa88511b",
+  "source_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/__init__.py": "6fa34971a5d978c86794bfe712f8e0cd577d1c9e657a28b50a2fec6222f69008",
+    "AutoMoT/qwen3vl_local/audit_joint/__main__.py": "eca23397255a571b29180ae564dea607ea8bf2751f72ac3dbc67eb710aff0a5c",
+    "AutoMoT/qwen3vl_local/audit_joint/action_pool.py": "60c6e4e4c98eb8dec4f1b19085f00e4d3771bf3cbec17151d034bed0cae3b4c8",
+    "AutoMoT/qwen3vl_local/audit_joint/baseline.py": "2c521e539e0266cd218a033ee99559d6d9d38ee2d1b87b52b4f085a1f36782c5",
+    "AutoMoT/qwen3vl_local/audit_joint/config.py": "cac6520f8d4c6bbcde1de7d6bf5e7e52e2e16343d106512491a6edf3848a30e2",
+    "AutoMoT/qwen3vl_local/audit_joint/guard.py": "1bfe9bce17cc9224cd887c0c75d142475d90dc7c1b9f2328d3635dedf9c3b949",
+    "AutoMoT/qwen3vl_local/audit_joint/handoff.py": "f2a355c1a8e4a6587fe0ed0de826e07e44cb751849c1146e74bd254f826ee5e8",
+    "AutoMoT/qwen3vl_local/audit_joint/io.py": "ca894e8e1a2c2fefbdef5e7dff939d122e7e9b95fd9ed2ad83e2b178612d3543",
+    "AutoMoT/qwen3vl_local/audit_joint/pairing.py": "838918d7d244af7c355a0d6d8c9a343e273cb20d87c5ed30e20459a93f497a9b",
+    "AutoMoT/qwen3vl_local/audit_joint/splits.py": "45ed178c27bedabfb98a02afd4c4e2972e0b088cd0ea826e104718cd7443f1ae",
+    "AutoMoT/qwen3vl_local/audit_joint/storage.py": "2e9cc7522e1ad135a8d41b39296a5c0c4fc4524c4ad219f8865dbf084eddbeca",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_audit_boundaries.py": "c9ad9dddb09b41ddfc0de1bc16c32fdc6ca9dfe2b78475da061d03ef13a35244",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_g0.py": "e182ea6753b0658e29c39f3a8bfa8cfc41ebc55f04ca99583ac1fb9c7b3b88d3",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_handoff.py": "bcbcdde87d22fd1ea9b885d3efa1a4230533e916d639c9bed2c0422bfff4eda4",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_storage.py": "ef9a841e5a25e1a23de76bafed1c4596e841bc3937bbae4c5e6ddcb6549945eb"
+  },
+  "regression": {
+    "passed": 1203,
+    "seconds": 95.12,
+    "log": "/tmp/joint_boundary_followup_20261009.log",
+    "scope": "audit_joint, Phase3 prompt candidate, Phase4 tests, Action split support"
+  },
+  "final_g0": {
+    "passed": 90,
+    "seconds": 0.85,
+    "new_tests": 16,
+    "scope": "after storing certification reasons once per source instead of repeating in ledger entries"
+  },
+  "scenarios": [
+    "Mismatched Action train, val or test content blocks effective-pool coverage.",
+    "Relocated identical raw split files pass with original directory absent, including older request configuration.",
+    "Index and adapter references reject retargeted links, same-byte replacement targets, dangling links and parent-directory link changes.",
+    "Missing/corrupt manifest or expected SHA mismatch retains suspected overlap and candidate exclusion without coverage.",
+    "Uncertified human validation rows do not count as manual support; reasons remain in source report."
+  ],
+  "real_capture": {
+    "path": "AutoMoT/checkpoints/joint_g0_20261009_followup",
+    "exit_code": 2,
+    "source_snapshot_sha256": "314d0e0abef5e5fc1c37d772d6669f4a50173c4ce6b76552ad3a4a04593c800e",
+    "phase4_pairing": {
+      "status": "verified",
+      "pairs": 8058,
+      "mode_directories": {
+        "2": "/tmp/phase4_v42_final/build2",
+        "4": "/tmp/phase4_v42_final/build4"
+      },
+      "scope": "All training IDs, semantics and shared RGB identities; does not evaluate label accuracy or model outputs."
+    },
+    "archive_bytes": 8317688,
+    "archive_sha256": "f3dae1ed4f38c7f4f455d0075d6446cb6aab51560c64374c455b505ecc5390b2",
+    "bundle_verified_files": 1050,
+    "package_verified_files": 1180,
+    "external_reference_checks": 66,
+    "target_status": "verified",
+    "binding_status": "verified",
+    "verify_inputs_status": "incomplete",
+    "model_status": "missing",
+    "conflict_pairs": 5,
+    "reproducible_baseline_ready": false,
+    "native_contracts_unchanged": true,
+    "scope": "Existing local development data; capture predates final report-only removal of repeated certification_errors in ledger entries."
+  },
+  "limitations": [
+    "No remote server, GPU training, full production replay, CARLA or independent label accuracy validation.",
+    "Local Phase4 data covers the existing 140-route subset; full server pool not certified.",
+    "Action test export uses mocked native read_rows; real dependency and content checks are exercised.",
+    "Existing captures, data, models and hashes remain unchanged. New ZIP and captures stay outside Git.",
+    "Old references without logical_path report incomplete; full snapshot byte verification is distinct from external-reference binding verification."
+  ]
+}

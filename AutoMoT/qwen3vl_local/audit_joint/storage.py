@@ -52,12 +52,17 @@ def plan(config, output, mode='references', min_free_bytes=2 * GIB):
 
 
 def capture_input(path, output, *, copy):
+    logical = Path(path).absolute()
+    resolved = logical.resolve(strict=True)
     if copy:
-        return dict(snapshot_file(path, output), storage='snapshot')
-    path = Path(path).resolve()
-    return dict(sha256=file_sha(path), bytes=path.stat().st_size,
-                resolved_path=str(path), storage='external_reference',
-                note='Original must remain at this path for re-verification; bytes are not frozen in this capture.')
+        record = dict(snapshot_file(logical, output), storage='snapshot')
+    else:
+        record = dict(sha256=file_sha(logical), bytes=logical.stat().st_size,
+                      resolved_path=str(resolved), storage='external_reference',
+                      note='Original logical path, target and bytes must remain available for re-verification.')
+    if logical.resolve(strict=True) != resolved or record['resolved_path'] != str(resolved):
+        raise RuntimeError('input link changed during capture: ' + str(logical))
+    return dict(record, logical_path=str(logical))
 
 
 def verify_inputs(capture):
@@ -72,11 +77,25 @@ def verify_inputs(capture):
         if item.get('storage') != 'external_reference':
             continue
         path = Path(item['resolved_path'])
+        result = dict(path=str(path), resolved_path=str(path), logical_path=item.get('logical_path'))
         try:
             valid = path.stat().st_size == item['bytes'] and file_sha(path) == item['sha256']
-            result = dict(path=str(path), status='verified' if valid else 'changed')
+            result['target_status'] = 'verified' if valid else 'changed'
         except (OSError, RuntimeError) as error:
-            result = dict(path=str(path), status='unavailable', error=str(error))
+            result.update(target_status='unavailable', error=str(error))
+        if not item.get('logical_path'):
+            result['binding_status'] = 'unrecorded'
+        else:
+            logical = Path(item['logical_path'])
+            try:
+                current = logical.resolve(strict=True)
+                result['current_resolved_path'] = str(current)
+                result['binding_status'] = 'verified' if current == path else 'retargeted'
+            except (OSError, RuntimeError) as error:
+                result.update(binding_status='unavailable', binding_error=str(error))
+        result['status'] = (result['target_status'] if result['target_status'] != 'verified' else
+                            ('verified' if result['binding_status'] == 'verified' else
+                             ('incomplete' if result['binding_status'] == 'unrecorded' else 'changed')))
         results.append(result)
     model = baseline.get('model', {})
     model_report = dict(status='unavailable_at_capture', checked_files=0, files=[], added=[], missing=[])
@@ -107,8 +126,8 @@ def verify_inputs(capture):
         model_report['status'] = ('verified' if not model_report.get('inventory_error')
                                   and not model_report['added'] and not model_report['missing']
                                   and all(r['status'] == 'verified' for r in model_report['files']) else 'failed')
-    failed = any(r['status'] != 'verified' for r in results) or model_report['status'] == 'failed'
-    return dict(status='failed' if failed else ('verified' if model_report['status'] == 'verified' else 'incomplete'),
+    failed = any(r['status'] not in ('verified', 'incomplete') for r in results) or model_report['status'] == 'failed'
+    return dict(status='failed' if failed else ('verified' if model_report['status'] == 'verified' and all(r['status'] == 'verified' for r in results) else 'incomplete'),
                 references=results, model=model_report, checked_files=len(results) + model_report['checked_files'],
                 scope='External input and recorded base assets, including asset-set drift; no experiment approval.')
 

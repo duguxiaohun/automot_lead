@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 2026-10-09 联合审计原始池绑定、逻辑引用与未认证证据
+
+Action有效池按本次action_raw三split内容SHA绑定，旧请求也从原始来源提取路径；允许原始索引搬迁并核验相同字节，无须保留旧索引目录，RGB/其它依赖仍按原合同检查。轻量引用同时登记逻辑路径/解析目标/SHA，verify-inputs分报target_status与binding_status；同字节改指仍失败，旧记录无逻辑路径为incomplete，不改历史回执。
+未认证但完整可读索引保留路线用途和带source_status的疑似冲突，禁止贡献完整池/人工支持；相关候选排除，缺RGB目录也保留逻辑组证据。损坏索引仍不提交部分来源。生产合同/标签不变；无服务器、GPU或全量重放。新增16项专项，完整相关回归1203通过、最终G0专项90通过；现有8058训练配对、66项引用目标与逻辑绑定核验通过，阻塞态ZIP8317688字节。缺模型/5对冲突仍在，验证详情见audit_joint/followup_verification_20261009.json。
+
 ### 2026-10-09 联合审计六项边界修复
 
 resolved-route别名传递归并参与跨任务冲突/候选排除，图像重复不当路线等价；Phase3/Action/候选实际data_root接线。guard主进程退出后清理本进程组残留并保留退出码。verify-inputs覆盖已登记基座资产与资产集合，缺模型incomplete、漂移failed。

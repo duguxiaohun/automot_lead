@@ -17,11 +17,12 @@ def export_contract():
     return {str(p.relative_to(code.parent)): file_sha(p) for p in paths if p.suffix in {'.py', '.json', '.jsonl'}}
 
 
-def dependencies(args):
+def dependencies(args, split_paths=None):
     """Record all raw routes, including ones removed by the native reader."""
     from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
     root = Path(args.data_root).resolve()
-    paths = [Path(args.data_dir) / f'{split}.jsonl' for split in ('train', 'val', 'test')]
+    paths = [Path(split_paths[split]) if split_paths else Path(args.data_dir) / f'{split}.jsonl'
+             for split in ('train', 'val', 'test')]
     mapping = Path(args.event_balance_index)
     paths += [mapping, mapping.with_name('manifest.json')]
     if getattr(args, 'high_level_action_token', False):
@@ -53,7 +54,7 @@ def dependencies(args):
                 route_filter_inventory=[routes[key] for key in sorted(routes)])
 
 
-def validate_export(value, index):
+def validate_export(value, index, expected_split_paths=None):
     from qwen3vl_local.action_prior.config import parser
     if value.get('schema') != 'joint_action_effective_pool_v2' or value.get('source_contract') != export_contract():
         raise ValueError('Action effective-pool source contract/schema mismatch; re-export with native reader')
@@ -66,8 +67,23 @@ def validate_export(value, index):
         args = parser().parse_args(argv)
     except SystemExit as error:
         raise ValueError('invalid recorded Action runtime arguments') from error
-    current = dependencies(args)
-    if any(value.get(key) != result for key, result in current.items()):
+    if expected_split_paths is not None and (set(expected_split_paths) != {'train', 'val', 'test'}
+                                            or not all(isinstance(p, str) and p for p in expected_split_paths.values())):
+        raise ValueError('Action audit requires the requested raw train/val/test paths')
+    current = dependencies(args, expected_split_paths)
+    expected = dict(value)
+    if expected_split_paths is not None:
+        # Bind by split content, allowing relocation without requiring old files.
+        expected_hashes = dict(value['input_sha256'])
+        raw_hashes = {split: expected_hashes.pop(str((Path(args.data_dir) / f'{split}.jsonl').absolute()))
+                      for split in ('train', 'val', 'test')}
+        for split, sha in raw_hashes.items():
+            new = str(Path(expected_split_paths[split]).absolute())
+            if new in expected_hashes and expected_hashes[new] != sha:
+                raise ValueError('Action input path collision')
+            expected_hashes[new] = sha
+        expected['input_sha256'] = expected_hashes
+    if any(expected.get(key) != result for key, result in current.items()):
         raise ValueError('Action runtime inputs/route frame counts/filter outcomes changed; re-export')
     return current
 

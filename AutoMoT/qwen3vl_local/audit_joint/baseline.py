@@ -100,7 +100,8 @@ def check_native_artifact(spec, contracts):
                     training_index_sha256=value['training_index_sha256'])
     if kind == 'action_effective_manifest':
         from .action_pool import validate_export
-        dependencies = validate_export(value, spec.get('index_path', path.with_name('effective_pool_audit.jsonl')))
+        dependencies = validate_export(value, spec.get('index_path', path.with_name('effective_pool_audit.jsonl')),
+                                       spec.get('expected_split_paths'))
         if spec.get('expected_data_root') and Path(spec['expected_data_root']).resolve() != Path(dependencies['data_root']).resolve():
             raise ValueError('Action actual data root differs from audit request')
         return dict(counts=value['counts'], scope=value['scope'])
@@ -130,6 +131,12 @@ def run(config, output):
     contracts = native_contracts(config['phase3_prompt_variant'])
     artifacts = []
     for spec in config['artifacts']:
+        spec = dict(spec)
+        if spec.get('check') == 'action_effective_manifest':
+            # Also bind requests written before expected_split_paths was added.
+            raw = {s['id']: s['path'] for s in config['split_sources']}
+            spec['expected_split_paths'] = {split: raw.get(f'action_raw_{split}')
+                                            for split in ('train', 'val', 'test')}
         item = dict(spec)
         artifacts.append(item)
         path = Path(spec['path'])
@@ -181,7 +188,7 @@ def run(config, output):
     split_report, ledger = audit_sources(validated_sources)
     # Default: retain identities, not a second full dataset/adapter copy.
     for spec, result in zip(config['split_sources'], split_report['sources'], strict=True):
-        if result['status'] == 'audited':
+        if result.get('observation_status') == 'observed' or result['status'] == 'audited':
             frozen = capture_input(spec['path'], output, copy=mode == 'full')
             if frozen['sha256'] != result['sha256']:
                 raise RuntimeError('split input changed after audit')

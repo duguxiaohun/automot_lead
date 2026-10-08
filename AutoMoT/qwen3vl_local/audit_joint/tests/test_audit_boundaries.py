@@ -327,3 +327,116 @@ def test_same_dataset_is_rejected_during_prepare_before_large_file_reads(tmp_pat
     specs = [a for a in config['artifacts'] if a['id'].startswith('phase4_rgb')]
     assert len(specs) == 2
     assert all('same resolved directory' in a['prepare_error'] for a in specs)
+
+
+@pytest.mark.parametrize('split', ['train', 'val', 'test'])
+def test_action_raw_pool_must_match_exported_split_content(tmp_path, split):
+    args, _, index = action_fixture(tmp_path)
+    other = tmp_path / 'other'
+    shutil.copytree(args.data_dir, other)
+    (other / f'{split}.jsonl').write_text(json.dumps(dict(scenario='Scene', run_id=split, split=split, anchor=99)) + '\n')
+    config_args = request_args(tmp_path)
+    config_args.action_data = other
+    config_args.action_effective_index = index
+    manifest, report = capture(make_config(config_args), tmp_path / 'capture')
+    item = next(a for a in manifest['artifacts'] if a['id'] == 'action_effective_manifest')
+    assert item['status'] == 'invalid'
+    assert 'runtime inputs' in item['error']
+    assert len([r for r in report['missing_full_pools'] if r['phase'] == 'action']) == 3
+
+
+def test_action_raw_pool_relocation_preserving_bytes_is_allowed(tmp_path):
+    args, _, index = action_fixture(tmp_path)
+    moved = tmp_path / 'moved'
+    Path(args.data_dir).rename(moved)
+    config_args = request_args(tmp_path)
+    config_args.action_data = moved
+    config_args.action_effective_index = index
+    config = make_config(config_args)
+    # Older requests are bound using the raw source paths as well.
+    next(a for a in config['artifacts'] if a['id'] == 'action_effective_manifest').pop('expected_split_paths')
+    manifest, report = capture(config, tmp_path / 'capture')
+    assert next(a for a in manifest['artifacts'] if a['id'] == 'action_effective_manifest')['status'] == 'verified'
+    assert not [r for r in report['missing_full_pools'] if r['phase'] == 'action']
+
+
+@pytest.mark.parametrize('kind', ['index', 'adapter'])
+@pytest.mark.parametrize('mutation', ['different_bytes', 'same_bytes', 'dangling', 'parent_link'])
+def test_verify_inputs_checks_logical_reference_binding(tmp_path, kind, mutation):
+    from qwen3vl_local.audit_joint.storage import capture_input
+    _, output = model_capture(tmp_path)
+    old_dir, new_dir = tmp_path / 'old', tmp_path / 'new'
+    old_dir.mkdir(); new_dir.mkdir()
+    name = 'index.jsonl' if kind == 'index' else 'adapter_model.safetensors'
+    old, new = old_dir / name, new_dir / name
+    old.write_bytes(b'original')
+    new.write_bytes(b'changed' if mutation == 'different_bytes' else b'original')
+    link = tmp_path / ('link_dir' if mutation == 'parent_link' else name)
+    link.symlink_to(old_dir if mutation == 'parent_link' else old)
+    logical = link / name if mutation == 'parent_link' else link
+    record = capture_input(logical, output, copy=False)
+    assert record['logical_path'] == str(logical)
+    # Build a receipt-covered fixture reference in the appropriate location.
+    target = output / ('split_cross_audit.json' if kind == 'index' else 'baseline_manifest.json')
+    value = json.loads(target.read_text())
+    if kind == 'index':
+        value['sources'].append(dict(snapshot=record))
+    else:
+        value['artifacts'].append(record)
+    target.write_text(json.dumps(value))
+    receipt = json.loads((output / 'receipt.json').read_text())
+    receipt['files'][target.name] = file_sha(target)
+    (output / 'receipt.json').write_text(json.dumps(receipt))
+    assert verify_inputs(output)['status'] == 'verified'
+    link.unlink()
+    link.symlink_to(new_dir if mutation == 'parent_link' else (tmp_path / 'absent' if mutation == 'dangling' else new))
+    result = verify_inputs(output)
+    assert result['status'] == 'failed'
+    reference = result['references'][0]
+    assert reference['target_status'] == 'verified'
+    assert reference['binding_status'] == ('unavailable' if mutation == 'dangling' else 'retargeted')
+    assert verify_bundle(output)['status'] == 'verified'
+
+
+@pytest.mark.parametrize('failure', ['missing_manifest', 'corrupt_manifest', 'wrong_sha'])
+def test_uncertified_source_keeps_conflicts_and_excludes_candidates(tmp_path, failure):
+    args = request_args(tmp_path)
+    args.phase3_index = tmp_path / 'p3/frame_index.jsonl'
+    args.phase3_index.parent.mkdir()
+    (args.data_root / 'Scene/route').mkdir(parents=True)
+    args.phase3_index.write_text(json.dumps(dict(scenario='Scene', route_id='route', split='train')) + '\n')
+    if failure == 'corrupt_manifest':
+        (args.phase3_index.parent / 'manifest.json').write_text('{')
+    if failure == 'wrong_sha':
+        (args.phase3_index.parent / 'manifest.json').write_text('{}')
+    config = make_config(args)
+    if failure == 'wrong_sha':
+        next(s for s in config['split_sources'] if s['id'] == 'phase3_full_index')['expected_sha256'] = '0' * 64
+    config['split_sources'] += [
+        pool(tmp_path / 'val.jsonl', 'phase4', 'dev_val', 'route', args.data_root),
+        pool(tmp_path / 'candidate.jsonl', 'phase4', 'candidate_dev_val', 'route', args.data_root)]
+    _, report = capture(config, tmp_path / 'capture')
+    source = next(s for s in report['sources'] if s['id'] == 'phase3_full_index')
+    assert source['status'] == 'invalid'
+    assert source['observation_status'] == 'observed'
+    assert source['snapshot']['logical_path'] == str(args.phase3_index)
+    conflict = next(c for c in report['conflicts'] if c['kind'] == 'training_holdout_overlap')
+    assert conflict['evidence_status'] == 'suspected'
+    assert any(e['source'] == 'phase3_full_index' and e['source_status'] == 'invalid' for e in conflict['sources'])
+    assert report['candidate_filter'][0]['status'] == 'excluded'
+    assert any(r['phase'] == 'phase3' and r['role'] == 'train_pool' for r in report['missing_full_pools'])
+    assert verify_package(pack(tmp_path / 'capture')['archive'])['status'] == 'verified'
+
+
+def test_uncertified_manual_val_does_not_count_as_support(tmp_path):
+    source = pool(tmp_path / 'val.jsonl', 'phase4', 'dev_val', 'route',
+                  episode={'event': 'UE1'}, label_basis='per_frame_conditions',
+                  observation={'speed_mps': 0}, target='YES', edge='proceed')
+    source.update(validation_error='manifest invalid', full_pool=True)
+    report, ledger = audit_sources([source])
+    assert report['sources'][0]['observation_status'] == 'observed'
+    assert not report['manual_val_support']
+    assert not report['manual_val_observed_events']
+    assert ledger[0]['uses'][0]['source_status'] == 'invalid'
+    assert 'certification_errors' not in ledger[0]['uses'][0]  # Reasons stored once per source.
+    assert len(report['missing_full_pools']) == 9

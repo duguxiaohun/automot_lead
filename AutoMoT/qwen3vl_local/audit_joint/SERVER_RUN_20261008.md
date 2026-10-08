@@ -8,7 +8,11 @@
 
 **2026-10-09 外部审计修订：** 同一真实路线目录的不同别名现在计入跨任务冲突；Action 有效池使用 v2 合同，默认路径与显式路径都必须核验 manifest、源码/外部筛选依赖、输入 SHA 和原始路线帧数。损坏的 manifest/metadata 会记录 invalid 并生成阻塞态 G0，不能获得完整池资格。RGB2/RGB4 要求不同目录、正确模式和一致绑定，并流式核对全部训练配对；额外内存只存 ID/摘要，不复制大题库。
 
-已运行的旧 Action 导出不改 hash，也不覆盖原文件：如需纳入本轮完整池，重新导出到 `action_pool_v2`（仅有效池索引和依赖清单），再重新 `prepare` 生成新请求，不能继续用旧请求绕过新增门禁。旧 Phase4 生产合同未改，已有 `full_production`/题库可以继续核验或原生续跑，**不需要因本次修复重新生成 30 GB**。
+已运行的旧 Action 导出不改 hash，也不覆盖原文件：如需纳入本轮完整池，重新导出到 `action_pool_v2_bound`（仅有效池索引和依赖清单），再重新 `prepare` 生成新请求，不能继续用旧请求绕过新增门禁。旧 Phase4 生产合同未改，已有 `full_production`/题库可以继续核验或原生续跑，**不需要因本次修复重新生成 30 GB**。
+
+**第二轮补强：** `--action-data` 三 split 现在必须与导出的原始输入逐一 SHA 相同；索引搬迁允许，误配另一题库会阻塞。旧 v2 导出因源码合同变化也需另目录导出（例如 `action_pool_v2_bound`），不要覆盖旧导出。重新 prepare/run 时使用新捕获目录；已有 Phase4 30 GB 产物继续复用。
+
+新引用同时保存逻辑路径和目标。`verify-inputs` 会检测索引/adapter 软链接改指，即使旧文件仍在；旧捕获缺逻辑路径时返回 incomplete。来源 manifest 不合格时，可读索引中的路线重叠仍作为带来源状态的疑似冲突保留，相关路线不能直接成为新 val，不计完整覆盖或人工支持。
 
 当前服务器回报：`full_production` 约 18 GB、`data2` 约 13 GB，尚未看到 `data4`。这只能证明这些目录存在，不能证明 `data2` 完整。先检查 `data2/manifest.json`、`data4/manifest.json`、`pipeline_ready.json` 是否存在；缺少四图库时先交缺口报告，不用复制四图库冒充两图库，也不删除原回放。
 
@@ -64,7 +68,7 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path checkpoints -- \
 先把 `P4_DATA` 设置为之前实际生成的、同时含 `data2/` 和 `data4/` 的目录。以下默认路径只是常规位置；如果此前输出在 `joint_remote_*/phase4_data`，就直接使用那一份，不要复制或移动。`G0_ROOT` 只存这次轻量审计，失败重试优先复用已完成产物，不自动生成一串时间戳目录。
 
 ```bash
-G0_ROOT=checkpoints/joint_audit_20261009
+G0_ROOT=checkpoints/joint_audit_20261009_bound
 P4_DATA=checkpoints/joint_remote_20261008_211924/phase4_data
 mkdir -p "$G0_ROOT"
 ```
@@ -124,10 +128,10 @@ ACTION_DATA=/替换为Action三split目录
 bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
   python -m qwen3vl_local.audit_joint export-action-pool \
   --argv-json "$G0_ROOT/action_argv.json" \
-  --output "$G0_ROOT/action_pool_v2"
+  --output "$G0_ROOT/action_pool_v2_bound"
 ```
 
-已有本轮匹配的 v2 `action_pool_v2` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
+已有本轮匹配的 v2 `action_pool_v2_bound` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
 
 ## 4. 跑服务器 G0，自动打包并核验
 
@@ -137,7 +141,7 @@ python -m qwen3vl_local.audit_joint prepare \
   --phase3-index "$P3_INDEX" --phase3-adapter "$P3_ADAPTER" \
   --phase4-data2 "$P4_DATA/data2" --phase4-data4 "$P4_DATA/data4" \
   --action-data "$ACTION_DATA" \
-  --action-effective-index "$G0_ROOT/action_pool_v2/effective_pool_audit.jsonl" \
+  --action-effective-index "$G0_ROOT/action_pool_v2_bound/effective_pool_audit.jsonl" \
   --data-root lead_data --model-dir "$MODEL_DIR" --verify-images \
   --storage-mode references \
   --output "$G0_ROOT/request.json"
