@@ -1,0 +1,56 @@
+{
+  "schema": "joint_images_and_action_cwd_verification_v1",
+  "date": "2026-10-09",
+  "base_commit": "292b725891dfc9df6c0f2d04886a95455b2825ed",
+  "source_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/action_pool.py": "7b36e606ca202afd6ed1f49b8741216b0ab89650d362f2ad988a3a41aab6403f",
+    "AutoMoT/qwen3vl_local/audit_joint/config.py": "44c4bf9c0273d72955f4cebda976ba5e7d1d5ce2bcbfa3716e78e1c6311daa41",
+    "AutoMoT/qwen3vl_local/audit_joint/splits.py": "579a95204ab35bc0fb23cd5f6f88fd38e36921c12889abf241927c85a8beff7f",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_audit_boundaries.py": "42b2c76d14b22e6c15cc540b3b12508fb68decc875db9a86eea704167e1b8b9d"
+  },
+  "regression": {
+    "passed": 1231,
+    "seconds": 95.96,
+    "g0_tests": 118,
+    "new_tests": 15,
+    "log": "/tmp/joint_images_cwd_20261009.log"
+  },
+  "image_checks": {
+    "inputs": "Synthetic RGB files loaded through native Phase4 load_images; no mock image loader",
+    "modes": [
+      "train_pool",
+      "dev_val"
+    ],
+    "failures": [
+      "missing image",
+      "changed bytes",
+      "last row missing image after valid rows"
+    ],
+    "verified": [
+      "Complete route ledger retained with invalid source status",
+      "Suspected training/holdout overlap retained",
+      "All affected candidates excluded",
+      "No full-pool or manual-support contribution",
+      "image_checks=3, image_failures=1, image_hashes_verified=false",
+      "Appending malformed JSON discards entire source even after image errors"
+    ]
+  },
+  "action_checks": {
+    "schema": "joint_action_effective_pool_v3",
+    "verified": [
+      "Original relative argv retained alongside export cwd, absolute resolved args and dependency paths",
+      "Other-cwd verification succeeds despite misleading relative mapping in new cwd",
+      "Raw split directory relocation succeeds from another cwd with original directory absent",
+      "Relative token candidate paths replay against export cwd",
+      "Actual mapping mutation still fails",
+      "Old v2/missing base/missing bindings rejected with re-export instruction",
+      "Relative base and inconsistent resolved binding rejected"
+    ]
+  },
+  "limitations": [
+    "No server execution, GPU training, full replay or independent label audit.",
+    "Action export fixtures mock native read_rows; parser, source contract, dependency hashing and duration inventory are real.",
+    "Phase4 producer, Action training implementation and original datasets unchanged. Action export contract changed; old small exports need re-export to a new directory.",
+    "Existing captures and exports are not rewritten or deleted."
+  ]
+}

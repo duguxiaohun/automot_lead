@@ -117,6 +117,7 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
         # Stage this source so a malformed last row cannot partially pass admission.
         staged, alias_keys, cells = {}, defaultdict(set), defaultdict(lambda: dict(rows=0, groups=set()))
         counts = Counter()
+        image_checks, image_failures = 0, 0
         certification_errors = {spec['validation_error']} if spec.get('validation_error') else set()
         try:
             sha = file_sha(path)
@@ -148,7 +149,13 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
                     if spec.get('verify_images'):
                         from qwen3vl_local.sft_new_loop_phase4.model import load_images
                         # The native loader checks source, pixel SHA and causal provenance.
-                        load_images(row, spec['data_root'])
+                        # Asset failures invalidate certification, not readable route identities.
+                        image_checks += 1
+                        try:
+                            load_images(row, spec['data_root'])
+                        except (ValueError, KeyError, TypeError, OSError, RuntimeError) as error:
+                            image_failures += 1
+                            certification_errors.add(f'image verification record {n}: {type(error).__name__}: {error}')
                     for kind, values in [('file_sha256', hashes), ('pixel_sha256', pixels)]:
                         for value in values:
                             if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
@@ -185,13 +192,14 @@ def audit_sources(specs, *, required_phases=('phase3', 'phase4', 'action')):
                 target['groups'].update(cell['groups'])
             if spec.get('full_pool') is True and not certification_errors:
                 full_pools.update((spec['phase'], role) for role in counts)
-            if spec.get('verify_images') and any(k[0] == 'pixel_sha256' for k in alias_keys):
+            if image_checks and not image_failures and any(k[0] == 'pixel_sha256' for k in alias_keys):
                 content_sources.add(spec['id'])
             report.update(status=source_status, observation_status='observed',
                           certification_errors=certification_errors,
                           reason='; '.join(certification_errors),
                           rows=sum(counts.values()), roles=dict(counts),
                           physical_groups=len({g for g, _ in staged}),
+                          image_checks=image_checks, image_failures=image_failures,
                           image_hashes_verified=spec['id'] in content_sources)
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as error:
             report.update(status='invalid', reason=f'{type(error).__name__}: {error}')

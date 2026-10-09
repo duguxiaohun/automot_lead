@@ -4,6 +4,12 @@
 
 服务器从更新、全量建库到 G0、现有基线训练/验证的完整顺序见 [服务器执行手册](SERVER_RUN_20261008.md)，命令统一从 `AutoMoT/` 执行。
 
+## 2026-10-09 图片失败与 Action 路径重放
+
+图片核验和索引完整读取分开：缺图、内容/SHA 不符等原生图片加载错误加入 certification_errors，继续扫描全部记录；路线用途保持未认证状态并参与疑似冲突和候选排除，不计完整池/人工支持。image_checks/image_failures 记录检查与失败行数；有图片失败时 image_hashes_verified=false。索引 JSON、路线/用途身份或摘要数组结构损坏仍整体拒绝，不提交部分路线证据。
+
+Action 导出升级 joint_action_effective_pool_v3：保留原 argv，记录 export_cwd、路径参数的 resolved_args 和实际 dependency_paths。复验用登记基准解释原参数及映射 manifest 的 candidate_index，不使用当前 cwd；按本次指定路径搬迁 raw split 时仍逐 split 比较原内容 SHA。依赖或路径绑定变化继续拒绝，旧 v1/v2 或缺少基准的记录明确要求新目录重新导出，不猜测 cwd、不修改旧 manifest。只重导小索引，无须重建原始题库；缺 Action 数据时继续生成缺失报告。
+
 ## 2026-10-09 Git 根目录与应用布局
 
 prepare 默认从导入模块位置查询 Git 根目录，兼容仓库包含 AutoMoT 子目录及仓库本身就是应用目录两种布局。显式 --project-root 同样识别这两种形式；无法识别或同时存在两套应用时明确拒绝，不能靠 cwd 猜测。默认 lead_data/checkpoints/source_roots 跟随识别后的 application_root。Git 不存在、不可读、无 HEAD 或超时记录为 git_identity 阻塞，源码快照和诊断包仍可生成，不冒称已获取版本身份。

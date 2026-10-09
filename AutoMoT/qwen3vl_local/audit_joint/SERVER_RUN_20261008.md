@@ -6,13 +6,15 @@
 
 本轮执行第 1–4 步，检查现有服务器资产与交叉隔离；第 4 步结束自动生成 **不超过 30,000,000 字节（30 MB）的 ZIP**，交回该文件即可审计。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收；已有训练/评测结果可按第 6 步合包。
 
-**2026-10-09 外部审计修订：** 同一真实路线目录的不同别名现在计入跨任务冲突；Action 有效池使用 v2 合同，默认路径与显式路径都必须核验 manifest、源码/外部筛选依赖、输入 SHA 和原始路线帧数。损坏的 manifest/metadata 会记录 invalid 并生成阻塞态 G0，不能获得完整池资格。RGB2/RGB4 要求不同目录、正确模式和一致绑定，并流式核对全部训练配对；额外内存只存 ID/摘要，不复制大题库。
+**2026-10-09 外部审计修订：** 同一真实路线目录的不同别名现在计入跨任务冲突；Action 有效池当前使用 v3 合同，默认路径与显式路径都必须核验 manifest、源码/外部筛选依赖、输入 SHA 和原始路线帧数。损坏的 manifest/metadata 会记录 invalid 并生成阻塞态 G0，不能获得完整池资格。RGB2/RGB4 要求不同目录、正确模式和一致绑定，并流式核对全部训练配对；额外内存只存 ID/摘要，不复制大题库。
 
-已运行的旧 Action 导出不改 hash，也不覆盖原文件：如需纳入本轮完整池，重新导出到 `action_pool_v2_bound`（仅有效池索引和依赖清单），再重新 `prepare` 生成新请求，不能继续用旧请求绕过新增门禁。旧 Phase4 生产合同未改，已有 `full_production`/题库可以继续核验或原生续跑，**不需要因本次修复重新生成 30 GB**。
+已运行的旧 Action 导出不改 hash，也不覆盖原文件：如需纳入本轮完整池，重新导出到 `action_pool_v3_paths`（仅有效池索引和依赖清单），再重新 `prepare` 生成新请求，不能继续用旧请求绕过新增门禁。旧 Phase4 生产合同未改，已有 `full_production`/题库可以继续核验或原生续跑，**不需要因本次修复重新生成 30 GB**。
 
-**第二轮补强：** `--action-data` 三 split 现在必须与导出的原始输入逐一 SHA 相同；索引搬迁允许，误配另一题库会阻塞。旧 v2 导出因源码合同变化也需另目录导出（例如 `action_pool_v2_bound`），不要覆盖旧导出。重新 prepare/run 时使用新捕获目录；已有 Phase4 30 GB 产物继续复用。
+**第二轮补强：** `--action-data` 三 split 现在必须与导出的原始输入逐一 SHA 相同；索引搬迁允许，误配另一题库会阻塞。旧 v2 导出因源码合同变化也需另目录导出（例如 `action_pool_v3_paths`），不要覆盖旧导出。重新 prepare/run 时使用新捕获目录；已有 Phase4 30 GB 产物继续复用。
 
 新引用同时保存逻辑路径和目标。`verify-inputs` 会检测索引/adapter 软链接改指，即使旧文件仍在；旧捕获缺逻辑路径时返回 incomplete。来源 manifest 不合格时，可读索引中的路线重叠仍作为带来源状态的疑似冲突保留，相关路线不能直接成为新 val，不计完整覆盖或人工支持。
+
+**图片核验与路径重放补强：** 缺图或图片 SHA 不符时保留完整可读索引的路线用途，作为未认证证据参与冲突和新 val 排除；图片失败不会使路线静默消失。索引本身损坏仍不提交部分来源。Action v3 同时记录原 argv、导出 cwd 及绝对依赖路径，复验可换工作目录，原始三 split 也可在字节不变时搬迁。旧 v2 缺少可靠路径基准，需按第 3 步重新导出小索引并重新 prepare；不需要重建原始题库。旧产物保留，不补写 hash。缺 Action 数据时仍跳过导出，使用第 4 步缺失资产分支。
 
 当前服务器回报：`full_production` 约 18 GB、`data2` 约 13 GB，尚未看到 `data4`。这只能证明这些目录存在，不能证明 `data2` 完整。先检查 `data2/manifest.json`、`data4/manifest.json`、`pipeline_ready.json` 是否存在；缺少四图库时先交缺口报告，不用复制四图库冒充两图库，也不删除原回放。
 
@@ -67,7 +69,7 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path checkpoints -- \
 先把 `P4_DATA` 设置为之前实际生成的、同时含 `data2/` 和 `data4/` 的目录。以下默认路径只是常规位置；如果此前输出在 `joint_remote_*/phase4_data`，就直接使用那一份，不要复制或移动。`G0_ROOT` 只存这次轻量审计，失败重试优先复用已完成产物，不自动生成一串时间戳目录。
 
 ```bash
-G0_ROOT=checkpoints/joint_audit_20261009_bound
+G0_ROOT=checkpoints/joint_audit_20261009_paths
 P4_DATA=checkpoints/joint_remote_20261008_211924/phase4_data
 mkdir -p "$G0_ROOT"
 ```
@@ -127,21 +129,21 @@ ACTION_DATA=/替换为Action三split目录
 bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
   python -m qwen3vl_local.audit_joint export-action-pool \
   --argv-json "$G0_ROOT/action_argv.json" \
-  --output "$G0_ROOT/action_pool_v2_bound"
+  --output "$G0_ROOT/action_pool_v3_paths"
 ```
 
-已有本轮匹配的 v2 `action_pool_v2_bound` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
+已有本轮匹配的 v3 `action_pool_v3_paths` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
 
 ## 4. 跑服务器 G0，自动打包并核验
 
 **目录布局修复（2026-10-09）：** 默认从当前导入模块所在位置查找 Git 根目录，并分别识别 `仓库/AutoMoT/qwen3vl_local/` 和 `仓库/qwen3vl_local/`，不依赖启动 shell 的 cwd。`project_root` 与 `application_root` 分别记录，源码/模型/索引默认路径都以应用目录构建。不要仅把旧代码的 `parents[3]` 改成 `parents[2]`，否则旧版 `make_config` 仍可能多追加一个 `AutoMoT/`。Git 信息不可取得时记录 `git_identity` 阻塞，不伪造 HEAD，不因此在生成诊断回执前崩溃。
 
-如果上一轮因 `not a git repository` 失败，更新代码后重新 prepare 到新目录，保留旧 request 和失败 capture。不能只修改旧 request 的 project_root，因为其中源码和资产路径也可能错误。此次只改审计入口，不改变生产合同或 Action 有效池导出合同；不需要因此重建题库或重新导出匹配的 Action 池。
+如果上一轮因 `not a git repository` 失败，更新代码后重新 prepare 到新目录，保留旧 request 和失败 capture。不能只修改旧 request 的 project_root，因为其中源码和资产路径也可能错误。目录布局修复本身不改变生产合同；本轮图片/路径补强升级了 Action 导出合同，已有旧有效池需按第 3 步重导小索引。无需重建原始题库。
 
 **当前 Phase3 索引/adapter 和 Action 数据缺失时，使用以下完整分支替代本节后面的完整资产示例。** 这些资产参数不是必填项；无需虚构路径、编造 Action argv 或先重训。下面的缺失报告目录必须尚未使用；若已有失败输出，保留并改用另一个新名称。
 
 ```bash
-G0_ROOT=checkpoints/joint_missing_assets_20261009_layoutfix
+G0_ROOT=checkpoints/joint_missing_assets_20261009_images_paths
 P4_DATA=checkpoints/joint_remote_20261008_211924/phase4_data
 mkdir -p "$G0_ROOT"
 
@@ -176,7 +178,7 @@ python -m qwen3vl_local.audit_joint prepare \
   --phase3-index "$P3_INDEX" --phase3-adapter "$P3_ADAPTER" \
   --phase4-data2 "$P4_DATA/data2" --phase4-data4 "$P4_DATA/data4" \
   --action-data "$ACTION_DATA" \
-  --action-effective-index "$G0_ROOT/action_pool_v2_bound/effective_pool_audit.jsonl" \
+  --action-effective-index "$G0_ROOT/action_pool_v3_paths/effective_pool_audit.jsonl" \
   --data-root lead_data --model-dir "$MODEL_DIR" --verify-images \
   --storage-mode references \
   --output "$G0_ROOT/request.json"

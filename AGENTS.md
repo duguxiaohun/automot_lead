@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 2026-10-09 联合审计图片失败保留证据与Action路径基准
+
+原生图片核验失败记certification_errors并继续完整扫描，路线用途/疑似冲突/候选排除保留；不计完整池及人工支持，image_hashes_verified=false，记录检查/失败行数。索引结构损坏仍不提交部分来源。Action导出v3保留argv，登记export_cwd/resolved_args/dependency_paths，换cwd及原始split搬迁按登记路径与SHA复验；旧缺基准记录拒绝猜测，需新目录重导小索引。Phase4生产/原始题库不变，无GPU/远程或全量重放。新增15项回归，相关全套1231通过（G0共118）；真实合成RGB经原生加载器核验，Action跨cwd/搬迁/token候选及旧记录拒绝通过。详见audit_joint/images_paths_verification_20261009.json。
+
 ### 2026-10-09 联合审计仓库与应用目录识别
 
 prepare以模块位置查询Git根，识别仓库/AutoMoT和扁平应用两种布局；project_root/application_root分开，默认data/source/checkpoint随应用根。显式根目录歧义拒绝，不以cwd猜测。Git缺失/无HEAD/超时转git_identity阻塞并留诊断包，不再晚期崩溃。旧错误请求不重写，须新prepare/输出；服务器手册新增缺失资产完整分支。生产/Action导出合同不变，无题库重建/训练/远程执行。新增13项布局/Git专项，相关回归1216通过（G0共103）；扁平/嵌套×应用/无关cwd四组合真实CLI及Git、阻塞捕获/ZIP通过，worktree/no-Git/旧错误root均覆盖；本机实际prepare路径核对通过。见audit_joint/layout_verification_20261009.json。

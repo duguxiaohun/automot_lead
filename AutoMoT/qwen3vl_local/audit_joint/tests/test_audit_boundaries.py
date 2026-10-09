@@ -209,7 +209,7 @@ def test_corrupt_metadata_produces_blocked_handoff(tmp_path, target):
     assert verify_package(pack(tmp_path / 'capture')['archive'])['status'] == 'verified'
 
 
-def action_fixture(tmp_path):
+def action_fixture(tmp_path, relative=False, token=False):
     data, mapping, root = tmp_path / 'data', tmp_path / 'mapping', tmp_path / 'rgb'
     data.mkdir(); mapping.mkdir()
     for split in ('train', 'val', 'test'):
@@ -223,6 +223,12 @@ def action_fixture(tmp_path):
     def native_rows(args, split):
         return [dict(scenario='Scene', run_id=split, split=split, anchor=4)]
     argv = ['--data-root', str(root), '--data-dir', str(data), '--event-balance-index', str(mapping / 'index.jsonl')]
+    if relative:
+        argv = ['--data-root', 'rgb', '--data-dir', 'data', '--event-balance-index', 'mapping/index.jsonl']
+    if token:
+        (mapping / 'candidate.jsonl').write_text('{}\n')
+        (mapping / 'manifest.json').write_text(json.dumps({'candidate_index': 'mapping/candidate.jsonl'}))
+        argv.append('--high-level-action-token')
     with patch('qwen3vl_local.action_prior.config.read_rows', side_effect=native_rows):
         export_pool(argv, tmp_path / 'export')
     manifest = json.loads((tmp_path / 'export/effective_pool_manifest.json').read_text())
@@ -440,3 +446,122 @@ def test_uncertified_manual_val_does_not_count_as_support(tmp_path):
     assert ledger[0]['uses'][0]['source_status'] == 'invalid'
     assert 'certification_errors' not in ledger[0]['uses'][0]  # Reasons stored once per source.
     assert len(report['missing_full_pools']) == 9
+
+
+def rgb_rows(root):
+    from PIL import Image
+    from qwen3vl_local.sft_new_loop_phase4.input_identity import rgb_content_sha
+    rows = []
+    for route in ('first', 'second', 'third'):
+        images, shas, pixels = [], [], []
+        for frame in (6, 10):
+            path = root / 'Scene' / route / 'rgb' / f'{frame:04d}.png'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with Image.new('RGB', (8, 8), (frame, 20, 30)) as image:
+                image.save(path)
+                pixels.append(rgb_content_sha(image))
+            images.append(str(path.relative_to(root)))
+            shas.append(file_sha(path))
+        rows.append(dict(scenario='Scene', route_id=route, images=images,
+                         image_sha256=shas, image_rgb_sha256=pixels,
+                         observation=dict(frame_id=10, history_frames=[6, 10], speed_mps=0),
+                         episode={'event': 'UE1'}, label_basis='per_frame_conditions', target='YES', edge='proceed'))
+    return rows
+
+
+@pytest.mark.parametrize('role', ['train_pool', 'dev_val'])
+@pytest.mark.parametrize('failure', ['missing', 'changed', 'late_missing'])
+def test_image_failure_preserves_complete_route_evidence(tmp_path, role, failure):
+    root = tmp_path / 'rgb'
+    rows = rgb_rows(root)
+    index = tmp_path / 'index.jsonl'
+    index.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+    source = dict(id='image_source', phase='phase4', path=str(index), scope='fixture',
+                  role=role, full_pool=True, data_root=str(root), verify_images=True)
+    candidate = tmp_path / 'candidate.jsonl'
+    candidate.write_text(''.join(json.dumps(dict(scenario='Scene', route_id=r['route_id'])) + '\n' for r in rows))
+    specs = [source, dict(id='candidate', phase='phase4', path=str(candidate), scope='fixture', role='candidate_dev_val')]
+    opposite = pool(tmp_path / 'opposite.jsonl', 'phase3',
+                    'dev_val' if role == 'train_pool' else 'train_pool', 'third')
+    specs.append(opposite)
+    good, _ = audit_sources(specs)
+    assert good['sources'][0]['status'] == 'audited'
+    assert good['sources'][0]['image_hashes_verified']
+    if role == 'dev_val':
+        assert good['manual_val_support']
+    path = root / rows[-1 if failure == 'late_missing' else 0]['images'][0]
+    if failure == 'changed':
+        path.write_bytes(b'changed image')
+    else:
+        path.unlink()
+    report, ledger = audit_sources(specs)
+    observed = report['sources'][0]
+    assert observed['status'] == 'invalid' and observed['observation_status'] == 'observed'
+    assert observed['image_checks'] == 3 and observed['image_failures'] == 1
+    assert not observed['image_hashes_verified']
+    assert any('image verification record' in e for e in observed['certification_errors'])
+    assert observed['rows'] == 3
+    assert report['conflicts'][0]['evidence_status'] == 'suspected'
+    assert report['conflicts'][0]['kind'] == 'training_holdout_overlap'
+    assert len(ledger) == 3
+    assert all(c['status'] == 'excluded' for c in report['candidate_filter'])
+    assert not report['manual_val_support']
+    assert len(report['missing_full_pools']) == 9
+    assert all(any(e['source'] == 'image_source' and e['source_status'] == 'invalid' for e in r['uses']) for r in ledger)
+    # A corrupt index remains atomic even after an image failure was observed.
+    with index.open('a') as stream:
+        stream.write('{truncated\n')
+    report, ledger = audit_sources(specs)
+    assert report['sources'][0]['status'] == 'invalid'
+    assert report['sources'][0].get('observation_status') != 'observed'
+    assert all(all(e['source'] != 'image_source' for e in r['uses']) for r in ledger)
+
+
+@pytest.mark.parametrize('relocate', [False, True])
+@pytest.mark.parametrize('token', [False, True])
+def test_action_relative_argv_replays_from_other_cwd(tmp_path, monkeypatch, relocate, token):
+    monkeypatch.chdir(tmp_path)
+    args, manifest, index = action_fixture(tmp_path, relative=True, token=token)
+    original_argv = list(manifest['argv'])
+    assert manifest['export_cwd'] == str(tmp_path)
+    assert manifest['resolved_args']['data_dir'] == str(tmp_path / 'data')
+    raw = Path(args.data_dir)
+    if relocate:
+        raw = tmp_path / 'moved_raw'
+        Path(args.data_dir).rename(raw)
+    other = tmp_path / 'elsewhere'
+    other.mkdir()
+    # Tempting cwd-relative replacements must not be read.
+    (other / 'mapping').mkdir()
+    (other / 'mapping/index.jsonl').write_text('unrelated mapping')
+    monkeypatch.chdir(other)
+    expected = {split: str(raw / f'{split}.jsonl') for split in ('train', 'val', 'test')}
+    result = validate_export(manifest, index, expected if relocate else None)
+    assert result['dependency_paths']['raw_splits'] == expected
+    assert manifest['argv'] == original_argv
+    assert Path(args.data_dir).exists() is (not relocate)
+    (tmp_path / 'mapping/index.jsonl').write_text('changed actual map')
+    with pytest.raises(ValueError, match='runtime inputs'):
+        validate_export(manifest, index, expected)
+
+
+@pytest.mark.parametrize('missing', ['export_cwd', 'resolved_args', 'old_schema'])
+def test_action_missing_recorded_path_context_never_guesses(tmp_path, missing):
+    _, manifest, index = action_fixture(tmp_path)
+    if missing == 'old_schema':
+        manifest['schema'] = 'joint_action_effective_pool_v2'
+    else:
+        manifest.pop(missing)
+    with pytest.raises(ValueError, match='path base is not recorded'):
+        validate_export(manifest, index)
+
+
+@pytest.mark.parametrize('mutation', ['relative_base', 'wrong_binding'])
+def test_action_path_context_must_be_consistent(tmp_path, mutation):
+    _, manifest, index = action_fixture(tmp_path)
+    if mutation == 'relative_base':
+        manifest['export_cwd'] = '.'
+    else:
+        manifest['resolved_args']['data_dir'] = str(tmp_path / 'unrelated')
+    with pytest.raises(ValueError, match='path'):
+        validate_export(manifest, index)

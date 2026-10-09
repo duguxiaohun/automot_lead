@@ -115,7 +115,7 @@ def make_config(args):
              expected_split_paths={split: str((action / f'{split}.jsonl').absolute()) for split in SPLIT_ROLES})
     source('action_effective_index', 'action', effective_path,
            'complete native runtime pool only after manifest/dependency verification',
-           split_roles=SPLIT_ROLES, full_pool=effective.get('schema') == 'joint_action_effective_pool_v2',
+           split_roles=SPLIT_ROLES, full_pool=effective.get('schema') == 'joint_action_effective_pool_v3',
            required_artifacts=['action_effective_manifest'], expected_sha256=effective.get('index_sha256'))
     if args.candidate_val:
         source('phase4_new_val_candidates', 'phase4', args.candidate_val,
