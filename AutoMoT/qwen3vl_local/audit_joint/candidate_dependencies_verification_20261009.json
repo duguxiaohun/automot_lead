@@ -1,0 +1,48 @@
+{
+  "schema": "joint_action_candidate_dependencies_verification_v1",
+  "date": "2026-10-09",
+  "base_commit": "51ecb9ff5906ece4169a42b69aa96ade54e83c81",
+  "source_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/action_pool.py": "323fd051427410ea7420600d4f0da1332080c8ecce97eb5f1cfd3362c54dff87",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_action_dependencies.py": "b35d30e238f5360c4eb69f1ae6908b18de06b30d7fdb4d64c76ae2d0a09441af",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_audit_boundaries.py": "06dda6a578d416e0aeca76975e90c2037ba0afbc75b01b2921c93540e12b08d9"
+  },
+  "regression": {
+    "passed": 1235,
+    "seconds": 96.16,
+    "g0_tests": 122,
+    "new_tests": 4,
+    "log": "/tmp/joint_candidate_dependency_20261009.log"
+  },
+  "native_integration": {
+    "mocked_readers": false,
+    "mocked_contracts": false,
+    "combinations": [
+      "event_balanced/token off",
+      "event_balanced/token on",
+      "action_balanced/token off",
+      "action_balanced/token on"
+    ],
+    "export_counts_per_combination": {
+      "train": 1,
+      "val": 1,
+      "test": 1
+    },
+    "checks": [
+      "Real parser/read_rows/EventBalanceIndex/ActionTokenSource with native current contracts",
+      "All three raw splits export successfully",
+      "Candidate requirement matches actual action_token annotation presence",
+      "Candidate, manifest.json, candidate_counts.json and frame_index.jsonl recorded when consumed",
+      "Cross-cwd verification and raw split relocation with original directory absent pass",
+      "Each of four candidate assets tested deleted and changed for all four mode/token combinations",
+      "Consuming combinations reject all 24 asset mutations; event_balanced/token off does not require the 8 unused mutations"
+    ]
+  },
+  "ancillary_test_fix": "Existing guard test reproduced /proc read race after worker exit; FileNotFoundError/ProcessLookupError now count as exited. Production guard unchanged.",
+  "limitations": [
+    "Synthetic ordinary scenes produce UNCOND; not special-event accuracy or training validation.",
+    "No server execution, GPU training, full replay or real dataset rebuild.",
+    "Production native readers/contracts unchanged; audit export source contract changed, old exports need a new small export directory.",
+    "frame_index content hashing is stricter than the native existence check; no asset copy is introduced."
+  ]
+}

@@ -4,6 +4,12 @@
 
 服务器从更新、全量建库到 G0、现有基线训练/验证的完整顺序见 [服务器执行手册](SERVER_RUN_20261008.md)，命令统一从 `AutoMoT/` 执行。
 
+## 2026-10-09 Action 隐式候选依赖
+
+候选依赖条件与原生 annotate_tokens 一致：`high_level_action_token` 开启或 `sampling_mode=action_balanced`。登记候选文件及原生 _candidate_membership 要求的同目录 manifest.json、candidate_counts.json、frame_index.jsonl；最后一项原生仅要求存在，审计器额外记录内容 SHA。四项均流式哈希，不复制文件。纯 event_balanced 且 token 关闭时不要求这些未读取的候选资产。
+
+v3 格式保持，导出源码合同已变化：旧导出不能补写 hash，应另目录重新导出小型有效池并重新 prepare，无须重建原始题库。测试使用真实 parser/read_rows/候选校验器和当前源码合同，不替换读取器，覆盖四组合、跨 cwd、原始 split 搬迁、候选及三项伴随资产逐一删除/改字节；普通合成场景的 UNCOND 不作驾驶或特殊事件标签验收。
+
 ## 2026-10-09 图片失败与 Action 路径重放
 
 图片核验和索引完整读取分开：缺图、内容/SHA 不符等原生图片加载错误加入 certification_errors，继续扫描全部记录；路线用途保持未认证状态并参与疑似冲突和候选排除，不计完整池/人工支持。image_checks/image_failures 记录检查与失败行数；有图片失败时 image_hashes_verified=false。索引 JSON、路线/用途身份或摘要数组结构损坏仍整体拒绝，不提交部分路线证据。

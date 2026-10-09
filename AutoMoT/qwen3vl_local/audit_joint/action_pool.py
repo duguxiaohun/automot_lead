@@ -35,12 +35,17 @@ def dependencies(args, split_paths=None, *, path_base=None):
              for split in ('train', 'val', 'test')]
     mapping = Path(args.event_balance_index)
     paths += [mapping, mapping.with_name('manifest.json')]
-    if getattr(args, 'high_level_action_token', False):
+    # Match native annotate_tokens, including implicit labels for action sampling.
+    if (getattr(args, 'high_level_action_token', False)
+            or getattr(args, 'sampling_mode', 'uniform') == 'action_balanced'):
         value = json.loads(mapping.with_name('manifest.json').read_text())
         candidate = Path(path_base or Path.cwd()) / value['candidate_index']
         if not candidate.is_file():
             candidate = mapping.parent / candidate.name
-        paths.append(candidate)
+        # ActionTokenSource invokes _candidate_membership, which also requires
+        # these sibling artifacts (frame_index is checked for existence natively).
+        paths += [candidate, candidate.with_name('manifest.json'),
+                  candidate.with_name('candidate_counts.json'), candidate.with_name('frame_index.jsonl')]
     dependency_paths = dict(raw_splits={split: str(paths[i].absolute())
                                        for i, split in enumerate(('train', 'val', 'test'))},
                             other_inputs=[str(p.absolute()) for p in paths[3:]])

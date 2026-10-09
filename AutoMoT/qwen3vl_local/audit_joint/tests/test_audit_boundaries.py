@@ -118,7 +118,11 @@ def test_guard_kills_worker_when_leader_exits(tmp_path, exit_code):
         # An orphan may remain a zombie until init reaps it, but cannot write.
         for _ in range(100):
             stat = Path(f'/proc/{pid}/stat')
-            if not stat.exists() or stat.read_text().split(') ', 1)[1].startswith('Z'):
+            try:
+                state = stat.read_text().split(') ', 1)[1]
+            except (FileNotFoundError, ProcessLookupError):
+                break  # Worker can disappear between opening /proc and reading it.
+            if state.startswith('Z'):
                 break
             time.sleep(.01)
         else:
@@ -227,6 +231,8 @@ def action_fixture(tmp_path, relative=False, token=False):
         argv = ['--data-root', 'rgb', '--data-dir', 'data', '--event-balance-index', 'mapping/index.jsonl']
     if token:
         (mapping / 'candidate.jsonl').write_text('{}\n')
+        (mapping / 'candidate_counts.json').write_text('{}')
+        (mapping / 'frame_index.jsonl').write_text('{}\n')
         (mapping / 'manifest.json').write_text(json.dumps({'candidate_index': 'mapping/candidate.jsonl'}))
         argv.append('--high-level-action-token')
     with patch('qwen3vl_local.action_prior.config.read_rows', side_effect=native_rows):

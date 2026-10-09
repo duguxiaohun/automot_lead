@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 2026-10-09 联合审计Action隐式候选依赖
+
+依赖条件对齐原生annotate_tokens：token开启或action_balanced；登记candidate及同目录manifest/counts/frame_index，均SHA核验，未读取候选的event_balanced/token关闭不强加依赖。v3格式保持但源码合同更新，旧小索引须另目录重导，不重建原始题库。真实read_rows/原生候选校验/真实合同四组合及跨cwd、split搬迁、四文件删除和改字节测试；无GPU/远程/全量重放。另修复测试读取已退出worker的/proc竞态，guard生产代码未变。新增4组合集成测试不替换原生读取器/合同，相关回归1235通过（G0共122）；验证见audit_joint/candidate_dependencies_verification_20261009.json。
+
 ### 2026-10-09 联合审计图片失败保留证据与Action路径基准
 
 原生图片核验失败记certification_errors并继续完整扫描，路线用途/疑似冲突/候选排除保留；不计完整池及人工支持，image_hashes_verified=false，记录检查/失败行数。索引结构损坏仍不提交部分来源。Action导出v3保留argv，登记export_cwd/resolved_args/dependency_paths，换cwd及原始split搬迁按登记路径与SHA复验；旧缺基准记录拒绝猜测，需新目录重导小索引。Phase4生产/原始题库不变，无GPU/远程或全量重放。新增15项回归，相关全套1231通过（G0共118）；真实合成RGB经原生加载器核验，Action跨cwd/搬迁/token候选及旧记录拒绝通过。详见audit_joint/images_paths_verification_20261009.json。
