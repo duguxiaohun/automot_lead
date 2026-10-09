@@ -55,6 +55,71 @@ class HandoffTests(unittest.TestCase):
             self.assertFalse(any('blobs/' in p or 'safetensors' in p or 'train.jsonl' in p for p in z.namelist()))
             self.assertEqual(z.read('g0/split_cross_audit.json'), (self.capture / 'split_cross_audit.json').read_bytes())
 
+    def extracted(self, **kwargs):
+        report = pack(self.capture, **kwargs)
+        root = self.root / 'extracted'
+        with zipfile.ZipFile(report['archive']) as archive:
+            archive.extractall(root)
+        return root
+
+    def test_extracted_binding_checks_do_not_claim_original_zip_or_external_inputs(self):
+        root = self.extracted()
+        before = {p.relative_to(root): file_sha(p) for p in root.rglob('*') if p.is_file()}
+        report = verify_package(root)
+        self.assertEqual(report['status'], 'verified')
+        self.assertEqual(report['archive_size_status'], 'not_verified_original_zip_not_provided')
+        self.assertEqual(report['external_inputs_status'], 'not_verified_on_receiving_host')
+        self.assertEqual(before, {p.relative_to(root): file_sha(p) for p in root.rglob('*') if p.is_file()})
+
+    def test_extracted_optional_sources_can_remain_omitted(self):
+        self.assertEqual(verify_package(self.extracted(max_bytes=7000))['status'], 'verified')
+
+    def test_extracted_tampered_report_rejected(self):
+        root = self.extracted()
+        (root / 'g0/request.json').write_text('{"changed": true}')
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            verify_package(root)
+
+    def test_extracted_added_file_rejected(self):
+        root = self.extracted()
+        (root / 'extra').write_text('extra')
+        with self.assertRaisesRegex(ValueError, 'inventory changed'):
+            verify_package(root)
+
+    def test_extracted_symlink_file_rejected_even_with_same_bytes(self):
+        root = self.extracted()
+        target = root / 'g0/request.json'
+        target.unlink()
+        target.symlink_to(self.capture / 'request.json')
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            verify_package(root)
+
+    def test_extracted_symlink_directory_rejected(self):
+        root = self.extracted()
+        (root / 'escape').symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            verify_package(root)
+
+    def test_updated_outer_hash_cannot_hide_broken_report_receipt_binding(self):
+        root = self.extracted()
+        target = root / 'g0/request.json'
+        target.write_text('{"changed": true}')
+        path = root / 'handoff_manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest['files']['g0/request.json'] = dict(sha256=file_sha(target), bytes=target.stat().st_size)
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'report receipt binding'):
+            verify_package(root)
+
+    def test_outer_summary_cannot_upgrade_baseline_approval(self):
+        root = self.extracted()
+        path = root / 'handoff_manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest['baseline_ready'] = True
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'baseline summary'):
+            verify_package(root)
+
     def test_budget_omits_only_source_bytes_explicitly(self):
         report = pack(self.capture, max_bytes=7000)
         self.assertLessEqual(report['bytes'], 7000)

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import tempfile
 import zipfile
 
@@ -178,6 +179,8 @@ def pack(capture, output=None, results=(), max_bytes=LIMIT):
 
 def verify_package(path):
     path = Path(path)
+    if path.is_dir():
+        return verify_extracted(path)
     if path.stat().st_size > LIMIT:
         raise ValueError('archive exceeds 30,000,000 bytes')
     with zipfile.ZipFile(path) as archive:
@@ -201,5 +204,87 @@ def verify_package(path):
                     size += len(chunk)
             if size != record['bytes'] or sha.hexdigest() != record['sha256']:
                 raise ValueError(f'handoff hash mismatch: {name}')
+        verify_evidence_links(manifest, lambda name: json.loads(archive.read(name)))
     return dict(status='verified', files=len(manifest['files']), bytes=path.stat().st_size,
-                scope='archive bytes only, not experiment approval')
+                scope='archive bytes and included evidence bindings, not experiment approval')
+
+
+def verify_evidence_links(manifest, read_json):
+    """Check the receipt bindings that survived packing, without claiming omitted blobs."""
+    files = manifest['files']
+    if any('g0/' + name not in files for name in REPORTS):
+        raise ValueError('missing required G0 report')
+    if files['g0/receipt.json']['sha256'] != manifest['capture_receipt_sha256']:
+        raise ValueError('capture receipt binding mismatch')
+    receipt = read_json('g0/receipt.json')
+    from . import SCHEMA as CAPTURE_SCHEMA
+    if receipt.get('schema') != CAPTURE_SCHEMA:
+        raise ValueError('unknown capture receipt schema')
+    for name in REPORTS:
+        if name != 'receipt.json' and receipt['files'].get(name) != files['g0/' + name]['sha256']:
+            raise ValueError(f'report receipt binding mismatch: {name}')
+    baseline = read_json('g0/baseline_manifest.json')
+    for key, original in (('baseline_ready', 'reproducible_baseline_ready'),
+                          ('blockers', 'blockers'), ('stages', 'stages')):
+        if manifest[key] != baseline[original]:
+            raise ValueError(f'handoff baseline summary mismatch: {key}')
+    sources = read_json('g0/source_manifest.json')
+    expected_sources = {'source/' + safe_name(name) for name in sources} if manifest['source_bytes_included'] else set()
+    if {name for name in files if name.startswith('source/')} != expected_sources:
+        raise ValueError('source inventory binding mismatch')
+    for name, record in sources.items():
+        if receipt['files'].get(safe_name(record['blob'])) != record['sha256']:
+            raise ValueError(f'source receipt binding mismatch: {name}')
+        if manifest['source_bytes_included'] and files['source/' + name] != dict(
+                sha256=record['sha256'], bytes=record['bytes']):
+            raise ValueError(f'source content binding mismatch: {name}')
+    expected_artifacts = set()
+    for number, record in enumerate(baseline['artifacts']):
+        if 'blob' not in record or Path(record['path']).suffix != '.json':
+            continue
+        name = f'artifacts/{number:04d}/' + Path(record['path']).name
+        expected_artifacts.add(name)
+        if (receipt['files'].get(safe_name(record['blob'])) != record['sha256'] or
+                files.get(name) != dict(sha256=record['sha256'], bytes=record['bytes'])):
+            raise ValueError(f'artifact binding mismatch: {name}')
+    if {name for name in files if name.startswith('artifacts/')} != expected_artifacts:
+        raise ValueError('artifact inventory binding mismatch')
+
+
+def verify_extracted(root):
+    """Read only; never execute supplied source or follow links in an extracted handoff."""
+    root = Path(root)
+    if root.is_symlink():
+        raise ValueError('symlink handoff root')
+    files = {}
+    def unreadable(error):
+        raise error
+    for directory, dirs, names in os.walk(root, followlinks=False, onerror=unreadable):
+        for name in dirs + names:
+            path = Path(directory) / name
+            mode = path.lstat().st_mode
+            if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                raise ValueError(f'symlink or special handoff entry: {path}')
+        for name in names:
+            path = Path(directory) / name
+            files[safe_name(path.relative_to(root).as_posix())] = path
+    manifest = json.loads(files['handoff_manifest.json'].read_text())
+    if manifest.get('schema') != SCHEMA:
+        raise ValueError('unknown handoff schema')
+    if not 4096 <= manifest['max_bytes'] <= LIMIT:
+        raise ValueError('invalid declared archive budget')
+    for name in manifest['files']:
+        safe_name(name)
+    if set(files) != set(manifest['files']) | {'handoff_manifest.json'}:
+        raise ValueError('handoff inventory changed')
+    for name, record in manifest['files'].items():
+        path = files[name]
+        if path.stat().st_size != record['bytes'] or file_sha(path) != record['sha256']:
+            raise ValueError(f'handoff hash mismatch: {name}')
+    verify_evidence_links(manifest, lambda name: json.loads(files[name].read_text()))
+    return dict(status='verified', files=len(manifest['files']),
+                extracted_bytes=sum(path.stat().st_size for path in files.values()),
+                archive_size_status='not_verified_original_zip_not_provided',
+                external_inputs_status='not_verified_on_receiving_host',
+                scope='extracted bytes and included evidence bindings; omitted capture blobs, '
+                      'original ZIP size, live external inputs and experiment approval not verified')

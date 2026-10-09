@@ -2,6 +2,8 @@
 
 本次已实现 G0 本机快照/隔离检查。E0 计时、四 rank 实际内核探针、E1 稀疏 logits、G1 时间线和 G2 盲标尚未实现；当前七轮流水线仍是 v42 弱监督基线，不会自动执行上述新实验。
 
+**首份服务器交接已审计：** `capture.audit/` 的1216个文件及包内回执绑定通过，G0仍阻塞。3对冲突涉及10个不同物理路线组，不能只补文件就宣告隔离通过。当前下一步是[首份交接审计报告中的只读 recovery-check](REMOTE_CAPTURE_REVIEW_20261009.md)，先确认18 GB回放能否复用及续建空间下限；不用再次提交同样的缺失报告。解压目录也可直接 `python -m qwen3vl_local.audit_joint verify-package checkpoints/capture.audit`，但无法据此验证原 ZIP 大小和服务器实时外部引用。
+
 **2026-10-09 容量修订：旧手册第 2 步的新目录全量建库不再是默认前置步骤。先盘点并使用已有资产，缺失项如实报告。30 MB 仅是交接 ZIP 上限，不是服务器全过程的磁盘占用上限。**
 
 本轮执行第 1–4 步，检查现有服务器资产与交叉隔离；第 4 步结束自动生成 **不超过 30,000,000 字节（30 MB）的 ZIP**，交回该文件即可审计。第 5 步说明现有训练/评测入口，暂不作为新联合方案的验收；已有训练/评测结果可按第 6 步合包。
@@ -86,7 +88,18 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$P4_DATA" -- \
 
 没有完整题库时，本轮可直接进入第 3、4 步收集现状，G0 会记录 missing/invalid/incomplete；这份报告可用于决定后续补跑，不代表全量审计通过。原题库源码合同不匹配时不能修改其 manifest/hash 伪装兼容，也不要仅为消除 missing 又立刻启动全量建库。
 
-只有确实需要补全、已处理容量和 core 问题后，才单独执行以下**可选的重任务**，沿用原部分完成目录以尝试原生续跑：
+无完整回执、但保留 `full_production` 时，先只读检查（输出名须未使用）：
+
+```bash
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$P4_DATA" --min-free-gib 10 -- \
+  python -m qwen3vl_local.audit_joint recovery-check \
+  --data-dir "$P4_DATA" --data-root lead_data \
+  --output checkpoints/phase4_recovery_check_20261009.json
+```
+
+工具完整核验回放索引及逐路线/逐帧回执，报告源码合同、候选池、registry、双库回执及空间下限。未通过时仍保留诊断 JSON；没有新建库。缺 manifest 的残缺 data2 会在原生续建时被重命名保留，随后重新编译，每个新库仍复制完整 production；18 GB回放对应两套复制约36 GB额外写入，另加题目/元数据等。`lower_bound_and_reserve_fit=true` **不表示总空间足够**，`sufficient_for_build` 仍未知。原目录保留，不自动删除残片。
+
+只有检查报告已审查、确实需要补全、已处理容量和 core 问题后，才单独执行以下**可选的重任务**，沿用原部分完成目录以尝试原生续跑：
 
 ```bash
 bash qwen3vl_local/audit_joint/run_guarded.sh \

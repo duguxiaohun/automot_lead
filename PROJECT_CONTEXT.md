@@ -1,5 +1,10 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-09 首份服务器交接实审与只读复用检查
+
+收到checkpoints/capture.audit解压目录，1216文件大小/SHA/全集及包内回执绑定通过；原ZIP大小、服务器实时55项外部引用未在本机复验。44份冻结曝光/预约声明复算用途矩阵与路线成员一致，3对冲突涉及10物理组，为Phase3开发曝光与Phase4留出预约重叠，非已证实际训练泄漏；G0仍in_progress，9项全池、P3权重及执行证据缺失，E0/E1/G1/G2未运行。服务器旧HEAD但1170共有源码与0279ac735逐字节相同，另39服务器独有；不得据HEAD猜运行版本或清理工作树。
+verify-package支持解压目录及跨清单绑定，拒绝链接/特殊文件。新增recovery-check只读核验原生请求/候选/registry/全路线回执，输出题库外新JSON；不建库、删除、改名或修改生产合同。原生续建会保留残data2再编译，每套复制production；空间只报下限，不承诺77GB足够。新增22项测试，相关1257项通过；本轮无远程执行/GPU/全量生产。结论、10组名单及服务器下一步见audit_joint/REMOTE_CAPTURE_REVIEW_20261009.md，机器证据见received_capture_verification_20261009.json。
+
 ### 2026-10-09 联合审计Action隐式候选依赖
 
 依赖条件对齐原生annotate_tokens：token开启或action_balanced；登记candidate及同目录manifest/counts/frame_index，均SHA核验，未读取候选的event_balanced/token关闭不强加依赖。v3格式保持但源码合同更新，旧小索引须另目录重导，不重建原始题库。真实read_rows/原生候选校验/真实合同四组合及跨cwd、split搬迁、四文件删除和改字节测试；无GPU/远程/全量重放。另修复测试读取已退出worker的/proc竞态，guard生产代码未变。新增4组合集成测试不替换原生读取器/合同，相关回归1235通过（G0共122）；验证见audit_joint/candidate_dependencies_verification_20261009.json。

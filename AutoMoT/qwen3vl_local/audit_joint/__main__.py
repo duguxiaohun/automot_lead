@@ -47,13 +47,32 @@ def main():
     package.add_argument('--result-dir', action='append', default=[], metavar='NAME=PATH',
                          help='Optional completed run/eval directory; repeat for multiple explicitly selected runs')
     verify_zip = subs.add_parser('verify-package', allow_abbrev=False)
-    verify_zip.add_argument('archive', type=Path)
+    verify_zip.add_argument('archive', type=Path, help='Original ZIP or extracted handoff directory')
+    recovery = subs.add_parser('recovery-check', allow_abbrev=False,
+                               help='Read-only Phase4 replay reuse and disk lower-bound check')
+    recovery.add_argument('--data-dir', type=Path, required=True)
+    recovery.add_argument('--data-root', type=Path, required=True)
+    recovery.add_argument('--annotations', type=Path,
+                          default=Path(__file__).resolve().parents[1] / 'sft_new_loop_phase4/reviewed_state_pairs_v9.json')
+    recovery.add_argument('--output', type=Path, required=True)
     verify = subs.add_parser('verify', allow_abbrev=False)
     verify.add_argument('output', type=Path)
     action = subs.add_parser('export-action-pool', allow_abbrev=False)
     action.add_argument('--argv-json', type=Path, required=True, help='Exact Action dataset/runtime CLI flags as a JSON string array')
     action.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    if args.command == 'recovery-check':
+        from .recovery import check_recovery
+        if args.output.resolve().is_relative_to(args.data_dir.resolve()):
+            parser.error('--output must be outside the immutable Phase4 data directory')
+        if args.output.exists():
+            parser.error('--output already exists; preserve the previous report')
+        report = check_recovery(args.data_dir, args.data_root, args.annotations)
+        write_json(args.output, report)
+        print(json.dumps(dict(status=report['status'], output=str(args.output),
+                              replay_reusable=report['replay_reusable_under_current_request'],
+                              training_ready=False, storage=report['storage']), ensure_ascii=False))
+        return 0 if report['status'] == 'diagnosed' else 2
     if args.command == 'prepare':
         write_json(args.output, dict(make_config(args), storage_mode=args.storage_mode))
         print(json.dumps(dict(request=str(args.output), status='prepared'), ensure_ascii=False))

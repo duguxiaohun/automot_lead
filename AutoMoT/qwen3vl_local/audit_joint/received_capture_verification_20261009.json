@@ -1,0 +1,513 @@
+{
+  "schema": "joint_received_capture_review_v1",
+  "capture": "checkpoints/capture.audit",
+  "handoff_manifest_sha256": "10524d50da3d95a2da8af322a7d641506314ca08a4b61bf3e85ff91642b6e08a",
+  "receipt_sha256": "ecd694858bf5dde1c8ee10d69cd4060f703294674f293d2936fb81c5e2ba01d9",
+  "verification": {
+    "status": "verified",
+    "files": 1216,
+    "extracted_bytes": 42161130,
+    "archive_size_status": "not_verified_original_zip_not_provided",
+    "external_inputs_status": "not_verified_on_receiving_host",
+    "scope": "extracted bytes and included evidence bindings; omitted capture blobs, original ZIP size, live external inputs and experiment approval not verified"
+  },
+  "captured_git_head": "8ea0fbb6f434be503b92f42541bbf4f2987eb5f0",
+  "source_comparison": {
+    "reference_commit": "0279ac735779b582e1f84bc3b3ccd424c57121ac",
+    "identical_files": 1170,
+    "different": [],
+    "server_only": [
+      "keyframe_filter/R2_ROUTE_RGB_REVIEW_SUMMARY_20260708.md",
+      "keyframe_filter/RGB_R4_R5_AUDIT_SUMMARY.md",
+      "keyframe_filter/ROAD_EVENT_INTERRUPTED_OVERLAY_AUDIT_20260706.md",
+      "keyframe_filter/ROAD_EVENT_INTERRUPTED_OVERLAY_IDS_SUMMARY_20260707.json",
+      "keyframe_filter/ROAD_EVENT_NO_R6_RGB_AUDIT_20260706.md",
+      "keyframe_filter/ROAD_EVENT_RS_SYNC_AUDIT_20260706.md",
+      "keyframe_filter/ROAD_STRUCTURE_FULL_RGB_AUDIT_20260706.md",
+      "keyframe_filter/RS_EVENT_RGB_REVIEW_SUMMARY.md",
+      "keyframe_filter/keyframes_all_scenarios.json",
+      "keyframe_filter/rgb_r4_r5_audit_results/README.md",
+      "keyframe_filter/rgb_r4_r5_audit_results/manifest.json",
+      "keyframe_filter/rgb_r4_r5_audit_results/scenario_rgb_r4_r5_summary.json",
+      "qwen3vl_local/sft_new_loop_phase2/UE3_LABEL_ALIGNMENT_AND_ROUTE_DIVERSE_DATA_20260903.md",
+      "qwen3vl_local/sft_new_loop_phase2/V3_FROZEN_3SEED_UE3_VALIDATION_RGB_AUDIT_20260902.md",
+      "qwen3vl_local/sft_new_loop_phase2/V3_ROUTE_DIVERSE_FULL_UE3_RGB_AUDIT_20260902.md",
+      "qwen3vl_local/sft_new_loop_phase2/audit_ue3_label_alignment.py",
+      "qwen3vl_local/sft_new_loop_phase2/audit_ue3_train_route_balance.py",
+      "qwen3vl_local/sft_new_loop_phase2/build_ue3_validation_rgb_audit.py",
+      "qwen3vl_local/sft_new_loop_phase2/check_acceptance.py",
+      "qwen3vl_local/sft_new_loop_phase2/compare_dataset_route_diversity.py",
+      "qwen3vl_local/sft_new_loop_phase2/compare_leadmot_qwen_ab.py",
+      "qwen3vl_local/sft_new_loop_phase2/frozen_dev_cases_v3_384.jsonl",
+      "qwen3vl_local/sft_new_loop_phase2/rescore_ue3_rgb_decisions.py",
+      "qwen3vl_local/sft_new_loop_phase2/run_frozen_protocol.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_leadmot_qwen_ab.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_next_experiment.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_route_diverse_data_smoke.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_route_diverse_validation_rescore.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_ue3_full_validation_rgb_audit.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_ue3_label_alignment_audit.sh",
+      "qwen3vl_local/sft_new_loop_phase2/run_ue3_train_route_balance_smoke.sh",
+      "qwen3vl_local/sft_new_loop_phase2/select_seed_checkpoint.py",
+      "qwen3vl_local/sft_new_loop_phase2/ue3_route_diverse_rgb_decisions_v1.jsonl",
+      "qwen3vl_local/sft_new_loop_phase3/capacity_diagnostic.py",
+      "qwen3vl_local/sft_new_loop_phase3/invalid_capacity.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_invalid_capacity.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_training_pool_audit.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_v24_near_stop.py"
+    ]
+  },
+  "exposure_reaudit": {
+    "mapped_sources": 44,
+    "conflicts_equal": false,
+    "ledger_equal": false,
+    "matrix_equal": true,
+    "declared_conflicts_equal": true,
+    "declared_ledger_equal": true,
+    "status_differences": [
+      {
+        "id": "phase4_reservations",
+        "status": "invalid",
+        "error_count": 93,
+        "reason": "original server route directories are not available on receiving host"
+      },
+      {
+        "id": "phase4_excluded_reservations",
+        "status": "invalid",
+        "error_count": 16,
+        "reason": "original server route directories are not available on receiving host"
+      },
+      {
+        "id": "phase4_formal_holdout",
+        "status": "invalid",
+        "error_count": 51,
+        "reason": "original server route directories are not available on receiving host"
+      }
+    ],
+    "scope": "declared membership reproduced; original server RGB roots unavailable, so local source certification is downgraded instead of claiming live identity verification"
+  },
+  "conflict_pairs": 3,
+  "unique_conflict_groups": 10,
+  "conflicts": [
+    {
+      "evidence_status": "observed",
+      "sources": [
+        {
+          "physical_group": "InvadingTurn/Town12_4195_0",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 69
+        },
+        {
+          "physical_group": "InvadingTurn/Town12_4195_0",
+          "source": "phase3_exposure_development_route_groups_rgb_stage_20261006",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 47
+        },
+        {
+          "physical_group": "InvadingTurn/Town12_4195_0",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:dev_val",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 39
+        },
+        {
+          "physical_group": "InvadingTurn/Town13_1337_0",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 72
+        },
+        {
+          "physical_group": "InvadingTurn/Town13_1337_0",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:dev_val",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 42
+        }
+      ],
+      "kind": "exposed_holdout_overlap",
+      "left": "phase3:development_exposure",
+      "right": "phase4:dev_val",
+      "physical_groups": [
+        "InvadingTurn/Town12_4195_0",
+        "InvadingTurn/Town13_1337_0"
+      ],
+      "logical_groups": [
+        "InvadingTurn/Town12_4195_0",
+        "InvadingTurn/Town13_1337_0"
+      ]
+    },
+    {
+      "evidence_status": "observed",
+      "sources": [
+        {
+          "physical_group": "ConstructionObstacleTwoWays/Town12_route_001128",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 20
+        },
+        {
+          "physical_group": "ConstructionObstacleTwoWays/Town12_route_001128",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:final_test",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 3
+        },
+        {
+          "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 31
+        },
+        {
+          "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:final_test",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 5
+        },
+        {
+          "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 37
+        },
+        {
+          "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:final_test",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 8
+        },
+        {
+          "physical_group": "HardBreakRoute/Town12_2325_0",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 57
+        },
+        {
+          "physical_group": "HardBreakRoute/Town12_2325_0",
+          "source": "phase3_exposure_development_route_groups_rgb_stage_20261006",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 41
+        },
+        {
+          "physical_group": "HardBreakRoute/Town12_2325_0",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:final_test",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 12
+        },
+        {
+          "physical_group": "HardBreakRoute/Town12_767_0",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 61
+        },
+        {
+          "physical_group": "HardBreakRoute/Town12_767_0",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:final_test",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 13
+        },
+        {
+          "physical_group": "HardBreakRoute/Town13_1196_0",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 63
+        },
+        {
+          "physical_group": "HardBreakRoute/Town13_1196_0",
+          "source": "phase4_formal_holdout",
+          "bucket": "phase4:final_test",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 14
+        }
+      ],
+      "kind": "exposed_holdout_overlap",
+      "left": "phase3:development_exposure",
+      "right": "phase4:final_test",
+      "physical_groups": [
+        "ConstructionObstacleTwoWays/Town12_route_001128",
+        "CrossJunctionDefectTrafficLight/Town03_route_002138",
+        "CrossJunctionDefectTrafficLight/Town05_route_002070",
+        "HardBreakRoute/Town12_2325_0",
+        "HardBreakRoute/Town12_767_0",
+        "HardBreakRoute/Town13_1196_0"
+      ],
+      "logical_groups": [
+        "ConstructionObstacleTwoWays/Town12_route_001128",
+        "CrossJunctionDefectTrafficLight/Town03_route_002138",
+        "CrossJunctionDefectTrafficLight/Town05_route_002070",
+        "HardBreakRoute/Town12_2325_0",
+        "HardBreakRoute/Town12_767_0",
+        "HardBreakRoute/Town13_1196_0"
+      ]
+    },
+    {
+      "evidence_status": "observed",
+      "sources": [
+        {
+          "physical_group": "DynamicObjectCrossing/Town03_Town03_Scenario3_21",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 42
+        },
+        {
+          "physical_group": "DynamicObjectCrossing/Town03_Town03_Scenario3_21",
+          "source": "phase4_reservations",
+          "bucket": "phase4:independent_review",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 39
+        },
+        {
+          "physical_group": "StaticCutIn/Town13_53_0",
+          "source": "phase3_exposure_development_route_groups_20260926",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 126
+        },
+        {
+          "physical_group": "StaticCutIn/Town13_53_0",
+          "source": "phase3_exposure_development_route_groups_rgb_stage_20261006",
+          "bucket": "phase3:development_exposure",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 82
+        },
+        {
+          "physical_group": "StaticCutIn/Town13_53_0",
+          "source": "phase4_reservations",
+          "bucket": "phase4:independent_review",
+          "source_status": "audited",
+          "rows": 1,
+          "first_record": 8
+        }
+      ],
+      "kind": "exposed_holdout_overlap",
+      "left": "phase3:development_exposure",
+      "right": "phase4:independent_review",
+      "physical_groups": [
+        "DynamicObjectCrossing/Town03_Town03_Scenario3_21",
+        "StaticCutIn/Town13_53_0"
+      ],
+      "logical_groups": [
+        "DynamicObjectCrossing/Town03_Town03_Scenario3_21",
+        "StaticCutIn/Town13_53_0"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "kind": "asset",
+      "id": "phase3_data_manifest",
+      "status": "missing"
+    },
+    {
+      "kind": "asset",
+      "id": "phase4_rgb2_manifest",
+      "status": "missing"
+    },
+    {
+      "kind": "asset",
+      "id": "phase4_rgb4_manifest",
+      "status": "missing"
+    },
+    {
+      "kind": "asset",
+      "id": "action_data_manifest",
+      "status": "missing"
+    },
+    {
+      "kind": "asset",
+      "id": "action_effective_manifest",
+      "status": "missing"
+    },
+    {
+      "kind": "asset",
+      "id": "phase3_selected_adapter_weights",
+      "status": "missing"
+    },
+    {
+      "kind": "phase4_pairing",
+      "status": "invalid",
+      "error": "both verified dataset manifests are required"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "phase3",
+      "role": "train_pool"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "phase3",
+      "role": "dev_val"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "phase3",
+      "role": "final_test"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "phase4",
+      "role": "train_pool"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "phase4",
+      "role": "dev_val"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "phase4",
+      "role": "final_test"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "action",
+      "role": "train_pool"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "action",
+      "role": "dev_val"
+    },
+    {
+      "kind": "missing_full_pool",
+      "phase": "action",
+      "role": "final_test"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase3_full_index",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase4_rgb2_train",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase4_rgb2_val",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase4_rgb2_test",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase4_rgb4_train",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase4_rgb4_val",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "phase4_rgb4_test",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "action_raw_train",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "action_raw_val",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "action_raw_test",
+      "status": "missing"
+    },
+    {
+      "kind": "split_source",
+      "id": "action_effective_index",
+      "status": "missing"
+    },
+    {
+      "kind": "cross_task_isolation",
+      "conflict_pairs": 3
+    },
+    {
+      "kind": "execution",
+      "status": "not_run",
+      "item": "same_checkpoint_full_evaluation"
+    },
+    {
+      "kind": "execution",
+      "status": "not_run",
+      "item": "fixed_update_numeric_performance"
+    },
+    {
+      "kind": "execution",
+      "status": "not_run",
+      "item": "four_rank_kernel_probe"
+    }
+  ],
+  "stages": {
+    "E0": "not_run",
+    "E1": "not_run",
+    "G1": "not_run",
+    "G2": "not_run"
+  },
+  "baseline_ready": false,
+  "external_reference_count": 44,
+  "base_model_asset_count": 11,
+  "external_inputs_live_reverification": "not_available_on_receiving_host",
+  "original_zip_size": "not_available",
+  "no_training_or_full_replay_performed": true,
+  "local_regression": {
+    "passed": 1257,
+    "seconds": 103.91,
+    "new_tests": 22,
+    "scope": [
+      "audit_joint/tests",
+      "sft_new_loop_phase3/test_prompt_candidate.py",
+      "sft_new_loop_phase4/tests",
+      "action_prior/tests/test_split_support.py"
+    ]
+  }
+}
