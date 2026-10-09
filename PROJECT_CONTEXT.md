@@ -1,5 +1,9 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-09 联合审计仓库与应用目录识别
+
+prepare以模块位置查询Git根，识别仓库/AutoMoT和扁平应用两种布局；project_root/application_root分开，默认data/source/checkpoint随应用根。显式根目录歧义拒绝，不以cwd猜测。Git缺失/无HEAD/超时转git_identity阻塞并留诊断包，不再晚期崩溃。旧错误请求不重写，须新prepare/输出；服务器手册新增缺失资产完整分支。生产/Action导出合同不变，无题库重建/训练/远程执行。新增13项布局/Git专项，相关回归1216通过（G0共103）；扁平/嵌套×应用/无关cwd四组合真实CLI及Git、阻塞捕获/ZIP通过，worktree/no-Git/旧错误root均覆盖；本机实际prepare路径核对通过。见audit_joint/layout_verification_20261009.json。
+
 ### 2026-10-09 联合审计原始池绑定、逻辑引用与未认证证据
 
 Action有效池按本次action_raw三split内容SHA绑定，旧请求也从原始来源提取路径；允许原始索引搬迁并核验相同字节，无须保留旧索引目录，RGB/其它依赖仍按原合同检查。轻量引用同时登记逻辑路径/解析目标/SHA，verify-inputs分报target_status与binding_status；同字节改指仍失败，旧记录无逻辑路径为incomplete，不改历史回执。

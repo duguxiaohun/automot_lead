@@ -2,16 +2,17 @@
 import json
 from pathlib import Path
 
+from .layout import project_layout
+
 SPLIT_ROLES = dict(train='train_pool', val='dev_val', test='final_test')
 
 
 def make_config(args):
-    root = Path(args.project_root).resolve()
-    automot = root / 'AutoMoT'
+    root, automot = project_layout(args.project_root)
     code = automot / 'qwen3vl_local'
     p3, p4 = code / 'sft_new_loop_phase3', code / 'sft_new_loop_phase4'
     sources, artifacts, diagnostics = [], [], {}
-    common_root = str(Path(args.data_root).absolute())
+    common_root = str(Path(args.data_root or automot / 'lead_data').absolute())
     roots = {
         'phase3': str(Path(getattr(args, 'phase3_data_root', None) or common_root).absolute()),
         'phase4': common_root,
@@ -91,7 +92,7 @@ def make_config(args):
                    role=role, expected_split=split, full_pool=full,
                    expected_sha256=mapping(recorded, 'files', manifest).get(f'{split}.jsonl'),
                    required_artifacts=[f'phase4_rgb{mode}_manifest'],
-                   data_root=str(Path(args.data_root).absolute()), verify_images=args.verify_images)
+                   data_root=common_root, verify_images=args.verify_images)
     action = Path(args.action_data or automot / 'checkpoints/action_prior_data')
     artifact('action_data_manifest', action / 'manifest.json')
     for split, role in SPLIT_ROLES.items():
@@ -175,7 +176,7 @@ def make_config(args):
     for item in sources:
         if item['path'] in diagnostics:
             item['validation_error'] = diagnostics[item['path']]
-    return dict(schema='joint_audit_request_v1', project_root=str(root),
+    return dict(schema='joint_audit_request_v1', project_root=str(root), application_root=str(automot),
                 phase3_prompt_variant=args.phase3_prompt_variant,
                 source_roots=[str(code), str(automot / 'lead_video_tools'), str(automot / 'keyframe_filter')],
                 model_dir=str(Path(args.model_dir or automot / 'checkpoints/Qwen3.5-4B').absolute()),

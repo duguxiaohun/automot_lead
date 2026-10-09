@@ -31,11 +31,22 @@ def environment():
 
 def git_state(root):
     def run(*args):
-        return subprocess.check_output(['git', '-C', str(root), *args], text=True, timeout=30).strip()
-    return dict(head=run('rev-parse', 'HEAD'),
-                status=run('status', '--porcelain=v1', '--untracked-files=normal').splitlines(),
-                diff_stat=run('diff', 'HEAD', '--stat').splitlines(),
-                note='HEAD is context only; actual source identity is the byte snapshot.')
+        return subprocess.check_output(['git', '-C', str(root), *args], text=True,
+                                       stderr=subprocess.PIPE, timeout=30).strip()
+    try:
+        return dict(availability='available', root=run('rev-parse', '--show-toplevel'),
+                    head=run('rev-parse', 'HEAD'),
+                    status=run('status', '--porcelain=v1', '--untracked-files=normal').splitlines(),
+                    diff_stat=run('diff', 'HEAD', '--stat').splitlines(),
+                    note='HEAD is context only; actual source identity is the byte snapshot.')
+    except (OSError, subprocess.SubprocessError) as error:
+        detail = getattr(error, 'stderr', None) or str(error)
+        if isinstance(detail, bytes):
+            detail = detail.decode('utf-8', errors='replace')
+        return dict(availability='unavailable', requested_root=str(root),
+                    error=detail.strip(),
+                    note='Git identity unavailable; inspect project_root and prepare a new request. '
+                         'The source byte snapshot remains diagnostic evidence only.')
 
 
 def native_contracts(phase3_variant):
@@ -111,6 +122,7 @@ def check_native_artifact(spec, contracts):
 def run(config, output):
     output = Path(output).absolute()
     root = Path(config['project_root']).resolve()
+    git = git_state(root)
     files = source_files(config['source_roots'])
     if any(output == Path(p).absolute() or Path(p).absolute() in output.parents
            for p in config['source_roots']):
@@ -201,6 +213,8 @@ def run(config, output):
             file_sha(root / name) != record['sha256'] for name, record in source_manifest.items()):
         raise RuntimeError('source tree changed during G0; choose a new output and retry')
     blockers = [dict(kind='asset', id=a['id'], status=a['status']) for a in artifacts if a['status'] != 'verified']
+    if git.get('availability') == 'unavailable':
+        blockers.append(dict(kind='git_identity', status='unavailable', error=git['error']))
     if pairing['status'] == 'invalid':
         blockers.append(dict(kind='phase4_pairing', **pairing))
     if model['status'] != 'hashed':
@@ -215,7 +229,7 @@ def run(config, output):
     manifest = dict(schema=SCHEMA, created_at=datetime.now(timezone.utc).isoformat(),
                     status='in_progress', reproducible_baseline_ready=False,
                     source_snapshot_sha256=digest({k: v['sha256'] for k, v in source_manifest.items()}),
-                    source_file_count=len(source_manifest), git=git_state(root), environment=environment(),
+                    source_file_count=len(source_manifest), git=git, environment=environment(),
                     contracts=contracts, model=model, artifacts=artifacts, blockers=blockers,
                     phase4_pairing=pairing,
                     storage=storage, external_assets_required=True, full_input_snapshot=mode == 'full',

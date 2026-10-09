@@ -38,11 +38,10 @@ python -m qwen3vl_local.audit_joint storage-inventory --root checkpoints --core-
 
 ## 1. 更新源码，核对原训练环境
 
-在服务器仓库根目录执行。若有本地代码修改使快进失败，保留修改并处理冲突；不用 reset/clean 删除数据或强行覆盖。
+先进入实际包含 `qwen3vl_local/` 的应用目录。本机是仓库下的 `AutoMoT/`，服务器也可能将这个目录本身作为 Git 根目录；以下命令兼容两者，不要再盲目追加一次 `cd AutoMoT`。若有本地代码修改使快进失败，保留修改并处理冲突；不用 reset/clean 删除数据或强行覆盖。
 
 ```bash
 git pull --ff-only origin main
-cd AutoMoT
 ulimit -S -c 0
 ```
 
@@ -134,6 +133,42 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
 已有本轮匹配的 v2 `action_pool_v2_bound` 时直接沿用；G0 会核对其源合同及输入 SHA，不重复导出。导出不加载模型、不采样 epoch、不改旧 split。缺 Action 数据时先跳过此导出，并从下一命令移除 `--action-effective-index`；G0 会明确记缺口，不能宣称跨 Action 的隔离通过。
 
 ## 4. 跑服务器 G0，自动打包并核验
+
+**目录布局修复（2026-10-09）：** 默认从当前导入模块所在位置查找 Git 根目录，并分别识别 `仓库/AutoMoT/qwen3vl_local/` 和 `仓库/qwen3vl_local/`，不依赖启动 shell 的 cwd。`project_root` 与 `application_root` 分别记录，源码/模型/索引默认路径都以应用目录构建。不要仅把旧代码的 `parents[3]` 改成 `parents[2]`，否则旧版 `make_config` 仍可能多追加一个 `AutoMoT/`。Git 信息不可取得时记录 `git_identity` 阻塞，不伪造 HEAD，不因此在生成诊断回执前崩溃。
+
+如果上一轮因 `not a git repository` 失败，更新代码后重新 prepare 到新目录，保留旧 request 和失败 capture。不能只修改旧 request 的 project_root，因为其中源码和资产路径也可能错误。此次只改审计入口，不改变生产合同或 Action 有效池导出合同；不需要因此重建题库或重新导出匹配的 Action 池。
+
+**当前 Phase3 索引/adapter 和 Action 数据缺失时，使用以下完整分支替代本节后面的完整资产示例。** 这些资产参数不是必填项；无需虚构路径、编造 Action argv 或先重训。下面的缺失报告目录必须尚未使用；若已有失败输出，保留并改用另一个新名称。
+
+```bash
+G0_ROOT=checkpoints/joint_missing_assets_20261009_layoutfix
+P4_DATA=checkpoints/joint_remote_20261008_211924/phase4_data
+mkdir -p "$G0_ROOT"
+
+python -m qwen3vl_local.audit_joint prepare \
+  --phase3-prompt-variant v23_rgb_stage_candidate_20261006 \
+  --phase4-data2 "$P4_DATA/data2" --phase4-data4 "$P4_DATA/data4" \
+  --data-root lead_data --model-dir checkpoints/Qwen3.5-4B \
+  --storage-mode references --output "$G0_ROOT/request.json"
+
+python -m qwen3vl_local.audit_joint storage-plan \
+  --config "$G0_ROOT/request.json" --output "$G0_ROOT/capture"
+```
+
+确认 storage-plan 退出 0 且 sufficient=true，再执行。此处只收集现有文件，不补建 Phase4 残缺题库，也不下载或训练模型：
+
+```bash
+g0_status=0
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$G0_ROOT" -- \
+  python -m qwen3vl_local.audit_joint run \
+  --config "$G0_ROOT/request.json" --output "$G0_ROOT/capture" \
+  --storage-mode references || g0_status=$?
+echo "G0 exit code: $g0_status"
+python -m qwen3vl_local.audit_joint verify "$G0_ROOT/capture"
+python -m qwen3vl_local.audit_joint verify-package "$G0_ROOT/capture.audit.zip"
+```
+
+退出 2 时仍须确认两项核验通过；其它退出码或缺少 ZIP 时反馈原始错误。交回 `$G0_ROOT/capture.audit.zip`。以下原命令适用于已经定位完整 Phase3/Action 资产的情况，不与缺失分支重复执行。
 
 ```bash
 python -m qwen3vl_local.audit_joint prepare \

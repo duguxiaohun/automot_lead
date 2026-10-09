@@ -1,0 +1,34 @@
+{
+  "schema": "joint_audit_layout_verification_v1",
+  "date": "2026-10-09",
+  "base_commit": "74b0590856211cf7ac3635c2485f7077a103e3f5",
+  "source_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/layout.py": "d48b0eb2832df519e23f7e260ccaecfdd7d116da22e6cce11f3e7b6063c00e44",
+    "AutoMoT/qwen3vl_local/audit_joint/__main__.py": "3f32377f83bfbb046abca51179da3620eec65aa003a80d6b49c9b6a81e108d37",
+    "AutoMoT/qwen3vl_local/audit_joint/config.py": "fba4e5cc011ca0804d527bb11e1acb65775c7f2ef9d899cb0aaa59031e7ff3d0",
+    "AutoMoT/qwen3vl_local/audit_joint/baseline.py": "3e485794896265bd40be8b387076498a9da06f1520674475150cde50e3a78e55",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_layout.py": "2cb898c3906fc27b347b8e028415a54886a0c46c64a53a629ad37f49a114df24"
+  },
+  "regression": {
+    "passed": 1216,
+    "seconds": 94.72,
+    "g0_tests": 103,
+    "new_layout_tests": 13,
+    "log": "/tmp/joint_layout_regression_20261009.log"
+  },
+  "exercised": [
+    "Real subprocess prepare for flat and nested repositories, launched from application and unrelated cwd.",
+    "Real Git HEAD, run with missing assets, expected exit 2, capture receipt and ZIP verification in all four layout/cwd combinations.",
+    "Explicit roots for both layouts; invalid and ambiguous roots rejected.",
+    "Actual Git worktree with .git file.",
+    "Source-only copy and old parent-root request preserve Git-unavailable blockers.",
+    "Git absent, timeout stderr bytes and initialized repository without HEAD.",
+    "Real local prepare without project-root correctly identifies workspace/application and all source/model defaults."
+  ],
+  "limitations": [
+    "Synthetic layout captures mock native_contracts only; they do not certify training data, model assets or independent labels.",
+    "No remote server run, GPU training, full replay, or new production datasets.",
+    "Native producer and Action export contract source files unchanged.",
+    "Existing requests, incomplete captures and data retained; retry requires newly prepared request and output path."
+  ]
+}

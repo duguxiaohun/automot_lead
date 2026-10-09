@@ -12,8 +12,9 @@ def main():
     parser = argparse.ArgumentParser(description='Local G0 baseline capture and cross-task isolation audit', allow_abbrev=False)
     subs = parser.add_subparsers(dest='command', required=True)
     prepare = subs.add_parser('prepare', allow_abbrev=False)
-    prepare.add_argument('--project-root', type=Path, default=Path(__file__).resolve().parents[3])
-    prepare.add_argument('--data-root', type=Path, default=Path(__file__).resolve().parents[2] / 'lead_data')
+    prepare.add_argument('--project-root', type=Path,
+                         help='Default: Git root containing this module; supports nested and flat application layouts')
+    prepare.add_argument('--data-root', type=Path, help='Default: lead_data under the resolved application root')
     prepare.add_argument('--phase3-prompt-variant', required=True,
                          choices=['baseline', 'v23_rgb_stage_candidate_20261006'])
     for name in ('phase3-data-root', 'action-data-root', 'candidate-data-root'):
