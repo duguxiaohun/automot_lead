@@ -24,4 +24,9 @@ bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$OUTPUT_DIR" --min-f
   --dataset "$DATASET" --data-root "${DATA_ROOT:-lead_data}" \
   --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" --output-dir "$P4_RUN" \
   --rgb-mode "$P4_MODE" "$@"
+GPU_IDS="${P4_GPU_ARRAY[0]}" PYTHON="$P4_PYTHON" \
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$OUTPUT_DIR" --min-free-gib 20 -- \
+  "$P4_PYTHON" -m qwen3vl_local.sft_new_loop_phase4.rgb_short.reload_check \
+  --run "$P4_RUN" --dataset "$DATASET" --data-root "${DATA_ROOT:-lead_data}" \
+  --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 ln -sfn "$(basename "$P4_RUN")" "$OUTPUT_DIR/latest"

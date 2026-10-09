@@ -6,6 +6,7 @@ from ..dataset import dump_rows
 from ..evaluate import _reference_metrics
 from ..identity import digest, write_json
 from ..paired_eval import case_identity
+from .diagnostics import diagnostic_report
 from .data import load_dataset
 from .model import generate, load_for_inference
 
@@ -30,6 +31,7 @@ def evaluate_rows(bundle, rows, data_root, max_length=8192):
     reviewed = agreement([row for row in cases if row['original_reference_kind'] != 'rule_teacher'])
     teacher = agreement([row for row in cases if row['original_reference_kind'] == 'rule_teacher'])
     return dict(count=len(cases), transferred_reviewed_reference=reviewed, teacher_consistency=teacher,
+                diagnostics=diagnostic_report(cases),
                 selection_agreement=reviewed['event_macro_agreement_observed'],
                 selection_metric='transferred_reference_event_macro_agreement_v1',
                 independent_accuracy_certified=False,

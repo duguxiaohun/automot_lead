@@ -148,6 +148,11 @@ def load_dataset(path, *, rgb_mode=2, require_trainable=False, require_complete_
     admission = native.training_report(data, coverage)
     admission['evaluation_scope'] = 'development reference agreement; short-input visibility and joint independence unverified'
     admission['transferred_supervision_rows'] = len(data['train']) if rgb_mode == 2 else 0
+    from collections import Counter
+    admission['original_label_basis_counts'] = dict(Counter(
+        row.get('student_reference', {}).get('original_label_basis', row['label_basis'])
+        for row in data['train']))
+    admission['original_weak_supervision_rows'] = admission['original_label_basis_counts'].get('weak_rule_teacher', 0)
     if require_trainable and not admission['trainable']:
         raise ValueError('student view training prerequisites failed: ' + '; '.join(admission['errors']))
     if require_complete_coverage:

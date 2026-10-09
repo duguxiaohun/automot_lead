@@ -24,14 +24,14 @@ RESULT_NAMES = {
     'sft_new_loop_phase3_adapter_config.json', 'qwen35_backend.json', 'qwen35_base_assets.json',
     'paired_base_lora.json', 'visual_audit_manifest.json', 'paired_eval.json',
     'training_plan.json', 'benchmark_report.json', 'preflight.json', 'host_preflight.json',
-    'student_view.json',
+    'student_view.json', 'checkpoint_reload.json',
     'run_manifest.json', 'model_contract.json', 'condition_contract.json', 'train_log.jsonl',
     'train_metrics.jsonl', 'train_eval_metrics.jsonl', 'train_balance.json',
     'generation_val_cases.jsonl', 'final_generation_val_cases.jsonl',
     'route_results.csv', 'scenario_results.csv', 'ability_results.csv',
 }
-RESULT_PATTERN = re.compile(r'(cases(?:_rank\d+)?\.jsonl|epoch_\d+_(sampling|validation)\.json|'
-                            r'epoch_\d+_cases\.jsonl|epoch_\d+\.json)\Z')
+RESULT_PATTERN = re.compile(r'(cases(?:_rank\d+)?\.jsonl|epoch_\d+_(sampling|validation|runtime|checkpoint)\.json|'
+                            r'epoch_\d+_(cases|samples|rank\d+_steps)\.jsonl|epoch_\d+\.json)\Z')
 
 
 def safe_name(name):

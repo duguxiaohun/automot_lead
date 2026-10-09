@@ -11,7 +11,7 @@ def contract():
     return dict(policy=POLICY, producer=producer_contract(),
                 exposure_normalizer_sha256=file_sha(ROOT.parents[1] / 'audit_joint/splits.py'), sources={
         name: file_sha(ROOT / name) for name in
-        ('__init__.py', 'contract.py', 'data.py', 'model.py', 'train.py', 'evaluate.py', 'build.py', 'run.sh')})
+        ('__init__.py', 'contract.py', 'data.py', 'model.py', 'train.py', 'evaluate.py', 'build.py', 'run.sh', 'diagnostics.py', 'reload_check.py')})
 
 
 def observation_contract(mode):

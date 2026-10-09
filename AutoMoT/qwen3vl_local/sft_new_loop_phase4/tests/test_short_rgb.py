@@ -302,8 +302,8 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     assert len((output / 'cases.jsonl').read_text().splitlines()) == 1
 
 
-@pytest.mark.parametrize('exit_code', [0, 9])
-def test_four_gpu_launcher_passes_selection_and_preserves_failure(tmp_path, exit_code):
+@pytest.mark.parametrize('exit_code,reload_exit', [(0, 0), (9, 0), (0, 7)])
+def test_four_gpu_launcher_passes_selection_and_preserves_failure(tmp_path, exit_code, reload_exit):
     import os
     import subprocess
     import sys
@@ -322,6 +322,10 @@ if sys.argv[1] == '-c':
     assert 'CUDA_VISIBLE_DEVICES' not in os.environ
     assert os.environ['GPU_IDS'] == '1,3,5,7'
     print('1,3,5,7')
+elif 'qwen3vl_local.sft_new_loop_phase4.rgb_short.reload_check' in sys.argv:
+    assert os.environ['GPU_IDS'] == '1'
+    pathlib.Path(os.environ['RELOAD_RECORD']).write_text(json.dumps(sys.argv[1:]))
+    raise SystemExit(int(os.environ['RELOAD_EXIT']))
 else:
     pathlib.Path(os.environ['CALL_RECORD']).write_text(json.dumps({
         'argv': sys.argv[1:], 'mask': os.environ.get('CUDA_VISIBLE_DEVICES')}))
@@ -330,17 +334,22 @@ else:
     python.chmod(0o755)
     record = tmp_path / 'call.json'
     output = tmp_path / 'runs'
+    (output / 'previous_success').mkdir(parents=True)
+    (output / 'latest').symlink_to('previous_success', target_is_directory=True)
     env = dict(os.environ, PYTHON=str(python), GPU_IDS='1,3,5,7',
         CUDA_VISIBLE_DEVICES='inherited_mask', DATASET='/data/view', DATA_ROOT='/rgb',
         MODEL_DIR='/model', OUTPUT_DIR=str(output), RGB_MODE='2', RUN_TAG='smoke',
-        CALL_RECORD=str(record), TRAIN_EXIT=str(exit_code))
+        CALL_RECORD=str(record), TRAIN_EXIT=str(exit_code), RELOAD_EXIT=str(reload_exit),
+        RELOAD_RECORD=str(tmp_path / 'reload.json'))
     result = subprocess.run(['bash', str(launcher), '--epochs', '1', '--epoch-samples', '40'],
         cwd=tmp_path, env=env, capture_output=True, text=True)
-    assert result.returncode == exit_code, result.stderr
+    assert result.returncode == (exit_code or reload_exit), result.stderr
     call = json.loads(record.read_text())
     assert call['mask'] == '1,3,5,7'
     assert call['argv'] == ['-m', 'torch.distributed.run', '--standalone', '--nproc_per_node=4',
         '-m', 'qwen3vl_local.sft_new_loop_phase4.rgb_short.train', '--dataset', '/data/view',
         '--data-root', '/rgb', '--model-dir', '/model', '--output-dir', str(output / 'run_smoke_rgb2'),
         '--rgb-mode', '2', '--epochs', '1', '--epoch-samples', '40']
-    assert (output / 'latest').is_symlink() == (exit_code == 0)
+    assert (output / 'latest').is_symlink()
+    assert os.readlink(output / 'latest') == ('run_smoke_rgb2' if exit_code == 0 and reload_exit == 0 else 'previous_success')
+    assert (tmp_path / 'reload.json').exists() == (exit_code == 0)

@@ -10,6 +10,8 @@ import math
 import os
 from pathlib import Path
 import random
+import time
+from .diagnostics import sample_records, sample_binding, append_step
 from .data import load_dataset
 from ..dataset import dump_rows
 from .evaluate import evaluate_rows
@@ -165,7 +167,10 @@ def main():
         indices,audit=plan(data['train'],epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
         next_sampling_history=audit.pop('next_history',None)
         local_indices=indices[rank::world]
+        records=sample_records(data['train'],indices,world)
+        audit['ordered_samples']=sample_binding(records,world)
         if rank==0:
+            dump_rows(a.output_dir/f'epoch_{epoch:03d}_samples.jsonl',records)
             write_json(a.output_dir/f'epoch_{epoch:03d}_sampling.json',audit)
             print(f"[sampling] epoch={epoch} policy={a.sampling_policy} pool={len(data['train'])} "
                   f"presentations={len(indices)} unique={audit.get('unique_questions',len(set(indices)))} "
@@ -174,7 +179,13 @@ def main():
         bundle.model.train()
         optimizer.zero_grad(set_to_none=True)
         total_loss=0.
+        if device.type=='cuda':
+            torch.cuda.synchronize(device)
+            torch.cuda.reset_peak_memory_stats(device)
+        epoch_start=time.perf_counter()
+        optimizer_steps=0
         for j,index in enumerate(local_indices):
+            step_start=time.perf_counter()
             inputs=encode(bundle,data['train'][index],a.data_root,max_length=a.max_length)
             size=accumulation_size(j,len(local_indices),a.accumulation)
             update=(j+1)%a.accumulation==0 or j+1==len(local_indices)
@@ -189,14 +200,32 @@ def main():
                 torch.nn.utils.clip_grad_norm_(bundle.model.parameters(),1.)
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+                optimizer_steps+=1
+            if device.type=='cuda':
+                torch.cuda.synchronize(device)
+            append_step(a.output_dir/f'epoch_{epoch:03d}_rank{rank}_steps.jsonl',dict(
+                epoch=epoch,rank=rank,local_index=j,position=j*world+rank,id=data['train'][index]['id'],
+                loss=float(loss.detach()),optimizer_update=update,optimizer_steps=optimizer_steps,
+                elapsed_seconds=time.perf_counter()-step_start,tokens=int(inputs['input_ids'].shape[1])))
             if rank==0 and j%20==0:
                 print(f'[train] epoch={epoch} row={j+1}/{len(local_indices)} loss={float(loss):.5f}',flush=True)
+        runtime=dict(rank=rank,microbatches=len(local_indices),optimizer_steps=optimizer_steps,
+            mean_loss=total_loss/len(local_indices),train_seconds=time.perf_counter()-epoch_start,
+            device=str(device),gpu_name=torch.cuda.get_device_name(device) if device.type=='cuda' else None,
+            peak_allocated_bytes=torch.cuda.max_memory_allocated(device) if device.type=='cuda' else None,
+            peak_reserved_bytes=torch.cuda.max_memory_reserved(device) if device.type=='cuda' else None)
+        ranks=[None]*world
         if world>1:
-            dist.barrier()
+            dist.all_gather_object(ranks,runtime)
+        else:
+            ranks=[runtime]
         if rank==0:
+            write_json(a.output_dir/f'epoch_{epoch:03d}_runtime.json',dict(ranks=ranks,validation_status='pending'))
             raw=bundle.model.module if world>1 else bundle.model
             raw.eval()
+            validation_start=time.perf_counter()
             report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length)
+            validation_seconds=time.perf_counter()-validation_start
             # Each observed event has one vote, independent of its subgroup count.
             # The fixed ten-event score remains null while any event is missing.
             score=report['selection_agreement']
@@ -211,6 +240,7 @@ def main():
             write_json(a.output_dir/f'epoch_{epoch:03d}_validation.json',report)
             dump_rows(a.output_dir/f'epoch_{epoch:03d}_cases.jsonl',cases)
             folder=a.output_dir/f'epoch_{epoch:03d}'
+            save_start=time.perf_counter()
             save_adapter(raw,folder)
             bundle.processor.save_pretrained(folder)
             write_json(folder/'phase4_contract.json',run_contract)
@@ -220,6 +250,15 @@ def main():
             selected=best_reference(folder,best_path,best,best_epoch)
             torch.save(dict(optimizer=optimizer.state_dict(),next_epoch=epoch+1,best=best,
                             best_checkpoint=selected,sampling_history=next_sampling_history),folder/'training_state.pt')
+            write_json(a.output_dir/f'epoch_{epoch:03d}_checkpoint.json',dict(
+                epoch=epoch,adapter=folder.name,files=adapter_identity(folder),
+                training_state=dict(bytes=(folder/'training_state.pt').stat().st_size,
+                                    sha256=file_sha(folder/'training_state.pt'))))
+            write_json(a.output_dir/f'epoch_{epoch:03d}_runtime.json',dict(
+                ranks=ranks,validation_status='complete',validation_seconds_rank0=validation_seconds,
+                checkpoint_seconds_rank0=time.perf_counter()-save_start,
+                train_mean_loss_all_ranks=sum(r['mean_loss'] for r in ranks)/world,
+                timing_scope='synchronized per-microbatch wall time including encoding and optimizer; training peaks only'))
             write_json(a.output_dir/'latest.json',dict(adapter=folder.name,epoch=epoch))
             if improved:
                 write_json(a.output_dir/'best.json',dict(adapter=folder.name,score=score,epoch=epoch))
