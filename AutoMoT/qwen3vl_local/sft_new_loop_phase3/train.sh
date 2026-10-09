@@ -33,9 +33,9 @@ HISTORY_RGB_MODE="${HISTORY_RGB_MODE:-4rgb}"
 ACTION_OUTPUT_MODE="${ACTION_OUTPUT_MODE:-choice}"
 PROMPT_VARIANT="${PROMPT_VARIANT:-baseline}"
 case "${HISTORY_RGB_MODE}" in
-  4rgb|2rgb_endpoints) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
+  4rgb|2rgb_endpoints|2rgb_short) HISTORY_RGB_TAG="${HISTORY_RGB_MODE}" ;;
   *)
-    echo "Unknown HISTORY_RGB_MODE=${HISTORY_RGB_MODE}. Use 4rgb or 2rgb_endpoints." >&2
+    echo "Unknown HISTORY_RGB_MODE=${HISTORY_RGB_MODE}. Use 4rgb, 2rgb_short or legacy 2rgb_endpoints." >&2
     exit 1
     ;;
 esac

@@ -24,6 +24,7 @@ RESULT_NAMES = {
     'sft_new_loop_phase3_adapter_config.json', 'qwen35_backend.json', 'qwen35_base_assets.json',
     'paired_base_lora.json', 'visual_audit_manifest.json', 'paired_eval.json',
     'training_plan.json', 'benchmark_report.json', 'preflight.json', 'host_preflight.json',
+    'student_view.json',
     'run_manifest.json', 'model_contract.json', 'condition_contract.json', 'train_log.jsonl',
     'train_metrics.jsonl', 'train_eval_metrics.jsonl', 'train_balance.json',
     'generation_val_cases.jsonl', 'final_generation_val_cases.jsonl',

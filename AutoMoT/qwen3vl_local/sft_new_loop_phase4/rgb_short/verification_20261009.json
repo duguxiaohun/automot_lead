@@ -1,0 +1,989 @@
+{
+  "schema": "short_rgb_implementation_verification_v1",
+  "input_contracts": {
+    "phase3_short": [
+      -2,
+      0
+    ],
+    "phase3_four": [
+      -3,
+      -2,
+      -1,
+      0
+    ],
+    "phase4_short": [
+      -2,
+      0
+    ],
+    "phase4_four": [
+      -6,
+      -4,
+      -2,
+      0
+    ]
+  },
+  "producer_contract_matches_remote_recovery": true,
+  "recovery_report_sha256": "9f743e5b80deb71c1e9e2599c04873e6b4e7af359acdd60ae2f2cf2abaf3974f",
+  "native_manual_dataset_counts": {
+    "train": 443,
+    "val": 273,
+    "test": 186
+  },
+  "student_view_counts": {
+    "train": 443,
+    "val": 239,
+    "test": 123
+  },
+  "exclusions": [
+    {
+      "id": "1ead9ed2f8e0d77bd9e375dba5128d5972e6a93ebe68102c6fb5310c33697a89",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "ea3103e42a08eb1472bca801db251cc33752de0dd832d4d2f594dded4abe3a10",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "290ce7abb28f87a4672db0efac3404be84b83bcc6e0d4553f7f80085daed4dd5",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "a908feec432e2d5f261971318a60625790442491e91211e27c34a1645bf1841f",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "484d678c70280bd122248900c53c4a7cb0f32edd43b98836a73aa2f5eed16d0f",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "b3fe13289e846e2a6c1739e89a4f99f45c58fd555353e449a65a24dc3f6cda3c",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "e0ef5b9bac73ee9d63e558c5276850e14057cf4337c91b095ca4a9cb5a259e89",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "0fe594fb28b1a1cb14fb9679346196d81624e95be5855e8c2ae7ed3ebc72173c",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "e10eb007f4767783ac1b96cf28a270092ee6a1ba9403932fa6e350be6db6e1c0",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "c53be7591272e072f04885a6d8a9801b9092f7115ee04548370532154e0fe828",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "1a342e004a8c6a985713ed32013fca0e5c9669b0a35e7f4dc6cf82642931a579",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "8a7d3fafdfe747bbbd228f52029bb8e66bb99a14e0f3bc6404b673828757eca4",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7d6bc9f344a7eaa2c2964cd3749832c38e29dfdd7195149ab50945ce305b744b",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "79d917fa2d6a5f9b339287f7e2b377eb5aea4e23ddda4447c28a2b365f84b85b",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "d57e2ceee4670cb0631ecb7f4e08a3110e8b2c7ae8648168e5c7f5e58c5fdc21",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7a63cc0e47367d17ad4e6603ad630e0b64eb35b23838d44977977a8d7049ae05",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3f604f594824712777c057ae2e42ea48abcf208bb2efe4902e3b9631e49380c6",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "c42c9a451b94319378e44c701796f6aa0d141db9b78e416c59319ff0277efa60",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "28832cc956c4377ea3260b096d996d39caf1dda6135181687a6268ad9aa6d846",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "2d4ecffca8d739880aa574a4522d72474f2d66dc05f54b1a4e4a0dc3ac475869",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "2ab5d15cd3c9802c88d8cadd845a5d98cd7a25d557a563706cf785591a1047b4",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "baa983816310bc3acd55c82faecfaeee73eba02dbdbd8f8c2ff8724f7e4e0075",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "b98e82310455993787223a365c3ce5670331f29e20cc88719593e377c640e2f8",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "5780d1aa90a63d8277d6d346524e259abe4221aade6c2f2616bf407b9f5789df",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "df2f09e3190b656a928b0e343a781c7adbb720537cc1b725c92aa6ef88de4477",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3ff7691fa73f6a5c17506407ccb63b4ae40968e6d022a44843e8e51d120bc731",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town12_4195_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "ec4b4be3e648b9e9975424529e10e601c18e40faefe5e517915698dc769b9e6f",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "24c820e0f8aeb499bdfded47b54d3699908ff4e6bc65e01a1a59fbb2e4b6509f",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "a9a9a75cc2c24ad5012b76aef3f20c9fdb3589d790e14cdae4bb45f6a4a77d04",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "ac222f08e699ae3621cb1568f8facfdaab32c7d69baf27bbc2f1f6dc4390f9eb",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "4be7227d9050cb05e5722a96ed853fb4b0ee43f5066376b12a3db8439a3b0a74",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "6a57b0e12ea7c3794bf6eed493056f729a5a8aaa756c07db91770004ac92f3b6",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "b0121b92f2845a5944522e67e4510176887fce41c9e20c17d8e80ec2a9dc280c",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "06949d314d11bc317b0777861cf3f7afd7da595dfddc694b593e7ce5a9c50f4d",
+      "split": "val",
+      "physical_group": "InvadingTurn/Town13_1337_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "4daa75e9bce9c437c01e085b44b62ffbc9cbf2b54a5ff3a797fa29bbb0e3b071",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "06c31547b47acf380539d995421be30167d37ab9f300a84fe2f939b10145a32c",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3f0cc2d53fa4579391438a91547b8a6977a451c6cc0a43d57a0599c347c34e4d",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "ed1faab8017ff8e92c827309fbdc88855bc48c40501e37902aad799e94e3dafd",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "de08bc02f93c2be6d581a57a54b73ca888ec0c09dc276ef094d176f8a9321a45",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "20a4bc81e53fa8b346aca88d030512da32c5eac6d9ad3d5c8174bcee4efe6328",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_2325_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "43f57ad9f7ea331b0e285981fc180996233e4ef5e59c2efbb506596f2e09ddc6",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "83d7bed1ab0d54695ef3c99e3dc23bef243aa9218b4d1b78175669eb151a5753",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "855401149dbdb965f7d0df5b4f00bd7f240be65c44028950527a1cbbe3f5bcb5",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "348d61e6848fec9de159ae3be83d7481c3eb658be2899c0c22ede273cd8b9c0a",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "d3fbd43a327610f8fcabbffbc4f6906d4baa6633408cbe9694dec8c132d02a8c",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7464449b5f86e341f7f3fbf94f47cfca3559c9f985b5842216bdff1e6a30ade1",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "52c3eef1a72a6b4136ffd974d9561f12660fb4fd1595e4e79d0657340d99bb7d",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "237323cd20ae694c0467159fc71fa8c6a6928486c06e82c7a7b2a2addd93173b",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "f6075b00832fa234f85d3ed0b3ceb60864a5371d249b77d867fdcb46a9986d80",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "5ca7a903ebbf4b53b70db1cf54ddb66e4e535ef06620233a33b63e1ab1d49368",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "2c1e5f06cfbfd4a5e3cd663fed6363096da7ded50250b5b23336c0fe20e65874",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "1733f251750c208a0b44a3c747ac2e0e0ec1825fc3cea502acaf6ab4c6d1110a",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "95930bd1f41ed849340a14add9b70e1241df6241d90cf30fa57d7d82bb332524",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "5348e9daef6efaeab511b84a7cb8a128e5aa4e06b08208fd7cb2721e6d134a8b",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7587be83155c8c350167d55fa8c588b9b8db4f02e63b0725c4aba5ea4c78e4d6",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7d3c1c086d1c19f2ccb28c2b7b64fe6577e55c6b7a6d4447a574a6dbba519b63",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "93929a55758ee4331c90ca6c583651204f301e34e5c701eda5c8880c27d054f8",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "83960bd397827da3d04b686357d687637a9d4e474964f9959df53605be6d2062",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "eb3b0473c1e5128bb30c1ffad6a89c71ecd3e07eea18528433a2ad71a25cfe98",
+      "split": "test",
+      "physical_group": "HardBreakRoute/Town12_767_0",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "4410895cd984265092207afe68dbff4fbdd1db3b9dbd6f379a983341b0d797de",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "94de19aeedc5c4dbace4bef660e47ee3b59ee98a4ccb5ab604bef1bd39974ed7",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "8158c24eb4af7f7aedf4f7b13ace97120c99885192cb2bdf7c52c62dfb9b139f",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "549718a72fbc34ae3beb2502ddb3dc40be4648eb60751c608f1b1784c8d490d2",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "86ddb5a6dbae202da24c68ef51b31925ffe4101e7b613dc683326de85c52a003",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "f3338c6ccb44ff0a055281e5bf203a14f88c77921ca7684247b4b80d1c03c0f8",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3a85c18e0cbaa89327e5577997bdf0dcd11db97b709694c8f05dc6a8a22cb894",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "fc6b526cdab4033c002f9d910380804267beb738b6491e1e5c02d8b198c6017c",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "45377eafcdf19c69a5a2bb770dc8998b28c88fe8ad62c6757e25fa3f60d4d827",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "40b83e39c047a9f20bfaba58b5d2c56e49425aed353e788ebbbcab32eb08ad1c",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "188fc8f0857a6a3a9c2c0c4d80a5a68910693f8b237d07d04c84064e022c8566",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "50b4e9ba4547f0b7074b4e7893f88eedb2794d2d7235eac997a99dc3e0300f2e",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "1e14348655e7ffc2ce7c5c844d4384852ff5f2bcdac892d09993c5cfa8523d92",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "a8005b0b8f92dc934289b4510a0ba3f1e1f6f49bd96399ba7c466e9282761d36",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "04f0c5a4833999b11ca810b32dfffe28eb45c798ee85422c5acb1e64c64c1db3",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "4bb455377f41554e8bdd926a9df1a0e39e9780014c3299c0bb0e5cd32b0b1c4f",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "2e1e19990d0b4f226c283a6e2bc0ecc598fab485bec8808c62552e2a906535e0",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7dd3708f6805682cf615c5dc307c84bd37c25cea0eaa2d6a1fa07c910312aaa1",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "df7afd9f4f3fc7b959d3dbed2757db42927da222b9835d281b92d272a8ff505f",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "2eb115540e8459f926bcad7375694be25a1861e8b07a618fc95535d8e0a30948",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "ea2e46430819563e1e63acc5ef70ab41a68f8e430e72be2741b211a0bb955784",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3eb513c6b593d2268813fc53f8678100dfd0fc688c07bfb5a4434403bf8d715a",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "9e65f9192c12ffcbc13b3240949f2907fab479a519be84be8a3ea9c06d636598",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "aaeea97062f49dec6af639881dc169d52b955cc9b1f7b458c5eb61c80533e23f",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "b83a6233999d81522d99c668fa267c02bd81d3b314aff0fabc6f3d928d084a3e",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "be213a1fd1dea68d2c5ff8689f8a742e6961c94ff1c25776fe1f0df1e1f0b2e1",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "8ed13251e5a3c105b02bda7ca451b9362eac59f8092d1283b98fdffac4aa0158",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "e22f7bca4fdf3c232c15b17c712651d6aa02ad0a5e307c1c2d0f5389046216c0",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3a64c58f2d847d68e0bf3e46922402895e6b41a8e229b72666059eb28e78f0e8",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "7a6a2b8d1d81d08953ebef8980e289fa243ecef82d735007fff74fcfae12adca",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "2c9ead94c2b063984c9b561cb3eb164ecdf4f93fb09a1a0496d7af5b85129356",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "04898344fc0f3404c01a16312226a9f46e8efc8604b183035222596ea6c80f7b",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "3ea41cc7daa8757c6ee89ba25a6633afc53e4fbd3fd3b5386f3d32dfaa31a975",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town03_route_002138",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "00bb816a878f746c37bec7159aa16d203d76a6a53c038f2ed7b361c0da7dce38",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "a6fb5495a5650c2dde416dabe65d0e190868588d8748dfe3948b42eb68b395c9",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "aa278e075c26ae3743f8b1ee73722128740dbcbe40cb58da7963c72fb35db468",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "5267d310c7aca02508e16ba90ab145ba8c04469c8bf980cd6d1fb968cefcd879",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    },
+    {
+      "id": "5149e7b900fc26303868daa89b9006973d8c9ed674a2a99242e37d1634abae13",
+      "split": "test",
+      "physical_group": "CrossJunctionDefectTrafficLight/Town05_route_002070",
+      "reasons": [
+        "registered_development_exposure"
+      ]
+    }
+  ],
+  "paired_ids_equal": true,
+  "selected_rgb_checked": 805,
+  "sampling": [
+    {
+      "world_size": 1,
+      "presentations": 40,
+      "identical_order": true
+    },
+    {
+      "world_size": 4,
+      "presentations": 40,
+      "identical_order": true
+    }
+  ],
+  "view_bytes": 45620,
+  "production_copies_in_view": 0,
+  "scope": "Local native reviewed dataset build and paired student-input verification; no full teacher replay, no new human labels, no server GPU training or independent quality certification",
+  "local_artifacts": "/home/codon/automot_lead/AutoMoT/checkpoints/short_rgb_local_20261009",
+  "local_view": "/home/codon/automot_lead/AutoMoT/checkpoints/short_rgb_local_20261009/view_final",
+  "final_parent_manifest_sha256": "3ac091ae0a0534de6b8ee439974af2693ad73d49f5309f0910d717bfeabc0d13",
+  "final_view_sha256": "063c6960d239987ec8b50491691933e24dd8576da961eefb72098390016eb6d7",
+  "final_view_source": {
+    "policy": "phase4_rgb2_short_student_v1",
+    "producer": {
+      "task": "phase4_state_pair_binary_v42",
+      "answers": [
+        "YES",
+        "NO"
+      ],
+      "sources": {
+        "teacher_events.py": "f6459877d2a33cd39e614db4f5388fa9d7ca4b7ea044d9f3528c01b25c9748ce",
+        "phase3_sampling.py": "8cb2553dab77903ff96e7fd3740ccd39ab26282bd33b298070e6564b8d036dae",
+        "data_paths.py": "3427a781d96fa6222dda8faab83ec7ad2331a957f558d9e63862250bc382f59d",
+        "full_pipeline.py": "d8d8ae562f1887557d592cfa16caa73cf461a0675ee9112575d66b0711ae5ecd",
+        "full_sampling.py": "13851f34f8ef93ae3ab89ee83b662eaea520760771a9bed2cb28f05dc69f3c05",
+        "train_full.sh": "1683a8a11ed0ff13a9953b2fc0de58d45c2b26496b304123c6d60512568c58d5",
+        "paired_training.py": "f04bb4bfc5a5b554c8d076b0b222d79fe189a5df0fd5e5b1cb28703a5fddd84a",
+        "branch_support.py": "0ebfb75d366d9e79c8dcff90f2e1de0d2b16a9ec6e80d7179104e8fa5bb707cb",
+        "paired_eval.py": "8d55360c7362e1e64b7b1957ed695f11eea62d5291e66a271b5080aeece8d9fb",
+        "launch.py": "771e60b84af8444312921de2f655f268d5ef514e32939aef729a6792c741e004",
+        "train.sh": "c2ca949f92a73fae3a0c95d457ffd2d7605e71d82aaca21798274b4ef4b83191",
+        "run_full_pipeline.sh": "3528bdee296d647973ef5b71743f05142733d4c89680e83457b923175ffdbee9",
+        "route_quality.py": "7c38bc280f5cccb9c5be6e4d946d0a32e01364832871610ea6972bb3b1cfe26e",
+        "weighted_sampling.py": "d4edc02dcd580cbbf1b8cd839f001506292d061c4f9e451cdd7d6d41dd8a934d",
+        "teacher_evaluation.py": "d4010ffd39f4a10d0bcd2e89a3655bc10afb46ceaceefa112656f6064267926a",
+        "teacher_controls.py": "74b571b62beab34ca7339e8bcf4e03dd7c10eb6d865b30844fb9bd0b807eb5c7",
+        "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+        "teacher_review.py": "b997eec4c4b94964a1158030b8d0ab62734bad6a18d4f0de4e781f44af1a11f6",
+        "teacher_rules.py": "d8db6d7ad7d7d176369f0eba8e2df9643ac51d5cdfae622b3e56902cebfe3f97",
+        "teacher_replay.py": "534e35f64f7199b0aedf192db86097e4629c2e2d2c3c76f750de77cad677b27b",
+        "teacher_approval.py": "b7715788759bc8a296a4ce83bf6199e4a37ec8a3fed2164fb52e815ba9271aba",
+        "teacher_data.py": "ff833a667ee66e80d27c1b7ae9f1d0108bcc8e846a2ddc310b670a02de344193",
+        "visual_review.py": "8ea4d3383005b0f9e82de5c6830677c51f8e61b174f1d8849f7fc044c8e40c47",
+        "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+        "review_queue.py": "c685816059902103c98b82f5cd2146e2f8bdff68dc0948477a32eacd681e4236",
+        "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+        "privileged_context.py": "9a4745d7acf051047a0ca30c9f99dc9a0a255392c18ef4a4019c5c47f497e163",
+        "privileged_visibility.py": "f4ce5aaacb33963732321ac1025d88607b8e735613cbc1f6419984c1b834279b",
+        "privileged_geometry.py": "2024cc84b7b2a83be2fa8231c1674e0cf409543a99d673338ae87110188fa6c1",
+        "privileged_producer.py": "e14a5ab67886feeabb48640851a37695044acc2d190e74d407034fc9259c2a52",
+        "replay_safety.py": "121378437a8955778d75efdd1d2879aab26ae1138e75d08557d3cb98339db980",
+        "maneuver_safety.py": "aad6adb9ace9e715c20538662487ba771dce61467346fba0ff56486f665eb7eb",
+        "visible_scope.py": "2bef271c9bcba53c4b23a3808caf755547b22d542e8b9c7275db0a432b46b038",
+        "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+        "route_prompts.py": "c466b70f9071be44c12e5e4d4c99eaedfa62b55e5fe38dc246bb143ec56843d6",
+        "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+        "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+        "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+        "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+        "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+        "dataset.py": "08beb3318757f5bfb3f64b1431d46b707dcafd767abb92cdc8306edb7eb6d2ea",
+        "sampling.py": "424cdfdf7908f6ee76041dd7efd8eda6bed991ca7ace56cba57105ba07474cd2",
+        "model.py": "e30e9f581261c5a6a4aa218511ccc542270d8858dfe766916206fb5927cf04ad",
+        "train.py": "186a5f885ba2a6c41e10da01f40c7393b38b773fd99fe884f812e35497480d7c",
+        "evaluate.py": "87d348b9e92c07325efda682afe61a8a2e096897d380ecd8d8204a965238fc13",
+        "runtime.py": "fa268158c96ee671d2b95449c9c0bebd2b07c4ccf73f7dcfcec4846e6bea8c4a",
+        "identity.py": "9f751aff55f65841606d60b6afa217961e83fc133ea32104d0fb255a597d4c11",
+        "action_prior.py": "c0dc9aac6c1e294bb7964685202945b34a5a4236037e6d619f660457d3daf81a",
+        "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+        "replay.py": "a4ddd7eabddf3d30c9a8e9d6806ef16be1d15ba4342e43365a4d256a16dc2f13",
+        "input_identity.py": "e7e7ebe9fc28ee2c3704ed7ef27755835f884e87476a7b3c253abe9df6a8b3d1",
+        "risk_review.py": "906409691497d1e63f6a39024bfe4c856015b6971d20fac1eae35b4d6368feed",
+        "admission.py": "ff965b9ef69ec7451c3aa1cc62b6353e02b29b8d5fef48445eeae2dffcc90f93",
+        "condition_builder.py": "76fbc30a600840dc531a5a06397cedca14603bda281f8a9ec22e6406a424ef60",
+        "preflight.py": "76dfbe197e6d0f59d5673b956b5a9c08e04c6dea0bf0c2d203ca6ee66873422f",
+        "candidate_pool.py": "87f6e3b844146f8362763ba7a42394d785257387d42343cd0fdaa1452cf3852f",
+        "selection.py": "4c46214b361f97839306e8cf5cd7c5ba36333bf144efb992345c83ec68f4e49d"
+      },
+      "calibration_assets": {
+        "teacher_exposure_v42_20261008.json": "36cfb236bd10429ee3c95388076820cb454aaaaf3f93d231b2e86bdae2dff6f7",
+        "teacher_exposure_v41_20261008.json": "106083f70ef3941a6d83d6e4e6708bad2b7b2c1ebe8bebef4e530e2b06bf21fc",
+        "thirty_sixth_audit_exposure_20261006.json": "a5fd49ece82be111147c54f4828c3b2d6beccb8378d99e266b7c0b7639ac2453",
+        "thirty_fifth_audit_exposure_20261006.json": "fefded4d24862941f9c26fa3ce861dc2474fa2e161aa359e5b4d5522a74ddfad",
+        "thirty_fourth_audit_exposure_20261006.json": "3e27211558ae768ce7be2a5c34f4dcf8e937d78760f66a2225ec825712b849d0",
+        "thirty_third_audit_exposure_20261006.json": "a169d032ff58827db9054906d267154e01075cfa70836138f5101b06cafa85ea",
+        "thirty_second_audit_exposure_20261005.json": "e05790f3fd831c366ec7af14aa39ae25a33cb5e7e4c20e256279876e3a4e9c05",
+        "thirty_first_audit_exposure_20261005.json": "6ab7e5ab85d5f4807e9b0a23d24c83e36fa41eac9b21941fee098613ccac4324",
+        "thirtieth_audit_exposure_20261005.json": "1ca3a27a245eae654ab095d13238d10316496f61c0ba46e67cb2ae1cc84ab98c",
+        "producer_manual_check_plan_v22_20261008.json": "f411427ee768f3c81f3148f3aa8356e15621cd990a7987823c82a043aee097b2",
+        "teacher_registry_v17.json": "f5e31600af8e4911738facb00a82d0a783cdcbd5a41596e657301ea0a160e552",
+        "producer_manual_check_plan_v6_20261002.json": "0afc82c20abfb861a226af6b119fb3bb6ab70b17c077e3e54d945b3d1085d9ee",
+        "teacher_registry_v1.json": "9451415588717c95828b8e5ec0d507087e93d0a4a694d5203ddaf0593954b1f2",
+        "reviewed_state_pairs_v9.json": "27b503f02a4b0c3209144942a03aa057e2404f1b65abe2e7b507375fc0b55583",
+        "twenty_fifth_rgb_review_20261002.json": "2dfa386a3d960b59bee51d4231eaf609fce180c146e2fa2aa0bfbac6cd172a1b",
+        "twenty_fifth_review_decisions_20261002.json": "71a82eef60df5a7f8db9597f8c42b912a7224f3aebd591d3d1d95e9757aa1e3b",
+        "twenty_fifth_review_queue_20261002.json": "3277d915f06a103d4c2204218ba616a8fff90ff5423689fce39b6d6c38adf2d9",
+        "producer_manual_check_plan_v5_20261002.json": "6f620c01c89fab5bc44078c6173e4fe605f1b606f887db5065e49ede030229cb",
+        "VISUAL_REVIEW_RUBRIC_V25.md": "a073a7e67b5394412dbaf9b2690bbb8f0c945ef30d4d67bf3c83e99f75bed71a",
+        "twenty_fourth_rgb_review_20261002.json": "d5cb6e0e0a902f9260f4fea97f87dc776dc17a6c393761a92dd5a9f860304e0c",
+        "twenty_fourth_review_queue_20261002.json": "6398966670bf510168b5d300b8e475162915cd4859d6d8ccd88f26be8225784f",
+        "twenty_fourth_review_decisions_20261002.json": "e83b758a50c9942abe44e7bd670d308882a961be2094ad3c5186bf56bf95a144",
+        "reviewed_state_pairs_v8.json": "e77e1902f930887c7cc4e6816bc341cd7ce59065c0332397a578cc8c24861334",
+        "twenty_third_rgb_review_20261002.json": "58aca6d8c35dd9b23a45aba41a6232d427598db99a35cb4a8462fd7f9d135480",
+        "twenty_third_audit_exposure_20261002.json": "456edac8c3a6e330370c05f7485875f350a25f85090258c47b83016a26d3f7ae",
+        "producer_manual_check_plan_v4_20261002.json": "4b86a12eab3692a9f6c0d988573fb21de6b273f9045208710ba2604757ebf6fb",
+        "twenty_second_audit_exposure_20261002.json": "a2278d6d9f3a9b1460e1d57024c5dfc68bf6aa015652f0b4a68adbd57336993c",
+        "twenty_first_audit_exposure_20261001.json": "7637f7cf6d8edf503ea86757664a6734370dd9b029e70c8421a42cad38345fda",
+        "twentieth_audit_exposure_20261001.json": "096487139608adff37784d28d530594533e39f993e14a69ad58d58158a637fa4",
+        "eighteenth_nineteenth_audit_exposure_20261001.json": "1e7165a34c091f6f775e6d030ea6c7d3f9f9ef311430e6f44c4b47b25b810f00",
+        "seventeenth_audit_exposure_20261001.json": "c9835d70ef19c80c5a9cf10c7c04befe68690fda86db1079101ba57d995874e5",
+        "sixteenth_audit_exposure_20260930.json": "5166fb9a755fdc3f55675094e23bbab77ff0316df437d39712fb8ddb9424bb82",
+        "fifteenth_audit_exposure_20260930.json": "cf00b2f57a3fb406f0fb326afc30117a27bdff88bab5b8ef0f988821e4848d32",
+        "fourteenth_audit_exposure_20260930.json": "a8c8b06a2a61a0a109a28f51d8e890c07e77c866fd731cc19c090653ac079242",
+        "twelfth_thirteenth_audit_exposure_20260930.json": "211aaba44d9857698d60a9740d2a8d4bdac94857e5f7ef47e81a7d8294623dcb",
+        "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+        "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c",
+        "rgb_holdout_review_v3.json": "6cee912a8044f606a47f93b2550fe2433b7f252f6a332d11d3f99c10960b7335",
+        "reviewed_holdout_state_pairs_v1.json": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb",
+        "rgb_holdout_review_v1.json": "7f31909ed138e27f657744d963ba74db49c8790a946cb04c3a2e874c4062e2be",
+        "reviewed_state_pairs_v6.json": "5549224df241260f8d9b48fe47694289b4d467a7351846e70f402fd0639ef9c6",
+        "reviewed_holdout_state_pairs_v2.json": "44d4b65966c61ed063dd0d88aff50cfe0b820fe3893a6fc5fb63e1645cadb5d5",
+        "rgb_holdout_review_v2.json": "2fac9176699ddd48d126ed190a89c61f103db44933b35993a62d0c36684fafc0",
+        "rgb_boundary_review_v3.json": "c1b4b6b3e7903322856ce236bc64067a15bd9530b80d02834085d10bc8a4918a",
+        "reviewed_state_pairs_v3.json": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+        "rgb_boundary_review_v4.json": "ede62026ec4cd6927e66d605c5067de64bbe1d2952e26de37c8f66191be7d617",
+        "reviewed_state_pairs_v4.json": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+        "rgb_boundary_review_v5.json": "558f7a3cf7fd460b57e9f2fbc9c83af0a45f6637640d05db529d4048740f08f3",
+        "reviewed_state_pairs_v5.json": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+        "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+        "reaudit_exposure_20260929.json": "0d54eb987f238177abe4fc9004b0b124f7a053e895d216bf2862e0d326d6881f",
+        "third_audit_exposure_20260930.json": "7d5a0727c7e55dcb159a763d009c5f0469c480dc327eaba2e5d7a6ae6efee5a4",
+        "eighth_audit_exposure_20260930.json": "1d0de86b50a0c161cb89a70d1b9d78ecb263361d346dcfa96715f6ef3c118782",
+        "ninth_audit_exposure_20260930.json": "70f636b21624360e350f51d5c621101b67b7100fe3d26a900e74a0a4f5982087",
+        "tenth_audit_exposure_20260930.json": "ccf79a74cb5602665fb97d626f20d98d5c898cf81ce7229969d4e914bd94754f",
+        "eleventh_audit_exposure_20260930.json": "ebd32c592ed9c0a5e45d480f160057d092ed2b60f9e500fee38c090ee025640e"
+      },
+      "dependencies": {
+        "../lead_video_tools/abnormal_duration_filter.py": "9a3df626182ff0ba0d581898dc1a16510b31f95b17129ce1eb64e30b03071616",
+        "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+        "sft_new_loop_phase3/build_dataset.py": "21ea65e49fdc266eaef38b510b7494ba9016bd2076ff299ab9accf1a8dd6e4aa",
+        "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e"
+      }
+    },
+    "exposure_normalizer_sha256": "579a95204ab35bc0fb23cd5f6f88fd38e36921c12889abf241927c85a8beff7f",
+    "sources": {
+      "__init__.py": "faba4f8d0f8cdfe4c3e65d173456f4eb51094e2e658124ff9903ac8d94576c46",
+      "contract.py": "647ed92c43704b3f0d1adf64748f8788bc8fc66e74b419fae82ad323ed3a7e20",
+      "data.py": "04fc66c63438555e155783e70460319911c8c1195d7b811a934c7ee7c580b3d2",
+      "model.py": "235609e8dc4fa9f220adba62ed06f513afda47903e7ee3e8375e2ba05d0e3add",
+      "train.py": "bded18e22b52d641fe530b18e1dc7173e06496be28c8ba571792a87cfa27c51c",
+      "evaluate.py": "9113fe1bc05c7b7c4b12f5f1c407d22625c05f2a77a412e2f8cbe669df352a5a",
+      "build.py": "6443212c67a21adc1880f690ca6ff45e0ffce43d6efeeba5bfab772cac393ce4",
+      "run.sh": "bf49560ad10a1ce1906daa2504636140f24183a3017f848166a19e037cdeedc6"
+    }
+  },
+  "verification_note": "Final descriptor binds individual logical asset targets plus SHA; previous local view retained, not rewritten.",
+  "regression": {
+    "full_related_passed": 1361,
+    "full_seconds": 95.32,
+    "new_cli_cases": 4,
+    "scope": "full related suite then final 35-case short-input suite including CPU/CUDA evaluation selection and simulated four-GPU shell success/failure; no server/GPU execution",
+    "final_short_suite_passed": 35,
+    "final_short_seconds": 6.18
+  }
+}

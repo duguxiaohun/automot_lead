@@ -10,6 +10,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = {(r, a) for r in ('4rgb', '2rgb_endpoints') for a in ('binary', 'choice')}
+SUPPORTED_GROUPS = GROUPS | {('2rgb_short', a) for a in ('binary', 'choice')}
 TEXT = {'.json', '.jsonl', '.md', '.txt', '.csv'}
 IMAGES = {'.jpg', '.jpeg', '.png'}
 CONFIG = 'sft_new_loop_phase3_adapter_config.json'
@@ -44,7 +45,7 @@ def inspect_eval(directory):
     if len(set(ids)) != len(ids):
         raise ValueError(f'{directory}: duplicate case_index')
     group = (metrics['history_rgb_mode'], metrics['action_output_mode'])
-    if group not in GROUPS:
+    if group not in SUPPORTED_GROUPS:
         raise ValueError(f'{directory}: unknown group {group}')
     for row in rows:
         if type(row.get('all_ok')) is not bool:

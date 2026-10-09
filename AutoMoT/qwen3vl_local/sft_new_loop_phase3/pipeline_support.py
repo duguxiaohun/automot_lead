@@ -10,9 +10,12 @@ import sys
 from .four_runs import GROUPS, ROOT, SOURCE, module, sha, write
 from .prompt_candidate import CANDIDATE_NAME
 from .prompt_contract import prompt_name, adapter_prompt_variant
+from .history_rgb import HISTORY_RGB_MODES, validate_adapter_history
 
 
 def original_cases(rgb, output, audit_root):
+    if rgb == '2rgb_short':
+        raise ValueError('2rgb_short has no historical same-input audit; use RUN_REGRESSION=0 for this new experiment')
     stamp = next(t for r, o, t in GROUPS if (r, o) == (rgb, output))
     return Path(audit_root) / f'sft_new_loop_phase3_{stamp}_{rgb}_{output}_audit_bundle/lora_production'
 
@@ -28,6 +31,7 @@ def adapter_contract(root, rgb, output, variant):
         if (cfg.get('history_rgb_mode'), cfg.get('action_output_mode', 'binary'),
                 adapter_prompt_variant(cfg)) != (rgb, output, variant):
             raise ValueError('adapter RGB/output/prompt differs from requested pipeline group')
+        validate_adapter_history(cfg)
         return path.resolve()
     raise FileNotFoundError(f'no Phase3 adapter under {root}')
 
@@ -122,7 +126,7 @@ def main():
     index = Path(env['INDEX'])
     rgb, output, variant = (env[k] for k in ('HISTORY_RGB_MODE', 'ACTION_OUTPUT_MODE', 'PROMPT_VARIANT'))
     prompt_name(variant)
-    if (rgb, output) not in [(r, o) for r, o, _ in GROUPS]:
+    if rgb not in HISTORY_RGB_MODES or output not in ('binary', 'choice'):
         raise ValueError('unknown RGB/output group')
     state_path = pipeline/'pipeline_manifest.json'
     if args.stage == 'start':

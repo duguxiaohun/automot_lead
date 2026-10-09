@@ -66,6 +66,7 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (  # noqa: E402
     DEFAULT_HISTORY_RGB_MODE,
     HISTORY_RGB_MODES,
     history_rgb_indices,
+    history_rgb_contract,
     select_history_rgb_paths,
     validate_history_rgb_mode,
 )
@@ -1192,6 +1193,7 @@ def _save_adapter(
         "history_rgb_mode": str(args.history_rgb_mode),
         "history_rgb_count": len(history_rgb_indices(args.history_rgb_mode)),
         "history_rgb_selected_indices": list(history_rgb_indices(args.history_rgb_mode)),
+        "history_rgb_contract": history_rgb_contract(args.history_rgb_mode),
         "base_model_dir": str(args.model_dir),
         "data_root": str(args.data_root),
         "input_contract": (

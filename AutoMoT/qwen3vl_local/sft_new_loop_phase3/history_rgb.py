@@ -11,8 +11,9 @@ from typing import List, Sequence, Tuple
 
 HISTORY_RGB_MODE_ALL4 = "4rgb"
 HISTORY_RGB_MODE_END2 = "2rgb_endpoints"
+HISTORY_RGB_MODE_SHORT2 = "2rgb_short"
 DEFAULT_HISTORY_RGB_MODE = HISTORY_RGB_MODE_ALL4
-HISTORY_RGB_MODES = (HISTORY_RGB_MODE_ALL4, HISTORY_RGB_MODE_END2)
+HISTORY_RGB_MODES = (HISTORY_RGB_MODE_ALL4, HISTORY_RGB_MODE_END2, HISTORY_RGB_MODE_SHORT2)
 HISTORY_QUALITY_VERSION = "post_initialization_history_v1"
 MIN_ACTION_ANCHOR = 4
 
@@ -46,7 +47,28 @@ def history_rgb_mode_tag(mode: str) -> str:
 def history_rgb_indices(mode: str) -> Tuple[int, ...]:
     """从固定四帧索引里选出运行时使用的位置。"""
 
-    return (0, 1, 2, 3) if validate_history_rgb_mode(mode) == HISTORY_RGB_MODE_ALL4 else (0, 3)
+    return {HISTORY_RGB_MODE_ALL4: (0, 1, 2, 3),
+            HISTORY_RGB_MODE_END2: (0, 3),
+            HISTORY_RGB_MODE_SHORT2: (1, 3)}[validate_history_rgb_mode(mode)]
+
+
+def history_rgb_contract(mode: str):
+    indices = history_rgb_indices(mode)
+    return dict(version='phase3_rgb_view_v1', mode=validate_history_rgb_mode(mode),
+                selected_indices=list(indices), frame_offsets=[i - 3 for i in indices],
+                frame_rate_hz=4, order='oldest_to_current')
+
+
+def validate_adapter_history(config):
+    mode = validate_history_rgb_mode(config['history_rgb_mode'])
+    expected = history_rgb_contract(mode)
+    if mode == HISTORY_RGB_MODE_SHORT2 or 'history_rgb_contract' in config:
+        if config.get('history_rgb_contract') != expected:
+            raise ValueError('adapter RGB observation contract mismatch')
+    if ('history_rgb_selected_indices' in config and
+            config['history_rgb_selected_indices'] != expected['selected_indices']):
+        raise ValueError('adapter RGB selected indices mismatch')
+    return expected
 
 
 def history_rgb_prompt_description(mode: str) -> str:
@@ -54,6 +76,8 @@ def history_rgb_prompt_description(mode: str) -> str:
 
     if validate_history_rgb_mode(mode) == HISTORY_RGB_MODE_ALL4:
         return "four-frame history at t-0.75 s, t-0.50 s, t-0.25 s and t=0"
+    if validate_history_rgb_mode(mode) == HISTORY_RGB_MODE_SHORT2:
+        return "two-frame short history at t-0.50 s and t=0"
     return "two endpoint frames at t-0.75 s and t=0"
 
 

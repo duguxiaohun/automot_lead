@@ -105,9 +105,9 @@ PYCODE
 BASE_HISTORY_RGB_MODE="$(read_adapter_history_rgb_mode "${ADAPTER_DIR}")"
 BASE_ACTION_OUTPUT_MODE="$(read_adapter_action_output_mode "${ADAPTER_DIR}")"
 case "${BASE_HISTORY_RGB_MODE}" in
-  4rgb|2rgb_endpoints) ;;
+  4rgb|2rgb_endpoints|2rgb_short) ;;
   *)
-    echo "Unknown BASE_HISTORY_RGB_MODE=${BASE_HISTORY_RGB_MODE}. Use 4rgb or 2rgb_endpoints." >&2
+    echo "Unknown BASE_HISTORY_RGB_MODE=${BASE_HISTORY_RGB_MODE}. Use 4rgb, 2rgb_short or legacy 2rgb_endpoints." >&2
     exit 2
     ;;
 esac
@@ -319,7 +319,7 @@ def adapter_identity() -> dict:
     weight_slot = adapter_path.name if adapter_path.name in {"best_generation", "best_val", "final", "fallback_generation"} else "direct_adapter_dir"
     run_root = adapter_path.parent if weight_slot != "direct_adapter_dir" else adapter_path
     history_mode = cfg.get("history_rgb_mode")
-    default_indices = {"4rgb": [0, 1, 2, 3], "2rgb_endpoints": [0, 3]}.get(history_mode)
+    default_indices = {"4rgb": [0, 1, 2, 3], "2rgb_endpoints": [0, 3], "2rgb_short": [1, 3]}.get(history_mode)
     selected_indices = cfg.get("history_rgb_selected_indices") or default_indices
     return {
         "input": adapter_input,

@@ -155,6 +155,7 @@ from qwen3vl_local.sft_new_loop_phase3.history_rgb import (  # noqa: E402
     DEFAULT_HISTORY_RGB_MODE,
     HISTORY_RGB_MODES,
     history_rgb_indices,
+    validate_adapter_history,
     history_rgb_mode_tag,
     select_history_rgb_paths,
     validate_history_rgb_mode,
@@ -666,6 +667,7 @@ def _validate_action_adapter(
         raise ValueError(f"adapter dataset_name mismatch: {cfg.get('dataset_name')!r}")
     prompt_variant = adapter_prompt_variant(cfg)
     history_rgb_mode = validate_history_rgb_mode(str(cfg.get("history_rgb_mode", "")))
+    validate_adapter_history(cfg)
     persisted_output_mode = validate_action_output_mode(str(cfg.get("action_output_mode", "binary")))
     if action_output_mode is not None and validate_action_output_mode(action_output_mode) != persisted_output_mode:
         raise ValueError(
