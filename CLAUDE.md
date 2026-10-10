@@ -1,5 +1,17 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-10 覆盖与已采训练题拟合审计入口
+
+新增audit_joint/train_fit.py独立工具，避免修改冻结学生/生产源码而失效现有adapter。support先核验接收包，再核对全量val身份、有序采样绑定、逐rank实际执行及更新记录和完整池汇总；实跑再次复现两模式112/239缺类别支持、U-E1 complete/readiness 87YES/94NO已呈现，不能据此推断训练拟合。
+fit复用一轮checkpoint与原视图，只选真实已采训练ID，同题重复只推理一次并分报不同题/曝光权重；默认U-E1 complete/readiness全部181题，按状态/纵向/分支/运动/来源分层，与完整池/val状态支持对照。加载前核验模型身份，部分推理失败留阶段和已完成cases；无样本显式not_run，不把假设状态当监督。新增verify-fit独立核对所选全集/身份/结果SHA并重算指标；采样目标一致性、val指标复算及同字节软链接改指/权重漂移均设失败门，Ctrl-C退出130。新增结果进30MB白名单，权重仍排除。
+相关完整回归1407通过，含新增专项27项；接收两模式student/producer合同与本机逐字节一致。本轮未实际GPU推理、训练、G2盲审或修改源几何/可见性门；负尺寸及夜间门只保留待证问题。现有data4/view/adapter无需重建；先服务器181题拟合，不续七轮。见audit_joint/TRAIN_FIT_20261010.md、train_fit_verification_20261010.json。
+
+### 2026-10-10 本机逐帧审计与一轮训练支持缺口
+
+收到Phase4完整一轮解压交接1264文件：两模式10240呈现、各rank2560前向/320更新，239道val保存前后预测及原始输出一致；仅核验服务器证据，本机未加载权重、原ZIP未核验。U-E7全NO；RGB4 U-E1九道NO误答YES分proceed2/release2/complete5。val中112题的事件×边×阶段×答案在训练池零支持（UE5 60、UE6 32、UE7 20），不等于112个独立实例或缺覆盖必致错；UE1 complete/readiness的87YES/94NO全采到仍有5道NO误答YES。
+本机tmux低优先级单进程重算11开发路线792帧，374条P3原生候选/356锚点、1772条P4原始2/4图问题；候选未完成正式split覆盖和准入，不能直接训练。核验24文件回执/792RGB SHA；实际看4完整序列300帧联系表、7原图，共301不同帧；非盲审/独立批准。主任务56.47秒/RSS约131MiB；第二遍21.17秒/81MiB，均退出0。
+定位UE7 release状态域/catchup UNKNOWN门；Town05/002062全43帧及002066末8帧负静态extent，原生22米走廊诊断包络不相交仍不能认证几何；UE1夜间亮度门有欠覆盖候选。160条UE7 proceed原条件复现，假设PROCEED/HOLD的release为15YES/145NO，仅诊断不入库。G1/E0/S0前置/S4效果部分推进，G0未通过、G2未运行。未改规则/旧标签/split/采样，无续训或CARLA，产物仅checkpoints。详见AutoMoT/qwen3vl_local/audit_joint/LOCAL_FRAME_AUDIT_20261010.md和总方案唯一进度表。
+
 ### 2026-10-09 重载失败报告与交接补齐
 
 重载前创建独立报告目录；逐阶段原子写入in_progress，资产/优化器漂移、加载或验证异常记录failed、失败阶段、错误及已核验身份，非零退出。Ctrl-C退出130；强制终止可能只留in_progress，不计通过；既有报告拒绝覆盖，外层latest仅成功更新。失败报告进入原交接白名单，权重仍排除。

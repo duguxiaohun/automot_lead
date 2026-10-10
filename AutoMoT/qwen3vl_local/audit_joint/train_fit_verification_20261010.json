@@ -1,0 +1,129 @@
+{
+  "schema": "train_fit_tool_verification_v1",
+  "regression": {
+    "full_passed": 1407,
+    "seconds": 97.62,
+    "targeted_cases_in_full_suite": 27,
+    "exit_code": 0,
+    "scope": [
+      "audit_joint/tests",
+      "phase3 prompt_candidate/short_rgb/context_purpose/four_runs/pipeline_candidate/pack_results",
+      "phase4/tests",
+      "action_prior split_support"
+    ]
+  },
+  "tool_sha256": "59fa80d10a5e187215989bcc56c21b24437cf69972ddf5c0a5e50bfbb9f35f76",
+  "source_reports": {
+    "fit_report.json": "7fc2ae58a47e1fea698e5433c1da348f6e1f3259da4d0c7cfab9681a0335e042",
+    "support_report.json": "12b83cee930742b2fc0fd72c84244f8a0267ab6d759a61af59fad8eca25e8a15"
+  },
+  "received_manifest_sha256": "2cbefd9db09e6f93f330217b0adc03f0ec2d6344a2abb8a5d0e5dff418829930",
+  "runs": {
+    "phase4_rgb2_epoch1": {
+      "val_count": 239,
+      "missing_support": 112,
+      "complete_readiness": [
+        {
+          "event": "U-E1",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 94,
+          "sampled_presentations": 94,
+          "val_rows": 5,
+          "val_correct": 1,
+          "val_physical_groups": 2,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E1",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "YES",
+          "pool_rows": 87,
+          "sampled_presentations": 87,
+          "val_rows": 2,
+          "val_correct": 2,
+          "val_physical_groups": 2,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        }
+      ],
+      "student_contract_matches": true
+    },
+    "phase4_rgb4_epoch1": {
+      "val_count": 239,
+      "missing_support": 112,
+      "complete_readiness": [
+        {
+          "event": "U-E1",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 94,
+          "sampled_presentations": 94,
+          "val_rows": 5,
+          "val_correct": 0,
+          "val_physical_groups": 2,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E1",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "YES",
+          "pool_rows": 87,
+          "sampled_presentations": 87,
+          "val_rows": 2,
+          "val_correct": 2,
+          "val_physical_groups": 2,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        }
+      ],
+      "student_contract_matches": true
+    }
+  },
+  "unchanged": [
+    "producer contract",
+    "student contract",
+    "sampler",
+    "labels",
+    "checkpoint selection",
+    "existing view"
+  ],
+  "not_executed": [
+    "real adapter training-fit inference",
+    "new GPU training",
+    "G2 blind approval",
+    "geometry or visibility rule changes"
+  ],
+  "test_sha256": "a754fefe3ba64a4a08e24ae44f3093ae181f567922aaeb251aef40b5703c1246",
+  "source_report_directory": "AutoMoT/checkpoints/phase4_support_verified_v2_20261010",
+  "package_verification": {
+    "status": "verified",
+    "files": 1264,
+    "extracted_bytes": 53793608,
+    "archive_size_status": "not_verified_original_zip_not_provided",
+    "external_inputs_status": "not_verified_on_receiving_host",
+    "scope": "extracted bytes and included evidence bindings; omitted capture blobs, original ZIP size, live external inputs and experiment approval not verified"
+  },
+  "new_boundaries_tested": [
+    "val metric recomputation",
+    "sampled ID target/provenance consistency",
+    "sampled category absent from pool even when absent from val",
+    "same-byte view symlink redirection during inference",
+    "adapter drift during inference",
+    "partial inference preserves completed cases and refuses complete metrics",
+    "KeyboardInterrupt exits 130 with failure report",
+    "verify-fit rejects incomplete or mutated outputs and recomputes metrics"
+  ],
+  "fit_inference_test_scope": "Synthetic fixtures use native selection, evidence validation and output verification; expensive dataset/model loading and generation are substituted. Actual GPU inference not executed.",
+  "handoff_roundtrip": {
+    "status": "verified",
+    "bytes": 22298,
+    "scope": "temporary packing fixture; five fit/support files byte-identical; weights excluded; not a real GPU fit result"
+  }
+}
