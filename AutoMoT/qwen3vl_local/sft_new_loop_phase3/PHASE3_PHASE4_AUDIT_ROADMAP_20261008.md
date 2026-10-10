@@ -653,6 +653,8 @@ S0 只排除 loss，S2b 只增加集合目标且保留原单一标签时，oracl
 
 ### 14.1 唯一进度表
 
+2026-10-10拟合验收补强：完整`verify-fit`须绑定原run/交接包及原视图，重算请求范围内已采题全集/曝光次数；缺证据仅内部一致性、退出2。验证/拟合raw均按冻结解析器复算，拒绝文本与prediction矛盾。相关1429项回归通过，真实478条val复解析通过，未GPU复验或升级G0/G2。
+
 2026-10-10新增独立`audit_joint.train_fit`，1407相关回归通过；实复算两模式112/239缺训练类别支持，U-E1 complete/readiness 87YES/94NO已呈现。下一步按[拟合审计说明](../audit_joint/TRAIN_FIT_20261010.md)在服务器推理现有checkpoint的181道训练题，未执行续训或G2；冻结合同/题库/标签保持。
 
 2026-10-10已收Phase4两模式完整一轮：解压包1264文件核验，每组10240呈现、各rank2560前向/320更新，题序一致，239道val保存前后预测/原始输出一致。核验的是服务器重载证据，本机未加载权重；原ZIP不在本机。U-E7仍全NO且release/catchup训练覆盖缺失；RGB4 U-E1的9道NO均答YES（proceed 2、release 2、complete 5）。先做缺口/训练例预测诊断，不自动续七轮。旧40次短跑仅作历史。详见[接收复核](../../checkpoints/phase4_epoch1_received_review_20261010.json)与[本机逐帧审计](../audit_joint/LOCAL_FRAME_AUDIT_20261010.md)。P3/Action及最终G0仍缺。

@@ -1,9 +1,9 @@
 {
   "schema": "train_fit_tool_verification_v1",
   "regression": {
-    "full_passed": 1407,
-    "seconds": 97.62,
-    "targeted_cases_in_full_suite": 27,
+    "full_passed": 1429,
+    "seconds": 98.42,
+    "targeted_cases_in_full_suite": 49,
     "exit_code": 0,
     "scope": [
       "audit_joint/tests",
@@ -12,9 +12,9 @@
       "action_prior split_support"
     ]
   },
-  "tool_sha256": "59fa80d10a5e187215989bcc56c21b24437cf69972ddf5c0a5e50bfbb9f35f76",
+  "tool_sha256": "6192d035e542b5c2f01d53ddc2540a86c43c90b7eb3d17f398acf2c0d1d656f7",
   "source_reports": {
-    "fit_report.json": "7fc2ae58a47e1fea698e5433c1da348f6e1f3259da4d0c7cfab9681a0335e042",
+    "fit_report.json": "53326169e2baa31d3b219f5495464a8799fc38d0ba4a7b1024126412ab765bd4",
     "support_report.json": "12b83cee930742b2fc0fd72c84244f8a0267ab6d759a61af59fad8eca25e8a15"
   },
   "received_manifest_sha256": "2cbefd9db09e6f93f330217b0adc03f0ec2d6344a2abb8a5d0e5dff418829930",
@@ -100,8 +100,8 @@
     "G2 blind approval",
     "geometry or visibility rule changes"
   ],
-  "test_sha256": "a754fefe3ba64a4a08e24ae44f3093ae181f567922aaeb251aef40b5703c1246",
-  "source_report_directory": "AutoMoT/checkpoints/phase4_support_verified_v2_20261010",
+  "test_sha256": "1d211b59c89ccf9e5bf078ecfc9bf8b52a7bf29ef07cefee994daa7bb5327507",
+  "source_report_directory": "AutoMoT/checkpoints/phase4_support_raw_verified_20261010",
   "package_verification": {
     "status": "verified",
     "files": 1264,
@@ -118,12 +118,29 @@
     "adapter drift during inference",
     "partial inference preserves completed cases and refuses complete metrics",
     "KeyboardInterrupt exits 130 with failure report",
-    "verify-fit rejects incomplete or mutated outputs and recomputes metrics"
+    "verify-fit rejects incomplete or mutated outputs and recomputes metrics",
+    "wrong event/edge/phase request even with removed source hashes",
+    "complete set recomputed from original dataset rejects self-consistent omissions",
+    "original sampled ID/target/provenance/exposure binding rejects extra IDs and altered counts",
+    "missing/wrong source hashes and checkpoint receipt rejected with supplied evidence",
+    "raw/prediction mismatch rejected even with recomputed result hashes and metrics",
+    "frozen UNKNOWN output maps to MALFORMED; missing/non-text raw rejected",
+    "real pack/extract original run binding across cwd; no GPU and mocked dataset loader",
+    "missing source/dataset cannot return verified or CLI exit 0"
   ],
   "fit_inference_test_scope": "Synthetic fixtures use native selection, evidence validation and output verification; expensive dataset/model loading and generation are substituted. Actual GPU inference not executed.",
   "handoff_roundtrip": {
     "status": "verified",
     "bytes": 22298,
     "scope": "temporary packing fixture; five fit/support files byte-identical; weights excluded; not a real GPU fit result"
+  },
+  "verification_policy": {
+    "complete": "Explicit original run or verified original extracted handoff/result, matching source and checkpoint receipt SHA, original dataset/view; recompute query set, identities and exposure counts.",
+    "missing_evidence": "internal_consistency_verified with explicit unverified source/completeness fields; CLI exits 2",
+    "supplied_invalid_evidence": "failed; no fallback to internal-only verification",
+    "raw_outputs": "Frozen parse_answer at evidence loading, inference recording and fit verification; ValueError maps to MALFORMED; missing/non-text raw is invalid",
+    "no_gpu_in_verifier": true,
+    "actual_received_validation_raw_reparsed": 478,
+    "student_contract_unchanged": true
   }
 }

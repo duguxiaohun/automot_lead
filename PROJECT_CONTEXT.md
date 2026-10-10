@@ -1,5 +1,10 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-10 拟合验收绑定原始采样与原始输出
+
+verify-fit新增显式--run或--package/--result，绑定原源码/日志/采样/检查点回执SHA；完整验收另需--dataset原视图，从原池重算请求事件/边/阶段的已采ID全集、逐题身份和曝光次数。只有结果自洽或缺视图时返回internal_consistency_verified、退出2；显式来源错误直接failed，不猜服务器路径或降级绕过。已生成拟合结果可复验，不要求重新推理。
+evidence、fit及verify-fit均用冻结parse_answer重解析raw，失败映射MALFORMED，缺文本或prediction矛盾拒绝。新增22项反例/边界，拟合专项49项、相关完整回归1429项通过；真实接收478条val原始输出复解析通过，112/239支持缺口不变。学生/生产合同未改，未GPU推理/训练；服务器命令更新见AutoMoT/qwen3vl_local/audit_joint/TRAIN_FIT_20261010.md，核验见同目录train_fit_verification_20261010.json。
+
 ### 2026-10-10 覆盖与已采训练题拟合审计入口
 
 新增audit_joint/train_fit.py独立工具，避免修改冻结学生/生产源码而失效现有adapter。support先核验接收包，再核对全量val身份、有序采样绑定、逐rank实际执行及更新记录和完整池汇总；实跑再次复现两模式112/239缺类别支持、U-E1 complete/readiness 87YES/94NO已呈现，不能据此推断训练拟合。

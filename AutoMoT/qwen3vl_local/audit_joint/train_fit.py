@@ -25,6 +25,7 @@ from ..sft_new_loop_phase4.rgb_short.model import load_for_inference, generate
 from ..sft_new_loop_phase4.rgb_short.train import adapter_identity
 from ..sft_new_loop_phase4.evaluate import _reference_metrics
 from ..sft_new_loop_phase4.taxonomy import EVENTS
+from ..sft_new_loop_phase4.route_prompts import parse_answer
 
 FIT_FILES = ('fit_selection.jsonl', 'cases.jsonl', 'fit_metrics.json')
 
@@ -42,6 +43,19 @@ def natural(value):
     if type(value) is not int or value < 0:
         raise ValueError('invalid nonnegative count')
     return value
+
+
+def validate_prediction(case):
+    """Use the exact frozen generation parser, including its malformed policy."""
+    raw = case.get('raw')
+    if not isinstance(raw, str):
+        raise ValueError('missing/non-text raw prediction')
+    try:
+        prediction = parse_answer(raw)
+    except ValueError:
+        prediction = 'MALFORMED'
+    if case.get('prediction') != prediction:
+        raise ValueError('prediction differs from frozen parsing of raw output')
 
 
 def file_binding(path):
@@ -149,6 +163,8 @@ def evidence(run_root, epoch):
         if summary['optimizer_steps'] != updates or summary['microbatches'] != len(actual):
             raise ValueError('runtime does not match executed steps')
     cases, _ = load_cases(root / (prefix+'_cases.jsonl'))
+    for case in cases.values():
+        validate_prediction(case)
     validation = read(root / (prefix+'_validation.json'))
     if (validation['dataset'] != run['dataset'] or validation['epoch'] != epoch or validation['split'] != 'val'
             or len(cases) != view['counts']['val'] or validation['count'] != len(cases)
@@ -266,8 +282,12 @@ def fit_summary(cases):
                 scope='in-sample fit diagnostic; repeated exposures are weights, not independent examples; not accuracy certification')
 
 
-def verify_fit(output):
-    """Recompute a completed fit report from its exact selected set; no GPU needed."""
+def verify_fit(output, *, run=None, dataset=None, package=None, result=None):
+    """Check internal outputs; only a bound source and dataset prove selection completeness."""
+    if (run is not None and package is not None) or ((package is None) != (result is None)):
+        raise ValueError('provide either run or package/result')
+    if dataset is not None and run is None and package is None:
+        raise ValueError('dataset verification requires original run or package/result')
     output = Path(output)
     report = read(output/'fit_report.json')
     if (report.get('schema') != 'joint_training_fit_v1' or report.get('command') != 'fit'
@@ -276,6 +296,13 @@ def verify_fit(output):
         raise ValueError('fit inference is not complete and measured')
     if report.get('output_files_sha256') != {name:file_sha(output/name) for name in FIT_FILES}:
         raise ValueError('fit output bytes changed')
+    request = report.get('request', {})
+    if (request.get('command') != 'fit' or request.get('event') not in EVENTS
+            or not isinstance(request.get('edge'), str) or not request['edge']
+            or request.get('phase') not in ('readiness', 'catchup', 'all')
+            or type(request.get('epoch')) is not int or request['epoch'] < 0
+            or request['epoch'] != report.get('epoch')):
+        raise ValueError('missing/invalid fit query or epoch')
     selection = rows(output/'fit_selection.jsonl')
     expected = {r['id']:r for r in selection}
     actual, _ = load_cases(output/'cases.jsonl')
@@ -284,6 +311,11 @@ def verify_fit(output):
         raise ValueError('fit selection/case set differs or is incomplete')
     for key,item in expected.items():
         case = actual[key]
+        validate_prediction(case)
+        fields = case['paired_identity']['fields']
+        if (fields['episode']['event'] != request['event'] or fields['edge'] != request['edge']
+                or (request['phase'] != 'all' and fields['slice'] != request['phase'])):
+            raise ValueError('fit case lies outside requested event/edge/phase')
         if (case['paired_identity'] != item['paired_identity'] or
                 case['paired_identity']['fields']['split'] != 'train' or
                 case['sampled_presentations'] != item['sampled_presentations'] or
@@ -293,8 +325,62 @@ def verify_fit(output):
             raise ValueError('fit selected identity or exposure changed')
     if read(output/'fit_metrics.json') != fit_summary(list(actual.values())):
         raise ValueError('fit metrics differ from cases')
-    return dict(status='verified', unique_questions=len(actual),
-                scope='complete local result identities and metrics; does not reload model, certify labels or independently prove GPU execution')
+    verification = dict(status='internal_consistency_verified', unique_questions=len(actual),
+        source_binding='not_verified_original_evidence_not_provided',
+        selection_completeness='not_verified_original_evidence_and_dataset_required',
+        scope='internal query, result identities, raw parsing and metrics only; not original sampled-set verification')
+    if package is not None:
+        package = Path(package)
+        verification['package'] = verify_package(package)
+        if (not re.fullmatch(r'[A-Za-z0-9_-]+', result)
+                or result not in read(package/'handoff_manifest.json')['results']):
+            raise ValueError('unknown/unsafe original package result')
+        run = package/'results'/result
+    if run is None:
+        return verification
+    run = Path(run)
+    ev = evidence(run, request['epoch'])
+    support_report(ev)
+    if report.get('sources_sha256') != ev['hashes'] or report.get('dependency_source') != ev['run']['source']:
+        raise ValueError('fit original source hashes/contract missing or different')
+    prefix = f"epoch_{request['epoch']:03d}"
+    receipt_path = run/(prefix+'_checkpoint.json')
+    receipt_binding = file_binding(receipt_path)
+    receipt = read(receipt_path)
+    if (report.get('checkpoint_receipt_sha256') != receipt_binding['sha256']
+            or receipt.get('epoch') != request['epoch'] or receipt.get('adapter') != prefix
+            or not receipt.get('files') or report.get('checkpoint_files_sha256') != receipt['files']):
+        raise ValueError('fit checkpoint receipt binding missing or different')
+    counts = Counter(s['id'] for s in ev['samples'])
+    sampled = {s['id']:s for s in ev['samples']}
+    for key,case in actual.items():
+        source = sampled.get(key)
+        if (source is None or case['sampled_presentations'] != counts[key]
+                or case['target'] != source['target'] or case['original_label_basis'] != source['original_label_basis']):
+            raise ValueError('fit ID/target/provenance/exposure differs from original sampling')
+    verification.update(source_binding='verified',
+        selection_completeness='not_verified_dataset_not_provided',
+        scope='internal consistency and supplied original sampling/checkpoint receipt binding; query completeness requires dataset')
+    if dataset is not None:
+        dataset = Path(dataset)
+        view_path = dataset/'student_view.json'
+        view_binding = file_binding(view_path)
+        if view_binding['sha256'] != ev['hashes']['student_view.json']:
+            raise ValueError('verification dataset view differs from original run')
+        data, manifest = load_dataset(dataset, rgb_mode=ev['run']['observation_contract']['rgb_mode'])
+        if digest(manifest) != ev['run']['dataset']:
+            raise ValueError('verification dataset contract differs')
+        selected, _ = select_training(data, ev, request['event'], request['edge'], request['phase'])
+        if {r['id']:case_identity(r) for r in selected} != {key:r['paired_identity'] for key,r in actual.items()}:
+            raise ValueError('fit differs from complete original sampled query set')
+        if file_binding(view_path) != view_binding:
+            raise ValueError('verification dataset view changed during audit')
+        verification.update(status='verified', selection_completeness='verified',
+            scope='query, complete original sampled IDs/exposures/identities, raw parsing and metrics verified; no model reload or independent GPU execution proof')
+    if (ev['bindings'] != {n:file_binding(run/n) for n in ev['bindings']}
+            or file_binding(receipt_path) != receipt_binding):
+        raise ValueError('original evidence changed during fit verification')
+    return verification
 
 
 def fit(a, report, stage):
@@ -362,6 +448,7 @@ def fit(a, report, stage):
                 reference_kind=row.get('reference_kind','reviewed_rgb'),original_label_basis=label_basis(row),
                 sampled_presentations=counts[row['id']],paired_identity=case_identity(row))
             validate_case(case)
+            validate_prediction(case)
             stream.write(json.dumps(case,ensure_ascii=False,allow_nan=False)+'\n');stream.flush()
             cases.append(case)
             report['completed_count'] = len(cases)
@@ -386,6 +473,11 @@ def main():
     sub = p.add_subparsers(dest='command',required=True)
     verify = sub.add_parser('verify-fit',allow_abbrev=False)
     verify.add_argument('output',type=Path)
+    source = verify.add_mutually_exclusive_group()
+    source.add_argument('--run',type=Path,help='Explicit original run; never inferred from report paths')
+    source.add_argument('--package',type=Path,help='Original extracted training handoff, with --result')
+    verify.add_argument('--result',help='Original run label within --package')
+    verify.add_argument('--dataset',type=Path,help='Bound student view required for complete sampled-set verification')
     support = sub.add_parser('support',allow_abbrev=False)
     support.add_argument('--package',type=Path,required=True,help='Verified extracted handoff directory')
     support.add_argument('--output',type=Path,required=True)
@@ -402,8 +494,9 @@ def main():
     a = p.parse_args()
     if a.command == 'verify-fit':
         try:
-            print(json.dumps(verify_fit(a.output),ensure_ascii=False))
-            return 0
+            result = verify_fit(a.output,run=a.run,dataset=a.dataset,package=a.package,result=a.result)
+            print(json.dumps(result,ensure_ascii=False))
+            return 0 if result['status']=='verified' else 2
         except Exception as error:
             print(json.dumps(dict(status='failed',error=str(error)),ensure_ascii=False))
             return 2

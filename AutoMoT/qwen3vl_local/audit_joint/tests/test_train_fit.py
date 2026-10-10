@@ -108,7 +108,7 @@ def test_fit_unique_vs_exposure_weighting(sample_run):
     assert result['exposure_weighted']['targets']=={'YES':3,'NO':1}
 
 
-@pytest.mark.parametrize('outcome',['success','failure','partial_failure','prepare_only','no_samples','view_drift','adapter_drift','interrupt'])
+@pytest.mark.parametrize('outcome',['success','failure','partial_failure','prepare_only','no_samples','view_drift','adapter_drift','interrupt','raw_conflict'])
 def test_fit_cli_preserves_results_and_failure(sample_run,tmp_path,monkeypatch,outcome):
     import sys
     root,data=sample_run
@@ -149,6 +149,7 @@ def test_fit_cli_preserves_results_and_failure(sample_run,tmp_path,monkeypatch,o
             return 'YES','YES'
         raise RuntimeError('inference failed')
     def generate(*args):
+        if outcome=='raw_conflict':return 'YES','NO\n'
         if outcome=='view_drift':
             view=tmp_path/'dataset'/'student_view.json'
             replacement=tmp_path/'replacement.json';replacement.write_bytes(view.read_bytes())
@@ -162,20 +163,21 @@ def test_fit_cli_preserves_results_and_failure(sample_run,tmp_path,monkeypatch,o
         '--model-dir',str(tmp_path/'model'),'--data-root',str(tmp_path/'rgb'),'--output',str(output),
         '--device','cpu','--event','U-E7' if outcome=='no_samples' else 'U-E4']
         +(['--prepare-only'] if outcome=='prepare_only' else []))
-    assert tool.main()==(130 if outcome=='interrupt' else 2 if outcome in ('failure','partial_failure','no_samples','view_drift','adapter_drift') else 0)
+    assert tool.main()==(130 if outcome=='interrupt' else 2 if outcome in ('failure','partial_failure','no_samples','view_drift','adapter_drift','raw_conflict') else 0)
     report=tool.read(output/'fit_report.json')
     if outcome in ('partial_failure','view_drift','adapter_drift'):
         assert report['status']=='failed' and report['completed_count']==1
         assert report['training_fit']=='partial'
         assert len(tool.rows(output/'cases.jsonl'))==1
         assert not (output/'fit_metrics.json').exists()
-    elif outcome in ('failure','interrupt'):
+    elif outcome in ('failure','interrupt','raw_conflict'):
         assert report['stage']=='inference' and report['status']=='failed'
         assert report['completed_count']==0 and report['training_fit']=='not_run'
     elif outcome=='success':
         assert report['completed_count']==1 and report['training_fit']=='measured'
         assert tool.read(output/'fit_metrics.json')['unique_questions']['reference_agreement']==1
-        assert tool.verify_fit(output)['status']=='verified'
+        assert tool.verify_fit(output)['status']=='internal_consistency_verified'
+        assert tool.verify_fit(output,run=root,dataset=tmp_path/'dataset')['status']=='verified'
     else:
         assert calls==[] and report['training_fit']=='not_run'
     assert (output/'fit_selection.jsonl').is_file()
@@ -204,6 +206,7 @@ def test_received_fit_recomputes_complete_membership_and_metrics(sample_run,tmp_
     write_json(output/'fit_metrics.json',metrics)
     write_json(output/'fit_report.json',dict(schema='joint_training_fit_v1',command='fit',status='complete',
         training_fit='measured',checkpoint_assets_verified=True,selection_count=1,completed_count=1,
+        epoch=0,request=dict(command='fit',epoch=0,event='U-E4',edge='complete',phase='readiness'),
         output_files_sha256={n:tool.file_sha(output/n) for n in tool.FIT_FILES}))
     if damage=='changed_bytes':(output/'cases.jsonl').write_text('')
     if damage=='none':assert tool.verify_fit(output)['unique_questions']==1
@@ -235,3 +238,140 @@ def test_fit_files_are_included_in_handoff(tmp_path):
     for name in names|(set(['adapter_model.safetensors'])):(tmp_path/name).write_text('{}')
     included,_=result_files(tmp_path)
     assert set(included)==names
+
+
+@pytest.fixture
+def bound_fit(sample_run,tmp_path,monkeypatch):
+    root,data=sample_run
+    second=deepcopy(data['train'][0]);second['id']='train_second'
+    outside=deepcopy(second);outside.update(id='other_edge',edge='proceed',slice='catchup')
+    data['train'].extend([second,outside])
+    view=tool.read(root/'student_view.json');view['counts']['train']=3
+    view['selected_ids']['train']=digest([r['id'] for r in data['train']])
+    write_json(root/'student_view.json',view)
+    manifest={'fixture':'complete original pool'}
+    run=tool.read(root/'run.json');run['dataset']=digest(manifest)
+    run['training']['paired_training']['selected_ids']=view['selected_ids'];write_json(root/'run.json',run)
+    val=tool.read(root/'epoch_000_validation.json');val['dataset']=digest(manifest)
+    write_json(root/'epoch_000_validation.json',val)
+    exposure_rows=[data['train'][i] for i in (0,1,0,2)]
+    samples=[dict(id=r['id'],target=r['target'],original_label_basis=r['label_basis'],
+                  position=i,rank=0,local_index=i) for i,r in enumerate(exposure_rows)]
+    (root/'epoch_000_samples.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in samples))
+    strata=tool.Counter('/'.join((r['episode']['event'],r['edge'],r['target'],r['slice'],tool.motion(r))) for r in exposure_rows)
+    write_json(root/'epoch_000_sampling.json',dict(epoch=0,world_size=1,presentations=4,
+        ordered_samples=sample_binding(samples,1),strata=dict(strata)))
+    steps=[dict(epoch=0,loss=.5,optimizer_update=i==3,optimizer_steps=int(i==3),
+                **{k:r[k] for k in ('id','rank','position','local_index')}) for i,r in enumerate(samples)]
+    (root/'epoch_000_rank0_steps.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in steps))
+    write_json(root/'epoch_000_runtime.json',dict(validation_status='complete',ranks=[dict(rank=0,microbatches=4,optimizer_steps=1)]))
+    write_json(root/'data_admission.json',dict(training=dict(counts={s:{'rows':n} for s,n in view['counts'].items()},
+        train_readiness_catchup_support={'U-E4/complete':{'readiness':{'YES':2}},'U-E4/proceed':{'catchup':{'YES':1}}})))
+    checkpoint=dict(epoch=0,adapter='epoch_000',files={'adapter_model.safetensors':'test-receipt-only'})
+    write_json(root/'epoch_000_checkpoint.json',checkpoint)
+    dataset=tmp_path/'original_view';dataset.mkdir();write_json(dataset/'student_view.json',view)
+    monkeypatch.setattr(tool,'load_dataset',lambda *a,**kw:(data,manifest))
+    ev=tool.evidence(root,0)
+    output=tmp_path/'fit';output.mkdir()
+    selected,counts=tool.select_training(data,ev,'U-E4','complete')
+    selection=[dict(id=r['id'],paired_identity=case_identity(r),sampled_presentations=counts[r['id']],
+                    original_label_basis=r['label_basis'],cell=list(tool.state_cell(r))) for r in selected]
+    cases=[dict(s,**{k:r[k] for k in ('target','edge','slice')},event=r['episode']['event'],
+                reference_kind=r.get('reference_kind','reviewed_rgb'),prediction='YES',raw='YES\n') for r,s in zip(selected,selection)]
+    report=dict(schema='joint_training_fit_v1',command='fit',status='complete',training_fit='measured',
+        checkpoint_assets_verified=True,selection_count=2,completed_count=2,epoch=0,
+        request=dict(command='fit',epoch=0,event='U-E4',edge='complete',phase='readiness'),
+        sources_sha256=ev['hashes'],dependency_source=run['source'],checkpoint_files_sha256=checkpoint['files'],
+        checkpoint_receipt_sha256=tool.file_sha(root/'epoch_000_checkpoint.json'))
+    save_fit_fixture(output,selection,cases,report)
+    return output,root,dataset,data
+
+
+def save_fit_fixture(output,selection,cases,report):
+    # Deliberately rehash coherent counterexamples: verification must check independent evidence.
+    for name,items in [('fit_selection.jsonl',selection),('cases.jsonl',cases)]:
+        (output/name).write_text(''.join(json.dumps(r)+'\n' for r in items))
+    write_json(output/'fit_metrics.json',tool.fit_summary(cases))
+    report['selection_count']=len(selection);report['completed_count']=len(cases)
+    report['output_files_sha256']={n:tool.file_sha(output/n) for n in tool.FIT_FILES}
+    write_json(output/'fit_report.json',report)
+
+
+@pytest.mark.parametrize('damage',['none','wrong_query','missing_hashes','wrong_hash','omitted_sample',
+    'extra_id','wrong_exposure','wrong_identity','wrong_epoch','wrong_checkpoint','raw_conflict'])
+def test_bound_verification_requires_original_query_and_full_sampled_set(bound_fit,damage):
+    output,root,dataset,_=bound_fit
+    selection=tool.rows(output/'fit_selection.jsonl');cases=tool.rows(output/'cases.jsonl')
+    report=tool.read(output/'fit_report.json')
+    if damage=='wrong_query':report['request'].update(event='U-E1',edge='proceed',phase='catchup');report.pop('sources_sha256')
+    elif damage=='missing_hashes':report.pop('sources_sha256')
+    elif damage=='wrong_hash':report['sources_sha256']['run.json']='0'*64
+    elif damage=='omitted_sample':selection.pop();cases.pop()
+    elif damage=='extra_id':selection[0]['id']=cases[0]['id']='not_sampled'
+    elif damage=='wrong_exposure':selection[0]['sampled_presentations']=cases[0]['sampled_presentations']=1
+    elif damage=='wrong_identity':
+        for item in (selection[0],cases[0]):
+            item['paired_identity']['fields']['images'][0]='different/0004.jpg'
+            item['paired_identity']['sha256']=digest(item['paired_identity']['fields'])
+    elif damage=='wrong_epoch':report['request']['epoch']=1
+    elif damage=='wrong_checkpoint':report['checkpoint_receipt_sha256']='0'*64
+    elif damage=='raw_conflict':cases[0]['raw']='NO\n'
+    save_fit_fixture(output,selection,cases,report)
+    if damage=='none':
+        assert tool.verify_fit(output,run=root,dataset=dataset)['selection_completeness']=='verified'
+    else:
+        with pytest.raises(ValueError):tool.verify_fit(output,run=root,dataset=dataset)
+        if damage in ('wrong_query','raw_conflict'):
+            with pytest.raises(ValueError):tool.verify_fit(output)
+
+
+def test_without_source_or_dataset_only_internal_consistency_can_pass(bound_fit,monkeypatch,capsys):
+    import sys
+    output,root,_,_=bound_fit
+    for options in ({},{'run':root}):
+        result=tool.verify_fit(output,**options)
+        assert result['status']=='internal_consistency_verified'
+        assert result['selection_completeness'].startswith('not_verified')
+    report=tool.read(output/'fit_report.json');report.pop('sources_sha256');write_json(output/'fit_report.json',report)
+    monkeypatch.setattr(sys,'argv',['audit','verify-fit',str(output)])
+    assert tool.main()==2
+    assert json.loads(capsys.readouterr().out)['status']=='internal_consistency_verified'
+    with pytest.raises(FileNotFoundError):tool.verify_fit(output,run=root/'missing')
+
+
+def test_original_package_binding_allows_cross_cwd_and_relocated_run(bound_fit,tmp_path,monkeypatch):
+    from qwen3vl_local.audit_joint.tests.test_handoff import HandoffTests
+    from qwen3vl_local.audit_joint.handoff import pack
+    import zipfile
+    output,root,dataset,_=bound_fit
+    capture=HandoffTests();capture.setUp()
+    try:
+        archive=pack(capture.capture,results=[('original',root)])['archive']
+        package=tmp_path/'received_original'
+        with zipfile.ZipFile(archive) as z:z.extractall(package)
+        monkeypatch.chdir(tmp_path)
+        result=tool.verify_fit(output,package=package,result='original',dataset=dataset)
+        assert result['status']=='verified' and result['package']['status']=='verified'
+        with pytest.raises(ValueError):tool.verify_fit(output,package=package,result='../original',dataset=dataset)
+    finally:capture.doCleanups()
+
+
+@pytest.mark.parametrize('raw,prediction,valid',[('NO\n','YES',False),('YES explanation','YES',False),
+    ('YES explanation','MALFORMED',True),('  NO\n','NO',True),('UNKNOWN','UNKNOWN',False),
+    ('UNKNOWN','MALFORMED',True),('', 'MALFORMED',True),(None,'MALFORMED',False)])
+def test_frozen_parser_rechecks_validation_and_fit(bound_fit,raw,prediction,valid):
+    output,root,_,_=bound_fit
+    path=root/'epoch_000_cases.jsonl';items=tool.rows(path)
+    items[0].update(raw=raw,prediction=prediction)
+    path.write_text(''.join(json.dumps(r)+'\n' for r in items))
+    metrics=tool.read(root/'epoch_000_validation.json');metrics.update(tool.validation_metrics(items))
+    write_json(root/'epoch_000_validation.json',metrics)
+    selection=tool.rows(output/'fit_selection.jsonl');cases=tool.rows(output/'cases.jsonl')
+    cases[0].update(raw=raw,prediction=prediction)
+    save_fit_fixture(output,selection,cases,tool.read(output/'fit_report.json'))
+    if valid:
+        tool.evidence(root,0)
+        assert tool.verify_fit(output)['status']=='internal_consistency_verified'
+    else:
+        with pytest.raises(ValueError,match='frozen parsing|raw prediction'):tool.evidence(root,0)
+        with pytest.raises(ValueError,match='frozen parsing|raw prediction'):tool.verify_fit(output)
