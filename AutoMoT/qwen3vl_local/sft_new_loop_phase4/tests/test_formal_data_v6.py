@@ -84,8 +84,8 @@ def built(tmp_path_factory):
 
 def test_new_data_keeps_train_pool_and_formal_support_gate(built):
     rows, manifest = dataset.load_dataset(built)
-    assert manifest['counts'] == {'train':435,'val':163,'test':149}
-    assert manifest['review_queue_count'] == 480
+    assert manifest['counts'] == {'train':423,'val':163,'test':149}
+    assert manifest['review_queue_count'] == 492
     assert len(manifest['coverage']['missing_transition_edges']) == 416
     assert len(manifest['coverage']['missing_segmented_route_support']) == 12
     assert all(not r['evidence_id'].startswith('holdout_') for r in rows['train'])

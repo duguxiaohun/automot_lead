@@ -78,8 +78,8 @@ def test_increment_builds_three_isolated_splits_without_relaxing_readiness(tmp_p
         pytest.skip('external RGB unavailable')
     manifest = build(read('reviewed_state_pairs_v5.json'), data_root, tmp_path/'data', rgb_mode=mode)
     data, _ = load_dataset(tmp_path/'data')
-    assert manifest['counts'] == {'train': 435, 'val': 33, 'test': 25}
-    assert manifest['review_queue_count'] == 358
+    assert manifest['counts'] == {'train': 423, 'val': 33, 'test': 25}
+    assert manifest['review_queue_count'] == 370
     assert len(manifest['coverage']['missing_segmented_route_support']) == 12
     assert manifest['trainable'] and not manifest['complete_coverage']
     with pytest.raises(ValueError, match='support'):

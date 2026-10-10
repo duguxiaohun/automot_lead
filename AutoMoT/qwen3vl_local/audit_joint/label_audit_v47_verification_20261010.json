@@ -1,0 +1,698 @@
+{
+  "date": "2026-10-10",
+  "task": "phase4_state_pair_binary_v47",
+  "teacher": "ten_event_causal_teacher_v15",
+  "regressions": {
+    "passed": 2078,
+    "new_tests": 20
+  },
+  "runtime": {
+    "elapsed": "6:00.78",
+    "max_rss_kib": 368764
+  },
+  "replay": {
+    "routes": 45,
+    "frames": 5673,
+    "exit_code": 0,
+    "post_exit_code": 0
+  },
+  "visual": {
+    "unique_rgb_frames": 16,
+    "contact_sheets": 4,
+    "verified_source_assets": 48,
+    "independent_approval": false
+  },
+  "comparison": {
+    "matched": 8566,
+    "old_total": 8566,
+    "new_total": 8566,
+    "raw_target_changes": {},
+    "admission_changes": {},
+    "added_questions": {},
+    "removed_questions": {},
+    "admitted_added": {},
+    "admitted_removed": {},
+    "ue3_instances_old": [
+      "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/104",
+      "teacher/ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3/4709/35",
+      "teacher/ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/U-E3/4709/49"
+    ],
+    "ue3_instances_new": [
+      "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/104",
+      "teacher/ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3/4709/35",
+      "teacher/ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/U-E3/4709/49"
+    ],
+    "ue5_instances_old": [
+      "teacher/InvadingTurn/Town12_Rep0_1450_0_route0_01_09_22_58_43/U-E5/3752/48",
+      "teacher/InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/U-E5/4765/53"
+    ],
+    "ue5_instances_new": [
+      "teacher/InvadingTurn/Town12_Rep0_1450_0_route0_01_09_22_58_43/U-E5/3752/48",
+      "teacher/InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/U-E5/4765/53"
+    ],
+    "new_instance_end_reasons": {
+      "finished": 10,
+      "frozen_navigation_exhausted_not_completion": 21,
+      "decisive_actor_passed_behind_censors_stale_wait": 2,
+      "observed_resumption_censors_stale_wait": 28,
+      "identity_lost": 6,
+      "instance_rgb_discontinuity": 10,
+      "requires_recheck": 1,
+      "observed_junction_exit_censors_stale_wait": 6
+    },
+    "phase3": {
+      "frames": 5673,
+      "raw_action_and_evidence_unchanged": true,
+      "old_candidates": 1588,
+      "new_candidates": 1588,
+      "removed_candidates": [],
+      "added_candidates": []
+    },
+    "scope": "exact route/frame/instance/edge/mode/state match; added/removed questions include later-state changes after removed instances"
+  },
+  "native": {
+    "paired": {
+      "2": {
+        "pairs": 3082,
+        "selected_ids_sha256": "4ade982a1101ce6b78be47618658a68b025b7d14a1f84fd321306fa3b3f1b0f5"
+      },
+      "4": {
+        "pairs": 3082,
+        "selected_ids_sha256": "4ade982a1101ce6b78be47618658a68b025b7d14a1f84fd321306fa3b3f1b0f5"
+      }
+    },
+    "sampling": {
+      "2rgb_world1": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "2rgb_world4": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "4rgb_world1": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "4rgb_world4": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      }
+    },
+    "datasets": {
+      "2": {
+        "counts": {
+          "train": 3082,
+          "val": 273,
+          "test": 186
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "by_event": {
+          "R-E2": {
+            "YES": 104,
+            "NO": 411
+          },
+          "R-E3": {
+            "NO": 146,
+            "YES": 61
+          },
+          "R-E5": {
+            "NO": 284,
+            "YES": 31
+          },
+          "U-E1": {
+            "NO": 1028,
+            "YES": 70
+          },
+          "U-E2": {
+            "NO": 415,
+            "YES": 82
+          },
+          "U-E3": {
+            "NO": 14,
+            "YES": 13
+          },
+          "U-E4": {
+            "NO": 59,
+            "YES": 50
+          },
+          "U-E5": {
+            "NO": 39,
+            "YES": 12
+          },
+          "U-E6": {
+            "NO": 38,
+            "YES": 29
+          },
+          "U-E7": {
+            "NO": 153,
+            "YES": 43
+          }
+        },
+        "label_basis": {
+          "per_frame_conditions": 30,
+          "reviewed_transition_band": 401,
+          "weak_rule_teacher": 2651
+        },
+        "eval_bytes_unchanged": {
+          "val": false,
+          "test": false
+        }
+      },
+      "4": {
+        "counts": {
+          "train": 3082,
+          "val": 273,
+          "test": 186
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "by_event": {
+          "R-E2": {
+            "YES": 104,
+            "NO": 411
+          },
+          "R-E3": {
+            "NO": 146,
+            "YES": 61
+          },
+          "R-E5": {
+            "NO": 284,
+            "YES": 31
+          },
+          "U-E1": {
+            "NO": 1028,
+            "YES": 70
+          },
+          "U-E2": {
+            "NO": 415,
+            "YES": 82
+          },
+          "U-E3": {
+            "NO": 14,
+            "YES": 13
+          },
+          "U-E4": {
+            "NO": 59,
+            "YES": 50
+          },
+          "U-E5": {
+            "NO": 39,
+            "YES": 12
+          },
+          "U-E6": {
+            "NO": 38,
+            "YES": 29
+          },
+          "U-E7": {
+            "NO": 153,
+            "YES": 43
+          }
+        },
+        "label_basis": {
+          "per_frame_conditions": 30,
+          "reviewed_transition_band": 401,
+          "weak_rule_teacher": 2651
+        },
+        "eval_bytes_unchanged": {
+          "val": false,
+          "test": false
+        }
+      }
+    },
+    "all_sampling_orders_equal": true,
+    "missing_evaluation_events": {
+      "val": [
+        "U-E2",
+        "U-E3",
+        "U-E4",
+        "R-E2",
+        "R-E3",
+        "R-E5"
+      ],
+      "test": [
+        "U-E2",
+        "U-E3",
+        "U-E4",
+        "R-E2",
+        "R-E3",
+        "R-E5"
+      ]
+    },
+    "missing_training_readiness_cells": 199
+  },
+  "heldout": {
+    "datasets": {
+      "2": {
+        "val": {
+          "count": 273,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "eb5a533c2d589f1c99d08f60ce3f28b13d33f16f7191d969aa2fe75f8da7133c",
+          "new_sha256": "611f380b30fc9d903ee6a264b20bfe11f75aeba56c29129a702f1b8872ad3b9f"
+        },
+        "test": {
+          "count": 186,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "fdde9b66401f71b7aa1d0e6c28d2e0c473a1f60d914ef411f5f30e99289e6384",
+          "new_sha256": "c7986ba98eb3e101982c394114d7d10334483e54d6bffe1157ba7e72927bc272"
+        }
+      },
+      "4": {
+        "val": {
+          "count": 273,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "7c6d835ddb865f7fd1d26c7b71faa6096304264d9a15137e13285d7fceeccaae",
+          "new_sha256": "9d0cf353eaaf128e150b576040d7da996d911c5530c7b8e50634bf7388c609e6"
+        },
+        "test": {
+          "count": 186,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "9e0da16da656d4de24cbe283ba05f48aefe0a8237f4262c565c4746bdf19a25c",
+          "new_sha256": "99b5e4a59c46f92a3985d3dce2b1f9c09ea7affedc0344eac0ebcce0e11823a9"
+        }
+      }
+    },
+    "frozen_original_prompt_unchanged": true,
+    "active_system": "Use the chronological RGB observations to judge the proposed state transition. The next state is a candidate, not a known future observation. Answer only YES or NO. YES means the stated conditions hold now, or the successor has just been achieved while the supplied current state is stale. Being close to a transition is insufficient. Completed entry, return or passage must already be visible. Continued or renewed conflict blocks permission to begin entry or proceed. A completed geometric maneuver does not remove longitudinal restrictions. Otherwise NO. Evaluate every stated requirement together; evidence for one does not establish the others. Ego movement alone does not establish permission, and a participant disappearing or becoming occluded does not establish clearance. A newly appearing restriction requires a new judgment; it does not by itself prove the earlier judgment was wrong. Event names and navigation targets identify the question context; they do not establish that a transition condition holds.",
+    "scope": "same references and student query fields; input/system identities changed, not same-prompt model evaluation"
+  },
+  "short_view": {
+    "counts": {
+      "train": 3082,
+      "val": 239,
+      "test": 123
+    },
+    "exclusions": 97,
+    "descriptor_bytes": 46794,
+    "production_copied": false,
+    "modes": {
+      "2": {
+        "counts": {
+          "train": 3082,
+          "val": 239,
+          "test": 123
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "observation_contract": {
+          "version": "phase4_rgb2_short_student_v1",
+          "rgb_mode": 2,
+          "frame_offsets": [
+            -2,
+            0
+          ],
+          "frame_rate_hz": 4,
+          "min_frame": 4,
+          "order": "oldest_to_current"
+        },
+        "sampling": {
+          "1": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          },
+          "4": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          }
+        }
+      },
+      "4": {
+        "counts": {
+          "train": 3082,
+          "val": 239,
+          "test": 123
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "observation_contract": {
+          "version": "phase4_causal_rgb_v1",
+          "rgb_mode": 4,
+          "frame_offsets": [
+            -6,
+            -4,
+            -2,
+            0
+          ],
+          "frame_rate_hz": 4,
+          "min_frame": 4,
+          "order": "oldest_to_current"
+        },
+        "sampling": {
+          "1": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          },
+          "4": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          }
+        }
+      }
+    },
+    "all_mode_world_orders_equal": true,
+    "scope": "local 45-training-route weak experiment; no GPU training, short-input visual approval or joint independence"
+  },
+  "old_contract_rejected": true,
+  "production_contract": {
+    "task": "phase4_state_pair_binary_v47",
+    "answers": [
+      "YES",
+      "NO"
+    ],
+    "sources": {
+      "teacher_events.py": "21871f144e728c60b858a5ce489fa28a5b2f40e1ae9d75c4b95e48b908fdc85e",
+      "phase3_sampling.py": "8cb2553dab77903ff96e7fd3740ccd39ab26282bd33b298070e6564b8d036dae",
+      "data_paths.py": "3427a781d96fa6222dda8faab83ec7ad2331a957f558d9e63862250bc382f59d",
+      "full_pipeline.py": "06dc72c127cee6b21bcbeb85359c98b45f58873d6b4ff0403bd7b0d6684f828c",
+      "full_sampling.py": "13851f34f8ef93ae3ab89ee83b662eaea520760771a9bed2cb28f05dc69f3c05",
+      "train_full.sh": "94c3d5897784478fa4bd43b2023cc1e9ff3046e0cd9037be76e4984cae3204ec",
+      "paired_training.py": "f04bb4bfc5a5b554c8d076b0b222d79fe189a5df0fd5e5b1cb28703a5fddd84a",
+      "branch_support.py": "0ebfb75d366d9e79c8dcff90f2e1de0d2b16a9ec6e80d7179104e8fa5bb707cb",
+      "paired_eval.py": "8d55360c7362e1e64b7b1957ed695f11eea62d5291e66a271b5080aeece8d9fb",
+      "launch.py": "771e60b84af8444312921de2f655f268d5ef514e32939aef729a6792c741e004",
+      "train.sh": "be1a822816d7806c1d83dac52093f8204e38030b3ddbfb84e4096b74d6f9895f",
+      "run_full_pipeline.sh": "5fa3fd844115c2da4c60975a4d7daa4c95336f5107bb6058df146a2d16a7db53",
+      "route_quality.py": "7c38bc280f5cccb9c5be6e4d946d0a32e01364832871610ea6972bb3b1cfe26e",
+      "weighted_sampling.py": "d4edc02dcd580cbbf1b8cd839f001506292d061c4f9e451cdd7d6d41dd8a934d",
+      "teacher_evaluation.py": "d4010ffd39f4a10d0bcd2e89a3655bc10afb46ceaceefa112656f6064267926a",
+      "teacher_controls.py": "b033251b99b00363e188d49417406dc63ebf10dc9bcfdf39f1f48c8eabd73b57",
+      "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+      "teacher_review.py": "b997eec4c4b94964a1158030b8d0ab62734bad6a18d4f0de4e781f44af1a11f6",
+      "teacher_rules.py": "fee53a2a721dd9383d9097e15705ef9801b038d64e059f32366b4bf6b7691b81",
+      "teacher_replay.py": "5611ccba12eada0bcdc5fe3bf1b2eebad42ef0aaf137635b7e73ddc121bf8f49",
+      "teacher_approval.py": "b7715788759bc8a296a4ce83bf6199e4a37ec8a3fed2164fb52e815ba9271aba",
+      "teacher_data.py": "ff833a667ee66e80d27c1b7ae9f1d0108bcc8e846a2ddc310b670a02de344193",
+      "visual_review.py": "8ea4d3383005b0f9e82de5c6830677c51f8e61b174f1d8849f7fc044c8e40c47",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "review_queue.py": "c685816059902103c98b82f5cd2146e2f8bdff68dc0948477a32eacd681e4236",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "privileged_context.py": "9a4745d7acf051047a0ca30c9f99dc9a0a255392c18ef4a4019c5c47f497e163",
+      "privileged_visibility.py": "f4ce5aaacb33963732321ac1025d88607b8e735613cbc1f6419984c1b834279b",
+      "privileged_geometry.py": "2024cc84b7b2a83be2fa8231c1674e0cf409543a99d673338ae87110188fa6c1",
+      "privileged_producer.py": "e14a5ab67886feeabb48640851a37695044acc2d190e74d407034fc9259c2a52",
+      "replay_safety.py": "121378437a8955778d75efdd1d2879aab26ae1138e75d08557d3cb98339db980",
+      "maneuver_safety.py": "aad6adb9ace9e715c20538662487ba771dce61467346fba0ff56486f665eb7eb",
+      "visible_scope.py": "2bef271c9bcba53c4b23a3808caf755547b22d542e8b9c7275db0a432b46b038",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_prompts.py": "ae40b3a89037b39b24d76a566ff48dbc1788b5637c62af81f697867b83775ce5",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "dataset.py": "a0eec8ad13800e8a56fecb3c39444984fab0d27cb4cee83c8e25d3b1a0c5f1f3",
+      "sampling.py": "424cdfdf7908f6ee76041dd7efd8eda6bed991ca7ace56cba57105ba07474cd2",
+      "model.py": "e30e9f581261c5a6a4aa218511ccc542270d8858dfe766916206fb5927cf04ad",
+      "train.py": "186a5f885ba2a6c41e10da01f40c7393b38b773fd99fe884f812e35497480d7c",
+      "evaluate.py": "87d348b9e92c07325efda682afe61a8a2e096897d380ecd8d8204a965238fc13",
+      "runtime.py": "fa268158c96ee671d2b95449c9c0bebd2b07c4ccf73f7dcfcec4846e6bea8c4a",
+      "identity.py": "1bb9f91cc02ec48b52d64ec372ad5e2e25a8d8f6dd007897fba3fb94e7f9f102",
+      "action_prior.py": "c0dc9aac6c1e294bb7964685202945b34a5a4236037e6d619f660457d3daf81a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "replay.py": "a4ddd7eabddf3d30c9a8e9d6806ef16be1d15ba4342e43365a4d256a16dc2f13",
+      "input_identity.py": "e7e7ebe9fc28ee2c3704ed7ef27755835f884e87476a7b3c253abe9df6a8b3d1",
+      "risk_review.py": "2d570c9f5cc8fa9036f6ef01a49dec1cf772eddb3ea6df820ce8f138ce26e253",
+      "admission.py": "ff965b9ef69ec7451c3aa1cc62b6353e02b29b8d5fef48445eeae2dffcc90f93",
+      "condition_builder.py": "76fbc30a600840dc531a5a06397cedca14603bda281f8a9ec22e6406a424ef60",
+      "preflight.py": "76dfbe197e6d0f59d5673b956b5a9c08e04c6dea0bf0c2d203ca6ee66873422f",
+      "candidate_pool.py": "87f6e3b844146f8362763ba7a42394d785257387d42343cd0fdaa1452cf3852f",
+      "selection.py": "4c46214b361f97839306e8cf5cd7c5ba36333bf144efb992345c83ec68f4e49d"
+    },
+    "calibration_assets": {
+      "teacher_exposure_v42_20261008.json": "36cfb236bd10429ee3c95388076820cb454aaaaf3f93d231b2e86bdae2dff6f7",
+      "teacher_exposure_v41_20261008.json": "106083f70ef3941a6d83d6e4e6708bad2b7b2c1ebe8bebef4e530e2b06bf21fc",
+      "thirty_sixth_audit_exposure_20261006.json": "a5fd49ece82be111147c54f4828c3b2d6beccb8378d99e266b7c0b7639ac2453",
+      "thirty_fifth_audit_exposure_20261006.json": "fefded4d24862941f9c26fa3ce861dc2474fa2e161aa359e5b4d5522a74ddfad",
+      "thirty_fourth_audit_exposure_20261006.json": "3e27211558ae768ce7be2a5c34f4dcf8e937d78760f66a2225ec825712b849d0",
+      "thirty_third_audit_exposure_20261006.json": "a169d032ff58827db9054906d267154e01075cfa70836138f5101b06cafa85ea",
+      "thirty_second_audit_exposure_20261005.json": "e05790f3fd831c366ec7af14aa39ae25a33cb5e7e4c20e256279876e3a4e9c05",
+      "thirty_first_audit_exposure_20261005.json": "6ab7e5ab85d5f4807e9b0a23d24c83e36fa41eac9b21941fee098613ccac4324",
+      "thirtieth_audit_exposure_20261005.json": "1ca3a27a245eae654ab095d13238d10316496f61c0ba46e67cb2ae1cc84ab98c",
+      "producer_manual_check_plan_v27_20261010.json": "d1fdd1971ac85c9fb6703a3672a0b27007f2a39afc3f78219f89c8905709e790",
+      "teacher_registry_v22.json": "ee677faf3856b421916e7ed412eaee6354ee112944677df2cd5d04881e241cc8",
+      "producer_manual_check_plan_v6_20261002.json": "0afc82c20abfb861a226af6b119fb3bb6ab70b17c077e3e54d945b3d1085d9ee",
+      "teacher_registry_v1.json": "9451415588717c95828b8e5ec0d507087e93d0a4a694d5203ddaf0593954b1f2",
+      "reviewed_state_pairs_v9.json": "27b503f02a4b0c3209144942a03aa057e2404f1b65abe2e7b507375fc0b55583",
+      "twenty_fifth_rgb_review_20261002.json": "2dfa386a3d960b59bee51d4231eaf609fce180c146e2fa2aa0bfbac6cd172a1b",
+      "twenty_fifth_review_decisions_20261002.json": "71a82eef60df5a7f8db9597f8c42b912a7224f3aebd591d3d1d95e9757aa1e3b",
+      "twenty_fifth_review_queue_20261002.json": "3277d915f06a103d4c2204218ba616a8fff90ff5423689fce39b6d6c38adf2d9",
+      "producer_manual_check_plan_v5_20261002.json": "6f620c01c89fab5bc44078c6173e4fe605f1b606f887db5065e49ede030229cb",
+      "VISUAL_REVIEW_RUBRIC_V25.md": "a073a7e67b5394412dbaf9b2690bbb8f0c945ef30d4d67bf3c83e99f75bed71a",
+      "twenty_fourth_rgb_review_20261002.json": "d5cb6e0e0a902f9260f4fea97f87dc776dc17a6c393761a92dd5a9f860304e0c",
+      "twenty_fourth_review_queue_20261002.json": "6398966670bf510168b5d300b8e475162915cd4859d6d8ccd88f26be8225784f",
+      "twenty_fourth_review_decisions_20261002.json": "e83b758a50c9942abe44e7bd670d308882a961be2094ad3c5186bf56bf95a144",
+      "reviewed_state_pairs_v8.json": "e77e1902f930887c7cc4e6816bc341cd7ce59065c0332397a578cc8c24861334",
+      "twenty_third_rgb_review_20261002.json": "58aca6d8c35dd9b23a45aba41a6232d427598db99a35cb4a8462fd7f9d135480",
+      "twenty_third_audit_exposure_20261002.json": "456edac8c3a6e330370c05f7485875f350a25f85090258c47b83016a26d3f7ae",
+      "producer_manual_check_plan_v4_20261002.json": "4b86a12eab3692a9f6c0d988573fb21de6b273f9045208710ba2604757ebf6fb",
+      "twenty_second_audit_exposure_20261002.json": "a2278d6d9f3a9b1460e1d57024c5dfc68bf6aa015652f0b4a68adbd57336993c",
+      "twenty_first_audit_exposure_20261001.json": "7637f7cf6d8edf503ea86757664a6734370dd9b029e70c8421a42cad38345fda",
+      "twentieth_audit_exposure_20261001.json": "096487139608adff37784d28d530594533e39f993e14a69ad58d58158a637fa4",
+      "eighteenth_nineteenth_audit_exposure_20261001.json": "1e7165a34c091f6f775e6d030ea6c7d3f9f9ef311430e6f44c4b47b25b810f00",
+      "seventeenth_audit_exposure_20261001.json": "c9835d70ef19c80c5a9cf10c7c04befe68690fda86db1079101ba57d995874e5",
+      "sixteenth_audit_exposure_20260930.json": "5166fb9a755fdc3f55675094e23bbab77ff0316df437d39712fb8ddb9424bb82",
+      "fifteenth_audit_exposure_20260930.json": "cf00b2f57a3fb406f0fb326afc30117a27bdff88bab5b8ef0f988821e4848d32",
+      "fourteenth_audit_exposure_20260930.json": "a8c8b06a2a61a0a109a28f51d8e890c07e77c866fd731cc19c090653ac079242",
+      "twelfth_thirteenth_audit_exposure_20260930.json": "211aaba44d9857698d60a9740d2a8d4bdac94857e5f7ef47e81a7d8294623dcb",
+      "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+      "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c",
+      "rgb_holdout_review_v3.json": "6cee912a8044f606a47f93b2550fe2433b7f252f6a332d11d3f99c10960b7335",
+      "reviewed_holdout_state_pairs_v1.json": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb",
+      "rgb_holdout_review_v1.json": "7f31909ed138e27f657744d963ba74db49c8790a946cb04c3a2e874c4062e2be",
+      "reviewed_state_pairs_v6.json": "5549224df241260f8d9b48fe47694289b4d467a7351846e70f402fd0639ef9c6",
+      "reviewed_holdout_state_pairs_v2.json": "44d4b65966c61ed063dd0d88aff50cfe0b820fe3893a6fc5fb63e1645cadb5d5",
+      "rgb_holdout_review_v2.json": "2fac9176699ddd48d126ed190a89c61f103db44933b35993a62d0c36684fafc0",
+      "rgb_boundary_review_v3.json": "c1b4b6b3e7903322856ce236bc64067a15bd9530b80d02834085d10bc8a4918a",
+      "reviewed_state_pairs_v3.json": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+      "rgb_boundary_review_v4.json": "ede62026ec4cd6927e66d605c5067de64bbe1d2952e26de37c8f66191be7d617",
+      "reviewed_state_pairs_v4.json": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+      "rgb_boundary_review_v5.json": "558f7a3cf7fd460b57e9f2fbc9c83af0a45f6637640d05db529d4048740f08f3",
+      "reviewed_state_pairs_v5.json": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+      "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+      "reaudit_exposure_20260929.json": "0d54eb987f238177abe4fc9004b0b124f7a053e895d216bf2862e0d326d6881f",
+      "third_audit_exposure_20260930.json": "7d5a0727c7e55dcb159a763d009c5f0469c480dc327eaba2e5d7a6ae6efee5a4",
+      "eighth_audit_exposure_20260930.json": "1d0de86b50a0c161cb89a70d1b9d78ecb263361d346dcfa96715f6ef3c118782",
+      "ninth_audit_exposure_20260930.json": "70f636b21624360e350f51d5c621101b67b7100fe3d26a900e74a0a4f5982087",
+      "tenth_audit_exposure_20260930.json": "ccf79a74cb5602665fb97d626f20d98d5c898cf81ce7229969d4e914bd94754f",
+      "eleventh_audit_exposure_20260930.json": "ebd32c592ed9c0a5e45d480f160057d092ed2b60f9e500fee38c090ee025640e"
+    },
+    "dependencies": {
+      "../lead_video_tools/abnormal_duration_filter.py": "9a3df626182ff0ba0d581898dc1a16510b31f95b17129ce1eb64e30b03071616",
+      "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+      "sft_new_loop_phase3/build_dataset.py": "a63cd3b10479b6b2a20128e0e2b06d7ae3d63d92982538097de4e065af1d34fa",
+      "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+      "audit_joint/label_quarantine.py": "cfc1e517f8fd3ff756d4868e0f9aa4eb2a12d7dc6de7f8a63bdd18601a845629",
+      "audit_joint/label_quarantine_20261010.json": "833681a4ff415b2af60baa3613e16eb0074d88507cd8a9054fee8b8970b2060e"
+    }
+  },
+  "artifacts": {
+    "question_differences.json": {
+      "path": "checkpoints/joint_label_v47_20261010/question_differences.json",
+      "sha256": "c41fc546f4ab59e4cd03ddfd72cd41162025ef72f3c1d5cc46633f860cd5b0b6"
+    },
+    "native_build_verification.json": {
+      "path": "checkpoints/joint_label_v47_20261010/native_build_verification.json",
+      "sha256": "4f990c7b2c5554faed4bde4653c0dabcad98ae1fcca990616baa445bafe5b06e"
+    },
+    "final_checks.json": {
+      "path": "checkpoints/joint_label_v47_20261010/final_checks.json",
+      "sha256": "4a4a1a83836d2c778b0fea8ba49920ce89a8c66476e7f78fa4f8ea34c841d620"
+    },
+    "heldout_semantics.json": {
+      "path": "checkpoints/joint_label_v47_20261010/heldout_semantics.json",
+      "sha256": "d0645647ce557188c1a4f36635582f15b6e69ad7c3b468538cba93d1b3c331c3"
+    },
+    "short_view_verification.json": {
+      "path": "checkpoints/joint_label_v47_20261010/short_view_verification.json",
+      "sha256": "0a4d1d815d404335e8993efa0c06f707f1c9c801b9916ec0cc03bf91f4412c4e"
+    },
+    "visual_review.json": {
+      "path": "checkpoints/joint_label_v47_20261010/visual_review.json",
+      "sha256": "a9671dfc3da22b9b201d080f3cb69f9fbb24c7f496f91992a9a18e4b0460a982"
+    },
+    "visual_geometry.json": {
+      "path": "checkpoints/joint_label_v47_20261010/visual_geometry.json",
+      "sha256": "5acec0c64fc51f93cb75fd49d3a2aae6c7ed47d9900ea70f41e5d167bc5e2187"
+    },
+    "visual_correspondence.json": {
+      "path": "checkpoints/joint_label_v47_20261010/visual_correspondence.json",
+      "sha256": "efd6cb175328cc718b40760bfaf1b9243364d67e1d1ce3d6c52f2ff4315cb006"
+    },
+    "v46_rechecks.json": {
+      "path": "checkpoints/joint_label_v47_20261010/v46_rechecks.json",
+      "sha256": "579225e95afe2a0198bbbd0f1da529fc3faa8b7b8434f22ac8fff22b0f037ff9"
+    },
+    "compatibility.json": {
+      "path": "checkpoints/joint_label_v47_20261010/compatibility.json",
+      "sha256": "e9b00d445eeb19c59b936c9d6824147e9b4999584685959663fb073d4c7db13b"
+    },
+    "regression.log": {
+      "path": "checkpoints/joint_label_v47_20261010/regression.log",
+      "sha256": "ad46545f00af8aea30db74ec7b097dbe126ffa6cb20683cd051f81d2ab0ff9b0"
+    },
+    "replay.log": {
+      "path": "checkpoints/joint_label_v47_20261010/replay.log",
+      "sha256": "0d10bd2f9b73c6c5a27dbf20037d6af21f8ade39bc20e504bf90ee8882fdbc18"
+    },
+    "replay/receipt.json": {
+      "path": "checkpoints/joint_label_v47_20261010/replay/receipt.json",
+      "sha256": "1b2e7c17ac02a5657c618da0949be182cd209b091177b286b29d613a18024c24"
+    }
+  },
+  "limitations": [
+    "partial 45-training-route production, not global full pool",
+    "G0 incomplete, G1 partial, G2 not_run",
+    "six-event independent evaluation missing",
+    "generic cut-in recall and short-input observability unapproved",
+    "no GPU, training, push or new manual labels"
+  ]
+}

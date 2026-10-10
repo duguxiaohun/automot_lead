@@ -45,7 +45,7 @@ def built(tmp_path_factory):
 def test_current_data_can_train_without_full_coverage(built):
     data,m=dataset.load_dataset(built,require_trainable=True)
     assert m['trainable'] and not m['complete_coverage']
-    assert m['counts']=={'train':435,'val':273,'test':186}
+    assert m['counts']=={'train':423,'val':273,'test':186}
     with pytest.raises(ValueError,match='support'):
         dataset.load_dataset(built,require_complete_coverage=True)
     r=preflight.inspect(built)

@@ -1,0 +1,67 @@
+{
+  "status": "verified_local_scoped_build",
+  "scope": "45 existing training routes; not full pool or independent approval",
+  "producer_task": "phase4_state_pair_binary_v43",
+  "teacher": "ten_event_causal_teacher_v11",
+  "phase3_mapping_sha256": "3d1f2fa3806dc5d01856da26519f6e3ce25e72709e8bf56c23bcfa075273f90f",
+  "frames": 5673,
+  "routes": 45,
+  "replay_seconds": 368.65360279008746,
+  "replay_max_rss_kib": 370824,
+  "visual_frames": 176,
+  "regression": {
+    "full_passed": 2025,
+    "additional_native_phase3_passed": 1
+  },
+  "native_counts": {
+    "train": 3490,
+    "val": 273,
+    "test": 186
+  },
+  "manual_train": 443,
+  "weak_train": 3047,
+  "pairs": 3490,
+  "mode_and_world_question_orders_identical": true,
+  "sampling": {
+    "presentations": 10240,
+    "event_counts": {
+      "U-E4": 1024,
+      "U-E1": 1024,
+      "R-E2": 1024,
+      "U-E7": 1024,
+      "R-E3": 1024,
+      "U-E3": 1024,
+      "U-E2": 1024,
+      "U-E5": 1024,
+      "R-E5": 1024,
+      "U-E6": 1024
+    },
+    "answers": {
+      "NO": 7598,
+      "YES": 2642
+    }
+  },
+  "val_test_unchanged": {
+    "val": true,
+    "test": true
+  },
+  "strict_teacher_approval": false,
+  "full_production": false,
+  "training_executed": false,
+  "pushed": false,
+  "artifact_sha256": {
+    "checkpoints/joint_label_v43_20261010/replay_final/source.json": "b1fe3d0ee2ba60fa73a2fc51ffdbc0ac098025f82a5c89391d20e82621976b3a",
+    "checkpoints/joint_label_v43_20261010/replay_final/receipt.json": "36d226939d1ac98302a9e6824fa5a6d3b0b22412424ac1f6f5f04b75f32ce982",
+    "checkpoints/joint_label_v43_20261010/replay_final/summary.json": "ddb8e5e75e7e6179106186a053039eab841abb136e40bb9fb61076376a70e37a",
+    "checkpoints/joint_label_v43_20261010/phase3_difference.json": "3cd534aa27dcdb106f7ac46729cefd00fc8e7a024508ae280c67cf9c2bc273af",
+    "checkpoints/joint_label_v43_20261010/question_differences.json": "592e24d11cd9d0e428759cebf237f1f3ebeb5ae932611779030de58f3dc81696",
+    "checkpoints/joint_label_v43_20261010/visual_review.json": "301856921598ddd4f4e25678a8d388546b7986058a682e10873e171dd1d78a83",
+    "checkpoints/joint_label_v43_20261010/ten_event_joint_windows.json": "6a95d676fb250fe02d714bb230389109ae4bdbf136b48674da2357f769335a5c",
+    "checkpoints/joint_label_v43_20261010/native_build_verification.json": "302014d856dbf55881ab51871e71424261c3c54ab39c40b0b045db3c785bf4b9",
+    "checkpoints/joint_label_v43_20261010/dataset_acceptance.json": "88083a4f2d7669cf68c57fee991d98d802dd68e0597b5a2a27d2e24d99857c17",
+    "checkpoints/joint_label_v43_20261010/native_branch_support.json": "ef70aef6278325b3d2ee88f221770bcd1bf94857b8150e531ee529dec34bccfd",
+    "checkpoints/joint_label_v43_20261010/regression_final.log": "95749419c40fff9b3d01d34c865da82c9f2271bc403bcf1ac5ec0bc11c725328",
+    "checkpoints/joint_label_v43_20261010/data2/manifest.json": "bd824f67d21d22bf2f119eda9b688279ea2d224c332e9a7cb69fedae47ddc06a",
+    "checkpoints/joint_label_v43_20261010/data4/manifest.json": "a39d9311766d6bd98f708c66ab126aa697ffdbeb5e93d0d465d8e241c6a22696"
+  }
+}

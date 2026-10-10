@@ -24,6 +24,8 @@ DISPOSITIONS={'questions','abstained','irrelevant'}
 
 
 def route_records(root, route):
+    from qwen3vl_local.audit_joint.label_quarantine import load as verify_source_risks
+    verify_source_risks(root,route=(route['scenario'],route['route_id']))
     history=deque(maxlen=7);active={};seen=set();last_targets={};completed={};motion_status={};stationary_answers={}
     from .teacher_controls import StopDutyTracker
     controls=StopDutyTracker();navigation_reference=None

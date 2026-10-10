@@ -78,7 +78,7 @@ def default_registry():
     classes={rules.rule_class(event,edge.key,mode) for event in EVENTS
              for edge in (*event_edges(EVENTS[event][1]),*(event_edges('bypass') if event=='U-E4' else ()),*COMMON,RECOVER_FOLLOW)
              for mode in (2,4) if edge.key!='restrict'}
-    return approval.weak_registry(classes,'full_pipeline_v42_scoped_teacher')
+    return approval.weak_registry(classes,'full_pipeline_v47_scoped_teacher')
 
 
 def prepare(base, data_root, annotations, *, workers=16, skip_build=False,

@@ -1,0 +1,550 @@
+{
+  "date": "2026-10-10",
+  "task": "phase4_state_pair_binary_v46",
+  "teacher": "ten_event_causal_teacher_v14",
+  "active_prompt": "v10; frozen prompts.py unchanged",
+  "plan": "producer_manual_check_plan_v26_20261010.json",
+  "strict_registry": "teacher_registry_v21.json; empty approvals",
+  "replay": {
+    "routes": 45,
+    "frames": 5673,
+    "elapsed_seconds": 347.84,
+    "max_rss_kib": 369228,
+    "exit": 0,
+    "tmux_session": "labels-v46-20261010",
+    "directory": "AutoMoT/checkpoints/joint_label_v46_20261010/replay"
+  },
+  "visual": {
+    "unique_rgb_frames": 14,
+    "contact_sheets": 4,
+    "original_images": 2,
+    "selection": "known v45 ambiguity windows; local developer review, not blind or independent approval"
+  },
+  "phase3": {
+    "frames": 5673,
+    "raw_action_and_evidence_unchanged": true,
+    "old_candidates": 1588,
+    "new_candidates": 1588,
+    "removed_candidates": [],
+    "added_candidates": []
+  },
+  "phase4_differences": {
+    "matched": 8566,
+    "old_total": 8566,
+    "new_total": 8566,
+    "raw_target_changes": {},
+    "admission_changes": {},
+    "added_questions": {},
+    "removed_questions": {}
+  },
+  "native": {
+    "paired": {
+      "2": {
+        "pairs": 3082,
+        "selected_ids_sha256": "4ade982a1101ce6b78be47618658a68b025b7d14a1f84fd321306fa3b3f1b0f5"
+      },
+      "4": {
+        "pairs": 3082,
+        "selected_ids_sha256": "4ade982a1101ce6b78be47618658a68b025b7d14a1f84fd321306fa3b3f1b0f5"
+      }
+    },
+    "sampling": {
+      "2rgb_world1": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "2rgb_world4": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "4rgb_world1": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "4rgb_world4": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      }
+    },
+    "datasets": {
+      "2": {
+        "counts": {
+          "train": 3082,
+          "val": 273,
+          "test": 186
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "by_event": {
+          "R-E2": {
+            "YES": 104,
+            "NO": 411
+          },
+          "R-E3": {
+            "NO": 146,
+            "YES": 61
+          },
+          "R-E5": {
+            "NO": 284,
+            "YES": 31
+          },
+          "U-E1": {
+            "NO": 1028,
+            "YES": 70
+          },
+          "U-E2": {
+            "NO": 415,
+            "YES": 82
+          },
+          "U-E3": {
+            "NO": 14,
+            "YES": 13
+          },
+          "U-E4": {
+            "NO": 59,
+            "YES": 50
+          },
+          "U-E5": {
+            "NO": 39,
+            "YES": 12
+          },
+          "U-E6": {
+            "NO": 38,
+            "YES": 29
+          },
+          "U-E7": {
+            "NO": 153,
+            "YES": 43
+          }
+        },
+        "label_basis": {
+          "per_frame_conditions": 30,
+          "reviewed_transition_band": 401,
+          "weak_rule_teacher": 2651
+        },
+        "eval_bytes_unchanged": {
+          "val": false,
+          "test": false
+        }
+      },
+      "4": {
+        "counts": {
+          "train": 3082,
+          "val": 273,
+          "test": 186
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "by_event": {
+          "R-E2": {
+            "YES": 104,
+            "NO": 411
+          },
+          "R-E3": {
+            "NO": 146,
+            "YES": 61
+          },
+          "R-E5": {
+            "NO": 284,
+            "YES": 31
+          },
+          "U-E1": {
+            "NO": 1028,
+            "YES": 70
+          },
+          "U-E2": {
+            "NO": 415,
+            "YES": 82
+          },
+          "U-E3": {
+            "NO": 14,
+            "YES": 13
+          },
+          "U-E4": {
+            "NO": 59,
+            "YES": 50
+          },
+          "U-E5": {
+            "NO": 39,
+            "YES": 12
+          },
+          "U-E6": {
+            "NO": 38,
+            "YES": 29
+          },
+          "U-E7": {
+            "NO": 153,
+            "YES": 43
+          }
+        },
+        "label_basis": {
+          "per_frame_conditions": 30,
+          "reviewed_transition_band": 401,
+          "weak_rule_teacher": 2651
+        },
+        "eval_bytes_unchanged": {
+          "val": false,
+          "test": false
+        }
+      }
+    },
+    "all_sampling_orders_equal": true,
+    "missing_evaluation_events": {
+      "val": [
+        "U-E2",
+        "U-E3",
+        "U-E4",
+        "R-E2",
+        "R-E3",
+        "R-E5"
+      ],
+      "test": [
+        "U-E2",
+        "U-E3",
+        "U-E4",
+        "R-E2",
+        "R-E3",
+        "R-E5"
+      ]
+    },
+    "missing_training_readiness_cells": 199
+  },
+  "heldout": {
+    "datasets": {
+      "2": {
+        "val": {
+          "count": 273,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "b71f362ade1af310762bb21b98a6d79cda1fadd1ab0a01117e8d51db50611e78",
+          "new_sha256": "eb5a533c2d589f1c99d08f60ce3f28b13d33f16f7191d969aa2fe75f8da7133c"
+        },
+        "test": {
+          "count": 186,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "88570c0010e3bd0f81689a5563de1c0cc523490c666e2d4e0c89890a09cea27b",
+          "new_sha256": "fdde9b66401f71b7aa1d0e6c28d2e0c473a1f60d914ef411f5f30e99289e6384"
+        }
+      },
+      "4": {
+        "val": {
+          "count": 273,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "80e4755776e9083df6719bfc398ca363ab83947544112b6cc6ca19882d4d8b23",
+          "new_sha256": "7c6d835ddb865f7fd1d26c7b71faa6096304264d9a15137e13285d7fceeccaae"
+        },
+        "test": {
+          "count": 186,
+          "changed_fields": [
+            "model_input_sha256"
+          ],
+          "semantic_rows_unchanged": true,
+          "old_sha256": "f85a52bb46c36d2a3015e4779451386cb7b18bc283137d260b795e9bec05a057",
+          "new_sha256": "9e0da16da656d4de24cbe283ba05f48aefe0a8237f4262c565c4746bdf19a25c"
+        }
+      }
+    },
+    "frozen_original_prompt_unchanged": true,
+    "active_system": "Use the chronological RGB observations to judge the proposed state transition. The next state is a candidate, not a known future observation. Answer only YES or NO. YES means the stated conditions hold now, or the successor has just been achieved while the supplied current state is stale. Being close to a transition is insufficient. Completed entry, return or passage must already be visible. Continued or renewed conflict blocks permission to begin entry or proceed. A completed geometric maneuver does not remove longitudinal restrictions. Otherwise NO. Evaluate every stated requirement together; evidence for one does not establish the others. Ego movement alone does not establish permission, and a participant disappearing or becoming occluded does not establish clearance. A newly appearing restriction requires a new judgment; it does not by itself prove the earlier judgment was wrong.",
+    "scope": "same references and student query fields; input/system identities changed, not same-prompt model evaluation"
+  },
+  "short_view": {
+    "counts": {
+      "train": 3082,
+      "val": 239,
+      "test": 123
+    },
+    "exclusions": 97,
+    "descriptor_bytes": 46794,
+    "production_copied": false,
+    "modes": {
+      "2": {
+        "counts": {
+          "train": 3082,
+          "val": 239,
+          "test": 123
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "observation_contract": {
+          "version": "phase4_rgb2_short_student_v1",
+          "rgb_mode": 2,
+          "frame_offsets": [
+            -2,
+            0
+          ],
+          "frame_rate_hz": 4,
+          "min_frame": 4,
+          "order": "oldest_to_current"
+        },
+        "sampling": {
+          "1": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          },
+          "4": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          }
+        }
+      },
+      "4": {
+        "counts": {
+          "train": 3082,
+          "val": 239,
+          "test": 123
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "observation_contract": {
+          "version": "phase4_causal_rgb_v1",
+          "rgb_mode": 4,
+          "frame_offsets": [
+            -6,
+            -4,
+            -2,
+            0
+          ],
+          "frame_rate_hz": 4,
+          "min_frame": 4,
+          "order": "oldest_to_current"
+        },
+        "sampling": {
+          "1": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          },
+          "4": {
+            "presentations": 10240,
+            "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+            "by_event": {
+              "U-E4": 1024,
+              "U-E1": 1024,
+              "R-E2": 1024,
+              "U-E7": 1024,
+              "R-E3": 1024,
+              "U-E3": 1024,
+              "U-E2": 1024,
+              "U-E5": 1024,
+              "R-E5": 1024,
+              "U-E6": 1024
+            },
+            "answers": {
+              "YES": 2763,
+              "NO": 7477
+            }
+          }
+        }
+      }
+    },
+    "all_mode_world_orders_equal": true,
+    "scope": "local 45-training-route weak experiment; no GPU training, short-input visual approval or joint independence"
+  },
+  "validation": {
+    "full_suite_passed": 2058,
+    "elapsed_seconds": 143.84,
+    "new_tests": 13,
+    "first_run": "2057 passed / 1 failed: old v9 expected version; explicit v10 assertion fixed and full suite rerun",
+    "git_diff_check": true
+  },
+  "compatibility": {
+    "old_v45_refused": true,
+    "old_server_fit_requires_original_source_and_view": true
+  },
+  "limitations": [
+    "45 training routes only, not full production",
+    "No model training or GPU",
+    "No new independent label approvals or G2",
+    "No measured prompt/model improvement",
+    "Piecewise fixed heading lane forecast is a weak hypothesis, not smooth turning dynamics",
+    "Student observability and tiny grazing remain unverified",
+    "Generic cut-in recall, participant matching, six-event evaluation and Phase3 full pool missing",
+    "Short-input targets are transferred references, not newly visually approved labels",
+    "No push"
+  ],
+  "artifacts": {
+    "question_differences.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/question_differences.json",
+      "sha256": "c41fc546f4ab59e4cd03ddfd72cd41162025ef72f3c1d5cc46633f860cd5b0b6",
+      "bytes": 1857
+    },
+    "final_checks.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/final_checks.json",
+      "sha256": "4a4a1a83836d2c778b0fea8ba49920ce89a8c66476e7f78fa4f8ea34c841d620",
+      "bytes": 4787
+    },
+    "native_build_verification.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/native_build_verification.json",
+      "sha256": "a33894f0d5199fb4d92b50aa29b6fe7c746f4efeddfa5622915553da1ccd2921",
+      "bytes": 42363
+    },
+    "heldout_semantics.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/heldout_semantics.json",
+      "sha256": "9274801a1c5e592b21542e314506d50e4bc4526f01e928f16f3a2ac6f408412f",
+      "bytes": 2488
+    },
+    "short_view_verification.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/short_view_verification.json",
+      "sha256": "0a4d1d815d404335e8993efa0c06f707f1c9c801b9916ec0cc03bf91f4412c4e",
+      "bytes": 3446
+    },
+    "visual_review.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/visual_review.json",
+      "sha256": "e5c5efd16a71b4191ffab85b1722dfe206848a0b4f28be0828dc18c778aecc40",
+      "bytes": 17172
+    },
+    "visual_correspondence.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/visual_correspondence.json",
+      "sha256": "49d0d1551a1b32950b9fc933158e6a169ac6a455d54446a109a56a72c836eee0",
+      "bytes": 1194785
+    },
+    "compatibility.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/compatibility.json",
+      "sha256": "aa1d7365c87dd2c4eb1d081a42e19ec9742342803731e5575ad8fad9aabd6d09",
+      "bytes": 14873
+    },
+    "v46_rechecks.json": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/v46_rechecks.json",
+      "sha256": "02dd0723a4672a1b0826cda0881bf75a4faa608ae17182d3976158eedb1807a3",
+      "bytes": 183883
+    },
+    "regression_final.log": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/regression_final.log",
+      "sha256": "024a0f23fce3106a0f6ae64ccd05725dcdec27294cbf90643090d41eb782c9aa",
+      "bytes": 2353
+    },
+    "replay.log": {
+      "path": "AutoMoT/checkpoints/joint_label_v46_20261010/replay.log",
+      "sha256": "d0fff63d208ae06ea92c31914f7f61670d734a8b809c7148eb772b35cfabf9c7",
+      "bytes": 10018
+    }
+  }
+}

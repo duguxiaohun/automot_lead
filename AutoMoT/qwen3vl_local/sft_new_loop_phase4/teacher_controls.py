@@ -38,6 +38,26 @@ class StopDutyTracker:
                 position_basis='trigger_area_near_face_not_painted_line',observations=list(e['observations'])) for i,e in self.entries.items()}
 
 
+def crossing_interval(box,region,velocity,horizon_s):
+    """Times a translating fixed AABB overlaps the region on both axes.
+
+    This preserves the existing footprint and constant-velocity hypothesis;
+    a union of start/end boxes would mix positions at different times.
+    """
+    if not g.finite(horizon_s) or horizon_s<=0 or not g.vector(velocity,2):
+        raise ValueError('crossing prediction requires finite velocity and positive horizon')
+    low,high=0.,float(horizon_s)
+    for lo,hi,v,rlo,rhi in ((box[0],box[1],velocity[0],region[0],region[1]),
+                            (box[2],box[3],velocity[1],region[2],region[3])):
+        if abs(v)<1e-12:
+            if hi<rlo or lo>rhi:return None
+        else:
+            start,end=sorted(((rlo-hi)/v,(rhi-lo)/v))
+            low=max(low,start);high=min(high,end)
+            if low>high:return None
+    return low,high
+
+
 def crossing_clear(frame,stop):
     """Visible local crossing traffic, using current velocities, never saved futures."""
     x,y,_=stop['position'];width=frame['meta'].get('ego_lane_width')
@@ -52,7 +72,5 @@ def crossing_clear(frame,stop):
         if g.obstacle(a):continue
         velocity=a.get('ego_velocity')
         if not g.vector(velocity,2):unknown=True;continue
-        dx,dy=[v*PARAMS['crossing_horizon_s'] for v in velocity]
-        swept=[min(box[0],box[0]+dx),max(box[1],box[1]+dx),min(box[2],box[2]+dy),max(box[3],box[3]+dy)]
-        if g.intersects(swept,region):return False
+        if crossing_interval(box,region,velocity,PARAMS['crossing_horizon_s']) is not None:return False
     return None if unknown else True

@@ -299,6 +299,13 @@ def iter_base_frames(
     collection_dir = pathlib.Path(args.collection_dir)
     from qwen3vl_local.sft_new_loop_phase3.history_rgb import history_exclusion_reason
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
+    from qwen3vl_local.audit_joint import label_quarantine as source_quarantine
+    verified_source_risks = {}
+    def source_risks(base):
+        key = base['scenario'], base['route_id']
+        if key not in verified_source_risks:
+            verified_source_risks[key] = source_quarantine.load(data_root, route=key)
+        return source_quarantine.phase3_risks(base, verified_source_risks[key])
     if int(getattr(args, "workers", 0)) > 0:
         from qwen3vl_local.sft_new_loop_phase3.parallel_scan import parallel_frames
         yield from parallel_frames(args, risk_stats, observed_scenario_town_pairs)
@@ -343,6 +350,10 @@ def iter_base_frames(
                 if observed_scenario_town_pairs is not None:
                     observed_scenario_town_pairs.add((base["scenario"], base["town"]))
                 if base["visual_label_risk"] and not args.include_visual_risk:
+                    continue
+                if source_risks(base):
+                    if risk_stats is not None:
+                        risk_stats['source_excluded/confirmed_rgb_discontinuity'] += 1
                     continue
                 yield base
         return
@@ -425,6 +436,11 @@ def iter_base_frames(
                     if risk_stats is not None:
                         reason = signals.get("lateral_window_issue") or "rgb_identity_conflict"
                         risk_stats[f"action_excluded/lateral/{reason}"] += 1
+                    continue
+                if source_risks(dict(scenario=scenario, route_id=route_id, frame_id=frame_id,
+                                     context_id=context_id, action_evidence=action_evidence(signals))):
+                    if risk_stats is not None:
+                        risk_stats['source_excluded/confirmed_rgb_discontinuity'] += 1
                     continue
                 risk, reasons = frame_visual_risk(ann)
                 if risk and risk_stats is not None:

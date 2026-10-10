@@ -1,5 +1,40 @@
 # AGENTS.md
 
+2026-10-10服务器回报两模式181题拟合已verified，待本机接收ZIP复核，不要求重复推理；v47推送后先交包、旧环境保留、新源码独立worktree，具体见AutoMoT/qwen3vl_local/audit_joint/NEXT_AFTER_V47_20261010.md。
+
+### 2026-10-10 v47切入历史、STOP同时间预测与上下文提示词
+
+修复显式cut-in把历史走廊UNKNOWN当作在外，必须明确False；STOP横穿由起终点大包围盒改两轴同时间区间求交，保留AABB/2s匀速/可见性与停车义务。Phase4活跃提示词v11明确事件名称/导航目标仅为问题上下文、不作条件证据，冻结prompts.py及P3语义不改。任务v47/老师v15/同预约计划v27/空registry v22。
+45训练路线5673帧tmux重算360.78秒/368764KiB，P3动作证据及1588候选、P4全部8566原始问题/准入目标与v46相同，无真实改标或模型收益声明。实际目视16不同RGB帧/4联系表，48源SHA；ParkingCutIn两窗口首次走廊相交f104/f35而lane_id不变，保留显式分支，通用召回仍缺。原生2/4各3082/273/186、431人工+2651弱，YES495/NO2587；完整配对及留出参考不变，仅输入SHA变更。
+短视图46794字节、零production复制，2/4均3082/239/123；原生/短视图world1/4首轮10240题序一致、事件各1024、YES2763/NO7477。2078完整回归通过（新增20），旧v46合同拒绝，三阶段退出0。G1partial/G2notrun、199readiness缺格及六事件评估仍缺；无GPU/训练/push。旧服务器fit保留原源码/原视图。见AutoMoT/qwen3vl_local/audit_joint/LABEL_AUDIT_V47_20261010.md及label_audit_v47_verification_20261010.json；产物checkpoints/joint_label_v47_20261010。
+
+### 2026-10-10 v46车道连续预测与条件提示词
+
+车道预测分支改为有限折线逐段同时间两轴求交，复用原三帧身份/速度门，不推断连续转向或延长端点。活跃Phase4提示词v10明确条件合取、运动不等于许可、消失不等于清空、新限制不反证旧判断；冻结prompts.py不改，P3动作语义不改。任务v46/老师v14/同预约计划v26/空registry v21。
+tmux45训练路线5673帧重算347.84秒/369228KiB；P3证据及1588候选、P4全部8566原始问题/准入目标均与v45相同，无真实改标或效果提升声明。实际目视14不同RGB帧（4联系表/2原图，原图含在14帧内）、42源SHA绑定，非盲审/新批准。原生2/4各3082/273/186、431人工+2651弱、YES495/NO2587，完整配对；留出仅model_input_sha256改变，不能称字节相同。
+新短视图46794字节、零production复制，两模式3082/239/123、97曝光排除，RGB2[-2,0]/RGB4[-6,-4,-2,0]；原生及短视图world1/4首轮题序一致10240、每事件1024、YES2763/NO7477。2058完整回归通过（新增13）；旧v45合同拒绝，旧服务器fit须原源码/原视图。G1partial/G2notrun、199readiness缺格及六事件评估仍缺；无GPU/训练/push。见AutoMoT/qwen3vl_local/audit_joint/LABEL_AUDIT_V46_20261010.md及label_audit_v46_verification_20261010.json，产物checkpoints/joint_label_v46_20261010。
+
+### 2026-10-10 v45连续预测与逐帧RGB复核
+
+实际目视84不同RGB帧（11联系表、4原图），覆盖9个标签变化锚点及Town04路口归因复核；非盲审/完整路线/新批准。通用匀速预测改为有限走廊两轴同时间解析求交，修复半秒离散检查漏掉短占用；车道预测接收调用方2/4s时间窗。固定速度/朝向/宽度仍是弱假设，极短擦边及小目标待盲审，曲线车道分支仍离散。Town04 002163 f33由stop_sign_hazard转真导致优先权NO，corridor_clear仍true，不能据f31→33认定对向冲突过早放行；新transition_rechecks明确同实例复查筛查、原始/准入计数及右删失，不输出安全结论。
+合同v45/老师v13/同预约计划v25/空registry v20；默认流水线/训练目录从遗留v43更新v45。tmux低优先级单进程45训练路线5673帧，351.60秒/369144KiB；P3原始动作证据及1588候选不变，P4原始8590→8566。原生2/4各3082train=431人工+2651弱、273val/186test，两模式留出各自与v44逐字节一致，3082完全配对。YES495/NO2587；epoch0 world1/4两模式题序一致10240，各事件1024，实际呈现YES2763/NO7477，仍非1∶1。2041完整回归+4新增筛查专项通过。旧v44合同拒绝加载，旧产物未改。G1 in_progress/G2 not_run/P3正式全池及六事件评估仍缺；无GPU/训练/push。见AutoMoT/qwen3vl_local/audit_joint/LABEL_AUDIT_V45_20261010.md、label_audit_v45_verification_20261010.json，产物checkpoints/joint_label_v45_20261010。
+
+### 2026-10-10 v44十事件逐帧RGB续审与切入/路口/源消失修正
+
+逐帧看109个不同RGB帧（13张联系表/放大图，非盲审），结合同帧P3动作与P4实例/几何。确认8个误建U-E3：Accident/ParkedObstacle/Construction/noScenarios的7车导出车道全程不变，“进入走廊”来自自车绕行规划或弯道足迹旋转；ParkingCutIn actor3697在f246只因常驻cut_in身份再建。修正：显式身份历史起点已在走廊不得再建；通用切入需固定本车道走廊靠近≥0.5m且导出车道不变即否决。U-E5决定性车辆连续两帧在自车后截止等待（不记完成）；路口U-E6/U-E7/R-E5自车近静止用4s预测（行驶仍2s），Town03 002133 f20–23过早proceed YES消除。共享源消失账本2→10条（8条前后原图确认、SHA绑定），Town03 8_107远处车不登记。
+Phase4合同v44/老师v12/同预约计划v24/空registry v19。tmux单进程45训练路线5673帧重算350.94秒/RSS约361MiB；P3动作证据全帧不变，候选1637→1588（全为新隔离）；P4原始9844→8590，U-E3实例11→3，U-E7过早放行9/10→5/6，R-E5 6/9不变。原生2/4图库各train3084=431人工+2653弱、val273/test186，3084完全配对，RGB4 val/test与v43逐字节一致；YES503/NO2581，U-E3训练降为13/14，仍非1∶1/全池。相关回归2032通过。转弯穿越对向车、长实例隔离宽度、通用U-E3正例召回、G1/G2/P3全池仍缺；未GPU/续训/push。见AutoMoT/qwen3vl_local/audit_joint/LABEL_AUDIT_V44_20261010.md及label_audit_v44_verification_20261010.json，产物checkpoints/joint_label_v44_20261010。
+
+### 2026-10-10 v43原生标定接线与十事件续审
+
+Phase4新合同v43/老师v11/同预约计划v23/空严格registry v18；明确阻挡不再被另一项UNKNOWN抹去，许可合取未放宽。共享RGB消失隔离接入P3普通/缓存准入及P4原生编译/逐题人工准入/加载核验；6源SHA绑定，人工已UNKNOWN题仅增加隔离凭据。P3动作v23本体未改，mapping合同更新；旧v42快照/数据保留，旧adapter须原源码复验。
+tmux单CPU重算45训练路线5673帧，368.65秒/RSS约362MiB；P3动作证据全帧相同，候选1638→1637；P4原始10920→9844，同状态44题hold/restrict UNKNOWN→YES，无新增放行YES，后继状态变化单列。176不同RGB帧局部目视覆盖十事件，非盲审/完整路线认证。原生2/4局部库均train3490=443人工+3047弱、val273/test186；3490完全配对，world1/4首轮题序相同，事件各1024但YES2642/NO7598。RGB4 val/test与旧v42参考逐字节一致。
+相关完整回归2025通过，另真实P3扫描/缓存专项1通过。80原人工路线盘点、45路线回放，明确partial production，不冒充全池；P3正式全池、G0/G1实例匹配/G2及六事件独立评估仍缺。U3 actor3697在246新建二次切入身份待核，不能误称104旧实例未结束。未GPU/续训/新批准/push。见AutoMoT/qwen3vl_local/audit_joint/NATIVE_LABEL_FIXES_V43_20261010.md和native_label_v43_verification_20261010.json；原生题库在checkpoints/joint_label_v43_20261010/data2、data4。
+
+### 2026-10-10 十事件本机逐帧标定续审与源异常隔离
+
+本机tmux单进程重算45既有训练路线/5673帧，1638条P3原生候选、10920条P4原始问题；新增247不同RGB帧局部目视及4原图复核，非完整路线/盲审/独立批准。确认RE3 f58→59 actor4745、UE6 f43→44 actor138可见车辆消失，六份RGB/meta/bbox SHA绑定。局部隔离保留明确当前STOP：粗筛8条收窄为1条P3；P4原始6条、实际可保留弱候选4条。最终P3 1637、P4两模式各3585，仅诊断候选不冒充正式库。默认v42生产/学生合同及P3 mapping未改，正式建库尚未接入隔离；无GPU/续训/全池/新批准/push。
+新增audit_joint/local_replay.py、label_quarantine.py、label_inventory.py及tmux入口；全帧请求、源SHA/回执/隔离范围和明确UNKNOWN保留。两次完整重算P4逐字节/P3动作证据一致，480.02秒/约383MiB、CLI362.83秒/约364MiB；14新专项，audit_joint207项通过。详情AutoMoT/qwen3vl_local/audit_joint/TEN_EVENT_LOCAL_LABEL_AUDIT_20261010.md，总方案§14.1保持G1 in_progress/G2 not_run。本机标定主线不等待服务器训练例拟合。
+
 ### 2026-10-10 拟合验收绑定原始采样与原始输出
 
 verify-fit新增显式--run或--package/--result，绑定原源码/日志/采样/检查点回执SHA；完整验收另需--dataset原视图，从原池重算请求事件/边/阶段的已采ID全集、逐题身份和曝光次数。只有结果自洽或缺视图时返回internal_consistency_verified、退出2；显式来源错误直接failed，不猜服务器路径或降级绕过。已生成拟合结果可复验，不要求重新推理。

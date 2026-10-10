@@ -20,6 +20,18 @@ def registry():
         for risk in json.loads((ROOT/name).read_text())['calibration_risks']:
             result[(risk['scenario'],risk['route_id'])].append(dict(
                 risk_id=digest(dict(ledger=name,record=risk)),ledger=name,record=risk))
+    # Shared Phase3/4 RGB discontinuities. Only the confirmed onset vetoes a
+    # causal envelope; earlier explicit labels are not retroactively withdrawn.
+    from qwen3vl_local.audit_joint.label_quarantine import LEDGER
+    for raw in json.loads(LEDGER.read_text())['records']:
+        risk=dict(scenario=raw['scenario'],route_id=raw['route_id'],
+            last_unaffected_frame=raw['last_unaffected_frame'],first_affected_frame=raw['first_affected_frame'],
+            temporal_scope='confirmed_discontinuity_onset_v1',manual_scope='causal_history_window',
+            automatic_source_quarantine=True,
+            reported_status='original_RGB_confirmed_visible_discontinuity',reason=raw['reason'],
+            rgb_evidence=[dict(frame=s['frame_id'],sha256=s['sha256'],rgb=s['path']) for s in raw['sources'] if s['kind']=='rgb'])
+        risk_window(risk)
+        result[(raw['scenario'],raw['route_id'])].append(dict(risk_id=digest(raw),ledger=str(LEDGER.name),record=risk))
     return dict(result)
 
 
@@ -108,7 +120,9 @@ def manual_risks(risks,frames):
     """
     result=[]
     for risk in risks:
-        record=risk['record'];window=risk_window(record)
+        record=risk['record']
+        if record.get('automatic_source_quarantine'):continue
+        window=risk_window(record)
         if (record.get('manual_scope')!='causal_history_window' or window is None or not frames
                 or min(frames)<=window[1] and max(frames)>=window[0]):
             result.append(risk)
@@ -161,11 +175,27 @@ def row_review(row,review,known):
     return dict(disposition=status,evidence=projected)
 
 
+def source_quarantine(row,known):
+    risks=[r for r in known.get((row['scenario'],row['route_id']),[])
+           if r['record'].get('automatic_source_quarantine')]
+    if not risks:return None
+    if row.get('teacher_provenance'):
+        q=row['teacher_provenance']['question']
+    else:
+        q=dict(causal_sources=[dict(frame_id=f) for f in row['observation']['history_frames']])
+    ids=teacher_window_check(q,risks)['affected_risk_ids']
+    return dict(policy='confirmed_source_discontinuity_exclusion_v1',risk_ids=ids) if ids else None
+
+
 def validate_rows(rows,known):
     counts=Counter()
     for row in rows:
         risks=known.get((row['scenario'],row['route_id']),[])
         proof=row.get('risk_review')
+        exclusion=source_quarantine(row,known)
+        if row.get('source_quarantine')!=exclusion or exclusion and row['target']!='UNKNOWN':
+            raise ValueError('confirmed source quarantine missing or supervised')
+        if exclusion:counts['confirmed_source_quarantine']+=1
         if not risks:
             if proof is not None:raise ValueError('unexpected risk review on unregistered route')
             continue

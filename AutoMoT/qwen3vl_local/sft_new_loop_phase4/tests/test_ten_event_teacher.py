@@ -118,6 +118,8 @@ def test_automatic_instance_extraction_for_added_events(event):
             f['actors'][1]['yaw']=.3
             f['actors'][1]['speed']=2.
             f['actors'][1]['position'][1]=4. if f['frame_id']<8 else 0.
+            # Exported lane follows the actor; an unchanged lane vetoes generic U-E3 (v44).
+            f['actors'][1]['lane_id']=2 if f['frame_id']<8 else 1
         elif event in ('U-E6','U-E7','R-E5'):
             f['meta'].update(is_junction=True,distance_to_next_junction=0.)
             f['actors'][1]['yaw']=math.pi/2

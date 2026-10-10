@@ -1,0 +1,36 @@
+{
+  "status": "verified",
+  "routes": 45,
+  "frames": 5673,
+  "phase3_raw_candidates": 1638,
+  "phase3_kept_candidates": 1637,
+  "phase4_raw_questions": 10920,
+  "phase4_quarantined_raw_questions": 6,
+  "phase4_removed_precompiler_binary_questions": 4,
+  "phase4_kept_binary_candidates": 7170,
+  "original_v42_contract_unchanged": true,
+  "phase3_mapping_unchanged": true,
+  "phase4_replay_byte_identical": true,
+  "phase3_labels_and_evidence_equal_frames": 5673,
+  "reviewed_distinct_rgb_frames": 247,
+  "reviewed_full_routes": 0,
+  "independent_approval": false,
+  "gpu_training": false,
+  "production_default_updated": false,
+  "tests": {
+    "command": "python -m pytest -q qwen3vl_local/audit_joint/tests",
+    "passed": 207
+  },
+  "runs": {
+    "ten_event_label_audit_20261010": {
+      "elapsed_seconds": 480.0154913601,
+      "max_rss_kib": 392036
+    },
+    "ten_event_label_cli_20261010": {
+      "elapsed_seconds": 362.82614383404143,
+      "max_rss_kib": 372616
+    }
+  },
+  "final_artifact": "/home/codon/automot_lead/AutoMoT/checkpoints/ten_event_label_final_20261010",
+  "final_receipt_sha256": "109d82353c7c95c6eea58db722ef36e8f4e7e5eaa6b7ef6006740fd16c856784"
+}

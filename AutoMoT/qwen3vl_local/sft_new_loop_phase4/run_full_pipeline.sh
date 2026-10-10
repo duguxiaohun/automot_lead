@@ -45,7 +45,7 @@ export MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 if [[ "$P4_MODE" == ddp || "$P4_MODE" == single || "$P4_MODE" == host-preflight ]]; then
   [[ -f "$MODEL_DIR/config.json" ]] && compgen -G "$MODEL_DIR/*.safetensors" >/dev/null || fail "MODEL_DIR=$MODEL_DIR: local base model missing; set MODEL_DIR to the installed complete Qwen3.5-4B before building/training."
 fi
-DATA_DIR="${DATA_DIR:-checkpoints/phase4_v42_full}"
+DATA_DIR="${DATA_DIR:-checkpoints/phase4_v47_full}"
 # Canonical paths prevent a caller from building one pair and training another.
 mkdir -p -- "$DATA_DIR"
 DATA_DIR="$(cd -- "$DATA_DIR" && pwd)"

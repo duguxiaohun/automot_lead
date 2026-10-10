@@ -62,8 +62,8 @@ def test_real_data_roundtrip_is_train_only_and_tamper_rejected(tmp_path):
     ann=json.loads((ROOT/'reviewed_state_pairs_v4.json').read_text())
     output=tmp_path/'dataset'
     m=dataset.build(ann,data_root,output)
-    assert m['counts']=={'train':352} and not m['ready']
-    assert m['review_queue_count']==234
+    assert m['counts']=={'train':340} and not m['ready']
+    assert m['review_queue_count']==246
     data,_=dataset.load_dataset(output)
     assert not data['val'] and not data['test']
     assert {r['target'] for r in data['train']}=={'YES','NO'}

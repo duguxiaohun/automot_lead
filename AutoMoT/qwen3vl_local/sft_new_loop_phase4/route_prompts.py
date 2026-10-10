@@ -1,11 +1,17 @@
-"""Active route-aware entry point; non-route questions use the frozen v6 rubric."""
+"""Active route-aware entry point; non-route questions use the versioned common rubric."""
 import math
 from . import prompts as frozen
-from .prompts import SYSTEM, MODEL_ANSWERS, PROMPT_VERSION, parse_answer
+from .prompts import MODEL_ANSWERS, parse_answer
 from .route_context import episode_edge, route_bound, BOUNDARY
 from .taxonomy import STATE_TEXT, EVENTS, applicable
 
 VISIBLE_EDGES = {'depart', 'enter', 'return'}
+PROMPT_VERSION = 'phase4_state_pair_binary_v11'
+SYSTEM = (frozen.SYSTEM +
+    ' Evaluate every stated requirement together; evidence for one does not establish the others.'
+    ' Ego movement alone does not establish permission, and a participant disappearing or becoming occluded does not establish clearance.'
+    ' A newly appearing restriction requires a new judgment; it does not by itself prove the earlier judgment was wrong.'
+    ' Event names and navigation targets identify the question context; they do not establish that a transition condition holds.')
 
 
 def cyclist_follow(episode):
@@ -13,10 +19,10 @@ def cyclist_follow(episode):
 
 
 def prompt_version(episode, edge_key=None):
-    if cyclist_follow(episode):return 'phase4_state_pair_cyclist_follow_v9'
+    if cyclist_follow(episode):return 'phase4_state_pair_cyclist_follow_v11'
     if edge_key in VISIBLE_EDGES | {'recover_follow'}:
-        return 'phase4_state_pair_visible_v8'
-    return 'phase4_state_pair_route_v7' if route_bound(episode) else PROMPT_VERSION
+        return 'phase4_state_pair_visible_v11'
+    return 'phase4_state_pair_route_v11' if route_bound(episode) else PROMPT_VERSION
 
 
 def state_pair(episode, edge_key):
@@ -96,7 +102,9 @@ def prompt(episode, edge_key, observation):
 
 def messages(episode, edge_key, observation, images, target=None):
     if not cyclist_follow(episode) and not route_bound(episode) and edge_key not in VISIBLE_EDGES | {'recover_follow'}:
-        return frozen.messages(episode, edge_key, observation, images, target)
+        result = frozen.messages(episode, edge_key, observation, images, target)
+        result[0]['content'] = SYSTEM
+        return result
     if len(images) != len(observation['history_frames']):
         raise ValueError('image/history count mismatch')
     content = [{'type':'image','image':im} for im in images]

@@ -14,7 +14,8 @@ MERGES = {'HighwayExit','EnterActorFlow','EnterActorFlowV2','MergerIntoSlowTraff
 UNSIGNALIZED = {'NonSignalizedJunctionLeftTurn','NonSignalizedJunctionRightTurn',
                'NonSignalizedJunctionLeftTurnEnterFlow','InterurbanActorFlow','InterurbanAdvancedActorFlow','T_Junction'}
 PARAMS = dict(horizon_m=22.,prediction_s=2.,separation_m=.75,entry_margin_m=.2,
-              entry_heading_rad=.2,stable_observations=3,detour_offset_m=.6)
+              entry_heading_rad=.2,stable_observations=3,detour_offset_m=.6,cut_in_approach_m=.5,
+              junction_start_prediction_s=4.,junction_start_speed_mps=1.)
 
 
 def ego(frame):
@@ -126,14 +127,22 @@ def target_context(frame,reference):
                 instance_sources=reference['sources']+frame['sources'])
 
 
-def crossed_fixed_corridor(previous,current,old,actor):
-    """The actor crosses a fixed world corridor, not an ego/planner path shift."""
-    nav=navigation(previous)
-    if route_intersection(old,nav) is not False:return False
-    points=world_path(previous,nav.get('points',[]))
-    if not points:return False
-    same=dict(nav,points=local_path(current,points))
-    return route_intersection(actor,same) is True
+def crossed_fixed_corridor(previous,current,old,actor,reference=None):
+    """The actor moves into a fixed world corridor of the ego's own lane.
+
+    A planner detour shifts the current route onto parallel traffic, and a
+    curve rotates the footprint test; neither is the actor cutting in.
+    """
+    if reference and reference.get('points'):
+        points=reference['points'];half_width=reference['half_width']
+    else:
+        nav=navigation(previous);points=world_path(previous,nav.get('points',[]));half_width=nav.get('half_width')
+    if not points or not g.finite(half_width):return False
+    before=dict(points=local_path(previous,points),half_width=half_width)
+    after=dict(points=local_path(current,points),half_width=half_width)
+    if route_intersection(old,before) is not False or route_intersection(actor,after) is not True:return False
+    b=closest(before['points'],old['position'][:2]);c=closest(after['points'],actor['position'][:2])
+    return bool(b and c and abs(b['lateral'])-abs(c['lateral'])>=PARAMS['cut_in_approach_m'])
 
 
 def static_obstacle(frame,a):
@@ -158,22 +167,67 @@ def own_corridor(frame,reference):
     return dict(points=[])
 
 
-def cut_in_identity(frames,a,old):
+def cut_in_identity(frames,a,old,reference=None):
     f=frames[-1];m=f['meta']
     explicit=(a.get('is_cut_in') is True
               or a['id'] in (m.get('cut_in_actors_ids') or []))
-    if explicit:return True
+    # Upstream identity names the actor for the whole route, not the moment of
+    # the maneuver: an actor already in the corridor at history start is a lead.
+    # Missing historical geometry is not evidence of having been outside.
+    if explicit:return route_intersection(old,navigation(frames[0])) is False
     # Generic retrieval remains available outside intersections. Ordinary route
     # turns/merges do not prove an anomalous cut-in.
     if any(p['meta'].get('is_junction') is not False or p['meta'].get('current_active_scenario_type') in MERGES for p in frames):return False
-    return crossed_fixed_corridor(frames[0],f,old,a)
+    # Planner references can already contain a detour into the adjacent lane;
+    # an exported, unchanged actor lane shows the actor itself did not move over.
+    lanes=[(x.get('road_id'),x.get('lane_id')) for p in frames for x in p['actors'] if x['id']==a['id']]
+    if len(lanes)==len(frames) and all(type(r) is int and type(l) is int for r,l in lanes) and len(set(lanes))==1:return False
+    return crossed_fixed_corridor(frames[0],f,old,a,reference)
 
 
-def lane_predictions(frames,a,nav):
+def prediction_times(horizon_s):
+    if not g.finite(horizon_s) or horizon_s<=0:
+        raise ValueError('prediction horizon must be finite and positive')
+    # Include the exact endpoint for non-multiples of the nominal sampling step.
+    return [.5*k for k in range(1,math.ceil(horizon_s/.5))]+[float(horizon_s)]
+
+
+def linear_intersection(actor,nav,velocity,horizon_s,*,margin=.25):
+    """Continuous constant-velocity footprint versus the same bounded strips.
+
+    Solve both segment axes over one common time interval. This is not a union
+    AABB (which would lose time alignment), nor a prediction of actual motion.
+    Yaw and velocity are held at their current values, as in the old forecast.
+    """
+    prediction_times(horizon_s)  # validate even when the route is empty
+    if not nav.get('points') or not g.vector(velocity,2):return None
+    x,y=actor['position'][:2];ex,ey=actor['extent'][:2]
+    for a,b in zip(nav['points'],nav['points'][1:]):
+        dx,dy=b[0]-a[0],b[1]-a[1];length=math.hypot(dx,dy)
+        if length<1e-5:continue
+        ux,uy=dx/length,dy/length;rx,ry=x-a[0],y-a[1]
+        angle=actor['yaw']-math.atan2(dy,dx)
+        longitudinal=abs(math.cos(angle))*ex+abs(math.sin(angle))*ey
+        lateral=nav['half_width']+abs(math.sin(angle))*ex+abs(math.cos(angle))*ey+margin
+        low,high=0.,float(horizon_s)
+        axes=((rx*ux+ry*uy,velocity[0]*ux+velocity[1]*uy,-longitudinal,length+longitudinal),
+              (-rx*uy+ry*ux,-velocity[0]*uy+velocity[1]*ux,-lateral,lateral))
+        for position,speed,left,right in axes:
+            if abs(speed)<1e-12:
+                if not left<=position<=right:high=-1.;break
+            else:
+                start,end=sorted(((left-position)/speed,(right-position)/speed))
+                low=max(low,start);high=min(high,end)
+            if low>high:break
+        if low<=high:return True
+    return False
+
+
+def lane_motion(frames,a,nav):
     """Project a persistent parallel lane participant along current road shape.
 
     None means insufficient lane evidence: retain the conservative generic
-    prediction. Empty means a supported adjacent lane stays clear locally.
+    prediction. Otherwise return the projection and longitudinal/lateral speed.
     Never use saved future actor or ego positions.
     """
     if a['class']!='car' or g.vulnerable(a) or len(frames)<3:return None
@@ -192,18 +246,57 @@ def lane_predictions(frames,a,nav):
     if max(offsets)-min(offsets)>.5:return None
     c=closest(nav['points'],a['position'][:2])
     if not c:return None
+    return c,motions[-1]
+
+
+def lane_predictions(frames,a,nav,*,horizon_s=PARAMS['prediction_s']):
+    """Diagnostic samples of the lane hypothesis; clearance uses continuous segments."""
+    times=prediction_times(horizon_s)
+    motion=lane_motion(frames,a,nav)
+    if motion is None:return None
+    c,(speed,lateral_speed)=motion
     out=[]
-    for dt in (.5,1.,1.5,2.):
-        station=c['station']+motions[-1][0]*dt;walk=0.
+    for dt in times:
+        station=c['station']+speed*dt;walk=0.
         for p,q in zip(nav['points'],nav['points'][1:]):
             length=math.dist(p,q)
             if length and walk<=station<=walk+length:
                 h=math.atan2(q[1]-p[1],q[0]-p[0]);u=(station-walk)/length
-                lateral=c['lateral']+motions[-1][1]*dt
+                lateral=c['lateral']+lateral_speed*dt
                 out.append(dict(a,position=[p[0]+u*(q[0]-p[0])-math.sin(h)*lateral,
                     p[1]+u*(q[1]-p[1])+math.cos(h)*lateral,a['position'][2]],yaw=h));break
             walk+=length
     return out
+
+
+def lane_intersection(frames,a,nav,*,horizon_s=PARAMS['prediction_s']):
+    """Continuous piecewise-linear lane hypothesis, with the same evidence gates.
+
+    Each polyline segment has fixed heading; lateral drift remains linear in
+    global elapsed time. Both headings are tested at vertices. This does not
+    infer a smooth turn or extend navigation beyond its recorded endpoints.
+    """
+    prediction_times(horizon_s)
+    motion=lane_motion(frames,a,nav)
+    if motion is None:return None
+    c,(speed,lateral_speed)=motion
+    walk=0.
+    for p,q in zip(nav['points'],nav['points'][1:]):
+        length=math.dist(p,q)
+        if length<1e-5:continue
+        start=max(0.,(walk-c['station'])/speed)
+        end=min(horizon_s,(walk+length-c['station'])/speed)
+        if start<=end:
+            ux,uy=(q[0]-p[0])/length,(q[1]-p[1])/length
+            along=c['station']+speed*start-walk
+            lateral=c['lateral']+lateral_speed*start
+            actor=dict(a,position=[p[0]+ux*along-uy*lateral,p[1]+uy*along+ux*lateral,a['position'][2]],
+                       yaw=math.atan2(uy,ux))
+            if route_intersection(actor,nav,margin=.25) is True:return True
+            if end>start and linear_intersection(actor,nav,
+                    [ux*speed-uy*lateral_speed,uy*speed+ux*lateral_speed],end-start):return True
+        walk+=length
+    return False
 
 
 def seeds(frames):
@@ -265,7 +358,7 @@ def seeds(frames):
         c=closest(nav.get('points',[]),a['position'][:2])
         angle=math.atan2(math.sin(a['yaw']-(c['heading'] if c else 0)),math.cos(a['yaw']-(c['heading'] if c else 0)))
         if (c and route_intersection(a,nav) is True and old and g.visible(old,frames[0]) is True
-                and abs(angle)<1.2 and g.finite(a.get('speed')) and a['speed']>.5 and cut_in_identity(frames,a,old)):
+                and abs(angle)<1.2 and g.finite(a.get('speed')) and a['speed']>.5 and cut_in_identity(frames,a,old,reference)):
             out.append(dict(event='U-E3',actor_id=a['id'],actor_ids=[a['id']]))
     distance=m.get('distance_to_next_junction')
     near=m.get('is_junction') is True or (g.finite(distance) and 0<=distance<=25)
@@ -316,7 +409,7 @@ def scene_visible(frame):
     return frame.get('scene_visibility',{}).get('quality_pass') is True
 
 
-def clearance(frames,nav,*,following=False,ignore=()):
+def clearance(frames,nav,*,following=False,ignore=(),horizon_s=PARAMS['prediction_s']):
     from .teacher_rules import ordinary_lead,ordinary_cyclist
     f=frames[-1];unknown=False
     if not nav.get('points'):return None
@@ -330,10 +423,9 @@ def clearance(frames,nav,*,following=False,ignore=()):
             if not g.vector(velocity,2):
                 if math.hypot(*a['position'][:2])<30:unknown=True
                 continue
-            predictions=lane_predictions(frames,a,nav)
-            if predictions is None:
-                predictions=[dict(a,position=[a['position'][0]+velocity[0]*dt,a['position'][1]+velocity[1]*dt,a['position'][2]]) for dt in (.5,1.,1.5,2.)]
-            hit=any(route_intersection(predicted,nav,margin=.25) is True for predicted in predictions)
+            hit=lane_intersection(frames,a,nav,horizon_s=horizon_s)
+            if hit is None:
+                hit=linear_intersection(a,nav,velocity,horizon_s)
             if not hit:continue
         if g.visible(a,f) is not True:unknown=True
         else:return False
@@ -382,6 +474,13 @@ def control_priority(frame,nav):
     return local_priority(current,nav)
 
 
+def restriction_required(clear, priority):
+    """One established blocker suffices; an unknown second condition cannot erase it."""
+    if clear is False or priority is False:return True
+    if clear is True and priority is True:return False
+    return None
+
+
 def facts(frames,ep,seed):
     from .teacher_rules import conjunction,actor,ordinary_lead
     if not g.history_valid(frames,7) or frames[0]['frame_id']<4:return {},['incomplete_causal_history']
@@ -395,7 +494,11 @@ def facts(frames,ep,seed):
     # Bound to this local event, never a later turn 50m down the route.
     nav=bounded(nav)
     if len(nav['points'])<2:return {},['navigation_missing']
-    clear=clearance(frames,nav,following=ep.event!='U-E2')
+    # Crossing a junction from rest takes longer than the moving-ego 2 s gap;
+    # RGB audit (Town03 002133 f20-23) showed releases into approaching cross traffic.
+    horizon=(PARAMS['junction_start_prediction_s'] if ep.event in ('U-E6','U-E7','R-E5')
+             and g.finite(m.get('speed')) and abs(m['speed'])<PARAMS['junction_start_speed_mps'] else PARAMS['prediction_s'])
+    clear=clearance(frames,nav,following=ep.event!='U-E2',horizon_s=horizon)
     priority=control_priority(f,nav)
     restricted=False;resolved=False
     follow=any(ordinary_lead(frames,x['id']) and route_intersection(x,nav) is True for x in f['actors'] if x['class']=='car' and not g.vulnerable(x)) if ep.event!='U-E2' else False
@@ -420,10 +523,10 @@ def facts(frames,ep,seed):
         if ep.event=='U-E3' and ordinary_lead(frames,a['id']):follow=True
         resolved=clear is True and (follow or route_intersection(a,nav,margin=PARAMS['separation_m']) is False)
     else:restricted=ep.state=='WAIT'  # current navigation/obstacle establishes an entry obligation
-    wait=clear is False or priority is False
+    wait=restriction_required(clear,priority)
     result=dict(event_restriction_observed=restricted,release_ready=clear,corridor_clear=clear,
-        priority_satisfied=priority,restriction_present=wait if clear is not None and priority is not None else None,
-        stationary_wait_required=wait if clear is not None and priority is not None else None,
+        priority_satisfied=priority,restriction_present=wait,
+        stationary_wait_required=wait,
         restricted_progress_established=conjunction(follow,clear,priority),
         stable_progress_established=conjunction(steady,clear,priority,not follow or ep.longitudinal=='FOLLOW'),
         event_resolved=conjunction(resolved,clear))
@@ -480,6 +583,14 @@ def retirement(frames,ep,seed):
         p=local_path(f,[seed['junction_world']])[0]
         if all(x['meta'].get('is_junction') is False and x['meta'].get('distance_to_next_junction',0)>PARAMS['horizon_m'] for x in frames[-3:]) and p[0]<-ego(f)['extent'][0]-2:
             return 'observed_junction_exit_censors_stale_wait'
+    if ep.event in ('U-E3','U-E5') and ep.state=='YIELD':
+        # Out of camera because it is behind the ego, not occluded: the wait on
+        # that actor is stale. Still no completion or release label.
+        behind=[]
+        for x in frames[-2:]:
+            a=next((v for v in x['actors'] if v['id']==seed['actor_id']),None)
+            behind.append(a is not None and a['position'][0]<-(ego(x)['extent'][0]+a['extent'][0]))
+        if len(behind)==2 and all(behind):return 'decisive_actor_passed_behind_censors_stale_wait'
     return None
 
 

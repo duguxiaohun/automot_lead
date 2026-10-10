@@ -1,0 +1,496 @@
+{
+  "policy": "local_source_quarantine_v1",
+  "scope": "development exclusion only; no new YES/NO label, no independent approval",
+  "records": [
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_12_route0_01_10_00_03_59",
+      "actor_id": 4745,
+      "last_unaffected_frame": 58,
+      "first_affected_frame": 59,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "R-E3 red lead abruptly disappears",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/metas/0058.pkl",
+          "frame_id": 58,
+          "kind": "metas",
+          "sha256": "74a3dfaf5d5355ad85e448c41362f3c8d9e23cda3c2a0da752586fd00224dbd4"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/bboxes/0058.pkl",
+          "frame_id": 58,
+          "kind": "bboxes",
+          "sha256": "c8366f18d883375549a7fbe781c3241dd025144e03b013e8cf2f312a499fabf2"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/rgb/0058.jpg",
+          "frame_id": 58,
+          "kind": "rgb",
+          "sha256": "851c38c87b9bc95b87055ebfcb2afbc1ef670ba109e054b54965b4c063995400"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/metas/0059.pkl",
+          "frame_id": 59,
+          "kind": "metas",
+          "sha256": "0ac308a712e4beeda4e17c8e539d060b8c788dd715d6aaadf53db12ddb6166de"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/bboxes/0059.pkl",
+          "frame_id": 59,
+          "kind": "bboxes",
+          "sha256": "82514ae872d25e7813bf11ccc14eed398142dbf3e3c0f1c2961965691357547a"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/rgb/0059.jpg",
+          "frame_id": 59,
+          "kind": "rgb",
+          "sha256": "9b1903867b08d94ae9c629c987b79173bccf4e5f1d420687132ce577f87afb76"
+        }
+      ]
+    },
+    {
+      "scenario": "OppositeVehicleRunningRedLight",
+      "route_id": "Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38",
+      "actor_id": 138,
+      "last_unaffected_frame": 43,
+      "first_affected_frame": 44,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "U-E6 fire truck abruptly disappears",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/metas/0043.pkl",
+          "frame_id": 43,
+          "kind": "metas",
+          "sha256": "14e06c554d5d27e6a9ea83ddb9ad6de492c37bba42f864338fa8b722956cbbf2"
+        },
+        {
+          "path": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/bboxes/0043.pkl",
+          "frame_id": 43,
+          "kind": "bboxes",
+          "sha256": "1979fa51677e35e4dd09f4fd85ab6cf5ebd39b0403718325d3732cdd1d6f911c"
+        },
+        {
+          "path": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/rgb/0043.jpg",
+          "frame_id": 43,
+          "kind": "rgb",
+          "sha256": "196ae2bfcc375d7f10e5fa7a344c9da3d07b14ca41b6f2787d55bc6b6e5c7080"
+        },
+        {
+          "path": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/metas/0044.pkl",
+          "frame_id": 44,
+          "kind": "metas",
+          "sha256": "28b547d06df93e8ded3841815cbd16c6c82a47bd278bccda63616a3643e2bcda"
+        },
+        {
+          "path": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/bboxes/0044.pkl",
+          "frame_id": 44,
+          "kind": "bboxes",
+          "sha256": "4cedeabfd30c5e903103347aa615137f11b6d2ac59e8484a8a92654bde2fd265"
+        },
+        {
+          "path": "OppositeVehicleRunningRedLight/Town07_Rep0_Town07_Scenario8_19_route0_01_10_20_11_38/rgb/0044.jpg",
+          "frame_id": 44,
+          "kind": "rgb",
+          "sha256": "f66b91743f47b3441dbbe4175f9b6ef53dd0d077812a63443b1ed8ca130c1dc3"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04",
+      "actor_id": 140,
+      "last_unaffected_frame": 62,
+      "first_affected_frame": 63,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "U-E4 walker standing visibly at the curb abruptly disappears; expert resumes immediately after",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/metas/0062.pkl",
+          "frame_id": 62,
+          "kind": "metas",
+          "sha256": "32ea01f0056e144002676c9bd79758a1b597412dd541dbd270041899dfe9c8ef"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/bboxes/0062.pkl",
+          "frame_id": 62,
+          "kind": "bboxes",
+          "sha256": "2755917be21a0351cf554344cc93f989712292d257761aedf2205b892005f223"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0062.jpg",
+          "frame_id": 62,
+          "kind": "rgb",
+          "sha256": "e005c74d595c933d99575a30140f8f6884e68cbfa066c4eaa3cf6ba31990e517"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/metas/0063.pkl",
+          "frame_id": 63,
+          "kind": "metas",
+          "sha256": "2da2f0ee461bfc2c6391452f845782f8ea68d99c97f96dcb80ddfeeb01c6984f"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/bboxes/0063.pkl",
+          "frame_id": 63,
+          "kind": "bboxes",
+          "sha256": "cd1dcb9f5d673c1a573596e92ce5faaf51a8ef641b3a95f475ad38d0586422cd"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town07_Rep0_Town07_Scenario3_1_route0_01_08_19_58_04/rgb/0063.jpg",
+          "frame_id": 63,
+          "kind": "rgb",
+          "sha256": "a20e80641b4084192bc45b22e3cee922bd9140ba612c7e62dadbffb3fde09eae"
+        }
+      ]
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03",
+      "actor_id": 198,
+      "last_unaffected_frame": 168,
+      "first_affected_frame": 169,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "U-E4 near cyclist abruptly disappears",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/metas/0168.pkl",
+          "frame_id": 168,
+          "kind": "metas",
+          "sha256": "17e04c844251b49d512c0ff5a6b69a720746a89623788723881f8a3338fcea5c"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/bboxes/0168.pkl",
+          "frame_id": 168,
+          "kind": "bboxes",
+          "sha256": "c63bf1089aecc7259e390bdd354a396438aceda0243efe5e24811bccccc13b36"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/rgb/0168.jpg",
+          "frame_id": 168,
+          "kind": "rgb",
+          "sha256": "a8e24c8a10c742c5d38a1a1f5d61e61fa6df604a7789002976339cd1877c23e7"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/metas/0169.pkl",
+          "frame_id": 169,
+          "kind": "metas",
+          "sha256": "a8125ff69a0210b248ae1beed18f44e250ec7767c4d30c42401c0a07006a085c"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/bboxes/0169.pkl",
+          "frame_id": 169,
+          "kind": "bboxes",
+          "sha256": "58c8d186ca5d2443824209fda0ec0e9226d29bc37e90e6c5696072f7698a9c02"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_0_route0_01_10_17_00_03/rgb/0169.jpg",
+          "frame_id": 169,
+          "kind": "rgb",
+          "sha256": "9130d8c4c6b55d11f2e7ffd20640541457379121971c0d0d961589479175f216"
+        }
+      ]
+    },
+    {
+      "scenario": "DynamicObjectCrossing",
+      "route_id": "Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07",
+      "actor_id": 138,
+      "last_unaffected_frame": 68,
+      "first_affected_frame": 69,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "U-E4 crossing walker in the road abruptly disappears",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/metas/0068.pkl",
+          "frame_id": 68,
+          "kind": "metas",
+          "sha256": "d6e293f9a946a1f17af4d5fea456befeb452a61ca3507c8d73a1e5065d881334"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/bboxes/0068.pkl",
+          "frame_id": 68,
+          "kind": "bboxes",
+          "sha256": "9991e859d0be5fa93a0d44075c4fdc4a21d201d0a2d6a85fd8b8e37dbf205786"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/rgb/0068.jpg",
+          "frame_id": 68,
+          "kind": "rgb",
+          "sha256": "ecc83c01e7665e580a42740eea7421b348ffc96abeb900ca1e19adedd7981924"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/metas/0069.pkl",
+          "frame_id": 69,
+          "kind": "metas",
+          "sha256": "e3f294cdd35886cc647c186feba5aab0acc259c7682dfb20a9cc9b889bd7246c"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/bboxes/0069.pkl",
+          "frame_id": 69,
+          "kind": "bboxes",
+          "sha256": "90503c0a344ff84320e52cc9a5cd575c6946087268168843090a404c69a6429c"
+        },
+        {
+          "path": "DynamicObjectCrossing/Town02_Rep0_Town02_Scenario3_3_route0_01_09_03_56_07/rgb/0069.jpg",
+          "frame_id": 69,
+          "kind": "rgb",
+          "sha256": "41154b74a6186ee943794f4626dad78180d83cff19c7436c83cfbc24d8eb2b72"
+        }
+      ]
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18",
+      "actor_id": 148,
+      "last_unaffected_frame": 90,
+      "first_affected_frame": 91,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "U-E4 near cyclist abruptly disappears",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "VehicleTurningRoute/Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18/metas/0090.pkl",
+          "frame_id": 90,
+          "kind": "metas",
+          "sha256": "eaab3bbbdf99eea6588c5196492dc32f1342882e8237eee69ecaa5d4244c6f30"
+        },
+        {
+          "path": "VehicleTurningRoute/Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18/bboxes/0090.pkl",
+          "frame_id": 90,
+          "kind": "bboxes",
+          "sha256": "c76a2142fae80f8494bef37cdef775234e14865df6b63812bfc06823e5d0d680"
+        },
+        {
+          "path": "VehicleTurningRoute/Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18/rgb/0090.jpg",
+          "frame_id": 90,
+          "kind": "rgb",
+          "sha256": "acf4a7230a1eef81ccbd6a6de5e12521369698c003330c0e2cf013cc9dd3427a"
+        },
+        {
+          "path": "VehicleTurningRoute/Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18/metas/0091.pkl",
+          "frame_id": 91,
+          "kind": "metas",
+          "sha256": "045e88b9080dbb1151c777f2a8d472fc5655959950bb54c59c37d893bc30086e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18/bboxes/0091.pkl",
+          "frame_id": 91,
+          "kind": "bboxes",
+          "sha256": "aaf985123ace41a0f4923339384cbaf2ad1ec288da30a8f9a64bd377b113bebf"
+        },
+        {
+          "path": "VehicleTurningRoute/Town04_Rep0_Town04_Scenario4_103_route0_01_09_17_11_18/rgb/0091.jpg",
+          "frame_id": 91,
+          "kind": "rgb",
+          "sha256": "c96615dfb433b1ecfccd231de170435868fba5a2ea0930024bbb570f763af4f2"
+        }
+      ]
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1148_0_route0_01_08_19_01_21",
+      "actor_id": 4759,
+      "last_unaffected_frame": 16,
+      "first_affected_frame": 17,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "red lead vehicle and following traffic abruptly disappear",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/metas/0016.pkl",
+          "frame_id": 16,
+          "kind": "metas",
+          "sha256": "c77bbf6d174873a32b0205513a521ea16ce58ee49a0b6506e106dac5598cba24"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/bboxes/0016.pkl",
+          "frame_id": 16,
+          "kind": "bboxes",
+          "sha256": "cc877d870b4b8ffcc53bccf2e28cff3282939953c27a1c35f6a8b2ea609b3d46"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/rgb/0016.jpg",
+          "frame_id": 16,
+          "kind": "rgb",
+          "sha256": "b011f8a0359d5a7d01403f812d5374ee5d1ba3d080b5c70631b106b0414a6b41"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/metas/0017.pkl",
+          "frame_id": 17,
+          "kind": "metas",
+          "sha256": "7798f00265392e09c8635d5dc4874dd0e3a8181287acf258487b140f15c77f15"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/bboxes/0017.pkl",
+          "frame_id": 17,
+          "kind": "bboxes",
+          "sha256": "14d59e2d5fed2dd3d6475b92ac0fd26157dad1d45dae68eefd1969882433db91"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/rgb/0017.jpg",
+          "frame_id": 17,
+          "kind": "rgb",
+          "sha256": "d90e4d59761c7d9e0ef58c2588b480448c43cec6ef2151150095df1112713a92"
+        }
+      ]
+    },
+    {
+      "scenario": "InvadingTurn",
+      "route_id": "Town13_Rep0_1148_0_route0_01_08_19_01_21",
+      "actor_id": 4758,
+      "last_unaffected_frame": 16,
+      "first_affected_frame": 17,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "farther lead traffic abruptly disappears with 4759",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/metas/0016.pkl",
+          "frame_id": 16,
+          "kind": "metas",
+          "sha256": "c77bbf6d174873a32b0205513a521ea16ce58ee49a0b6506e106dac5598cba24"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/bboxes/0016.pkl",
+          "frame_id": 16,
+          "kind": "bboxes",
+          "sha256": "cc877d870b4b8ffcc53bccf2e28cff3282939953c27a1c35f6a8b2ea609b3d46"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/rgb/0016.jpg",
+          "frame_id": 16,
+          "kind": "rgb",
+          "sha256": "b011f8a0359d5a7d01403f812d5374ee5d1ba3d080b5c70631b106b0414a6b41"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/metas/0017.pkl",
+          "frame_id": 17,
+          "kind": "metas",
+          "sha256": "7798f00265392e09c8635d5dc4874dd0e3a8181287acf258487b140f15c77f15"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/bboxes/0017.pkl",
+          "frame_id": 17,
+          "kind": "bboxes",
+          "sha256": "14d59e2d5fed2dd3d6475b92ac0fd26157dad1d45dae68eefd1969882433db91"
+        },
+        {
+          "path": "InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/rgb/0017.jpg",
+          "frame_id": 17,
+          "kind": "rgb",
+          "sha256": "d90e4d59761c7d9e0ef58c2588b480448c43cec6ef2151150095df1112713a92"
+        }
+      ]
+    },
+    {
+      "scenario": "MergerIntoSlowTraffic",
+      "route_id": "Town13_Rep0_1230_12_route0_01_10_00_03_59",
+      "actor_id": 4762,
+      "last_unaffected_frame": 232,
+      "first_affected_frame": 233,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "R-E3 green lead SUV abruptly disappears",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/metas/0232.pkl",
+          "frame_id": 232,
+          "kind": "metas",
+          "sha256": "7b20b46e4fa5cdbefd238a8029587f0246f0ed20462eb9abf1a6fc7ff8561a2e"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/bboxes/0232.pkl",
+          "frame_id": 232,
+          "kind": "bboxes",
+          "sha256": "871f4fa3948c011deaba4448b5762bdc7c911e601015dfc5e58096438720740f"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/rgb/0232.jpg",
+          "frame_id": 232,
+          "kind": "rgb",
+          "sha256": "f6461d67109b1f7f2c4795ddb484af824056ba398c67cc7633fc6852dbeb0d9a"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/metas/0233.pkl",
+          "frame_id": 233,
+          "kind": "metas",
+          "sha256": "1ed1562c2f2eb61af6570d04b2c5ff869837e6fedab7d016e04ef27869aa087c"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/bboxes/0233.pkl",
+          "frame_id": 233,
+          "kind": "bboxes",
+          "sha256": "8f867ec397a26a202e2ae0c1043921b0af3fab24a4939c119643938e3b6d9e3e"
+        },
+        {
+          "path": "MergerIntoSlowTraffic/Town13_Rep0_1230_12_route0_01_10_00_03_59/rgb/0233.jpg",
+          "frame_id": 233,
+          "kind": "rgb",
+          "sha256": "0230da2a0ba7bf76f1b7a57b91e249817f74e0b7e89e4fc6bf5cfa18bf781450"
+        }
+      ]
+    },
+    {
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38",
+      "actor_id": 121,
+      "last_unaffected_frame": 57,
+      "first_affected_frame": 58,
+      "kind": "confirmed_visible_actor_disappearance",
+      "reason": "U-E4 cyclists near the left roadside abruptly disappear",
+      "reviewer": "assistant_development_rgb_review",
+      "independent_approval": false,
+      "sources": [
+        {
+          "path": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/metas/0057.pkl",
+          "frame_id": 57,
+          "kind": "metas",
+          "sha256": "ab3e4dbb0beb2211f3f7d27a97e4fac64e43ff3dcea1991a91610c11fb1179ea"
+        },
+        {
+          "path": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/bboxes/0057.pkl",
+          "frame_id": 57,
+          "kind": "bboxes",
+          "sha256": "42d9cebc7c78be14455aa94878cf84992ddb1e2cb9c404d6206fb758ae9b7df5"
+        },
+        {
+          "path": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0057.jpg",
+          "frame_id": 57,
+          "kind": "rgb",
+          "sha256": "493ff0335b767721cfaa785db8fc8a3b7a48173be1ce2316a034030391375736"
+        },
+        {
+          "path": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/metas/0058.pkl",
+          "frame_id": 58,
+          "kind": "metas",
+          "sha256": "499ec9e847ad48afef8b54f979e8b2a5e1f668622339cb1aae6761b5f5777b1a"
+        },
+        {
+          "path": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/bboxes/0058.pkl",
+          "frame_id": 58,
+          "kind": "bboxes",
+          "sha256": "ec1fe2598a337384d72401b5ccf2dc6bbc2e707295a91e17741fcb2675055cd0"
+        },
+        {
+          "path": "VehicleTurningRoute/Town06_Rep0_Town06_Scenario4_17_route0_01_08_22_49_38/rgb/0058.jpg",
+          "frame_id": 58,
+          "kind": "rgb",
+          "sha256": "4c92664d0d013f21b5da666722c286aed461dc3dce95611308c18c7bb86eec91"
+        }
+      ]
+    }
+  ]
+}

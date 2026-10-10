@@ -59,7 +59,7 @@ def groups():
 
 
 HOLDOUT_PLAN = 'formal_holdout_plan_20260930.json'
-PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v22_20261008.json'
+PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v27_20261010.json'
 
 
 def producer_check_reservations():
@@ -182,6 +182,7 @@ def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidat
     reservations = holdout_reservations()
     rgb_cache = {}
     known_risks = risk_review.registry()
+    verified_source_routes = set()
     if candidate_pool is not None:
         from .candidate_pool import validate
         validate(candidate_pool)
@@ -189,6 +190,11 @@ def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidat
     offsets = (-6,-4,-2,0) if rgb_mode == 4 else (-4,0)
     for ann in annotations:
         group = source_route(ann)
+        route_key = (ann['scenario'],ann['route_id'])
+        if route_key not in verified_source_routes:
+            from qwen3vl_local.audit_joint.label_quarantine import load as verify_source_risks
+            verify_source_risks(data_root,route=route_key)
+            verified_source_routes.add(route_key)
         teacher_target=None
         if 'teacher_provenance' in ann or ann.get('label_basis') in ('approved_rule_teacher','weak_rule_teacher') or str(ann.get('evidence_id','')).startswith('teacher/'):
             from .teacher_data import validate_annotation as validate_teacher_annotation
@@ -286,6 +292,10 @@ def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidat
             if not row_supported(row):
                 row['target'],row['slice']='UNKNOWN','uncertain'
                 row['review_reason']='actual_input_visual_evidence_unresolved'
+            exclusion = risk_review.source_quarantine(row,known_risks)
+            if exclusion:
+                row['source_quarantine'] = exclusion
+                row['target'],row['slice'] = 'UNKNOWN','uncertain'
             target = row['target']
             row['model_input_sha256'] = model_input_key(row)
             if key in seen:

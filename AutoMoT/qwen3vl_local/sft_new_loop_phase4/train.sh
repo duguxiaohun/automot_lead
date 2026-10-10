@@ -7,7 +7,7 @@ export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 TOKENIZERS_
 MODE="${1:-ddp}"
 if [[ $# -gt 0 ]]; then shift; fi
 PYTHON="${PYTHON:-python}"
-DATASET="${DATASET:-checkpoints/phase4_v42_full/data${RGB_MODE:-4}}"
+DATASET="${DATASET:-checkpoints/phase4_v47_full/data${RGB_MODE:-4}}"
 MODEL_DIR="${MODEL_DIR:-checkpoints/Qwen3.5-4B}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 OUTPUT_DIR="${OUTPUT_DIR:-checkpoints/sft_new_loop_phase4_runs/$(date +%Y%m%d_%H%M%S_%N)}"

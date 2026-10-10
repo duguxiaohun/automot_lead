@@ -104,6 +104,6 @@ def test_following_branch_actual_messages_use_following_not_crossing():
     obs=dict(frame_id=10,history_frames=[6,10],speed_mps=0.)
     msg=prompts.messages(ep,'proceed',obs,['a','b'])[-1]['content'][-1]['text']
     assert 'cyclist may remain ahead' in msg and 'does not authorize overtaking' in msg
-    assert prompts.prompt_version(ep,'proceed')=='phase4_state_pair_cyclist_follow_v9'
+    assert prompts.prompt_version(ep,'proceed')=='phase4_state_pair_cyclist_follow_v11'
     plain=Episode('U-E4','e',longitudinal='HOLD')
     assert prompts.state_pair(plain,'proceed')==prompts.frozen.state_pair(plain,'proceed')

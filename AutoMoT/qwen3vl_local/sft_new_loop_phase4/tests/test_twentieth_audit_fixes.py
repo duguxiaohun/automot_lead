@@ -144,7 +144,7 @@ def built(tmp_path_factory):
 @pytest.mark.parametrize('mode',[2,4])
 def test_new_build_quarantines_old_gap_answers_preserves_holdout_and_exposes_missing_following(built,mode):
     out,data,m=built[mode]
-    assert m['counts']==dict(train=435,val=273,test=186) and m['review_queue_count']==533
+    assert m['counts']==dict(train=423,val=273,test=186) and m['review_queue_count']==545
     assert not any(r['edge'] in ('depart','enter','return') for r in data['train'])
     review=dataset.read_rows(out/'review_queue.jsonl')
     quarantined=[r for r in review if r.get('review_reason')=='visible_scope_reaudit_required']

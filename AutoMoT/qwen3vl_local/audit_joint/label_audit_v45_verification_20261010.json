@@ -1,0 +1,561 @@
+{
+  "date": "2026-10-10",
+  "task": "phase4_state_pair_binary_v45",
+  "teacher": "ten_event_causal_teacher_v13",
+  "plan": "producer_manual_check_plan_v25_20261010.json",
+  "strict_registry": "teacher_registry_v20.json; empty approvals",
+  "replay": {
+    "routes": 45,
+    "frames": 5673,
+    "elapsed_seconds": 351.6,
+    "max_rss_kib": 369144,
+    "exit": 0,
+    "tmux_session": "labels-v45-20261010",
+    "directory": "checkpoints/joint_label_v45_20261010/replay"
+  },
+  "visual": {
+    "unique_rgb_frames": 84,
+    "contact_sheets": 11,
+    "original_images": 4,
+    "changed_anchors": 9,
+    "selection": "known disagreement and changed labels; not blind, not independent approval"
+  },
+  "phase3": {
+    "frames": 5673,
+    "raw_action_and_evidence_unchanged": true,
+    "old_candidates": 1588,
+    "new_candidates": 1588,
+    "removed_candidates": [],
+    "added_candidates": []
+  },
+  "phase4_differences": {
+    "matched": 8554,
+    "old_total": 8590,
+    "new_total": 8566,
+    "raw_target_changes": {
+      "R-E5/proceed/4/YES->NO": 1,
+      "R-E2/release/4/YES->NO": 1,
+      "U-E2/depart/4/YES->NO": 4,
+      "U-E2/restrict/2/NO->YES": 3,
+      "R-E2/enter/4/YES->NO": 3,
+      "U-E2/hold/4/NO->YES": 3,
+      "U-E2/restrict/4/NO->YES": 3,
+      "U-E2/depart/2/YES->NO": 4,
+      "U-E2/hold/2/NO->YES": 3,
+      "R-E3/enter/4/YES->NO": 1,
+      "U-E2/release/2/YES->NO": 1,
+      "R-E3/hold/4/NO->YES": 1,
+      "R-E2/enter/2/YES->NO": 3,
+      "R-E5/proceed/2/UNKNOWN->NO": 1,
+      "R-E5/proceed/4/UNKNOWN->NO": 1,
+      "R-E2/restrict/4/NO->YES": 1,
+      "R-E3/enter/2/YES->NO": 1,
+      "R-E3/hold/2/NO->YES": 1,
+      "R-E2/release/2/YES->NO": 1,
+      "R-E2/restrict/2/NO->YES": 1,
+      "R-E2/hold/2/NO->YES": 1,
+      "R-E2/hold/4/NO->YES": 1,
+      "R-E3/restrict/2/NO->YES": 1,
+      "R-E3/restrict/4/NO->YES": 1,
+      "U-E2/release/4/YES->NO": 1,
+      "R-E5/proceed/2/YES->NO": 1
+    },
+    "admission_changes": {
+      "R-E5/proceed/4/YES->NO": 1,
+      "R-E2/release/4/YES->NO": 1,
+      "U-E2/depart/4/YES->NO": 3,
+      "R-E2/enter/4/YES->NO": 3,
+      "U-E2/hold/4/NO->YES": 2,
+      "U-E2/depart/2/YES->NO": 3,
+      "U-E2/hold/2/NO->YES": 2,
+      "R-E3/enter/4/YES->NO": 1,
+      "U-E2/release/2/YES->NO": 1,
+      "R-E3/hold/4/NO->YES": 1,
+      "R-E2/enter/2/YES->NO": 3,
+      "R-E5/proceed/2/UNKNOWN->NO": 1,
+      "R-E5/proceed/4/UNKNOWN->NO": 1,
+      "R-E3/enter/2/YES->NO": 1,
+      "R-E3/hold/2/NO->YES": 1,
+      "R-E2/release/2/YES->NO": 1,
+      "R-E2/hold/2/NO->YES": 1,
+      "R-E2/hold/4/NO->YES": 1,
+      "U-E2/release/4/YES->NO": 1,
+      "R-E5/proceed/2/YES->NO": 1
+    },
+    "added_questions": {
+      "U-E2/depart/2/NO": 3,
+      "U-E2/depart/4/YES": 1,
+      "U-E2/depart/2/YES": 1,
+      "U-E2/depart/4/NO": 3,
+      "R-E2/enter/2/NO": 1,
+      "R-E3/enter/2/NO": 1,
+      "R-E2/enter/4/NO": 1,
+      "R-E3/enter/4/NO": 1
+    },
+    "removed_questions": {
+      "U-E2/depart/4/NO": 3,
+      "U-E2/hold/2/YES": 3,
+      "U-E2/depart/2/NO": 3,
+      "U-E2/restrict/2/YES": 3,
+      "U-E2/depart/2/YES": 1,
+      "U-E2/restrict/4/YES": 3,
+      "R-E2/hold/2/YES": 1,
+      "R-E2/restrict/2/YES": 1,
+      "R-E3/enter/4/NO": 1,
+      "U-E2/hold/4/YES": 3,
+      "R-E2/restrict/4/YES": 1,
+      "R-E3/hold/4/YES": 1,
+      "R-E2/hold/4/YES": 1,
+      "R-E3/hold/2/YES": 1,
+      "U-E2/restrict/2/NO": 1,
+      "R-E3/restrict/2/YES": 1,
+      "U-E2/hold/4/NO": 1,
+      "U-E2/depart/4/YES": 1,
+      "U-E2/hold/2/NO": 1,
+      "U-E2/restrict/4/NO": 1,
+      "R-E2/enter/2/NO": 1,
+      "R-E3/restrict/4/YES": 1,
+      "R-E3/enter/2/NO": 1,
+      "R-E2/enter/4/NO": 1
+    },
+    "admitted_added": {
+      "U-E2/depart/2/NO": 2,
+      "R-E2/enter/2/NO": 1,
+      "R-E3/enter/2/NO": 1,
+      "U-E2/depart/4/NO": 2,
+      "R-E2/enter/4/NO": 1,
+      "R-E3/enter/4/NO": 1
+    },
+    "admitted_removed": {
+      "U-E2/depart/4/NO": 2,
+      "U-E2/hold/2/YES": 2,
+      "U-E2/depart/2/NO": 2,
+      "R-E2/hold/2/YES": 1,
+      "R-E3/enter/4/NO": 1,
+      "U-E2/hold/4/YES": 2,
+      "R-E3/hold/4/YES": 1,
+      "R-E2/hold/4/YES": 1,
+      "R-E3/hold/2/YES": 1,
+      "R-E2/enter/2/NO": 1,
+      "R-E3/enter/2/NO": 1,
+      "R-E2/enter/4/NO": 1
+    },
+    "ue3_instances_old": [
+      "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/104",
+      "teacher/ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3/4709/35",
+      "teacher/ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/U-E3/4709/49"
+    ],
+    "ue3_instances_new": [
+      "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/104",
+      "teacher/ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3/4709/35",
+      "teacher/ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/U-E3/4709/49"
+    ],
+    "ue5_instances_old": [
+      "teacher/InvadingTurn/Town12_Rep0_1450_0_route0_01_09_22_58_43/U-E5/3752/48",
+      "teacher/InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/U-E5/4765/53"
+    ],
+    "ue5_instances_new": [
+      "teacher/InvadingTurn/Town12_Rep0_1450_0_route0_01_09_22_58_43/U-E5/3752/48",
+      "teacher/InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/U-E5/4765/53"
+    ],
+    "new_instance_end_reasons": {
+      "finished": 10,
+      "frozen_navigation_exhausted_not_completion": 21,
+      "decisive_actor_passed_behind_censors_stale_wait": 2,
+      "observed_resumption_censors_stale_wait": 28,
+      "identity_lost": 6,
+      "instance_rgb_discontinuity": 10,
+      "requires_recheck": 1,
+      "observed_junction_exit_censors_stale_wait": 6
+    },
+    "phase3": {
+      "frames": 5673,
+      "raw_action_and_evidence_unchanged": true,
+      "old_candidates": 1588,
+      "new_candidates": 1588,
+      "removed_candidates": [],
+      "added_candidates": []
+    },
+    "scope": "exact route/frame/instance/edge/mode/state match; added/removed questions include later-state changes after removed instances"
+  },
+  "native_checks": {
+    "paired": {
+      "2": {
+        "pairs": 3082,
+        "selected_ids_sha256": "4ade982a1101ce6b78be47618658a68b025b7d14a1f84fd321306fa3b3f1b0f5"
+      },
+      "4": {
+        "pairs": 3082,
+        "selected_ids_sha256": "4ade982a1101ce6b78be47618658a68b025b7d14a1f84fd321306fa3b3f1b0f5"
+      }
+    },
+    "sampling": {
+      "2rgb_world1": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "2rgb_world4": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "4rgb_world1": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      },
+      "4rgb_world4": {
+        "presentations": 10240,
+        "ordered_ids_sha256": "6d1453f75fd1133fe39837bd1fc71d271c6ee28bd5da64c4c94c6cd4119f3af6",
+        "by_event": {
+          "U-E4": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E7": 1024,
+          "R-E3": 1024,
+          "U-E3": 1024,
+          "U-E2": 1024,
+          "U-E5": 1024,
+          "R-E5": 1024,
+          "U-E6": 1024
+        },
+        "answers": {
+          "YES": 2763,
+          "NO": 7477
+        }
+      }
+    },
+    "datasets": {
+      "2": {
+        "counts": {
+          "train": 3082,
+          "val": 273,
+          "test": 186
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "by_event": {
+          "R-E2": {
+            "YES": 104,
+            "NO": 411
+          },
+          "R-E3": {
+            "NO": 146,
+            "YES": 61
+          },
+          "R-E5": {
+            "NO": 284,
+            "YES": 31
+          },
+          "U-E1": {
+            "NO": 1028,
+            "YES": 70
+          },
+          "U-E2": {
+            "NO": 415,
+            "YES": 82
+          },
+          "U-E3": {
+            "NO": 14,
+            "YES": 13
+          },
+          "U-E4": {
+            "NO": 59,
+            "YES": 50
+          },
+          "U-E5": {
+            "NO": 39,
+            "YES": 12
+          },
+          "U-E6": {
+            "NO": 38,
+            "YES": 29
+          },
+          "U-E7": {
+            "NO": 153,
+            "YES": 43
+          }
+        },
+        "label_basis": {
+          "per_frame_conditions": 30,
+          "reviewed_transition_band": 401,
+          "weak_rule_teacher": 2651
+        },
+        "eval_bytes_unchanged": {
+          "val": true,
+          "test": true
+        }
+      },
+      "4": {
+        "counts": {
+          "train": 3082,
+          "val": 273,
+          "test": 186
+        },
+        "answers": {
+          "NO": 2587,
+          "YES": 495
+        },
+        "by_event": {
+          "R-E2": {
+            "YES": 104,
+            "NO": 411
+          },
+          "R-E3": {
+            "NO": 146,
+            "YES": 61
+          },
+          "R-E5": {
+            "NO": 284,
+            "YES": 31
+          },
+          "U-E1": {
+            "NO": 1028,
+            "YES": 70
+          },
+          "U-E2": {
+            "NO": 415,
+            "YES": 82
+          },
+          "U-E3": {
+            "NO": 14,
+            "YES": 13
+          },
+          "U-E4": {
+            "NO": 59,
+            "YES": 50
+          },
+          "U-E5": {
+            "NO": 39,
+            "YES": 12
+          },
+          "U-E6": {
+            "NO": 38,
+            "YES": 29
+          },
+          "U-E7": {
+            "NO": 153,
+            "YES": 43
+          }
+        },
+        "label_basis": {
+          "per_frame_conditions": 30,
+          "reviewed_transition_band": 401,
+          "weak_rule_teacher": 2651
+        },
+        "eval_bytes_unchanged": {
+          "val": true,
+          "test": true
+        }
+      }
+    },
+    "all_sampling_orders_equal": true,
+    "missing_evaluation_events": {
+      "val": [
+        "U-E2",
+        "U-E3",
+        "U-E4",
+        "R-E2",
+        "R-E3",
+        "R-E5"
+      ],
+      "test": [
+        "U-E2",
+        "U-E3",
+        "U-E4",
+        "R-E2",
+        "R-E3",
+        "R-E5"
+      ]
+    },
+    "missing_training_readiness_cells": 199
+  },
+  "recheck_screen": {
+    "v44": {
+      "U-E7": {
+        "raw_proceed_yes": 6,
+        "no_recheck_full_window": 1,
+        "admitted_proceed_yes": 6,
+        "rechecked": 5
+      },
+      "U-E4": {
+        "raw_proceed_yes": 12,
+        "no_recheck_full_window": 12,
+        "admitted_proceed_yes": 12
+      },
+      "R-E5": {
+        "raw_proceed_yes": 9,
+        "no_recheck_full_window": 3,
+        "admitted_proceed_yes": 9,
+        "rechecked": 6
+      },
+      "U-E1": {
+        "raw_proceed_yes": 5,
+        "no_recheck_full_window": 5,
+        "admitted_proceed_yes": 1
+      }
+    },
+    "v45": {
+      "U-E7": {
+        "raw_proceed_yes": 6,
+        "no_recheck_full_window": 1,
+        "admitted_proceed_yes": 6,
+        "rechecked": 5
+      },
+      "U-E4": {
+        "raw_proceed_yes": 12,
+        "no_recheck_full_window": 12,
+        "admitted_proceed_yes": 12
+      },
+      "R-E5": {
+        "raw_proceed_yes": 8,
+        "no_recheck_full_window": 2,
+        "admitted_proceed_yes": 8,
+        "rechecked": 6
+      },
+      "U-E1": {
+        "raw_proceed_yes": 5,
+        "no_recheck_full_window": 5,
+        "admitted_proceed_yes": 1
+      }
+    }
+  },
+  "prior_claim_correction": "same-instance re-yield within eight frames is a screen, not an early-release verdict; Town04 f33 priority false tracks stop_sign_hazard while corridor clear stays true",
+  "regressions": {
+    "full_suite_passed": 2041,
+    "additional_screen_tests_passed": 4,
+    "total_verified": 2045,
+    "full_suite_seconds": 124.49
+  },
+  "old_v44_rejection": "Phase4 source/semantic contract mismatch; use original source or rebuild for current source; calibration_assets/producer_manual_check_plan_v24_20261010.json: recorded=94e6f05470f2e76986368db9bac5ede6e4d0995da794f132834e67dcad494963, current=None | calibration_assets/producer_manual_check_plan_v25_20261010.json: recorded=None, current=dbab1409b4dfe25e565dfd5bc1c0248e232ccaae2343a3f69779fffb1f382c15 | calibration_assets/teacher_registry_v19.json: recorded=46392c891f1131889a3c4e0da38c7913cfbe8d162a49c0e1ddb72b7ed3bc8285, current=None | calibration_assets/teacher_registry_v20.json: recorded=None, current=b13617c172f666da627a453e040ffbba63ca854bfed5667948493b4bc049ee3a | sources/dataset.py: recorded=7b4865663a63483132684d41b7aa9f6cee5ff4c911fe76245730b31814682e19, current=69e513cfe9c6d72169ceb6b9c60a12946c3722f59ffe571ac72e218e17723032 | sources/full_pipeline.py: recorded=f6a3ac91581cd5bdb8d088961b69b61e9ffca22f57a14f010b9eb86db6bec9e4, current=a8a5ee47655680b8af337933ecbd83635bcb2967e1c4fdc9143703a48f92f97b | sources/identity.py: recorded=bb5659ee5bbb7eda8a127f2847b1d3bc5e3089edfd10bebcc13f8f39edd124f9, current=02cf7dec3996b7eff0f0ffe3ef1c6b45d498bce218664abab60d48afaf8587c0 | sources/run_full_pipeline.sh: recorded=1117f74a66abd57384f6ed94bc10276e734947ced4ae61c6e348f3ff217f60c4, current=d9960e5ee37c9630a37522d2ac2ff3bc004ff57a53940401af02a980865506ca | sources/teacher_events.py: recorded=125b3a6d2252ab3b792720b6f67d24232cf43852bafe47d2467fcaa539d42cf0, current=ca5203685c63cb75447871154d41612384cf1c18512fe94a4f7d7e98bb563055 | sources/teacher_rules.py: recorded=a64018910f7e6173699ce2524c7aa37eadccdfe9092440ff4fb1982851d36f74, current=d17468070626c2927a90afb80372afc9c4221c0b92b56de3bffaadc1834453bc | sources/train.sh: recorded=6e9a5d53c56ce7efd8518ff9079c8361c86092aca7bef1ed649d436cdf2d4efa, current=0e627ee41fcf21f6220451446cb1bf70aab9b1284e0f381bd96812dccf6c61c8 | sources/train_full.sh: recorded=4c5937c3ecc91e87554ced228463fedf19234896ef90aeedbb3342b096a78a53, current=0ca0b54a291ccef9aa377ef4a11f3f2da1e7eb9cc45c16e3e9c2d9179bd81ef2 | task: changed or missing",
+  "scope": {
+    "full_production": false,
+    "gpu": false,
+    "training": false,
+    "push": false,
+    "new_blind_approval": false,
+    "G1": "in_progress",
+    "G2": "not_run",
+    "phase3_formal_full_pool": false,
+    "semantic_safety_certification": false
+  },
+  "limitations": [
+    "constant velocity and current yaw remain weak assumptions",
+    "curved lane branch remains discretely sampled",
+    "short grazing intersections and small/occluded actors need student-input blind audit",
+    "STOP hazard source semantics not independently certified",
+    "generic UE3 true positives not covered in 45 routes",
+    "long-instance source anomaly quarantine unchanged",
+    "six events lack independent evaluation"
+  ],
+  "artifacts": {
+    "replay/receipt.json": {
+      "path": "checkpoints/joint_label_v45_20261010/replay/receipt.json",
+      "sha256": "1dd7bdd7faa584efddab70cee85706f846c6c663307242f4b6d3832d1f8cd763"
+    },
+    "replay/source.json": {
+      "path": "checkpoints/joint_label_v45_20261010/replay/source.json",
+      "sha256": "ace785824ff64fa10191a983ee98af6feeb9da5fdc348b8c36f79394b2c0d06d"
+    },
+    "question_differences.json": {
+      "path": "checkpoints/joint_label_v45_20261010/question_differences.json",
+      "sha256": "967eff5b86369a06f0c625542180c2e290e6116b288c53c5d18de03738e44b36"
+    },
+    "native_build_verification.json": {
+      "path": "checkpoints/joint_label_v45_20261010/native_build_verification.json",
+      "sha256": "ee6c0c669a4fa1660a3eb459aece26f8c23d024b7f82ed48e67bf49717fc2539"
+    },
+    "data2/manifest.json": {
+      "path": "checkpoints/joint_label_v45_20261010/data2/manifest.json",
+      "sha256": "57bedb55da7fab59d2a73586723cef62a493a6dd24c0c033eef4ca60469b39ae"
+    },
+    "data4/manifest.json": {
+      "path": "checkpoints/joint_label_v45_20261010/data4/manifest.json",
+      "sha256": "a81ef24c51b4b4bfd00956e40fa21f41847c8f48e144cf8df9c640de32b10bce"
+    },
+    "final_checks.json": {
+      "path": "checkpoints/joint_label_v45_20261010/final_checks.json",
+      "sha256": "c5b81c7a1fef29ae2b1b8a69d54395a331ef9511d4cd3a855a57f17389ac6986"
+    },
+    "visual_review.json": {
+      "path": "checkpoints/joint_label_v45_20261010/visual_review.json",
+      "sha256": "3c2cb513b8af22143c36711f8518451da4042d237e411da4f28a06ecc4380231"
+    },
+    "changed_frame_correspondence.json": {
+      "path": "checkpoints/joint_label_v45_20261010/changed_frame_correspondence.json",
+      "sha256": "404630788595d8c7ee3fe294bd925af5fe84395216a85fa60e1994fa3beed35f"
+    },
+    "changed_geometry.json": {
+      "path": "checkpoints/joint_label_v45_20261010/changed_geometry.json",
+      "sha256": "dbecd8ea3813040544601dfebfbe697690ccefcac1ecee658862e731ce1d14e8"
+    },
+    "town04_priority_attribution.json": {
+      "path": "checkpoints/joint_label_v45_20261010/town04_priority_attribution.json",
+      "sha256": "6157f563b8b8743b8baaae4afa54911b2f2cb1fe90528d73f5ae1ebbe45f43e9"
+    },
+    "v44_rechecks.json": {
+      "path": "checkpoints/joint_label_v45_20261010/v44_rechecks.json",
+      "sha256": "e76dc9d4b5b444d28a6eb0401f55dcf5ec26e9c8af12c86dd76f036ad1f09afb"
+    },
+    "v45_rechecks.json": {
+      "path": "checkpoints/joint_label_v45_20261010/v45_rechecks.json",
+      "sha256": "ca48b29c8155a17811f139ae5c3673b536ce870e4137b1cf8e5c4fc1fb59a5e0"
+    },
+    "branch_support.json": {
+      "path": "checkpoints/joint_label_v45_20261010/branch_support.json",
+      "sha256": "5c9abead94610ff136ec3fc4018572f0a59332686c0a866ba35737ac27238ab6"
+    },
+    "regression.log": {
+      "path": "checkpoints/joint_label_v45_20261010/regression.log",
+      "sha256": "14464d7c8459f82af19f33f3cb314f8fd7ae8067a7c8076fa8b1b076a92821b2"
+    }
+  }
+}

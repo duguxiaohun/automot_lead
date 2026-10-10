@@ -1,0 +1,358 @@
+{
+ "date": "2026-10-10",
+ "teacher": "ten_event_causal_teacher_v12",
+ "task": "phase4_state_pair_binary_v44",
+ "plan": "producer_manual_check_plan_v24_20261010.json",
+ "registry": "teacher_registry_v19.json (empty strict approvals)",
+ "replay": {
+  "routes": 45,
+  "frames": 5673,
+  "elapsed": "5:50.94",
+  "max_rss_kib": 369200,
+  "exit": 0,
+  "dir": "checkpoints/joint_label_v44_20261010/replay"
+ },
+ "phase4_raw_questions": {
+  "v43": 9844,
+  "v44": 8590,
+  "matched": 8554,
+  "raw_target_changes": {
+   "U-E7/proceed/2/YES->NO": 2,
+   "U-E7/proceed/4/YES->NO": 2,
+   "U-E7/proceed/4/YES->UNKNOWN": 2,
+   "U-E7/proceed/2/YES->UNKNOWN": 2
+  },
+  "admission_changes": {
+   "R-E2/release/4/NO->UNKNOWN": 152,
+   "R-E2/release/2/NO->UNKNOWN": 152,
+   "U-E2/hold/4/NO->UNKNOWN": 7,
+   "U-E2/hold/2/YES->UNKNOWN": 2,
+   "U-E7/proceed/2/YES->NO": 2,
+   "U-E7/proceed/4/YES->NO": 2,
+   "U-E2/depart/4/NO->UNKNOWN": 9,
+   "U-E2/hold/4/YES->UNKNOWN": 2,
+   "U-E2/depart/4/YES->UNKNOWN": 7,
+   "U-E2/hold/2/NO->UNKNOWN": 7,
+   "U-E2/renewed_restriction/2/YES->UNKNOWN": 1,
+   "U-E2/depart/2/NO->UNKNOWN": 9,
+   "U-E2/recover_follow/4/NO->UNKNOWN": 1,
+   "U-E7/proceed/4/YES->UNKNOWN": 2,
+   "U-E2/pass/4/YES->UNKNOWN": 1,
+   "U-E2/depart/2/YES->UNKNOWN": 7,
+   "U-E2/recover_follow/2/NO->UNKNOWN": 1,
+   "U-E7/proceed/2/YES->UNKNOWN": 2,
+   "U-E2/pass/2/YES->UNKNOWN": 1,
+   "U-E2/stable/4/NO->UNKNOWN": 1,
+   "U-E2/renewed_restriction/4/YES->UNKNOWN": 1,
+   "U-E2/stable/2/NO->UNKNOWN": 1
+  },
+  "admitted_added": {
+   "U-E7/proceed/4/NO": 16,
+   "U-E7/hold/4/YES": 1,
+   "U-E7/proceed/2/NO": 16,
+   "U-E7/hold/2/YES": 1
+  },
+  "admitted_removed": {
+   "U-E3/re_yield/4/NO": 42,
+   "U-E3/re_yield/2/NO": 42,
+   "U-E3/proceed/4/YES": 70,
+   "U-E3/renewed_restriction/2/NO": 39,
+   "U-E3/proceed/2/NO": 185,
+   "U-E3/recover_follow/2/NO": 36,
+   "U-E3/hold/4/YES": 11,
+   "U-E3/proceed/4/NO": 185,
+   "U-E7/hold/2/YES": 1,
+   "U-E3/stable/2/NO": 36,
+   "U-E3/proceed/2/YES": 70,
+   "U-E3/hold/4/NO": 42,
+   "U-E3/renewed_restriction/4/NO": 39,
+   "U-E3/stable/4/NO": 36,
+   "U-E3/renewed_restriction/4/YES": 3,
+   "U-E7/proceed/2/NO": 10,
+   "U-E7/hold/4/YES": 1,
+   "U-E3/renewed_restriction/2/YES": 3,
+   "U-E3/complete/2/YES": 3,
+   "U-E3/hold/2/NO": 42,
+   "U-E3/recover_follow/4/NO": 36,
+   "U-E7/proceed/4/NO": 10,
+   "U-E3/hold/2/YES": 11,
+   "U-E3/release/2/YES": 3,
+   "U-E3/re_yield/4/YES": 3,
+   "U-E3/recover_follow/2/YES": 3,
+   "U-E3/complete/2/NO": 3,
+   "U-E3/recover_follow/4/YES": 3,
+   "U-E3/complete/4/NO": 3,
+   "U-E3/stable/2/YES": 3,
+   "U-E3/stable/4/YES": 3,
+   "U-E3/release/4/YES": 3,
+   "U-E3/complete/4/YES": 3,
+   "U-E3/re_yield/2/YES": 3
+  }
+ },
+ "ue3_instances": {
+  "v43": [
+   "teacher/Accident/Town10HD_Rep0_route_001819_route0_01_10_20_49_40/U-E3/88/13",
+   "teacher/Accident/Town10HD_Rep0_route_001819_route0_01_10_20_49_40/U-E3/89/25",
+   "teacher/ConstructionObstacle/Town04_Rep0_route_002000_route0_01_09_12_27_42/U-E3/196/30",
+   "teacher/ParkedObstacle/Town06_Rep0_route_001923_route0_01_09_18_02_51/U-E3/163/18",
+   "teacher/ParkedObstacle/Town06_Rep0_route_001923_route0_01_09_18_02_51/U-E3/164/27",
+   "teacher/ParkedObstacle/Town06_Rep0_route_001923_route0_01_09_18_02_51/U-E3/167/20",
+   "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/104",
+   "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/246",
+   "teacher/ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3/4709/35",
+   "teacher/ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/U-E3/4709/49",
+   "teacher/noScenarios/Town05_Rep0_Town05_ll_2_route0_01_11_09_57_22/U-E3/176/27"
+  ],
+  "v44": [
+   "teacher/ParkingCutIn/Town12_Rep0_1681_0_route0_01_09_14_15_55/U-E3/3697/104",
+   "teacher/ParkingCutIn/Town13_Rep0_1009_1_route0_01_11_03_10_29/U-E3/4709/35",
+   "teacher/ParkingCutIn/Town13_Rep0_1075_0_route0_01_10_17_19_04/U-E3/4709/49"
+  ]
+ },
+ "ue5_instances": [
+  "teacher/InvadingTurn/Town12_Rep0_1450_0_route0_01_09_22_58_43/U-E5/3752/48",
+  "teacher/InvadingTurn/Town13_Rep0_1148_0_route0_01_08_19_01_21/U-E5/4765/53"
+ ],
+ "instance_end_reasons": {
+  "finished": 10,
+  "frozen_navigation_exhausted_not_completion": 21,
+  "decisive_actor_passed_behind_censors_stale_wait": 2,
+  "observed_resumption_censors_stale_wait": 28,
+  "identity_lost": 6,
+  "instance_rgb_discontinuity": 10,
+  "requires_recheck": 1,
+  "observed_junction_exit_censors_stale_wait": 6
+ },
+ "premature_junction_release": {
+  "definition": "rgb4 proceed YES followed within 8 frames by re_yield YES of same instance",
+  "v43": {
+   "U_E7": "9/10",
+   "R_E5": "6/9",
+   "U_E3": "9/70"
+  },
+  "v44": {
+   "U_E7": "5/6",
+   "R_E5": "6/9"
+  }
+ },
+ "phase3": {
+  "raw_action_and_evidence_unchanged_frames": 5673,
+  "candidates": {
+   "v43": 1637,
+   "v44": 1588
+  },
+  "removed": 49,
+  "added": 0
+ },
+ "quarantine_ledger": {
+  "records_before": 2,
+  "records_after": 10,
+  "new_routes": 7,
+  "rejected": [
+   "OppositeVehicleRunningRedLight/Town03_Rep0_Town03_Scenario8_107 46->47 actor110 (~40 m lateral, fog, not confirmed)"
+  ]
+ },
+ "datasets": {
+  "2": {
+   "counts": {
+    "train": 3084,
+    "val": 273,
+    "test": 186
+   },
+   "manifest_sha256": "c2dda6685ac9992e40969f99d45dd2f652506eb140699581db1592c5c862470b",
+   "trainable": true,
+   "complete_coverage": false,
+   "selection": {
+    "considered": 4295,
+    "restriction_seed_tautology": 170,
+    "rule_abstained": 991,
+    "duplicate_observable_questions_excluded": 119,
+    "route_budget_excluded": 0,
+    "known_risk_window_requires_separate_review": 198,
+    "moving_proceed_requires_visual_catchup": 4,
+    "conflicting_observable_questions_excluded": 16,
+    "compiled": 2797
+   },
+   "quarantine": {
+    "policy": "known_visual_risk_admission_v1",
+    "registry_sha256": "5e6da782c841798ed1416bef4b71bc580220baa8e6b0f77868613e78d8aa4efe",
+    "row_dispositions": {
+     "manual_outside_registered_windows": 115,
+     "confirmed_source_quarantine": 17,
+     "usable": 2,
+     "teacher_outside_registered_windows": 481
+    }
+   }
+  },
+  "4": {
+   "counts": {
+    "train": 3084,
+    "val": 273,
+    "test": 186
+   },
+   "manifest_sha256": "537c72f69ad7d86708120059fa2e2d80098e74e44512e71feacaa31bf22c7cd0",
+   "trainable": true,
+   "complete_coverage": false,
+   "selection": {
+    "considered": 4295,
+    "restriction_seed_tautology": 170,
+    "rule_abstained": 991,
+    "duplicate_observable_questions_excluded": 119,
+    "route_budget_excluded": 0,
+    "known_risk_window_requires_separate_review": 198,
+    "moving_proceed_requires_visual_catchup": 4,
+    "conflicting_observable_questions_excluded": 16,
+    "compiled": 2797
+   },
+   "quarantine": {
+    "policy": "known_visual_risk_admission_v1",
+    "registry_sha256": "5e6da782c841798ed1416bef4b71bc580220baa8e6b0f77868613e78d8aa4efe",
+    "row_dispositions": {
+     "manual_outside_registered_windows": 115,
+     "confirmed_source_quarantine": 19,
+     "usable": 2,
+     "teacher_outside_registered_windows": 481
+    }
+   }
+  }
+ },
+ "train_composition": {
+  "v43": {
+   "total": 3490,
+   "manual": 443,
+   "weak": 3047,
+   "YES": 577,
+   "NO": 2913
+  },
+  "v44": {
+   "total": 3084,
+   "manual": 431,
+   "weak": 2653,
+   "YES": 503,
+   "NO": 2581
+  }
+ },
+ "train_event_answers": {
+  "R-E2": {
+   "v43": {
+    "YES": 108,
+    "NO": 560
+   },
+   "v44": {
+    "YES": 108,
+    "NO": 408
+   }
+  },
+  "R-E3": {
+   "v43": {
+    "YES": 62,
+    "NO": 146
+   },
+   "v44": {
+    "YES": 62,
+    "NO": 146
+   }
+  },
+  "R-E5": {
+   "v43": {
+    "YES": 32,
+    "NO": 283
+   },
+   "v44": {
+    "YES": 32,
+    "NO": 283
+   }
+  },
+  "U-E1": {
+   "v43": {
+    "YES": 70,
+    "NO": 1028
+   },
+   "v44": {
+    "YES": 70,
+    "NO": 1028
+   }
+  },
+  "U-E2": {
+   "v43": {
+    "YES": 95,
+    "NO": 431
+   },
+   "v44": {
+    "YES": 84,
+    "NO": 413
+   }
+  },
+  "U-E3": {
+   "v43": {
+    "YES": 60,
+    "NO": 184
+   },
+   "v44": {
+    "YES": 13,
+    "NO": 14
+   }
+  },
+  "U-E4": {
+   "v43": {
+    "YES": 62,
+    "NO": 59
+   },
+   "v44": {
+    "YES": 50,
+    "NO": 59
+   }
+  },
+  "U-E5": {
+   "v43": {
+    "YES": 12,
+    "NO": 39
+   },
+   "v44": {
+    "YES": 12,
+    "NO": 39
+   }
+  },
+  "U-E6": {
+   "v43": {
+    "YES": 29,
+    "NO": 38
+   },
+   "v44": {
+    "YES": 29,
+    "NO": 38
+   }
+  },
+  "U-E7": {
+   "v43": {
+    "YES": 47,
+    "NO": 145
+   },
+   "v44": {
+    "YES": 43,
+    "NO": 153
+   }
+  }
+ },
+ "paired_train": {
+  "paired": 3084,
+  "rgb2": 3084,
+  "rgb4": 3084
+ },
+ "val_test_rgb4_identical_to_v43": {
+  "val": true,
+  "test": true
+ },
+ "visual_review": 109,
+ "regression": "2032 passed (phase4 tests + audit_joint tests + phase3)",
+ "not_done": [
+  "G1 instance matching",
+  "G2 blind review",
+  "Phase3 full pool",
+  "six-event independent eval",
+  "GPU training",
+  "turn-across-oncoming junction release (Town04 002163 f31)",
+  "R-E5 1748_1 f44 re_yield review",
+  "evidence-envelope breadth for long instances (R-E2 Town04 152/mode)"
+ ]
+}
