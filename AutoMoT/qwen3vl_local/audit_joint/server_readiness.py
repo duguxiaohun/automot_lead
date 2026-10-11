@@ -26,6 +26,8 @@ FIELDS = ('counts', 'rgb_mode', 'trainable', 'complete_coverage', 'policy',
           'prompt_variant', 'observation_contract', 'production_index_sha256',
           'complete', 'complete_causal_production', 'processed_routes', 'candidate_routes')
 LOG_NAMES = {'tests.log', 'preflight.log', 'commands.json'}
+PYTHON_ROOTS = ('qwen3vl_local/audit_joint', 'qwen3vl_local/sft_new_loop_phase3',
+                'qwen3vl_local/sft_new_loop_phase4', 'qwen3vl_local/qwen35')
 
 
 def write(path, value):
@@ -102,9 +104,24 @@ def source_check(app, expected):
         except OSError:
             actual, status = None, 'missing'
         rows.append(dict(path=name, expected=sha, actual=actual, status=status))
-    return dict(status='matched' if rows and all(r['status']=='matched' for r in rows) else 'mismatch',
+    extras, errors = [], []
+    # The release manifest binds files, but recursive pytest also discovers
+    # unlisted tests. Preserve them and reject the mixed directory before tests.
+    roots = [name for name in PYTHON_ROOTS if any(p.startswith(name+'/') for p in spec['files'])]
+    for name in roots:
+        for directory, dirs, files in os.walk(Path(app)/name, followlinks=False,
+                onerror=lambda exc: errors.append(str(exc))):
+            dirs[:] = sorted(d for d in dirs if d not in ('__pycache__', 'probe_output', '.git'))
+            for filename in sorted(files):
+                path = Path(directory)/filename
+                relative = path.relative_to(app).as_posix()
+                if path.suffix in ('.py', '.pyc') and relative not in spec['files']:
+                    extras.append(relative)
+    return dict(status='matched' if rows and all(r['status']=='matched' for r in rows) and not extras and not errors else 'mismatch',
                 expected_manifest_sha256=file_sha(expected), files=rows,
-                scope='matches bundled release manifest; not authentication of Git remote or arbitrary extra files')
+                unexpected_python_files=sorted(extras), scan_errors=errors,
+                python_scan_roots=roots,
+                scope='release file hashes plus unexpected Python files in declared runtime packages; probe_output/cache excluded, directory links not followed; not authentication of Git remote or all external imports')
 
 
 def collect(checkpoints, output, *, app, expected, logs=()):

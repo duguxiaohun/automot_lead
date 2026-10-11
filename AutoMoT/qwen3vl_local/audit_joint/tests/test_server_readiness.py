@@ -77,3 +77,26 @@ def test_handoff_rejects_tampered_bytes(tmp_path):
         z.writestr('summary.json','changed')
         z.writestr('receipt.json',json.dumps(dict(schema='server_readiness_v1',files={'summary.json':{'bytes':7,'sha256':'wrong'}})))
     with pytest.raises(ValueError,match='content mismatch'):sr.verify(path)
+
+
+@pytest.mark.parametrize('extra', ['test_capacity_diagnostic.py', 'nested/conftest.py', 'orphan.pyc'])
+def test_source_check_rejects_unlisted_python_without_deleting(tmp_path, extra):
+    name='qwen3vl_local/sft_new_loop_phase3'
+    root=tmp_path/name;root.mkdir(parents=True)
+    code=root/'sampling.py';code.write_text('pass')
+    expected=tmp_path/'release.json';sr.write(expected,dict(files={name+'/sampling.py':sr.file_sha(code)}))
+    assert sr.source_check(tmp_path,expected)['status']=='matched'
+    other=root/extra;other.parent.mkdir(parents=True,exist_ok=True);other.write_text('do not execute')
+    result=sr.source_check(tmp_path,expected)
+    assert result['status']=='mismatch'
+    assert result['unexpected_python_files']==[name+'/'+extra]
+    assert result['files'][0]['status']=='matched' and other.read_text()=='do not execute'
+
+
+def test_source_check_does_not_treat_probe_artifacts_as_runtime(tmp_path):
+    name='qwen3vl_local/sft_new_loop_phase3'
+    root=tmp_path/name;root.mkdir(parents=True)
+    code=root/'sampling.py';code.write_text('pass')
+    old=root/'probe_output'/'old.py';old.parent.mkdir();old.write_text('old diagnostic')
+    expected=tmp_path/'release.json';sr.write(expected,dict(files={name+'/sampling.py':sr.file_sha(code)}))
+    assert sr.source_check(tmp_path,expected)['status']=='matched'

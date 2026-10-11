@@ -1,5 +1,21 @@
 # v50发布后：服务器先交CPU与正式资产盘点包
 
+**本轮立即执行（readiness2）：** 上次交包发现3个发布清单外测试导入失败；本次入口会在pytest前检查440个发布文件及相关包目录的额外Python文件，失败保留清单并打包，不删除或跳过这些文件。生产v50合同、标定和提示词未变。已有两份空间盘点足够，不再要求重跑storage-inventory。当前可用45.71 GiB，复制式全量建库预算尚未通过；本轮服务器只运行下面CPU交接。
+
+1. 用已有 `sync_automot.sh` 同步最新main到**此前不存在的目标目录**，保留 `/home/cruser1/lda/AutoMoT` 中旧实验。沿用该脚本实际支持的参数；不能把覆盖旧源码目录当成干净同步。进入新目录的 `AutoMoT/`，激活 `automot`。
+2. 运行以下一条命令。模型和盘点根使用已收到回执中的真实路径，输出自动写新目录，`PYTHONPATH=.`绑定当前应用源码：
+
+```bash
+PYTHONPATH=. \
+MODEL_DIR=/home/cruser1/lda/AutoMoT/checkpoints/Qwen3.5-4B \
+CHECKPOINTS_ROOT=/home/cruser1/lda/AutoMoT/checkpoints \
+  bash qwen3vl_local/audit_joint/server_readiness.sh
+```
+
+3. 无论成功或退出2，都交回脚本最后打印的 **report.zip＋package.json**。不要上传完整checkpoints、模型或RGB。新包应显示source_preflight_exit_code=0、pytest_started=true、pytest_exit_code=0、preflight_exit_code=0；本机对应完整回归为2260项。若失败，包中的额外源码名单/失败日志就是本次所需反馈，不用重复执行同一失败命令。若未能生成包，提供最后报错和已生成tests.log/preflight.log。
+
+本轮不建库、不训练、不重新跑旧拟合，也不再索取相同磁盘盘点。下一阶段仍须完成新产物减少复制/完整预算及当前正式池准入。同期本机755帧回放、70帧实际RGB复核见 [本机续审](LOCAL_RGB_FOLLOWUP_V50_20261011.md)。下面原说明中的后续建库模板仍受这些前提限制。
+
 当前先执行本页，不直接执行旧七轮训练，也不直接启动全量回放。v50生产接线已完成；服务器正式资产的版本、范围和空间仍待确认。后续建库/一轮训练模板保留在 [NEXT_TESTS](NEXT_TESTS_20261011.md) B–D，满足其前提后再用。
 
 ## 1. 同步到独立源码目录

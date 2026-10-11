@@ -1,5 +1,10 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-11 服务器混版前置检查与755帧RGB续审
+
+server_readiness在pytest前检查440文件SHA及声明包中额外Python，混版不执行测试、不删文件，失败仍交两文件包；readiness2清单不改生产v50合同。4新增回归、完整2260通过103.57秒，真实隔离混版入口退出2/pytest未启动/50306字节包核验。服务器按SERVER_V50_START_20261011.md最新命令，真正新目录同步，沿用旧模型和资产绝对路径；同盘45.71GiB已知，不重复盘点、不建库/训练。
+本机tmux单CPU5训练路线755帧1116题，45.81秒/162460KiB；原始语义与既有同范围一致，两模式各464语义配对。实际5联系表70不同RGB/3原图含在70内，210源SHA；非盲审/全路线目视。UE2 f92导航截止无return，UE3 f112恢复运动、UE5 f56目标到后方、UE6 f65出路口均截止不记完成；UE7 f54 complete YES仍有雾天/短输入可观察性限制，不改标。5回放gzip诊断14,250,605→499,687字节，逐字节还原，仅候选存储方案不外推全池。见audit_joint/LOCAL_RGB_FOLLOWUP_V50_20261011.md及local_rgb_followup_v50_verification_20261011.json；完整产物checkpoints/label_rgb_followup_v50_20261011，无GPU/远程/生产修改。
+
 ### 2026-10-11 v50白名单发布与U-E7补覆盖RGB审计
 
 新增服务器只读server_readiness入口及440文件发布SHA清单，自动CPU回归/preflight/元数据盘点，≤30MB ZIP带回执；旧元数据不认证，失败也留包。用户授权push仅源码/轻量文档证据；checkpoint/权重/RGB/完整回放留本机。服务器立即按audit_joint/SERVER_V50_START_20261011.md同步后运行server_readiness.sh，交report.zip+package.json，未确认正式资产前不建库/训练。

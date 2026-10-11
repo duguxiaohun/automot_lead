@@ -1,0 +1,66 @@
+{
+  "schema": "local_rgb_followup_v50_verification_v1",
+  "date": "2026-10-11",
+  "routes": 5,
+  "replayed_frames": 755,
+  "raw_questions": 1116,
+  "raw_semantics_equal_previous": true,
+  "compiled_semantic_pairs": 464,
+  "p3_frames": 755,
+  "elapsed_seconds": 45.80920655094087,
+  "peak_rss_kib": 162460,
+  "viewed_rgb_frames": 70,
+  "contact_sheets": 5,
+  "original_images_viewed_included_in_frame_count": 3,
+  "verified_rgb_meta_bbox_sources": 210,
+  "verified_receipt_members": 21,
+  "blind": false,
+  "independent_label_accuracy_certified": false,
+  "source_contract_sha256": "a5d2cff839ad3d7031dc6a38109db33a55c0fd815290a79968ac3c8895cca87a",
+  "production_contract_unchanged": true,
+  "labels_changed": false,
+  "prompt_changed": false,
+  "gpu_run": false,
+  "tests": {
+    "passed": 2260,
+    "seconds": 103.57,
+    "exit_code": 0,
+    "log_sha256": "80ffe003060d991e99d35efcc2a751e05dc6191d5221f6e5e9a615a695caffc4"
+  },
+  "mixed_source_launcher": {
+    "exit_code": 2,
+    "commands": {
+      "pytest_exit_code": 2,
+      "preflight_exit_code": 1,
+      "source_preflight_exit_code": 2,
+      "pytest_started": false,
+      "model_dir": "/missing_model_for_audit_fixture",
+      "gpu_training_run": false,
+      "dataset_build_run": false
+    },
+    "extra_files": [
+      "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py"
+    ],
+    "extra_file_preserved": true,
+    "package_bytes": 50306,
+    "package_verification": {
+      "status": "verified",
+      "files": 7,
+      "scope": "package byte integrity only"
+    },
+    "scope": "real shell entry in isolated synthetic mixed source directory; no pytest/GPU/model loaded"
+  },
+  "compression": {
+    "raw_bytes": 14250605,
+    "gzip6_bytes": 499687,
+    "roundtrip_verified": true,
+    "scope": "five native route files, memory-only experiment; no production compression format or full-pool size certification"
+  },
+  "artifacts": {
+    "verification.json": "f9ff70f4908de50832c9178d3a51b67a9d7ede801d68c6133818c66afad383c6",
+    "rgb_manifest.json": "b418ed39eb071c75a420ae5c4e3ebca97dbf8ced14ff2d708668caa5b2e6b16b",
+    "receipt.json": "bf789c2a23da10c4e3ce9bd71c527b84ffcb345dac6e0b03e0abd2fcf39fc65f",
+    "comparison.json": "188120bf5555d8f55349d1d12bcfaef531b14fa1f57aa580bcbb58a8c49f5e1c",
+    "p3_actions.jsonl": "5c4221d9f29173d88f03416cf76a67752c7dc0e245140f1cad72a5d68937136c"
+  }
+}
