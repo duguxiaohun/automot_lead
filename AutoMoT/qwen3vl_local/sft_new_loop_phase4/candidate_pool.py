@@ -107,6 +107,9 @@ def coverage(pool,rows,*,production_index=None,approved_classes=()):
     if production_index is not None:
         from .teacher_replay import accounting as production_accounting
         accounting=production_accounting(pool,production_index)
+        blocked=set(accounting['history_ambiguous_question_ids'])
+        if any(r.get('teacher_provenance',{}).get('question',{}).get('question_id') in blocked for r in rows):
+            raise ValueError('history-ambiguous teacher question cannot enter dataset')
     return dict(candidate_routes=len(routes),candidate_rgb_frames=total,
                 frames_with_questions=len(reviewed),frames_with_supervision=len(labelled),
                 frames_without_questions=total-len(reviewed),

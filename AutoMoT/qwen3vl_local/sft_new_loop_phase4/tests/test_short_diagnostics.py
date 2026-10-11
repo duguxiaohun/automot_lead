@@ -58,11 +58,12 @@ def test_cpu_training_writes_actual_steps_order_runtime_and_checkpoint(tmp_path,
     from qwen3vl_local.sft_new_loop_phase4.rgb_short import train
     from qwen3vl_local.qwen35 import adapters
     from qwen3vl_local.sft_new_loop_phase4.identity import file_sha
-    rows = [dict(id='first',target='YES',label_basis='weak_rule_teacher'),
-            dict(id='second',target='NO',label_basis='reviewed_transition_band')]
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool, as_cases
+    fixture=pool();rows=fixture['train']
+    rows[0]['id']='first';rows[1]['id']='second'
     manifest = dict(training_admission={'trainable': True, 'evaluation_scope':'test'},
                     coverage={'ready':False},student_view={'selected_ids':{}},observation_contract={})
-    monkeypatch.setattr(train,'load_dataset',lambda *a,**kw:({'train':rows,'val':rows},manifest))
+    monkeypatch.setattr(train,'load_dataset',lambda *a,**kw:(fixture,manifest))
     monkeypatch.setattr(train,'plan',lambda *a,**kw:([0,1,0],{'next_history':{},'unique_questions':2}))
     class Model(torch.nn.Module):
         def __init__(self):
@@ -76,7 +77,7 @@ def test_cpu_training_writes_actual_steps_order_runtime_and_checkpoint(tmp_path,
     monkeypatch.setattr(torch.cuda,'is_available',lambda:False)
     monkeypatch.setattr(train,'load_bundle',lambda *a,**kw:SimpleNamespace(model=Model(),processor=Processor()))
     monkeypatch.setattr(train,'encode',lambda *a,**kw:{'input_ids':torch.ones(1,3,dtype=torch.long)})
-    monkeypatch.setattr(train,'evaluate_rows',lambda *a,**kw:({'selection_agreement':.5},[]))
+    monkeypatch.setattr(train,'evaluate_rows',lambda bundle,rows,*a,**kw:({'selection_agreement':.5},as_cases(rows,.5)))
     def save(model, folder):
         folder.mkdir()
         torch.save(model.state_dict(),folder/'adapter_model.bin')

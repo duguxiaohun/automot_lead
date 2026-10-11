@@ -61,6 +61,9 @@ def run_check(a, output, report, stage):
     data, manifest = load_dataset(a.dataset, rgb_mode=run['observation_contract']['rgb_mode'])
     if digest(manifest) != run['dataset']:
         raise ValueError('reload dataset differs')
+    if 'evaluation' in run['training']:
+        from ..evaluation_policy import restore
+        data = restore(data, run, short=True)
     stage('expected_cases')
     expected_path = a.run / f'epoch_{epoch:03d}_cases.jsonl'
     expected, _ = load(expected_path)
@@ -79,6 +82,9 @@ def run_check(a, output, report, stage):
     bundle = load_for_inference(a.model_dir, folder, device)
     stage('validation')
     metrics, cases = evaluate_rows(bundle, data['val'], a.data_root, run['training']['max_length'])
+    if 'evaluation' in run['training']:
+        from ..evaluation_policy import score_cases
+        metrics.update(score_cases(cases, run['training']['evaluation']['mode'], run['training']['evaluation']['plans']['val']['selected_ids']))
     stage('comparison')
     dump_rows(output / 'cases.jsonl', cases)
     actual, _ = load(output / 'cases.jsonl')

@@ -184,31 +184,36 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--dataset',type=Path,required=True)
     p.add_argument('--adapter',type=Path,required=True)
-    p.add_argument('--teacher-references',type=Path,help='separate held-out teacher consistency pack; never used for selection')
+    p.add_argument('--evaluation-distribution',choices=('equal_events','natural'),default='equal_events')
     p.add_argument('--model-dir',type=Path,default=ROOT.parents[1]/'checkpoints/Qwen3.5-4B')
     p.add_argument('--data-root',type=Path,default=ROOT.parents[1]/'lead_data')
-    p.add_argument('--split',choices=('train','val','test'),default='test')
+    p.add_argument('--split',choices=('val','test'),default='test')
     p.add_argument('--output-dir',type=Path,required=True)
     p.add_argument('--device',default='cuda:0')
     p.add_argument('--require-complete-coverage',action='store_true')
     a=p.parse_args()
-    data,m=load_dataset(a.dataset,require_trainable=True,
+    data,m=load_dataset(a.dataset,require_trainable=False,
                         require_complete_coverage=a.require_complete_coverage)
     saved=json.loads((a.adapter/'phase4_contract.json').read_text())
     if saved['dataset']!=digest(m):
         raise ValueError('adapter/dataset mismatch')
+    from .evaluation_policy import restore, score_cases
+    data=restore(data,saved,natural=a.evaluation_distribution=='natural')
     if a.output_dir.exists():
         raise FileExistsError('use a fresh evaluation directory')
     import torch
     bundle=load_for_inference(a.model_dir,a.adapter,torch.device(a.device))
     evaluation_rows=list(data[a.split])
-    if a.teacher_references:
-        from .teacher_evaluation import load
-        evaluation_rows+=load(a.teacher_references,split=a.split,rgb_mode=m['observation_contract']['rgb_mode'])
     report,rows=evaluate_rows(bundle,evaluation_rows,a.data_root)
+    selection=saved['training']['evaluation']
+    ids=selection['plans'][a.split]['selected_ids']
+    by_id={r['id']:r for r in rows}
+    report.update(score_cases([by_id[i] for i in ids],selection['mode'],ids))
+    report['evaluation_plan']=selection['plans'][a.split]
+    report['evaluation_distribution']=a.evaluation_distribution
     report.update(split=a.split,dataset=digest(m),expected_count=len(evaluation_rows),
                   coverage_complete=m['complete_coverage'],coverage=m['coverage'],
-                  evaluation_scope=m['training_admission']['evaluation_scope'])
+                  evaluation_scope=selection['training_admission']['evaluation_scope'])
     a.output_dir.mkdir(parents=True)
     dump_rows(a.output_dir/'cases.jsonl',rows)
     write_json(a.output_dir/'metrics.json',report)

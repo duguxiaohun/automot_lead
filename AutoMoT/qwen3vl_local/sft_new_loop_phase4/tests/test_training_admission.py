@@ -70,12 +70,17 @@ def test_require_ready_needs_actual_host_inputs(built):
     assert p.returncode==2 and 'training-host check' in p.stderr
 
 
-def test_real_training_loop_reaches_optimization_with_partial_coverage(built,tmp_path,monkeypatch):
+@pytest.mark.parametrize("selection_mode",["reviewed","rule_consistency"])
+def test_real_training_loop_reaches_optimization_with_partial_coverage(built,tmp_path,monkeypatch,selection_mode):
     # Real torch optimizer and checkpoint orchestration; model/metrics are test
     # doubles. This is not a production Qwen/GPU quality or throughput claim.
     import torch
     from qwen3vl_local.sft_new_loop_phase4 import train
     import qwen3vl_local.qwen35.adapters as adapters
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool, as_cases, rule_pack
+    fixture=pool('rule_teacher' if selection_mode=='rule_consistency' else 'reviewed_rgb');_,m=dataset.load_dataset(built)
+    refs=rule_pack(tmp_path,monkeypatch) if selection_mode=='rule_consistency' else None
+    monkeypatch.setattr(train,'load_dataset',lambda *a,**k:(fixture,m))
     class Tiny(torch.nn.Module):
         def __init__(self):super().__init__();self.weight=torch.nn.Parameter(torch.tensor(0.0))
         def forward(self,labels,use_cache):return SimpleNamespace(loss=(self.weight-labels).square()+.1)
@@ -84,10 +89,10 @@ def test_real_training_loop_reaches_optimization_with_partial_coverage(built,tmp
     monkeypatch.delenv('WORLD_SIZE',raising=False);monkeypatch.delenv('RANK',raising=False)
     monkeypatch.setattr(train,'load_bundle',lambda *args,**kwargs:bundle)
     monkeypatch.setattr(train,'encode',lambda *args,**kwargs:dict(labels=torch.tensor(1.0)))
-    monkeypatch.setattr(train,'evaluate_rows',lambda *args,**kwargs:(dict(groups={'fixture':dict(accuracy=.5)},event_macro_accuracy_observed=.5),[]))
+    monkeypatch.setattr(train,'evaluate_rows',lambda bundle,rows,*args,**kwargs:(dict(event_macro_accuracy_observed=.5),as_cases(rows,.5)))
     monkeypatch.setattr(adapters,'save_adapter',lambda model,path:path.mkdir())
     out=tmp_path/'run'
-    monkeypatch.setattr(sys,'argv',['train','--dataset',str(built),'--output-dir',str(out),'--epochs','1','--epoch-samples','20','--accumulation','2'])
+    monkeypatch.setattr(sys,'argv',['train','--dataset',str(built),'--output-dir',str(out),'--epochs','1','--epoch-samples','20','--accumulation','2','--selection-mode',selection_mode]+(['--teacher-references',str(refs)] if refs else []))
     train.main()
     assert float(model.weight.detach())>0
     assert (out/'epoch_000/training_state.pt').is_file()
@@ -95,24 +100,36 @@ def test_real_training_loop_reaches_optimization_with_partial_coverage(built,tmp
     admission=json.loads((out/'data_admission.json').read_text())
     assert admission['training']['trainable'] and not admission['coverage']['ready']
     report=json.loads((out/'final_generation.json').read_text())
-    assert report['coverage_complete'] is False and 'subsets' in report['evaluation_scope']
+    assert report['coverage_complete'] is False
+    assert report['selection_mode']==selection_mode
+    assert report['selection_agreement']==.5
 
 
-def test_standalone_evaluation_no_longer_requires_exhaustive_coverage(built,tmp_path,monkeypatch):
+@pytest.mark.parametrize('selection_mode', ['reviewed', 'rule_consistency'])
+def test_standalone_evaluation_no_longer_requires_exhaustive_coverage(built,tmp_path,monkeypatch,selection_mode):
     from qwen3vl_local.sft_new_loop_phase4 import evaluate
     from qwen3vl_local.sft_new_loop_phase4.identity import digest
     _,m=dataset.load_dataset(built,require_ready=True)
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool, as_cases, rule_pack
+    from qwen3vl_local.sft_new_loop_phase4.evaluation_policy import prepare
+    fixture=pool('rule_teacher' if selection_mode=='rule_consistency' else 'reviewed_rgb')
+    refs=rule_pack(tmp_path,monkeypatch,fixture) if selection_mode=='rule_consistency' else None
+    _,selection=prepare(fixture,mode=selection_mode,references=refs)
+    monkeypatch.setattr(evaluate,'load_dataset',lambda *a,**k:(fixture,m))
     adapter=tmp_path/'adapter';adapter.mkdir()
-    (adapter/'phase4_contract.json').write_text(json.dumps(dict(dataset=digest(m))))
+    (adapter/'phase4_contract.json').write_text(json.dumps(dict(dataset=digest(m),training={'evaluation':selection},observation_contract=m['observation_contract'])))
     monkeypatch.setattr(evaluate,'load_for_inference',lambda *a:None)
-    monkeypatch.setattr(evaluate,'evaluate_rows',lambda bundle,rows,root:(dict(count=len(rows)),[]))
+    monkeypatch.setattr(evaluate,'evaluate_rows',lambda bundle,rows,root:(dict(count=len(rows)),as_cases(rows)))
     out=tmp_path/'eval'
     monkeypatch.setattr(sys,'argv',['evaluate','--dataset',str(built),'--adapter',str(adapter),'--output-dir',str(out),'--device','cpu'])
     evaluate.main()
     report=json.loads((out/'metrics.json').read_text())
-    assert report['count']==186 and report['split']=='test'
+    assert report['count']==20 and report['split']=='test'
     assert report['coverage_complete'] is False
     assert report['coverage']['missing_transition_edges']
+    assert report['evaluation_scope']==selection['training_admission']['evaluation_scope']
+    if selection_mode=='rule_consistency':
+        assert report['evaluation_scope']=='held-out rule consistency; not independent accuracy'
 
 
 def test_resume_best_history_is_local_to_selected_epoch(built,tmp_path,monkeypatch):
@@ -121,6 +138,9 @@ def test_resume_best_history_is_local_to_selected_epoch(built,tmp_path,monkeypat
     import peft.utils.save_and_load as peft_io
     import qwen3vl_local.qwen35.adapters as adapters
     from qwen3vl_local.sft_new_loop_phase4 import train
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool, as_cases
+    fixture=pool();_,m=dataset.load_dataset(built)
+    monkeypatch.setattr(train,'load_dataset',lambda *a,**k:(fixture,m))
     class Tiny(torch.nn.Module):
         def __init__(self):super().__init__();self.weight=torch.nn.Parameter(torch.tensor(0.))
         def forward(self,labels,use_cache):return SimpleNamespace(loss=(self.weight-labels).square()+.1)
@@ -142,7 +162,7 @@ def test_resume_best_history_is_local_to_selected_epoch(built,tmp_path,monkeypat
               '--epoch-samples','20','--accumulation','2']
         if resume:argv+=['--resume',str(resume)]
         monkeypatch.setattr(sys,'argv',argv)
-        monkeypatch.setattr(train,'evaluate_rows',lambda *a,**k:(dict(event_macro_accuracy_observed=next(scores)),[]))
+        monkeypatch.setattr(train,'evaluate_rows',lambda bundle,rows,*a,**k:(dict(),as_cases(rows,next(scores))))
         train.main()
         return out,json.loads((out/'best.json').read_text())
     from pathlib import Path

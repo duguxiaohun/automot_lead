@@ -15,7 +15,11 @@ from .controller import Episode
 from .route_prompts import prompt
 from .input_identity import rgb_content_sha,model_input_key,validate_model_inputs
 
-POLICY='heldout_teacher_consistency_only_v1'
+POLICY='heldout_teacher_consistency_selection_v2'
+
+
+def reference_id(q):
+    return 'reference/'+digest([q[k] for k in ('scenario','route_id','frame_id','episode','edge','slice')])
 
 
 def export(pool,index_path,root,output,*,rgb_mode):
@@ -28,6 +32,8 @@ def export(pool,index_path,root,output,*,rgb_mode):
     output=Path(output)
     if output.exists():raise FileExistsError('use a fresh reference pack')
     root=Path(root);index_path=Path(index_path);index=json.loads(index_path.read_text());risks=registry();counts=Counter()
+    from .history_admission import quarantine, POLICY as HISTORY_POLICY
+    history_exclusions=[]
     output.mkdir(parents=True);files={}
     for split in ('val','test'):
         rows=[]
@@ -37,7 +43,11 @@ def export(pool,index_path,root,output,*,rgb_mode):
             with (index_path.parent/receipt['artifact']).open() as stream:
                 next(stream)
                 for line in stream:
-                    for q in json.loads(line).get('questions',[]):
+                    original=json.loads(line).get('questions',[])
+                    questions,excluded=quarantine(original)
+                    history_exclusions.extend(excluded)
+                    counts['history_ambiguity_excluded']+=sum(q['rgb_mode']==rgb_mode for q in original) - sum(q['rgb_mode']==rgb_mode for q in questions)
+                    for q in questions:
                         if q['rgb_mode']!=rgb_mode:continue
                         if q['rule_target'] not in ('YES','NO'):counts['abstained']+=1;continue
                         if not teacher_window_check(q,risks.get((q['scenario'],q['route_id']),[]))['outside_registered_windows']:counts['risk_window']+=1;continue
@@ -57,7 +67,7 @@ def export(pool,index_path,root,output,*,rgb_mode):
                         if file_sha(path)!=source['sha256']:raise ValueError('reference RGB changed')
                         with Image.open(path) as im:pixels[source['sha256']]=rgb_content_sha(im)
                 obs=dict(frame_id=frame,history_frames=q['history_frames'],speed_mps=speeds[frame])
-                r=dict(id='reference/'+q['question_id'],reference_kind='rule_teacher',label_basis='heldout_rule_reference',
+                r=dict(id=reference_id(q),reference_kind='rule_teacher',label_basis='heldout_rule_reference',
                     teacher_question=q,scenario=q['scenario'],route_id=q['route_id'],physical_group=q['physical_group'],split=split,
                     episode=q['episode'],edge=q['edge'],slice=q['slice'],target=q['rule_target'],observation=obs,
                     images=[s['path'] for s in q['input_sources']],image_sha256=[s['sha256'] for s in q['input_sources']],
@@ -67,7 +77,8 @@ def export(pool,index_path,root,output,*,rgb_mode):
         files[split]=dict(sha256=file_sha(output/(split+'.jsonl')),count=len(rows),routes=len({r['physical_group'] for r in rows}))
     body=dict(policy=POLICY,contract=contract(),teacher=rules.identity(),observation_contract=spec,files=files,
               production=coverage,candidate_pool_sha256=pool['sha256'],exclusions=dict(counts),
-              scope='teacher consistency only; no independent accuracy, no model selection, no training supervision')
+              history_admission=dict(policy=HISTORY_POLICY,exclusions=history_exclusions),
+              scope='teacher consistency; explicit rule_consistency model selection allowed; not independent accuracy or gradient supervision')
     write_json(output/'references.json',dict(body,sha256=digest(body)));return body
 
 
@@ -83,7 +94,7 @@ def load(path,*,split,rgb_mode):
     if len(rows)!=m['files'][split]['count']:raise ValueError('reference count mismatch')
     for r in rows:
         q=validate_question(r['teacher_question'],expected_teacher_sha=teacher_sha)
-        if (q['rgb_mode']!=rgb_mode or r['reference_kind']!='rule_teacher' or r['label_basis']!='heldout_rule_reference'
+        if (r['id']!=reference_id(q) or q['rgb_mode']!=rgb_mode or r['reference_kind']!='rule_teacher' or r['label_basis']!='heldout_rule_reference'
                 or r['split']!=split or source_route(q)!=q['physical_group'] or split_for(q['physical_group'],exposed,reservations=owners)!=split
                 or any(r[k]!=q[k] for k in ('scenario','route_id','physical_group','split','episode','edge','slice'))
                 or r['target']!=q['rule_target'] or r['target'] not in ('YES','NO')

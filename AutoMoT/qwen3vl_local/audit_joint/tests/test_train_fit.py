@@ -375,3 +375,34 @@ def test_frozen_parser_rechecks_validation_and_fit(bound_fit,raw,prediction,vali
     else:
         with pytest.raises(ValueError,match='frozen parsing|raw prediction'):tool.evidence(root,0)
         with pytest.raises(ValueError,match='frozen parsing|raw prediction'):tool.verify_fit(output)
+
+
+def test_metrics_allow_only_float_rounding_noise():
+    import math
+    expected = {'count': 239, 'macro': 0.7515009883430935, 'missing': [], 'absent': None}
+    actual = deepcopy(expected)
+    actual['macro'] = math.nextafter(expected['macro'], math.inf)
+    assert tool.metrics_equal(actual, expected)
+    for value in (expected['macro'] + 1e-10, float('nan'), float('inf')):
+        actual['macro'] = value
+        assert not tool.metrics_equal(actual, expected)
+    for value in (238, 239.0, True):
+        actual = deepcopy(expected); actual['count'] = value
+        assert not tool.metrics_equal(actual, expected)
+    assert not tool.metrics_equal({'count': 239}, expected)
+    assert not tool.metrics_equal([1, 2], [2, 1])
+
+
+def test_evidence_accepts_cross_python_rounding_but_rejects_metric_changes(sample_run):
+    import math
+    root,_ = sample_run
+    p = root/'epoch_000_validation.json'; original = tool.read(p)
+    changed = deepcopy(original)
+    changed['transferred_reviewed_reference']['agreement'] = math.nextafter(
+        changed['transferred_reviewed_reference']['agreement'], math.inf)
+    write_json(p, changed)
+    tool.evidence(root, 0)
+    changed['transferred_reviewed_reference']['agreement'] = .1
+    write_json(p, changed)
+    with pytest.raises(ValueError, match='validation metrics'):
+        tool.evidence(root, 0)

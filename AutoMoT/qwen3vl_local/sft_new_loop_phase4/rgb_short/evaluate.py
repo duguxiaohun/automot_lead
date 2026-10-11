@@ -49,12 +49,15 @@ def main():
     p.add_argument('--split', choices=('val', 'test'), default='val')
     p.add_argument('--max-length', type=int, default=8192)
     p.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
+    p.add_argument('--evaluation-distribution', choices=('equal_events','natural'), default='equal_events')
     a = p.parse_args()
     import json
     data, manifest = load_dataset(a.dataset, rgb_mode=a.rgb_mode)
     record = json.loads((a.adapter / 'phase4_contract.json').read_text())
     if record['dataset'] != digest(manifest) or record['observation_contract'] != manifest['observation_contract']:
         raise ValueError('adapter dataset/input mismatch')
+    from ..evaluation_policy import restore, score_cases
+    data = restore(data, record, short=True, natural=a.evaluation_distribution=='natural')
     if a.output_dir.exists():
         raise FileExistsError(a.output_dir)
     device = a.device
@@ -66,6 +69,13 @@ def main():
         device = 'cuda:0'
     bundle = load_for_inference(a.model_dir, a.adapter, device)
     metrics, cases = evaluate_rows(bundle, data[a.split], a.data_root, a.max_length)
+    selection = record['training']['evaluation']
+    ids = selection['plans'][a.split]['selected_ids']
+    by_id = {r['id']:r for r in cases}
+    metrics.update(score_cases([by_id[i] for i in ids], selection['mode'], ids))
+    metrics['evaluation_plan'] = selection['plans'][a.split]
+    metrics['evaluation_distribution'] = a.evaluation_distribution
+    metrics['evaluation_scope'] = selection['training_admission']['evaluation_scope']
     metrics.update(split=a.split, dataset=digest(manifest), expected_count=len(data[a.split]))
     a.output_dir.mkdir(parents=True, exist_ok=False)
     write_json(a.output_dir / 'metrics.json', metrics)

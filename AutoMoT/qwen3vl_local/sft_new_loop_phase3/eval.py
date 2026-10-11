@@ -956,12 +956,19 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     choice_filter_report = _choice_filter_report(rows, seed=int(args.seed)) if action_output_mode == "choice" else None
     cases = _balanced_cases(
         rows,
-        cases_per_bin=int(args.cases_per_bin),
+        cases_per_bin=0,
         seed=int(args.seed),
         route_diverse=bool(args.route_diverse_sampling),
         require_invalid_coverage=bool(args.require_invalid_coverage),
         action_output_mode=action_output_mode,
     )
+    evaluation_plan = None
+    if args.evaluation_distribution == "equal_events":
+        from qwen3vl_local.sft_new_loop_phase3.evaluation_balance import select_work
+        cases, evaluation_plan = select_work(cases, seed=int(args.seed), limit=int(args.cases_per_bin))
+    if rank == 0:
+        (output_dir / "evaluation_plan.json").write_text(json.dumps(
+            dict(distribution=args.evaluation_distribution, plan=evaluation_plan), ensure_ascii=False, indent=2))
     if int(args.expected_total_cases) > 0 and len(cases) != int(args.expected_total_cases):
         raise ValueError(
             f"frozen eval case count mismatch: sampled={len(cases)} expected={int(args.expected_total_cases)}"
@@ -1251,6 +1258,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             adapter_cfg.get("production_prompt_sha256") if adapter_cfg is not None else None
         ),
         "audit_prompt": bool(args.audit_prompt),
+        "evaluation_distribution": args.evaluation_distribution,
+        "evaluation_plan": evaluation_plan,
         "sampling_contract": (
             "Context-owned primary action or KEEP: valid all-NO rows are included; compound evidence is "
             "projected by STOP > first crossing > speed. Only invalid contexts are excluded."
@@ -1416,6 +1425,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Evaluate base Qwen or new Phase3 LoRA on balanced high-level action cases"
     )
+    p.add_argument("--evaluation-distribution", choices=("equal_events", "natural"), default="equal_events")
     p.add_argument("--index", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_data_v23/frame_index.jsonl"))
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3.5-4B"))

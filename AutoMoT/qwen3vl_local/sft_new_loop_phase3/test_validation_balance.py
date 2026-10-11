@@ -140,28 +140,30 @@ def test_cpu_preflight_uses_real_worklists_without_model_or_nccl(monkeypatch, tm
         monkeypatch.setattr(module, name, forbidden)
     train.train(args)
     assert not (tmp_path / "not_created").exists()
-    assert args.validation_sampling["loss"]["effective"] == (26 if mode == "binary" else 16)
-    assert args.validation_sampling["generation"]["effective"] == 32
+    assert args.validation_sampling["loss"]["effective"] == 1
+    assert args.validation_sampling["generation"]["effective"] == 1
     assert '[sampling-preflight] {"action_output_mode"' in capsys.readouterr().out
 
 
 def test_strict_validation_failure_precedes_distributed_setup(monkeypatch):
-    """正式训练小预算失败也必须在NCCL初始化之前，并准确指出loss阶段原因。"""
+    """正式验证缺事件必须在NCCL初始化之前失败，并准确指出loss阶段原因。"""
     from qwen3vl_local.sft_new_loop_phase3 import preflight
 
     monkeypatch.setattr(sys, "argv", ["train.py", "--focus-balance-count", "32",
                                      "--no-auto-eval-balance-count", "--action-output-mode", "binary"])
     monkeypatch.setattr(preflight, "check_index", lambda path, **kwargs: {})
     monkeypatch.setattr(preflight, "check_model", lambda path, **kwargs: {})
-    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
+    monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: (
+        candidate_rows() if kw["split"] == "train" else [r for r in candidate_rows()
+            if r.context_id != CONTEXT_IDS[0]]))
     monkeypatch.setattr(train, "setup_distributed", lambda *a: pytest.fail("NCCL initialized before sampling"))
-    with pytest.raises(RuntimeError, match="periodic loss validation sampling failed.*quota shortage") as caught:
+    with pytest.raises(RuntimeError, match="periodic loss validation sampling failed.*missing") as caught:
         train.train(train.parse_args())
-    assert isinstance(caught.value.__cause__, InvalidQuotaError)
+    assert isinstance(caught.value.__cause__, ValueError)
 
 
-def test_generation_budget_can_increase_independently(monkeypatch):
-    """loss预算足够但generation预算不足时，各自保留请求值并独立增容。"""
+def test_generation_and_loss_caps_shrink_to_unique_common_capacity(monkeypatch):
+    """保留两个请求上限，实际均缩到共同不同题容量，不靠重复增容。"""
     from qwen3vl_local.sft_new_loop_phase3 import preflight
 
     monkeypatch.setattr(sys, "argv", ["train.py", "--sampling-only", "--focus-balance-count", "32",
@@ -171,7 +173,8 @@ def test_generation_budget_can_increase_independently(monkeypatch):
     monkeypatch.setattr(train, "_read_rows", lambda *a, **kw: candidate_rows())
     args = train.parse_args()
     train.train(args)
-    assert args.validation_sampling["loss"]["requested"] == args.eval_balance_count == 32
-    assert not args.validation_sampling["loss"]["adjusted"]
+    assert args.validation_sampling["loss"]["requested"] == 32
+    assert args.eval_balance_count == 1
+    assert args.validation_sampling["loss"]["policy"] == "fixed_ten_event_evaluation_v1"
     assert args.validation_sampling["generation"]["requested"] == 16
-    assert args.validation_sampling["generation"]["effective"] == args.generation_eval_balance_count == 26
+    assert args.validation_sampling["generation"]["effective"] == args.generation_eval_balance_count == 1

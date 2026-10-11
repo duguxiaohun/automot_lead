@@ -1,0 +1,94 @@
+{
+  "schema": "junction_rgb_review_v49_v1",
+  "summary": {
+    "schema": "junction_concurrency_development_v1",
+    "frame_event_rows": 198,
+    "routes": 15,
+    "declared_relations": {
+      "same": 217,
+      "unknown": 36
+    },
+    "duplicate_rendered_inputs": {
+      "same_input_same_target": 470,
+      "same_input_abstention_disagreement": 2
+    },
+    "source_files_verified": 1032,
+    "confirmed_merges": 0,
+    "independent_approval": false,
+    "g2_status": "not_run",
+    "scope": "concurrent anchors and exact rendered inputs only; junction ID/proximity cannot authorize an instance merge"
+  },
+  "rgb": {
+    "unique_frames": 117,
+    "routes": 6,
+    "source_files": 351,
+    "candidate_source_files": 543,
+    "independent_approval": false,
+    "g2_status": "not_run"
+  },
+  "candidates": {
+    "old_positives": 14,
+    "matched": 13,
+    "outside_current_47_route_pool": 13,
+    "in_final_train": 0,
+    "weak_necessary_gates_passed": 13,
+    "strict_approved": 0,
+    "added_to_training": 0
+  },
+  "tests": {
+    "new": 19,
+    "audit_joint_passed": 315,
+    "seconds": 9.61
+  },
+  "runtime": {
+    "seconds": 6.73,
+    "max_rss_kib": 239532,
+    "exit_code": 0
+  },
+  "production_changed": false,
+  "prompts_changed": false,
+  "training": false,
+  "push": false,
+  "artifacts": {
+    "checkpoints/junction_review_v49_20261011/audit_bound/summary.json": {
+      "sha256": "312b5d8bb1b5420a81652c79a8d16aec41ab5c9deb2f36a34cd159c231c7e85b",
+      "bytes": 519
+    },
+    "checkpoints/junction_review_v49_20261011/audit_bound/frames.json": {
+      "sha256": "237fdea53f1c2cba87fdef8ddcf014a2229a1a3d6e75a1e48c83d25c6ce667a7",
+      "bytes": 4202335
+    },
+    "checkpoints/junction_review_v49_20261011/audit_bound/receipt.json": {
+      "sha256": "8263d15c82c65a1517583f21f160cfa92eea5e02a0e3d23699e67973a1626d3d",
+      "bytes": 426798
+    },
+    "checkpoints/junction_review_v49_20261011/complete_candidates.json": {
+      "sha256": "ab58458884321e2f2c89fd9d9c24b4706c2deed16dc3ee5ba8c993cd20243efc",
+      "bytes": 165382
+    },
+    "checkpoints/junction_review_v49_20261011/rgb_verification.json": {
+      "sha256": "56434443228a9feb65b1467067d1869abcb9d855872367dfdecbc7a99abf5d9d",
+      "bytes": 151617
+    },
+    "checkpoints/junction_review_v49_20261011/rgb_notes.json": {
+      "sha256": "08e7f737ddffde2ada13367edf0365dbb7067d98839c8935dfadaa3483531190",
+      "bytes": 699
+    },
+    "checkpoints/junction_review_v49_20261011/tests.log": {
+      "sha256": "c3c03cb2983087e4bb2e221ab9fed297c9c910d8d14874406bd964818dcdf224",
+      "bytes": 420
+    },
+    "checkpoints/junction_review_v49_20261011/run.py": {
+      "sha256": "33bf75121dd8d40228f0eeaa2b615e33c45800bd925726294bb8a13920185fb7",
+      "bytes": 818
+    },
+    "checkpoints/junction_review_v49_20261011/candidates.py": {
+      "sha256": "cd4e1ad1c595ed63f7a5e745c77f1d6fdd6018861993060f46c72c286eb7192c",
+      "bytes": 3111
+    }
+  },
+  "source_sha256": {
+    "qwen3vl_local/audit_joint/junction_review.py": "44b13f8d8d633120959340b2d580254c0acbcb109af324e8159156df5e102fce",
+    "qwen3vl_local/audit_joint/tests/test_junction_review.py": "28148c6efae8e65a9845cc2d5621a3d3294ad8ffb032392859f0ad65d0693714"
+  }
+}

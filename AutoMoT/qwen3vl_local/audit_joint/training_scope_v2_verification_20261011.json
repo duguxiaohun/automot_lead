@@ -1,0 +1,104 @@
+{
+  "schema": "training_scope_v2_verification_v1",
+  "date": "2026-10-11",
+  "report_sha256": "5e4ce03cfe3f333d254e13afa0230ff2592d3ac4c150d70f6a6bace6e344219e",
+  "previous_report_sha256": "5bdc3ad3f1e447a93d004c9e6b5299bbc52a354fd626243fece0528ef67188d1",
+  "source_sha256": {
+    "training_scope.py": "06317c743a721149be678e1fa1dc1356ee6d9d3b9a7d484ef76c74e71f3f8bc6",
+    "tests/test_training_scope.py": "06d8efa3a6753f59b4b59e8226a572570a55027c430cae7453d363ca9ba487ce"
+  },
+  "tests": {
+    "passed": 2223,
+    "seconds": 107.83,
+    "new_tests": 13,
+    "exit_code": 0,
+    "log_sha256": "74d1d009b5646ae11b626686c7d920933a5a76284c3821a8d4705d46a3dddb97"
+  },
+  "runtime": {
+    "seconds": 29.77,
+    "peak_rss_kib": 245820,
+    "exit_code": 0,
+    "log_sha256": "f48bb819e1575112545e25cb020206a76bc369ba24c686b72eb5418af43d1e8e"
+  },
+  "verified_statistical_bindings": 9,
+  "schedule_and_train_cells_equal_previous": true,
+  "phase3": {
+    "status": "missing",
+    "reason": "no current Phase3 formal index supplied; diagnostic candidates are not a formal pool"
+  },
+  "pool_scope": {
+    "complete_causal_production": false,
+    "candidate_routes": 82,
+    "processed_routes": 47,
+    "complete_coverage": false,
+    "scope": "relative to registered candidate pool only; not proof of full raw-source coverage"
+  },
+  "priority_automatic_support": {
+    "U-E3/proceed/YES": {
+      "rows": 0,
+      "unique_questions": 0,
+      "physical_groups": 0,
+      "status": "missing_in_supplied_pool"
+    },
+    "U-E5/proceed/YES": {
+      "rows": 0,
+      "unique_questions": 0,
+      "physical_groups": 0,
+      "status": "missing_in_supplied_pool"
+    },
+    "U-E6/proceed/YES": {
+      "rows": 0,
+      "unique_questions": 0,
+      "physical_groups": 0,
+      "status": "missing_in_supplied_pool"
+    },
+    "U-E7/complete/YES": {
+      "rows": 0,
+      "unique_questions": 0,
+      "physical_groups": 0,
+      "status": "missing_in_supplied_pool"
+    },
+    "U-E2/return/any_answer": {
+      "rows": 0,
+      "unique_questions": 0,
+      "physical_groups": 0,
+      "status": "missing_in_supplied_pool"
+    }
+  },
+  "evaluation_missing": {
+    "val": [
+      "U-E2",
+      "U-E3",
+      "U-E4",
+      "R-E2",
+      "R-E3",
+      "R-E5"
+    ],
+    "test": [
+      "U-E1",
+      "U-E2",
+      "U-E3",
+      "U-E4",
+      "R-E2",
+      "R-E3",
+      "R-E5"
+    ]
+  },
+  "fixed_equal_eval_ids_emitted": 0,
+  "production_changed": false,
+  "prompt_changed": false,
+  "labels_changed": false,
+  "training_changed": false,
+  "new_rgb_frames_viewed": 0,
+  "replay_run": false,
+  "gpu_run": false,
+  "pushed": false,
+  "g1": "in_progress",
+  "g2": "not_run",
+  "limits": [
+    "Local supplied pool only, not full raw-source coverage.",
+    "Evaluation subsets are audit plans, not wired into training/checkpoint selection.",
+    "Two junction history disagreements remain unresolved; no production admission gate added.",
+    "No RGB/geometry/source-pixel revalidation in this iteration."
+  ]
+}

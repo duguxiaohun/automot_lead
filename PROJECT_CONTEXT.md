@@ -1,5 +1,43 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-11 v50白名单发布与U-E7补覆盖RGB审计
+
+新增服务器只读server_readiness入口及440文件发布SHA清单，自动CPU回归/preflight/元数据盘点，≤30MB ZIP带回执；旧元数据不认证，失败也留包。用户授权push仅源码/轻量文档证据；checkpoint/权重/RGB/完整回放留本机。服务器立即按audit_joint/SERVER_V50_START_20261011.md同步后运行server_readiness.sh，交report.zip+package.json，未确认正式资产前不建库/训练。
+本机14训练路线766帧2786题原生v50回放，原始语义与v49相同；两/四图各795条完整配对，U-E7 complete/readiness YES各13条/13物理组，旧13候选均保留；Town12/002115 f70仍不可比。原生两模式各隔离4条历史歧义题，不改答案；766帧P3动作证据另算，不强行跨阶段同义。实际7联系表80不同RGB帧、另2原图含在80内，240源SHA通过；雾天可观察性仍待审，非盲审/新批准，未合入正式全池/重建短视图。32.28s/401688KiB；完整2256回归通过100.06s。服务器脚本本机core管道门+缺基座退出2/1仍产26313字节已核验包，非服务器成功。生产v50合同/提示词未再变，G0未过/G1继续/G2未运行，无GPU/远程训练。见LABEL_RGB_V50_RELEASE_20261011.md及label_rgb_v50_release_verification_20261011.json；完整产物checkpoints/label_rgb_v50_release_20261011。
+
+### 2026-10-11 v50生产等量评测、规则选优与历史隔离
+
+按用户最新授权补生产三处接线：P3去重后固定十事件等量val/eval（INVALID另报）；P4原生/短视图训练、评测、重载绑定固定无放回清单，入口传固定十事件全集，缺事件提前失败。新增显式rule_consistency+teacher_references，仅规则train及物理组隔离自动留出选优，排除独立老师审核预约；不冒充独立准确率。已知路口同目标/输入的停车历史UNKNOWN/YES在弃权过滤前隔离，回执和加载拒绝重引入，不改答案/合并实例。任务v50、老师仍v17但SHA更新、同预约v30/空registry v25；旧数据/adapter须原合同，不改hash兼容。
+本机2路线110帧394问题原生重放与v49原始语义相同，8歧义题（两模式各4）隔离，各编译96；6.36s/240640KiB，重引入反例拒绝。完整2250回归通过98.96s，含真实CPU小模型规则选优测试；新RGB目视0、无Qwen GPU/远程/全池重建/push。正式池及五项关键条件支持仍待补，局部val/test缺事件会被新版拒绝；G0未通过/G1继续/G2未运行。见AutoMoT/qwen3vl_local/audit_joint/TRAINING_SCOPE_20261011.md §9、production_wiring_v50_verification_20261011.json及NEXT_TESTS_20261011.md新步骤。完整本机证据checkpoints/production_wiring_v50_20261011/scope_replay，旧夹具/试跑失败日志保留。
+
+### 2026-10-11 开训统计v2输入绑定与等量评测计划
+
+只读training_scope v2绑定描述文件/父库/实际索引/逻辑路径/SHA，统计结束复查；Phase3显式缺索引missing、缺manifest incomplete并保留P4统计。原生核验后分报候选池/回放覆盖及五项关键自动readiness支持；新增不看答案、固定seed、物理组轮转、无放回等量评测ID清单，缺事件不生成部分清单，未接入训练选优。确认原生完整十事件macro缺事件返回null，评分器不改。v49局部七轮两模式/world1/4计划及train_cells与旧报告完全一致；候选82/回放47路线，五项关键格仍0、val缺6/test缺7。29.77s/245820KiB、9统计输入绑定通过；13新增回归、完整2223通过107.83s。未新增RGB目视/回放/标定修改/提示词/训练/GPU/push，两处路口历史准入仍未解决。见audit_joint/TRAINING_SCOPE_20261011.md §7及training_scope_v2_verification_20261011.json；本地产物checkpoints/training_scope_v2_20261011。服务器交回当前正式池v2统计，不重跑旧fit；G1继续/G2未运行。
+
+### 2026-10-11 开训收敛、Action均衡参考与十事件续审
+
+用户仅要求事件间1∶1，不要求YES/NO等额；标定问题只报告。本轮新增只读training_scope，复用原生加载/采样及Action权重。v49局部3263/239/123，七轮RGB2/4与world1/4同序、各事件1024；val缺6/test缺7事件，U-E3仅27题/单题最多38次；规则U-E3/5/6缺proceed正例、U-E7缺complete正例，不推断全源。Phase3原生生成去重可破坏题数等额，binary/choice实测回归；正式索引缺失。tmux10路线1579帧120.76秒/211916KiB，492P3候选/2874P4问题与旧v49同范围逐条一致；实际12联系表82不同RGB/12路线、246源SHA/40学生像素通过，非盲审。新增10测试、完整2210项通过（107.57s）；无生产/提示词/标签修改、GPU/远程/push。E1–E6等不阻塞开训，收尾集中当前正式池、历史准入与均衡评测缺口、一次服务器新基线。见AutoMoT/qwen3vl_local/audit_joint/TRAINING_SCOPE_20261011.md及training_scope_verification_20261011.json；产物checkpoints/training_scope_final_20261011及training_scope_rgb_20261011。G1继续/G2未运行。
+
+### 2026-10-11 v49并发路口身份与RGB续审
+
+新增junction_review只读回执/帧全集/老师合同/源SHA与逻辑目标绑定、真实渲染输入比较。18路线1023帧中15路线198并发帧253对（有效同路口217/未知36），470同目标重复输入组、2 UNKNOWN/YES弃权分歧、0二元矛盾；不自动归并。Town15 002210 f45/002091 f44旧实例保留停车NO而新锚点无历史，同RGB提示词分别catchup UNKNOWN/readiness YES，须准入复核，告警未接生产硬门。13保留complete正例均不在当前47路线池，弱必要门/风险窗口通过、严格批准0；另1实例截止不可比，未补训。实际13联系表117不同RGB/6路线，351源SHA；候选543源、审计1032源SHA，非盲审。19新测试/audit_joint315通过；6.73秒/239532KiB，未改生产/提示词/训练/push。见AutoMoT/qwen3vl_local/audit_joint/JUNCTION_RGB_REVIEW_V49_20261011.md及junction_rgb_review_v49_verification_20261011.json；最终产物checkpoints/junction_review_v49_20261011/audit_bound。G1继续/G2not_run，服务器仅CPU/盘点。
+
+
+### 2026-10-11 v49路口生命周期与整实例RGB续审
+
+原生teacher_replay先refresh_uncommitted再执行生命周期门，修正临时PROCEED使过期等待漏截止；已提交执行保持，提示词/阈值/P3动作不改。任务v49/老师v17/同预约v29/空registry v24，旧v48合同拒绝。47路线5847帧重算365.09s/369804KiB；9866原始题/目标和P3动作证据1588候选不变。原生2/4各3263/273/186、短视图3263/239/123；val/test各自与v48字节相同，train语义相同证据ID变；505YES/2758NO，world1/4及两模式10240题序一致、各事件1024、呈现2773YES/7467NO。2181完整回归105.23s通过，含2新生命周期测试。
+另18诊断路线1023帧v48/v49原生回放3384→3294条：Town12 002115 f61重新运动截止旧等待，删除后继90条；Town07另41帧62→60，f40出路口截止。全部completed=false、无新YES/改NO。14旧weak complete YES中13同命题仍YES且两模型均NO，1旧RGB4正确题当前命题不再可比，不重算改善率。实际26联系表193不同RGB/19路线、579源SHA；非盲审/整路线目视。4歧义路线完整回放41并发帧，仍不合并自车/车辆/STOP锚点。最终仅bound_*回放可信，已断言装载路径/版本/SHA；初次缺依赖和错误装载版本试跑保留但排除。G1继续/G2not_run，无GPU/训练/push。见AutoMoT/qwen3vl_local/audit_joint/LABEL_AUDIT_V49_20261011.md及label_audit_v49_verification_20261011.json，完整产物checkpoints/joint_label_v49_20261011及ue7_complete_instances_v49_20261011。服务器只补CPU/资产盘点，不重做四组推理/不续训。
+
+### 2026-10-11 U-E7拟合交接与逐帧RGB复核
+
+收到1232文件U-E7包、原一轮1264文件SHA通过；四组723题/1446输出，采样/原始解析/检查点回执绑定通过。本机缺原视图/权重，internal_consistency_verified+source_binding verified，不冒称查询全集/实测GPU。complete YES命中2图1/29、4图3/29，proceed15/108、24/108；1853输入RGB文件及像素SHA通过。专用tmux旧/新各9路线476帧，31.47/31.19秒约72MiB，P3动作证据不变；实际15联系表142不同RGB/2原图（含在142内）、426源SHA，非盲审。104道覆盖题78规则不变、6变化、7不可比、13人工待审，619未回放；不改生产标签/提示词。新增fit_review保守实例/状态/阶段/RGB关联及物理组分层，修复跨Python浮点8ULP复验；22新测试/audit_joint296通过，两Python真实包通过。四组不重推/不续训，服务器仅补CPU/资产盘点，本地继续完成定义/路口身份/可观察性。G1继续/G2not_run。见AutoMoT/qwen3vl_local/audit_joint/UE7_FIT_RGB_REVIEW_20261011.md与ue7_fit_rgb_verification_20261011.json，完整产物checkpoints/ue7_fit_received_20261011；未GPU/训练/push。
+
+
+### 2026-10-11 v48分阶段RGB与并发锚点复核
+
+新增audit_joint/rgb_review.py，来源绑定的短两图锁定→四图锁定→因果来源揭示，早期屏不含参考/事实/预测，独占判断及阶段SHA链；明确开发流程不冒充G2。实际5训练题三阶段、29并发帧候选4路线；目视65不同RGB/8路线/20联系表，195源SHA。两个修复锚点投影稳定通过，U-E1普通反例有真实闭合/间距波动；UE7 f51几何已解但速度波动1.881不满足稳定门。v48最终train UE7 complete人工15YES/9NO、弱0YES/7NO，仅局部池。29歧义锚点在自车/横穿车/STOP间变化，待查重复路口身份，确认跨阶段匹配仍0。两/四图各1YES4UNKNOWN，来源阶段1YES2NO2UNKNOWN，不倒填或估计准确率。15新测试、audit_joint274通过；生产合同/标签未改、未GPU/训练/push。见AutoMoT/qwen3vl_local/audit_joint/RGB_REVIEW_V48_20261011.md及rgb_review_verification_20261011.json；产物checkpoints/rgb_review_v48_20261011。服务器仍按NEXT_TESTS旧合同推理/盘点，不续训。
+
+
 ### 2026-10-11 学生输入与老师历史来源盘点
 
 新增只读input_evidence，正式v48短视图3625语义题/7250两模式记录，精确文字/RGB身份、递归老师来源及模型输入SHA绑定。2832弱训练题证据包均含RGB2窗口前历史，RGB4有1392题；仅来源范围，不判必要性/错标/不可观察。431人工train与239val/123test缺原生老师包保留空，不否认原审核。172条件格分报题数/物理组，16新增测试、联合审计259通过；12.73秒/213816KiB。完整59MB逐题产物留checkpoints/input_evidence_v48_20261011_release；无新RGB复验/目视/GPU/训练，G1in_progress/G2not_run。见AutoMoT/qwen3vl_local/audit_joint/INPUT_EVIDENCE_20261011.md及input_evidence_verification_20261011.json。服务器仍按NEXT_TESTS_20261011.md执行CPU盘点和旧合同U-E7四组推理，暂不训练。

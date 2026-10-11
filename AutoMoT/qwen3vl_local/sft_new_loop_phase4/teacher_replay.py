@@ -69,6 +69,11 @@ def route_records(root, route):
                 ident=f"teacher/{route['scenario']}/{route['route_id']}/{seed['event']}/{seed['actor_id']}/{number}"
                 active[key]=(Episode(seed['event'],ident,branch=seed.get('branch','default'),**seed.get('episode_context',{})),seed);seen.add(key)
         for key,(ep,seed) in list(active.items()):
+            # Lifecycle checks must see the observed state, not yesterday's
+            # unexecuted start proposal. questions() also refreshes, but doing
+            # it there is too late for stale-wait/resumption/retirement gates.
+            # The refresh is idempotent and preserves committed execution.
+            ep.refresh_uncommitted()
             # A completion established in the preceding observation stays valid;
             # today's deletion still appears in the route anomaly ledger.
             if ep.finished:
@@ -210,6 +215,8 @@ def _write_route(args):
 
 
 def inspect_route(path,route,header):
+    from .history_admission import quarantine
+    history_blocked=set()
     counts=Counter();targets=Counter();seen=[];question_ids=set()
     with Path(path).open() as stream:
         if json.loads(next(stream))!=dict(kind='header',**header):raise ValueError('stale teacher route artifact')
@@ -227,10 +234,12 @@ def inspect_route(path,route,header):
                     raise ValueError('question outside route/frame')
                 if q['question_id'] in question_ids:raise ValueError('duplicate teacher question')
                 question_ids.add(q['question_id']);targets[q['rule_class']+'/'+q['rule_target']]+=1
+            _, exclusions=quarantine(row.get('questions',[]))
+            history_blocked.update(i for record in exclusions for i in record['question_ids'])
     if seen!=route['rgb_frames']:raise ValueError('missing/duplicate/out-of-order frame dispositions')
     return dict(scenario=route['scenario'],route_id=route['route_id'],physical_group=route['physical_group'],
                 split=route['split'],frames=len(seen),dispositions=dict(counts),targets=dict(targets),sha256=file_sha(path),
-                artifact=Path(path).name)
+                artifact=Path(path).name,history_ambiguous_question_ids=sorted(history_blocked))
 
 
 def validate_question(q,*,expected_teacher_sha=None):
@@ -332,7 +341,7 @@ def accounting(pool,index_path):
     header=dict(policy=POLICY,teacher=rules.identity(),candidate_pool_sha256=pool['sha256'])
     if index.get('sha256')!=digest({k:v for k,v in index.items() if k!='sha256'}) or any(index.get(k)!=v for k,v in header.items()):
         raise ValueError('teacher production identity mismatch')
-    routes={(r['scenario'],r['route_id']):r for r in pool['routes']};seen=set();counts=Counter();targets=Counter()
+    routes={(r['scenario'],r['route_id']):r for r in pool['routes']};seen=set();counts=Counter();targets=Counter();history_blocked=set()
     for receipt in index['routes']:
         key=receipt['scenario'],receipt['route_id']
         if key in seen or key not in routes:raise ValueError('duplicate/foreign production route')
@@ -341,7 +350,9 @@ def accounting(pool,index_path):
         actual=inspect_route(index_path.parent/name,routes[key],header)
         if actual!=receipt:raise ValueError('teacher route receipt mismatch')
         counts.update(receipt['dispositions']);targets.update(receipt['targets'])
+        history_blocked.update(actual['history_ambiguous_question_ids'])
     return dict(processed_routes=len(seen),processed_frames=sum(counts.values()),dispositions=dict(counts),
+        history_ambiguous_question_ids=sorted(history_blocked),
         rule_targets=dict(targets),complete_causal_production=bool(routes) and seen==set(routes),
         index_sha256=file_sha(index_path),scope='complete frame accounting, including reasoned abstentions; not label approval')
 

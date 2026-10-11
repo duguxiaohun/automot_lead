@@ -83,7 +83,8 @@ def test_cli_capacity_failure_is_nonzero(monkeypatch,flag):
 
 
 def test_direct_train_capacity_rejected_before_loading_model(monkeypatch,tmp_path):
-    monkeypatch.setattr(train,'load_dataset',lambda *a,**k:({'train':[{}]},dict(training_admission={})))
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool
+    monkeypatch.setattr(train,'load_dataset',lambda *a,**k:(pool(),dict(rgb_mode=4,training_admission={})))
     def fail(*a,**kw):raise CapacityError({'requested':10000})
     monkeypatch.setattr(train,'plan',fail)
     monkeypatch.setattr(train,'load_bundle',lambda *a,**kw:pytest.fail('model loaded before capacity check'))

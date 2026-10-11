@@ -84,28 +84,35 @@ def main():
     p.add_argument('--max-question-repeat',type=int,default=4)
     p.add_argument('--require-complete-coverage',action='store_true',
                    help='Optional exhaustive coverage acceptance, not needed to start training')
+    p.add_argument('--selection-mode', choices=('reviewed','rule_consistency'), default='reviewed')
+    p.add_argument('--teacher-references', type=Path)
     a=p.parse_args()
     if min(a.epochs,a.accumulation,a.cap,a.lora_rank,a.lora_alpha,a.max_length)<1 or a.lr<=0:
         p.error('invalid training parameters')
-    data,manifest=load_dataset(a.dataset,rgb_mode=a.rgb_mode,require_trainable=not a.sampling_only,
+    data,manifest=load_dataset(a.dataset,rgb_mode=a.rgb_mode,require_trainable=False,
                                require_complete_coverage=a.require_complete_coverage)
     admission=manifest['training_admission']
     if a.sampling_policy in ('phase3_balanced','full_event_equal'):
         from ..full_sampling import validate_dataset_scope
         validate_dataset_scope(manifest)
+    from ..evaluation_policy import prepare as prepare_evaluation, score_cases
+    from ..taxonomy import EVENTS
+    data,evaluation=prepare_evaluation(data,mode=a.selection_mode,references=a.teacher_references,
+        rgb_mode=a.rgb_mode,short=True,seed=a.seed)
+    admission=evaluation['training_admission']
     rank=int(os.environ.get('RANK','0'))
     world=int(os.environ.get('WORLD_SIZE','1'))
     local=int(os.environ.get('LOCAL_RANK','0'))
     if a.sampling_only:
         sampling_history=None
         for epoch in range(a.epochs):
-            _,audit=plan(data['train'],epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
+            _,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
             sampling_history=audit.pop('next_history',None)
             if rank==0:
                 print(json.dumps(audit),flush=True)
         return
     # Capacity is independent of learned weights; reject before CUDA/model/output creation.
-    plan(data['train'],epoch=0,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,max_question_repeat=a.max_question_repeat)
+    plan(data['train'],expected_events=EVENTS,epoch=0,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,max_question_repeat=a.max_question_repeat)
     coverage=manifest['coverage']
     import torch
     import torch.distributed as dist
@@ -121,7 +128,8 @@ def main():
     config={k:getattr(a,k) for k in ('lr','accumulation','cap','epoch_samples','seed','max_length','lora_rank','lora_alpha','vision_scope','require_complete_coverage','sampling_policy','max_question_repeat')}
     config['paired_training']=dict(policy='same_student_view_membership',
                                   selected_ids=manifest['student_view']['selected_ids'])
-    config['selection_metric']='transferred_reference_event_macro_agreement_v1'
+    config['evaluation']=evaluation
+    config['selection_metric']=evaluation['selection_metric']
     run_contract=dict(source=contract(),dataset=digest(manifest),training=config,world_size=world,
                       observation_contract=manifest['observation_contract'])
     if rank==0:
@@ -164,7 +172,7 @@ def main():
         # Epoch seed makes epoch-boundary recovery independent of prior validation RNG use.
         torch.manual_seed(a.seed+epoch*world+rank)
         random.seed(a.seed+epoch*world+rank)
-        indices,audit=plan(data['train'],epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
+        indices,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
         next_sampling_history=audit.pop('next_history',None)
         local_indices=indices[rank::world]
         records=sample_records(data['train'],indices,world)
@@ -226,8 +234,8 @@ def main():
             validation_start=time.perf_counter()
             report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length)
             validation_seconds=time.perf_counter()-validation_start
-            # Each observed event has one vote, independent of its subgroup count.
-            # The fixed ten-event score remains null while any event is missing.
+            # Selection consumes the source-bound fixed ten-event subset.
+            report.update(score_cases(cases,a.selection_mode,evaluation['plans']['val']['selected_ids']))
             score=report['selection_agreement']
             if score is None or not math.isfinite(score) or not 0<=score<=1:
                 raise ValueError('invalid validation selection score')

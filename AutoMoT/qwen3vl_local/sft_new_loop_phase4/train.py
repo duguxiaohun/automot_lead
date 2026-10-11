@@ -82,15 +82,17 @@ def main():
     p.add_argument('--max-question-repeat',type=int,default=4)
     p.add_argument('--require-complete-coverage',action='store_true',
                    help='Optional exhaustive coverage acceptance, not needed to start training')
+    p.add_argument('--selection-mode', choices=('reviewed','rule_consistency'), default='reviewed')
+    p.add_argument('--teacher-references', type=Path)
     a=p.parse_args()
     if min(a.epochs,a.accumulation,a.cap,a.lora_rank,a.lora_alpha,a.max_length)<1 or a.lr<=0:
         p.error('invalid training parameters')
-    data,manifest=load_dataset(a.dataset,require_trainable=not a.sampling_only,
+    data,manifest=load_dataset(a.dataset,require_trainable=False,
                                require_complete_coverage=a.require_complete_coverage)
     pairing=None
     if a.paired_with is not None:
         from .paired_training import load_view
-        data,pairing=load_view(data,manifest,a.paired_with)
+        data,pairing=load_view(data,manifest,a.paired_with,require_trainable=a.selection_mode!='rule_consistency')
         if a.require_complete_coverage:
             from .dataset import coverage_report
             if not coverage_report(sum(data.values(),[]))['ready']:raise ValueError('paired training view lacks exhaustive coverage')
@@ -99,6 +101,11 @@ def main():
     if a.sampling_policy in ('phase3_balanced','full_event_equal'):
         from .full_sampling import validate_dataset_scope
         validate_dataset_scope(manifest,pairing)
+    from .evaluation_policy import prepare as prepare_evaluation, score_cases
+    from .taxonomy import EVENTS
+    data,evaluation=prepare_evaluation(data,mode=a.selection_mode,references=a.teacher_references,
+        rgb_mode=manifest['rgb_mode'],short=False,seed=a.seed)
+    admission=evaluation['training_admission']
     rank=int(os.environ.get('RANK','0'))
     world=int(os.environ.get('WORLD_SIZE','1'))
     local=int(os.environ.get('LOCAL_RANK','0'))
@@ -106,13 +113,13 @@ def main():
         if pairing is not None and rank==0:print(json.dumps(dict(paired_training=pairing)),flush=True)
         sampling_history=None
         for epoch in range(a.epochs):
-            _,audit=plan(data['train'],epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
+            _,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
             sampling_history=audit.pop('next_history',None)
             if rank==0:
                 print(json.dumps(audit),flush=True)
         return
     # Capacity is independent of learned weights; reject before CUDA/model/output creation.
-    plan(data['train'],epoch=0,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,max_question_repeat=a.max_question_repeat)
+    plan(data['train'],expected_events=EVENTS,epoch=0,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,max_question_repeat=a.max_question_repeat)
     if pairing is not None:
         from .dataset import coverage_report
         coverage=coverage_report(sum(data.values(),[]))
@@ -130,7 +137,8 @@ def main():
     torch.manual_seed(a.seed)
     config={k:getattr(a,k) for k in ('lr','accumulation','cap','epoch_samples','seed','max_length','lora_rank','lora_alpha','vision_scope','require_complete_coverage','sampling_policy','max_question_repeat')}
     config['paired_training']=pairing
-    config['selection_metric']='event_macro_accuracy_observed_v1'
+    config['evaluation']=evaluation
+    config['selection_metric']=evaluation['selection_metric']
     run_contract=dict(source=contract(),dataset=digest(manifest),training=config,world_size=world,
                       observation_contract=manifest['observation_contract'])
     if rank==0:
@@ -171,7 +179,7 @@ def main():
         # Epoch seed makes epoch-boundary recovery independent of prior validation RNG use.
         torch.manual_seed(a.seed+epoch*world+rank)
         random.seed(a.seed+epoch*world+rank)
-        indices,audit=plan(data['train'],epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
+        indices,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
         next_sampling_history=audit.pop('next_history',None)
         local_indices=indices[rank::world]
         if rank==0:
@@ -206,10 +214,10 @@ def main():
             raw=bundle.model.module if world>1 else bundle.model
             raw.eval()
             report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length)
-            # Each observed event has one vote, independent of its subgroup count.
-            # The fixed ten-event score remains null while any event is missing.
-            score=report['event_macro_accuracy_observed']
-            if not math.isfinite(score) or not 0<=score<=1:
+            # Selection consumes the source-bound fixed ten-event subset.
+            report.update(score_cases(cases,a.selection_mode,evaluation['plans']['val']['selected_ids']))
+            score=report['selection_agreement']
+            if score is None or not math.isfinite(score) or not 0<=score<=1:
                 raise ValueError('invalid validation selection score')
             improved=score>best
             best=max(best,score)

@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-11",
+  "status": "local_audit_completed_with_training_gaps",
+  "source_sha256": {
+    "qwen3vl_local/audit_joint/training_scope.py": "5ba20fc81c1dac355221ac189a1078033298f0f2cc92c4767e696554d051796c",
+    "qwen3vl_local/audit_joint/tests/test_training_scope.py": "12cd7c02a9e55382dda965eceeb552e610929241d2d7999eec6b7c5efee7661c"
+  },
+  "full_regression": {
+    "passed": 2210,
+    "seconds": 107.57,
+    "exit_code": 0,
+    "log_sha256": "83d163805bd9c5ee1474a048f7e2243896e914b58edc652d347dd6dc8f641b6c",
+    "new_tests": 10
+  },
+  "replay": {
+    "replay_routes": 10,
+    "replay_frames": 1579,
+    "phase4_questions": 2874,
+    "phase3_candidates": 492,
+    "all_phase3_rows_equal_v49": true,
+    "all_phase4_rows_equal_v49": true,
+    "receipt_files": 27,
+    "viewed_sheets": 12,
+    "viewed_distinct_frames": 82,
+    "viewed_routes": 12,
+    "verified_unique_rgb_meta_bbox_sources": 246,
+    "decoded_student_rgb_checks": 40,
+    "rgb_notes": {
+      "U-E1": "f265–271 dark lead vehicle moves farther ahead; no obvious visual contradiction of proceed. Exact stability is not established by visual review.",
+      "U-E2": "f56–62 oncoming red car passes left of stationary work platform; f62 still has side traffic. Visible-gap YES does not certify unseen rear/full maneuver clearance.",
+      "U-E3": "f105–111 parked blue car remains left while dark cut-in car straightens ahead. Current corridor-clear/release facts are false; no RGB basis to force YES.",
+      "U-E4": "f47–53 pedestrian moves left and remains visible at f53; car remains to right. Image presence is not geometric corridor intersection. Do not certify clearance from this montage.",
+      "U-E5": "f42–48 bend and distant vehicle are small; cones visible. No basis to replace conflict NO with YES.",
+      "U-E6": "f27–33 foggy junction contains approaching and crossing vehicles; no visual basis for unconditional proceed.",
+      "U-E7": "f32–38 red car crosses then turns toward right; other traffic remains. Movement alone does not prove priority or stable completion.",
+      "R-E2": "f4–10 ego turns through junction toward road. R-E2 context is navigation maneuver, not proof of prior bypass or current first lane crossing.",
+      "R-E3": "f23–29 highway traffic ahead, usable front-right road region. Rear clearance is outside this view; enter target remains visible-condition scope.",
+      "R-E5": "f30–36 STOP visible, scene nearly static, traffic on intersecting road. Dwell history and right of way cannot be certified from the final two images.",
+      "junction_revisit": "002210 f42–48 and 002091 f42–46 retain opposing traffic while ego moves; existing UNKNOWN/YES history divergence remains unresolved, not a binary contradiction."
+    },
+    "selection": "development windows selected using current labels; not blind or independent; overlaps earlier audits",
+    "newly_confirmed_label_errors": 0,
+    "label_accuracy_certified": false,
+    "source_manifest_sha256": "5127c6b338cd295941e4be1e69db0d1e4a7137f6ee10f2d83a4d06003c62d6e7",
+    "replay_receipt_sha256": "e88961c0f7d979ed180904fd99683e051e4d8c2eb42b4f61472d1bc335a05371"
+  },
+  "phase4": {
+    "train": 3263,
+    "val": 239,
+    "test": 123,
+    "train_rules": 2832,
+    "train_manual": 431,
+    "epochs_planned": 7,
+    "worlds": [
+      1,
+      4
+    ],
+    "rgb_modes": [
+      2,
+      4
+    ],
+    "all_plan_orders_equal": true,
+    "per_event_per_epoch": 1024,
+    "missing_val": [
+      "U-E2",
+      "U-E3",
+      "U-E4",
+      "R-E2",
+      "R-E3",
+      "R-E5"
+    ],
+    "missing_test": [
+      "U-E1",
+      "U-E2",
+      "U-E3",
+      "U-E4",
+      "R-E2",
+      "R-E3",
+      "R-E5"
+    ]
+  },
+  "phase3_formal_index": "missing",
+  "scope_report_sha256": "5bdc3ad3f1e447a93d004c9e6b5299bbc52a354fd626243fece0528ef67188d1",
+  "production_code_changed": false,
+  "prompt_changed": false,
+  "labels_changed": false,
+  "gpu_training": false,
+  "remote_execution": false,
+  "pushed": false,
+  "g1": "in_progress",
+  "g2": "not_run",
+  "user_balance_requirement": "equal events only; no YES/NO equality requirement",
+  "limitations": [
+    "Local 47-route pool is not a full production pool.",
+    "CPU plans are not GPU execution.",
+    "RGB review is development, not blind.",
+    "Rule-generated labels are not independently certified."
+  ],
+  "next_server": "Current Phase3 formal index/variant and current Phase4 complete-pool statistics; no repeat old fit inference."
+}

@@ -42,7 +42,7 @@ def select(left,right):
     return [a[i] for i in pairs],[b[i] for i in pairs],report
 
 
-def load_view(data,manifest,peer_path):
+def load_view(data,manifest,peer_path, *, require_trainable=True):
     """Validate both immutable datasets, then select without rewriting either."""
     from .dataset import load_dataset,coverage_report
     from .admission import training_report
@@ -53,7 +53,7 @@ def load_view(data,manifest,peer_path):
     selected,_,report=select(data['train'],peer['train'])
     view=dict(data,train=selected)
     admission=training_report(view,coverage_report(sum(view.values(),[])))
-    if not admission['trainable']:raise ValueError('paired training intersection fails admission: '+str(admission['errors']))
+    if require_trainable and not admission['trainable']:raise ValueError('paired training intersection fails admission: '+str(admission['errors']))
     report.update(datasets={str(m['rgb_mode']):digest(m) for m in (manifest,other)},
                   selected_ids_sha256=digest([r['id'] for r in selected]),
                   original_train_counts={str(manifest['rgb_mode']):len(data['train']),str(other['rgb_mode']):len(peer['train'])},

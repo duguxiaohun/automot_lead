@@ -262,12 +262,12 @@ def test_short_trainer_sampling_entry_handles_real_view_without_weights(native_v
     from qwen3vl_local.sft_new_loop_phase4.rgb_short import train
     parent, output = native_view
     data.create(parent, output)
-    # The small native fixture is not a ten-event production pool; legacy_ring
-    # exercises the actual CLI/view integration without pretending it is one.
+    # Even legacy sampling cannot bypass the production evaluation prerequisites.
     monkeypatch.setattr(sys, 'argv', ['train', '--dataset', str(output), '--rgb-mode', '2',
         '--output-dir', str(tmp_path / 'unused_weights'), '--sampling-only', '--sampling-policy', 'legacy_ring',
         '--epochs', '1', '--epoch-samples', '4'])
-    train.main()
+    with pytest.raises(ValueError, match='admission|events'):
+        train.main()
     assert not (tmp_path / 'unused_weights').exists()
 
 
@@ -280,9 +280,12 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     adapter = tmp_path / 'adapter'
     adapter.mkdir()
     manifest = {'observation_contract': contract.observation_contract(2)}
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool, as_cases
+    from qwen3vl_local.sft_new_loop_phase4.evaluation_policy import prepare
+    fixture=pool();_,selection=prepare(fixture,short=True,rgb_mode=2)
     (adapter / 'phase4_contract.json').write_text(json.dumps(dict(dataset=digest(manifest),
-        observation_contract=manifest['observation_contract'])))
-    monkeypatch.setattr(evaluate, 'load_dataset', lambda *args, **kwargs: ({'val': [{}]}, manifest))
+        training={'evaluation':selection},observation_contract=manifest['observation_contract'])))
+    monkeypatch.setattr(evaluate, 'load_dataset', lambda *args, **kwargs: (fixture, manifest))
     calls = []
     def select(n):
         assert n == 1 and 'CUDA_VISIBLE_DEVICES' not in os.environ
@@ -292,14 +295,14 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', 'old_mask')
     monkeypatch.setattr(devices, 'select_gpus', select)
     monkeypatch.setattr(evaluate, 'load_for_inference', lambda model, adapter, selected: calls.append((selected, os.environ['CUDA_VISIBLE_DEVICES'])))
-    monkeypatch.setattr(evaluate, 'evaluate_rows', lambda *args: ({'count': 1}, [{'id': 'one'}]))
+    monkeypatch.setattr(evaluate, 'evaluate_rows', lambda bundle,rows,*args: ({'count': len(rows)}, as_cases(rows)))
     output = tmp_path / 'results'
     monkeypatch.setattr(sys, 'argv', ['evaluate', '--dataset', str(tmp_path), '--model-dir', str(tmp_path),
         '--adapter', str(adapter), '--data-root', str(tmp_path), '--output-dir', str(output), '--device', device])
     evaluate.main()
     assert calls == ([('cuda:0', '2')] if device == 'cuda' else [('cpu', 'old_mask')])
-    assert json.loads((output / 'metrics.json').read_text())['expected_count'] == 1
-    assert len((output / 'cases.jsonl').read_text().splitlines()) == 1
+    assert json.loads((output / 'metrics.json').read_text())['expected_count'] == 20
+    assert len((output / 'cases.jsonl').read_text().splitlines()) == 20
 
 
 @pytest.mark.parametrize('exit_code,reload_exit', [(0, 0), (9, 0), (0, 7)])

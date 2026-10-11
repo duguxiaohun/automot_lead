@@ -80,6 +80,24 @@ def validation_metrics(cases):
     return result
 
 
+def metrics_equal(left, right):
+    """Allow only rounding noise in derived floats across Python versions.
+
+    Python 3.12 changed float summation. Counts, types, keys and sequences
+    remain exact; this is never used for source/identity/receipt comparisons.
+    """
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, float):
+        return (math.isfinite(left) and math.isfinite(right) and
+                abs(left-right) <= 8 * max(math.ulp(left), math.ulp(right)))
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(metrics_equal(v, right[k]) for k,v in left.items())
+    if isinstance(left, list):
+        return len(left) == len(right) and all(metrics_equal(a,b) for a,b in zip(left,right))
+    return left == right
+
+
 def coarse(row):
     return (row['episode']['event'], row['edge'], row['slice'], row['target'])
 
@@ -172,7 +190,7 @@ def evidence(run_root, epoch):
         raise ValueError('validation membership mismatch')
     if any(r['paired_identity']['fields']['split'] != 'val' for r in cases.values()):
         raise ValueError('non-val reference')
-    if any(validation.get(k) != v for k,v in validation_metrics(list(cases.values())).items()):
+    if any(not metrics_equal(validation.get(k), v) for k,v in validation_metrics(list(cases.values())).items()):
         raise ValueError('validation metrics differ from cases')
     admission = read(root / 'data_admission.json')['training']
     if {s:v['rows'] for s,v in admission['counts'].items()} != view['counts']:
@@ -323,7 +341,7 @@ def verify_fit(output, *, run=None, dataset=None, package=None, result=None):
                 list(state_cell(case['paired_identity']['fields'])) != item['cell'] or
                 natural(item['sampled_presentations']) < 1):
             raise ValueError('fit selected identity or exposure changed')
-    if read(output/'fit_metrics.json') != fit_summary(list(actual.values())):
+    if not metrics_equal(read(output/'fit_metrics.json'), fit_summary(list(actual.values()))):
         raise ValueError('fit metrics differ from cases')
     verification = dict(status='internal_consistency_verified', unique_questions=len(actual),
         source_binding='not_verified_original_evidence_not_provided',

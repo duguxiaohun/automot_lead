@@ -506,8 +506,19 @@ def _validation_work(
     rows: Sequence[FrameRow], *, target_per_bin: int, seed: int,
     auto_increase: bool = True, route_diverse: bool = False,
     require_invalid_coverage: bool = True, action_output_mode: str = "binary",
+    equal_events: bool = False,
 ) -> Tuple[List[WorkItem], Dict[str, Any]]:
     """仅对明确的 INVALID 预算不足增容，维持十类与 INVALID 的 10:2 比例。"""
+
+    if equal_events:
+        from qwen3vl_local.sft_new_loop_phase3.eval import _balanced_cases
+        from qwen3vl_local.sft_new_loop_phase3.evaluation_balance import select_work
+        all_cases = _balanced_cases(rows, cases_per_bin=0, seed=seed,
+            action_output_mode=action_output_mode, require_invalid_coverage=require_invalid_coverage)
+        work, audit = select_work(all_cases, seed=seed, limit=target_per_bin)
+        audit.update(requested=target_per_bin, effective=audit['per_event'],
+                     sampled_cases=len(work), unique_cases=len(work))
+        return work, audit
 
     requested = int(target_per_bin)
     if requested <= 0:
@@ -1435,7 +1446,7 @@ def train(args: argparse.Namespace) -> None:
                 data_root=pathlib.Path(args.data_root),
             )
             full_eval_work, loss_audit = _validation_work(
-                eval_rows,
+                eval_rows, equal_events=True,
                 target_per_bin=int(args.eval_balance_count),
                 seed=int(args.seed) + 1009,
                 auto_increase=bool(args.auto_eval_balance_count),
@@ -1448,7 +1459,7 @@ def train(args: argparse.Namespace) -> None:
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
                 stage = "generation"
                 full_generation_eval_work, generation_audit = _validation_work(
-                    eval_rows,
+                    eval_rows, equal_events=True,
                     target_per_bin=int(args.generation_eval_balance_count),
                     seed=int(args.generation_eval_sampling_seed),
                     auto_increase=bool(args.auto_eval_balance_count),

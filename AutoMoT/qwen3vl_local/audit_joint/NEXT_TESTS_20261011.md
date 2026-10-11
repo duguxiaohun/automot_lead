@@ -1,6 +1,85 @@
-# 服务器下一步：先诊断和盘点，暂不训练
+# 服务器下一步：v50正式池CPU准入，通过后新基线一轮
 
-本机继续做 G1 关联、证据来源及 G2 试标准备。服务器现在需要执行的是 **CPU 检查 + 旧一轮模型 U-E7 训练题推理**；不重复 U-E1 的181题，不续七轮，也不让 v48 接着旧 adapter 训练。
+**本次发布后的立即执行入口：** 先按 [SERVER_V50_START](SERVER_V50_START_20261011.md) 运行 `server_readiness.sh`，交回不超过30MB的 `report.zip` 与 `package.json`。它自动收集CPU日志、退出码、资产元数据和发布源码SHA，缺资产也能报告。下面B–D是后续资产齐备后的模板，不是要求现在从头建库/开训。
+
+**本节为2026-10-11最新步骤，取代下方v49及更早的执行建议；旧命令仅留作历史复现。** v50已接通十事件固定等量评测、显式规则一致率选优和路口历史歧义隔离；2250项本机回归通过。尚未push、未服务器执行。完整说明见 [开训报告§9](TRAINING_SCOPE_20261011.md#9-v50三处生产接线完成正式池仍待验收)。
+
+### A. 同步与资产准备
+
+沿用服务器已有 `sync_automot.sh` 分发到独立目录，确认包含 `evaluation_policy.py`、`history_admission.py`、Phase3 `evaluation_balance.py` 及v30/v25合同文件。不要用遗留应用目录的无关Git判断版本。先执行下方第1节CPU回归、只读盘点；旧一轮/拟合结果保留，无须重跑。
+
+当前源合同已变，旧v49及更早production/data/view不能直接交给v50使用。先交回**正式候选范围、当前回放合同/覆盖、Phase3正式索引及variant、可用空间**；缺资产明确报缺。不要仅凭18GB旧目录存在就重用，也不要同时重建两份production。以下B段仅适用于已经按v50正式入口生成、完整覆盖候选范围的资产；缺少这些前提先停止建库，确定来源与磁盘预算。
+
+### B. 新合同资产齐备后：自动训练库和规则留出
+
+在应用目录执行。下列四个路径必须替换为实际资产，`P50_NEW`须尚不存在。`P50_WEAK_REGISTRY`应是当前 `full_pipeline.default_registry()` 生成的弱监督registry；仓库空 `teacher_registry_v25.json` 是严格批准登记，不能拿它冒充弱训练许可。
+
+```bash
+P50_POOL=/实际路径/v50/candidates.json
+P50_PROD=/实际路径/v50/full_production/index.json
+P50_WEAK_REGISTRY=/实际路径/v50/weak_registry.json
+P50_NEW=checkpoints/phase4_auto_v50_new
+test ! -e "$P50_NEW" || exit 2
+mkdir -p "$P50_NEW"
+
+# 不传人工annotations；只编译一份RGB4，仍需一份production副本的空间。
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$P50_NEW" --min-free-gib 20 -- \
+  python -m qwen3vl_local.sft_new_loop_phase4.dataset \
+  --candidate-pool "$P50_POOL" --production-index "$P50_PROD" \
+  --teacher-registry "$P50_WEAK_REGISTRY" --max-teacher-questions-per-route 0 \
+  --data-root lead_data --rgb-mode 4 --output-dir "$P50_NEW/data4"
+
+bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$P50_NEW" --min-free-gib 20 -- \
+  python -m qwen3vl_local.sft_new_loop_phase4.teacher_evaluation \
+  --candidate-pool "$P50_POOL" --production-index "$P50_PROD" \
+  --data-root lead_data --rgb-mode 4 --output-dir "$P50_NEW/rule_refs4"
+
+python -m qwen3vl_local.sft_new_loop_phase4.rgb_short.build \
+  --dataset4 "$P50_NEW/data4" --output "$P50_NEW/student"
+```
+
+守护是余量监控，不是硬磁盘配额；先预算再运行。不要调用默认同时编译data2/data4的整套流水线来替代这里的单份编译。原生val/test可以为空，由显式自动留出包补足；两者仍须严格物理组隔离，独立老师审核预约不会参与选优。
+
+### C. CPU准入和采样检查
+
+```bash
+P50_VIEW="$P50_NEW/student/view"
+P50_REF4="$P50_NEW/rule_refs4"
+for P50_MODE in 2 4; do
+  WORLD_SIZE=4 RANK=0 python -m qwen3vl_local.sft_new_loop_phase4.rgb_short.train \
+    --dataset "$P50_VIEW" --rgb-mode "$P50_MODE" \
+    --selection-mode rule_consistency --teacher-references "$P50_REF4" \
+    --sampling-only --epochs 1 --output-dir "$P50_NEW/cpu_rgb$P50_MODE" \
+    > "$P50_NEW/cpu_rgb$P50_MODE.log" 2>&1 || break
+done
+```
+
+该命令只检查/打印计划，不初始化GPU、启动四rank或写训练权重。两份日志均须成功；任一缺事件/隔离/合同错误就先补数据，不跳过门禁。另提交正式池的逐事件×边×阶段×答案题数和物理组数，重点核对U-E3/5/6 proceed YES、U-E7 complete YES、U-E2 return；十事件等量不等于这些条件都有支持。等额val/test取最少事件的不同题数，禁止重复补足。
+
+### D. 覆盖和CPU准入通过后：两模式各完整一轮
+
+```bash
+for P50_MODE in 2 4; do
+  DATASET="$P50_VIEW" DATA_ROOT=lead_data MODEL_DIR=checkpoints/Qwen3.5-4B \
+  OUTPUT_DIR="$P50_NEW/runs_rgb$P50_MODE" RGB_MODE="$P50_MODE" \
+    bash qwen3vl_local/sft_new_loop_phase4/rgb_short/run.sh \
+      --selection-mode rule_consistency --teacher-references "$P50_REF4" --epochs 1 || break
+done
+```
+
+此时才使用四卡；每模式默认完整10240次呈现，脚本随后新进程保存重载核验。保留原题库、视图和参考包路径，独立评测/重载会核验其逻辑路径、解析目标和SHA。旧adapter不续用。交回run、固定评测计划、逐题输出、采样和重载回执，核对正常再安排后续轮数；规则一致率不能写成独立正确率。G0/G1/G2未因此自动通过。
+
+---
+
+## 历史记录（以下旧指令不覆盖上方v50步骤）
+
+**2026-10-11最新收尾顺序：** 用户确认只要求事件间1∶1；参照Action共用均衡实现后的实测与最短开训步骤见[开训收敛报告](TRAINING_SCOPE_20261011.md)。现需当前Phase3正式索引/variant、当前Phase4全池manifest及training_scope统计，避免把47路线局部缺额推断为全源缺额。E1–E6等优化不作为新基线前置；已完成的旧拟合不重复。下面历史命令保留，旧版本数据不交给新合同加载。
+
+**本地开发更新至v49：** 已修复未执行机会回滚晚于实例截止检查的问题，并完成局部题库差分；见[v49报告](LABEL_AUDIT_V49_20261011.md)。旧服务器结果继续保留原合同。下述CPU检查可用于同步后的新独立目录，训练/旧checkpoint复验仍须匹配各自原版本，不能让v49加载旧题库或直接续旧adapter；本轮未push。
+
+**接收更新：四组U-E7结果已交付并完成本机范围内复核，下面第2–3步仅保留作历史复现，不要再次执行。** 见[接收报告](UE7_FIT_RGB_REVIEW_20261011.md)。现在服务器只补尚未交付的第1步CPU回归/preflight/资产盘点；已有结果直接交回。继续暂停训练，待本地实例、完成定义及新版正式池准入差分明确后再登记新基线。
+
+本机继续做 G1 关联、证据来源及 G2 试标准备。原服务器清单是 **CPU 检查 + 旧一轮模型 U-E7 训练题推理**（推理现已完成）；不重复 U-E1 的181题，不续七轮，也不让 v48 接着旧 adapter 训练。
 
 以下命令均从对应版本的应用目录运行（目录内已有 `qwen3vl_local/` 和 `checkpoints/`）。新版通过既有 `sync_automot.sh` 同步到独立目录；旧一轮实验仍留在原目录/原环境。不要在应用目录遗留 `.git` 中 pull、不要把新版学生/老师文件覆盖旧实验。脚本的同步参数使用服务器已有方式。
 

@@ -70,6 +70,8 @@ def compile_bundle(pool,index_path,registry,*,rgb_mode,max_per_route=100):
     if rgb_mode not in (2,4) or type(max_per_route) is not int or max_per_route<0:raise ValueError('invalid teacher compilation budget')
     index_path=Path(index_path);coverage=accounting(pool,index_path);approval=validate_registry(registry)
     reserved=holdout_reservations();risks=risk_registry();counts=Counter();annotations=[]
+    from .history_admission import quarantine, POLICY as HISTORY_POLICY
+    history_exclusions=[]
     index=json.loads(index_path.read_text())
     for receipt in index['routes']:
         strata=defaultdict(list)
@@ -77,7 +79,10 @@ def compile_bundle(pool,index_path,registry,*,rgb_mode,max_per_route=100):
             next(stream)
             for line in stream:
                 row=json.loads(line)
-                for q in row.get('questions',[]):
+                questions,excluded=quarantine(row.get('questions',[]))
+                history_exclusions.extend(excluded)
+                counts['history_ambiguity_excluded']+=sum(q['rgb_mode']==rgb_mode for q in row.get('questions',[])) - sum(q['rgb_mode']==rgb_mode for q in questions)
+                for q in questions:
                     if q['rgb_mode']!=rgb_mode:continue
                     counts['considered']+=1
                     answer,reason=target(q,approval)
@@ -116,7 +121,7 @@ def compile_bundle(pool,index_path,registry,*,rgb_mode,max_per_route=100):
                 evidence_id='teacher/'+q['question_id'],frame_sha256={str(q['frame_id']):q['input_sources'][-1]['sha256']},
                 teacher_provenance=proof))
     counts['compiled']=len(annotations)
-    return annotations,dict(counts=dict(counts),approval=approval,production=coverage,rgb_mode=rgb_mode,
+    return annotations,dict(history_admission=dict(policy=HISTORY_POLICY,exclusions=history_exclusions),counts=dict(counts),approval=approval,production=coverage,rgb_mode=rgb_mode,
         max_per_route=max_per_route,automatic_catchup_limit=0,selection_policy='semantic_task_order_v1',
         evaluation_scope='teacher consistency only; manual reserved routes excluded')
 
