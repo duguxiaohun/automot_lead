@@ -1,5 +1,9 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-11 学生输入与老师历史来源盘点
+
+新增只读input_evidence，正式v48短视图3625语义题/7250两模式记录，精确文字/RGB身份、递归老师来源及模型输入SHA绑定。2832弱训练题证据包均含RGB2窗口前历史，RGB4有1392题；仅来源范围，不判必要性/错标/不可观察。431人工train与239val/123test缺原生老师包保留空，不否认原审核。172条件格分报题数/物理组，16新增测试、联合审计259通过；12.73秒/213816KiB。完整59MB逐题产物留checkpoints/input_evidence_v48_20261011_release；无新RGB复验/目视/GPU/训练，G1in_progress/G2not_run。见AutoMoT/qwen3vl_local/audit_joint/INPUT_EVIDENCE_20261011.md及input_evidence_verification_20261011.json。服务器仍按NEXT_TESTS_20261011.md执行CPU盘点和旧合同U-E7四组推理，暂不训练。
+
 ### 2026-10-11 白名单发布前验收
 
 v48最终回执补齐，47路线5847帧、原生2/4各3263/273/186（431人工+2832弱）、短视图3263/239/123；旧v47合同拒绝，同预约/空registry及源SHA通过。新G1工具纳入联合回归2126项通过（106.74秒）；服务器下一步为CPU检查/资产盘点及旧合同U-E7 complete/proceed已采训练题推理，暂不训练。具体命令见AutoMoT/qwen3vl_local/audit_joint/NEXT_TESTS_20261011.md。白名单仅源码/轻量文档证据；完整数据、权重和checkpoints留本机。

@@ -1,0 +1,96 @@
+{
+  "status": "verified",
+  "receipt_files": {
+    "input_evidence.jsonl": {
+      "bytes": 59101473,
+      "sha256": "e00b143209da50e682efe41c4bc1d6a950e59291ad57942b3335a7fff88b289e"
+    },
+    "summary.json": {
+      "bytes": 48495,
+      "sha256": "a48748ff30e48736d7860889544f964a13382b58fcd7b60bed2f4d05c2accdfa"
+    }
+  },
+  "semantic_questions": 3625,
+  "records": 7250,
+  "physical_groups": {
+    "train/rgb2": 47,
+    "train/rgb4": 47,
+    "val/rgb2": 11,
+    "val/rgb4": 11,
+    "test/rgb2": 6,
+    "test/rgb4": 6
+  },
+  "criterion_cells": 172,
+  "checks": [
+    "receipt bytes/SHA",
+    "unique and paired IDs",
+    "paired history and target",
+    "causal source boundaries",
+    "independent counts and criterion groups",
+    "implementation binding",
+    "release records byte-identical to independently recomputed inventory",
+    "release summary identical except implementation SHA"
+  ],
+  "date": "2026-10-11",
+  "artifact_root": "AutoMoT/checkpoints/input_evidence_v48_20261011_release",
+  "implementation_sha256": "bae711d567786837325cad90cae3bfd835eadebbfb762db06fa4003dd1c94155",
+  "view_sha256": "8635a1834fe8dccfbb099234bf4b282486c312ec967013f3499d38375fdff0b0",
+  "counts": {
+    "train/rgb2/rows": 3263,
+    "train/rgb2/source/per_frame_conditions": 30,
+    "train/rgb2/teacher_provenance_not_available": 431,
+    "train/rgb4/rows": 3263,
+    "train/rgb4/source/per_frame_conditions": 30,
+    "train/rgb4/teacher_provenance_not_available": 431,
+    "train/rgb2/source/reviewed_transition_band": 401,
+    "train/rgb4/source/reviewed_transition_band": 401,
+    "train/rgb2/source/weak_rule_teacher": 2832,
+    "train/rgb2/teacher_provenance_available": 2832,
+    "train/rgb2/history_before_input": 2832,
+    "train/rgb2/control_history_before_input": 0,
+    "train/rgb2/extra_teacher_rgb_frames": 2832,
+    "train/rgb4/source/weak_rule_teacher": 2832,
+    "train/rgb4/teacher_provenance_available": 2832,
+    "train/rgb4/history_before_input": 1392,
+    "train/rgb4/control_history_before_input": 0,
+    "train/rgb4/extra_teacher_rgb_frames": 2832,
+    "val/rgb2/rows": 239,
+    "val/rgb2/source/reviewed_transition_band": 239,
+    "val/rgb2/teacher_provenance_not_available": 239,
+    "val/rgb4/rows": 239,
+    "val/rgb4/source/reviewed_transition_band": 239,
+    "val/rgb4/teacher_provenance_not_available": 239,
+    "test/rgb2/rows": 123,
+    "test/rgb2/source/reviewed_transition_band": 123,
+    "test/rgb2/teacher_provenance_not_available": 123,
+    "test/rgb4/rows": 123,
+    "test/rgb4/source/reviewed_transition_band": 123,
+    "test/rgb4/teacher_provenance_not_available": 123
+  },
+  "test_result": {
+    "passed": 259,
+    "new_tests": 16,
+    "seconds": 8.47,
+    "exit_code": 0,
+    "scope": "audit_joint/tests"
+  },
+  "run_result": {
+    "seconds": 12.73,
+    "max_rss_kib": 213816,
+    "exit_code": 0
+  },
+  "g1_status": "in_progress",
+  "g2_status": "not_run",
+  "external_rgb_reverified": false,
+  "tokenizer_processor_verified": false,
+  "production_changed": false,
+  "training_run": false,
+  "test_log": {
+    "path": "AutoMoT/checkpoints/input_evidence_v48_20261011_final/tests_final.log",
+    "sha256": "827b5cf05ff3b1738926298cd03c74a3957fd57527e52353391ef4f7786e34ac"
+  },
+  "run_log": {
+    "path": "AutoMoT/checkpoints/input_evidence_v48_20261011_final/release_run.log",
+    "sha256": "029c3382ed3a31e829018ac268c552aef1b6bc38c017babec4862950c06ca5b3"
+  }
+}

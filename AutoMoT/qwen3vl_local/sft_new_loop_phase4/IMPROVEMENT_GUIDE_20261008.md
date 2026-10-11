@@ -1,5 +1,7 @@
 # Phase4 改进指导：条件证据、可观察性、双轴状态与弱老师审计
 
+**2026-10-11 输入证据盘点：** 新增只读正式短视图与老师递归来源关联，3625道两/四图配对题、7250输入记录，16项新增测试/联合审计259项通过。2832弱题均有短两图窗口之前的来源，四图有1392题；来源包络不证明必要性或错标。未新增RGB审核、训练或独立批准，见[实测与限制](../audit_joint/INPUT_EVIDENCE_20261011.md)，G1/G2状态仍以总方案 §14.1 为准。
+
 **2026-10-11 G1 时间线实施：** 新增原始问题/准入门交叉核验及 YES/NO/UNKNOWN 连续区间，v48 的47路线5847帧、9866原始问题生成1788区间；不把 UNKNOWN、停止问或源消失当 NO/完成。离线回执、状态同步和部署许可分列；同类事件仍缺参与者关联，G1未完成。29项新测试、联合审计243项通过，见 [G1 实测与缺口](../audit_joint/G1_TIMELINE_20261011.md)，唯一进度仍以总方案 §14.1 为准。
 
 **2026-10-11 拟合与标定续审：** 已接收拟合结果并开展237题点诊断、175不同RGB帧目视，发现U-E1弯道参考系问题及人工/弱老师完成定义差异；同帧Phase3证据不强制与Phase4同义。当前仅诊断及候选清单，未改生产标签。详见[逐帧报告](../audit_joint/LABEL_FIT_RGB_REVIEW_20261011.md)，共同状态以总方案§14.1为准；旧“等待181题拟合”步骤已由接收复核取代。
@@ -87,7 +89,7 @@ G0 按总方案已确定的 v42 选择冻结源码、资产、数据及采样，
 
 Phase3 没有实例 ID，不能只用路线+帧强配并发事件。`proceed YES` 后静止先记录执行等待；§6.3 的延迟报警阈值只排序审核，不把超时自动判作老师错。人工首批范围限定为已审开发路线与错例窗口，全量仅生成自动字段。
 
-建议产物：`phase4_condition_timeline.jsonl`、`criterion_provenance_report.json`、`production_admission_funnel.json`、`missing_branch_report.json`。本轮未生成这些产物。
+建议产物：`phase4_condition_timeline.jsonl`、`criterion_provenance_report.json`、`production_admission_funnel.json`、`missing_branch_report.json`。2026-10-11已由timeline入口产出条件区间，并由input_evidence入口产出逐题来源包络和条件支持计数；完整条件级来源、全量准入漏斗及缺失分支报告仍未完成。
 
 ## 5. P4-G2：优先审哪些可观察性问题
 
