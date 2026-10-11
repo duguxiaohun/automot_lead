@@ -481,6 +481,21 @@ def restriction_required(clear, priority):
     return None
 
 
+def progress_stability_evidence(frames):
+    """Existing weak longitudinal gate, separate from junction exit geometry.
+
+    This necessary condition alone neither disproves a manual completion label
+    nor establishes event resolution, clearance, priority or student visibility.
+    """
+    fs=frames[-3:]
+    if len(fs)!=3 or any(not g.finite(f['meta'].get('speed')) for f in fs):
+        return dict(value=None,checks={},reason='incomplete_progress_measurements')
+    speeds=[f['meta']['speed'] for f in fs]
+    checks=dict(moving=min(speeds)>.5,speed_variation_bounded=max(speeds)-min(speeds)<1.)
+    return dict(value=all(checks.values()),checks=checks,speeds=speeds,
+                scope='weak_longitudinal_stability_not_geometric_completion')
+
+
 def facts(frames,ep,seed):
     from .teacher_rules import conjunction,actor,ordinary_lead
     if not g.history_valid(frames,7) or frames[0]['frame_id']<4:return {},['incomplete_causal_history']
@@ -502,7 +517,8 @@ def facts(frames,ep,seed):
     priority=control_priority(f,nav)
     restricted=False;resolved=False
     follow=any(ordinary_lead(frames,x['id']) and route_intersection(x,nav) is True for x in f['actors'] if x['class']=='car' and not g.vulnerable(x)) if ep.event!='U-E2' else False
-    steady=all(p['meta']['speed']>.5 for p in frames[-3:]) and max(p['meta']['speed'] for p in frames[-3:])-min(p['meta']['speed'] for p in frames[-3:])<1.
+    stability=progress_stability_evidence(frames);steady=stability['value']
+    why.extend('progress_'+key+'_not_established' for key,value in stability['checks'].items() if not value)
     if ep.event in ('U-E6','U-E7','R-E5'):
         if ep.event=='U-E7':
             if seed.get('failure_established') is not True:return {},['signal_failure_unestablished']

@@ -58,5 +58,5 @@ def test_prompt_context_is_not_transition_evidence(event,edge):
     ep=episode(event);obs=dict(frame_id=10,history_frames=[4,6,8,10],speed_mps=0.)
     messages=p.messages(ep,edge,obs,['rgb']*4)
     assert 'Event names and navigation targets identify the question context' in messages[0]['content']
-    assert p.prompt_version(ep,edge).endswith('_v11')
+    assert p.prompt_version(ep,edge).endswith('_v12')
     assert 'stop_sign_hazard' not in str(messages)

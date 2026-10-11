@@ -1,0 +1,261 @@
+{
+  "date": "2026-10-11",
+  "point_recompute": {
+    "cases": 237,
+    "routes": 104,
+    "elapsed_seconds": 28.76539424015209,
+    "max_rss_kib": 165132,
+    "case_evidence_sha256": "8de7a835a26e4131600952b334ef6ee3ca07e94a1b062e2e4a720c99b61d45b8",
+    "worker_sha256": "93e47bf95e4534ed0599a3e505bf3dc797457cce6dee8ec37172eb1e82b9601e",
+    "source_rule_sha256": "d8db6d7ad7d7d176369f0eba8e2df9643ac51d5cdfae622b3e56902cebfe3f97",
+    "scope": "frozen teacher point query and Phase3 actions, not native dataset/full replay or blind adjudication"
+  },
+  "distinct_query_anchors": 218,
+  "distinct_causal_frames": 934,
+  "visual": {
+    "frames": 175,
+    "routes": 10,
+    "sheets": 19,
+    "originals": 4,
+    "blind": false
+  },
+  "current_v47_following_functions_same_as_old": true,
+  "ue1": {
+    "no_count": 94,
+    "yes_count": 87,
+    "weak_references_reproduced": 177,
+    "failure_gates": {
+      "moving": {
+        "rows": 3,
+        "rgb4_false_yes": 3,
+        "rgb2_false_yes": 3
+      },
+      "gap": {
+        "rows": 0,
+        "rgb4_false_yes": 0,
+        "rgb2_false_yes": 0
+      },
+      "lateral": {
+        "rows": 39,
+        "rgb4_false_yes": 30,
+        "rgb2_false_yes": 11
+      },
+      "max_closing": {
+        "rows": 51,
+        "rgb4_false_yes": 37,
+        "rgb2_false_yes": 23
+      },
+      "max_relative": {
+        "rows": 7,
+        "rgb4_false_yes": 6,
+        "rgb2_false_yes": 6
+      },
+      "relative_range": {
+        "rows": 58,
+        "rgb4_false_yes": 49,
+        "rgb2_false_yes": 44
+      },
+      "per_step_gap_loss": {
+        "rows": 0,
+        "rgb4_false_yes": 0,
+        "rgb2_false_yes": 0
+      },
+      "total_gap_loss": {
+        "rows": 3,
+        "rgb4_false_yes": 1,
+        "rgb2_false_yes": 1
+      }
+    },
+    "route_projection_candidates": 19,
+    "candidate_by_route": {
+      "Town04_Rep0_Town04_Scenario3_4_route0_01_10_10_49_29": 18,
+      "Town12_Rep0_2452_0_route0_01_11_03_14_24": 1
+    },
+    "candidate_model_predictions": {
+      "YES": 15,
+      "NO": 4
+    },
+    "manual_definition_mismatch": [
+      {
+        "id": "46f8dcf37aefe0b43730e30e9e79d3f855f6aa578695bb66e65755c83d3151f4",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_3452_0_route0_01_09_04_20_19",
+        "frame_id": 83,
+        "manual_target": "YES",
+        "diagnostic_stable": false,
+        "actor_binding": "diagnostic_nearest_lead_not_manual_identity",
+        "relative_speed_range": 2.0054556198763773
+      }
+    ]
+  },
+  "ue7_completion_gate_comparison": [
+    {
+      "id": "face8c9e3f79c405bcbe11eb503caffaf17f2d789e0b255a4f5ad5f32cf55022",
+      "route_id": "Town05_Rep0_route_002062_route0_01_10_12_26_10",
+      "frame_id": 41,
+      "speed_window": [
+        7.3821690767185295,
+        6.646637125060465,
+        7.302631393214732
+      ],
+      "speed_range": 0.7355319516580643,
+      "teacher_steady_proxy": true,
+      "is_junction": false,
+      "geometry_issues_in_history": true,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "3f42e7bfadc9504d19230bee4a887f1bf010ce48645f090bcfcfa2f6992208fc",
+      "route_id": "Town05_Rep0_route_002062_route0_01_10_12_26_10",
+      "frame_id": 42,
+      "speed_window": [
+        6.646637125060465,
+        7.302631393214732,
+        8.572487167978377
+      ],
+      "speed_range": 1.9258500429179115,
+      "teacher_steady_proxy": false,
+      "is_junction": false,
+      "geometry_issues_in_history": true,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "595896694bbac2a5f828afd9c5ff676972f8b316619c91ff5f5fec1c55205748",
+      "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+      "frame_id": 54,
+      "speed_window": [
+        7.744856386185597,
+        6.044652027931134,
+        5.467920251037387
+      ],
+      "speed_range": 2.27693613514821,
+      "teacher_steady_proxy": false,
+      "is_junction": true,
+      "geometry_issues_in_history": true,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "8c17f688e412a02ed9a9e6e6dad833483092d346ec1c3f9a68f158665d22d318",
+      "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+      "frame_id": 55,
+      "speed_window": [
+        6.044652027931134,
+        5.467920251037387,
+        6.4670776221330675
+      ],
+      "speed_range": 0.9991573710956807,
+      "teacher_steady_proxy": true,
+      "is_junction": false,
+      "geometry_issues_in_history": true,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "71fd31eb4897ec0d91a59d324f86fecda39e4497b1a3f812550d21a2751b17e7",
+      "route_id": "Town05_Rep0_route_002066_route0_01_09_12_53_45",
+      "frame_id": 56,
+      "speed_window": [
+        5.467920251037387,
+        6.4670776221330675,
+        9.010396994103935
+      ],
+      "speed_range": 3.5424767430665485,
+      "teacher_steady_proxy": false,
+      "is_junction": false,
+      "geometry_issues_in_history": true,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "e9ba44a7f30531c756b6d18017ff596fc02693f26edc83bd6c709a11c0fd1204",
+      "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+      "frame_id": 50,
+      "speed_window": [
+        7.992928862605866,
+        6.759236405057924,
+        5.627291726251242
+      ],
+      "speed_range": 2.365637136354624,
+      "teacher_steady_proxy": false,
+      "is_junction": false,
+      "geometry_issues_in_history": false,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "8bc22dbb860dbf433fb3c047c51f40df35025e1f1d954e2baafefdc55d3a66d2",
+      "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+      "frame_id": 51,
+      "speed_window": [
+        6.759236405057924,
+        5.627291726251242,
+        6.0413468916931015
+      ],
+      "speed_range": 1.1319446788066818,
+      "teacher_steady_proxy": false,
+      "is_junction": false,
+      "geometry_issues_in_history": false,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    },
+    {
+      "id": "54a947532e4855acf56c8021b933956ee9ce4cc911717b231d23e92ddae8c013",
+      "route_id": "Town15_Rep0_route_002097_route0_01_08_21_11_39",
+      "frame_id": 52,
+      "speed_window": [
+        5.627291726251242,
+        6.0413468916931015,
+        8.687061088075897
+      ],
+      "speed_range": 3.059769361824655,
+      "teacher_steady_proxy": false,
+      "is_junction": false,
+      "geometry_issues_in_history": false,
+      "scope": "one necessary gate only; not complete native teacher relabel or proof of physical error"
+    }
+  ],
+  "phase3": {
+    "raw_missing": 68,
+    "scope": "raw trajectory actions recomputed where available, no event-instance equivalence; missing stays null"
+  },
+  "status": {
+    "production_rules_changed": false,
+    "labels_changed": false,
+    "new_dataset": false,
+    "training": false,
+    "gpu": false,
+    "push": false,
+    "G1": "in_progress",
+    "G2": "not_run"
+  },
+  "artifacts": {
+    "case_evidence.json": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/case_evidence.json",
+      "sha256": "8de7a835a26e4131600952b334ef6ee3ca07e94a1b062e2e4a720c99b61d45b8"
+    },
+    "receipt.json": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/receipt.json",
+      "sha256": "dd63cf4838576c10a2dc298227433cb0326e59a2aa140ce2fdeeb3e755bcfd95"
+    },
+    "visual_review.json": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/visual_review.json",
+      "sha256": "88377f4c15590b91914d9f5ec8e3f5310b9b3ff191ba350fbff88d1f08ba9dc6"
+    },
+    "route_projection_diagnostic.json": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/route_projection_diagnostic.json",
+      "sha256": "036e73606e58fc2e8d9c32a0bb06bae9c84273aeb3f1e73e1e67f7e4b9327779"
+    },
+    "relabel_candidates.json": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/relabel_candidates.json",
+      "sha256": "09c5582f2865b59977f65103648ebe2c122f6a6b51f2e813763538f1431ddcc2"
+    },
+    "audit.py": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/audit.py",
+      "sha256": "93e47bf95e4534ed0599a3e505bf3dc797457cce6dee8ec37172eb1e82b9601e"
+    },
+    "route_projection.py": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/route_projection.py",
+      "sha256": "c725fec36ba018a819f7cc985074be0eb317e3808f1f56bd6fa9c823ff6b5e55"
+    },
+    "summarize.py": {
+      "path": "checkpoints/label_fit_rgb_audit_20261011/summarize.py",
+      "sha256": "ddf852f64ab9b3382eaf55b8444594906039d8741688a882d61fd147a9cd9240"
+    }
+  }
+}

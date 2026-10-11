@@ -6,12 +6,14 @@ from .route_context import episode_edge, route_bound, BOUNDARY
 from .taxonomy import STATE_TEXT, EVENTS, applicable
 
 VISIBLE_EDGES = {'depart', 'enter', 'return'}
-PROMPT_VERSION = 'phase4_state_pair_binary_v11'
+PROMPT_VERSION = 'phase4_state_pair_binary_v12'
 SYSTEM = (frozen.SYSTEM +
     ' Evaluate every stated requirement together; evidence for one does not establish the others.'
     ' Ego movement alone does not establish permission, and a participant disappearing or becoming occluded does not establish clearance.'
     ' A newly appearing restriction requires a new judgment; it does not by itself prove the earlier judgment was wrong.'
-    ' Event names and navigation targets identify the question context; they do not establish that a transition condition holds.')
+    ' Event names and navigation targets identify the question context; they do not establish that a transition condition holds.'
+    ' For following, judge the lead vehicle along the road and its gap to ego; apparent sideways motion on a bend alone is not unstable following.'
+    ' If completion requires both the event to be resolved and stable progress, assess these separately; crossing an exit boundary alone does not establish stable progress.')
 
 
 def cyclist_follow(episode):
@@ -19,10 +21,10 @@ def cyclist_follow(episode):
 
 
 def prompt_version(episode, edge_key=None):
-    if cyclist_follow(episode):return 'phase4_state_pair_cyclist_follow_v11'
+    if cyclist_follow(episode):return 'phase4_state_pair_cyclist_follow_v12'
     if edge_key in VISIBLE_EDGES | {'recover_follow'}:
-        return 'phase4_state_pair_visible_v11'
-    return 'phase4_state_pair_route_v11' if route_bound(episode) else PROMPT_VERSION
+        return 'phase4_state_pair_visible_v12'
+    return 'phase4_state_pair_route_v12' if route_bound(episode) else PROMPT_VERSION
 
 
 def state_pair(episode, edge_key):

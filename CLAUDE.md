@@ -1,5 +1,22 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-11 白名单发布前验收
+
+v48最终回执补齐，47路线5847帧、原生2/4各3263/273/186（431人工+2832弱）、短视图3263/239/123；旧v47合同拒绝，同预约/空registry及源SHA通过。新G1工具纳入联合回归2126项通过（106.74秒）；服务器下一步为CPU检查/资产盘点及旧合同U-E7 complete/proceed已采训练题推理，暂不训练。具体命令见AutoMoT/qwen3vl_local/audit_joint/NEXT_TESTS_20261011.md。白名单仅源码/轻量文档证据；完整数据、权重和checkpoints留本机。
+
+### 2026-10-11 G1 只读时间线与条件区间
+
+新增audit_joint/timeline.py，冻结映射/回执绑定、同录制同帧全外连接、事件存在性/未匹配队列及YES/NO/UNKNOWN区间。只读核验v47 45路线5673帧/8566题、v48 47路线5847帧/9866题，分别1650/1788区间；v48有174帧缺Phase3原标注保留未知。1007单实例同事件候选缺参与者证据、29并发歧义；确认匹配/可比命题均0，准入门不冒充最终题库。离线回执/状态同步不当真实许可；未知/停止问/源消失不改NO或完成。29新增专项、audit_joint 243项通过；约6秒/高水位约116MiB。G1in_progress/G2not_run，无生产修改、GPU、训练、RGB目视或push；原工作区v48生产任务成果另报。见AutoMoT/qwen3vl_local/audit_joint/G1_TIMELINE_20261011.md及timeline_verification_20261011.json，产物checkpoints/joint_timeline_delivery_20261011。
+
+### 2026-10-11 拟合结果逐帧 RGB 标定复核
+
+旧规则点查询237题/104路线/218锚点/934因果帧，tmux单进程28.77秒、RSS约161MiB；177弱跟车稳定目标复现。实际目视175不同RGB帧/10路线/19联系表及4原图，525源文件SHA；已知预测选窗，非G2。U-E1仅骑行跟车做路线投影，普通跟车仍用自车轴速度，弯道沿车道运动被横向门误判；v47相关函数与旧版一致。路线投影诊断筛出19候选（两路线18+1），未完整实例回放，不改为YES、不宣称15错题收益。人工UE1 f83与弱速度范围门有定义差异候选；UE7八道complete人工YES中六道不满足弱三帧速度门，仅必要条件对照，五道历史有负几何，不冒充完整老师NO。保留真实模型错例；P3同帧原始动作重算，68缺失保留null，未完成实例匹配。G1in_progress/G2not_run；生产规则/数据/标签未改，无GPU/训练/push。详见AutoMoT/qwen3vl_local/audit_joint/LABEL_FIT_RGB_REVIEW_20261011.md及label_fit_rgb_review_verification_20261011.json，产物checkpoints/label_fit_rgb_audit_20261011。
+
+### 2026-10-11 已接收训练题拟合包并复算
+
+本机拟合解压包1224文件、原一轮1264文件全集/SHA通过；独立runtime恢复128原run合同文件，无门绕过。两模式181题raw解析/指标/采样/检查点绑定通过，缺原完整视图仍为internal_consistency_verified+source_binding verified，全集完整性仅服务器回报；原ZIP/实时服务器/权重未本机验证。U-E1 complete/readiness训练YES87/NO94各呈现一次：RGB2正确115/181、YES75/87、NO40/94；RGB4正确101/181、YES82/87、NO19/94。NO52/94集中两物理组，非独立样本；4人工题全答YES（3NO错），实际看13不同输入RGB/4联系表，非盲审。U-E7 val56全NO，12YES全错，其中8道complete已有类别训练支持；20缺支持val含16答对NO，不能全归因缺边；未收到U-E7训练拟合。两fit工具SHA不同如实保留，当前已独立复算输出与来源，不声称两次执行代码完全一致。
+不续七轮/不重复181题；本机标定及Phase3/Action跨任务隔离与正式池补建准备优先；服务器如需定位仅新增旧合同U-E7 complete/proceed训练题推理，不能用v47续旧adapter。未改训练/标定代码、未GPU/训练/push。见AutoMoT/qwen3vl_local/audit_joint/TRAIN_FIT_RECEIVED_20261011.md及train_fit_received_verification_20261011.json，产物checkpoints/train_fit_received_20261011。
+
 2026-10-10服务器回报两模式181题拟合已verified，待本机接收ZIP复核，不要求重复推理；v47推送后先交包、旧环境保留、新源码独立worktree，具体见AutoMoT/qwen3vl_local/audit_joint/NEXT_AFTER_V47_20261010.md。
 
 ### 2026-10-10 v47切入历史、STOP同时间预测与上下文提示词

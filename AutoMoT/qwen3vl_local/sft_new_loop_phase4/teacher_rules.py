@@ -9,7 +9,7 @@ from . import privileged_geometry as g
 from .event_scope import local_navigation
 from .automatic_context import route_intersection
 
-VERSION='ten_event_causal_teacher_v15'
+VERSION='ten_event_causal_teacher_v16'
 PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band_m=.25,
             lead_growth_m=1.,lead_min_gap_m=3.,min_pixel_change=6.,
             stationary_lead_displacement_m=.75,stationary_ego_displacement_m=.25,
@@ -49,7 +49,7 @@ def seeds(frames):
         if a['id'] in (m.get('vehicle_affecting_id'),m.get('walker_affecting_id')):hints.append('affecting_id')
         if g.visible(a,f) is not True or route_intersection(a,nav) is not True:continue
         if g.vulnerable(a):event='U-E4'
-        elif (m.get('road_id') is not None and m.get('lane_id') is not None and a['class']=='car' and a['id'] not in (m.get('scenario_obstacles_ids') or []) and abs(a['yaw'])<.25 and a.get('road_id')==m.get('road_id')
+        elif (m.get('road_id') is not None and m.get('lane_id') is not None and a['class']=='car' and a['id'] not in (m.get('scenario_obstacles_ids') or []) and lead_route_motion(f,a) is not None and a.get('road_id')==m.get('road_id')
                 and a.get('lane_id')==m.get('lane_id')):
             history=[actor(p,a['id']) for p in frames[-3:]]
             if not all(b is not None and g.visible(b,p) is True for b,p in zip(history,frames[-3:])):continue
@@ -68,12 +68,12 @@ def seeds(frames):
     # The closest aligned vehicle is the lead. Distant queued cars are not
     # separate indistinguishable lead-braking instances in the same RGB frame.
     leads=[s for s in out if s['event']=='U-E1']
-    lead=min(leads,key=lambda s:actor(f,s['actor_id'])['position'][0]) if leads else None
+    lead=min(leads,key=lambda s:lead_route_motion(f,actor(f,s['actor_id']))['gap']) if leads else None
     aligned=[a for a in f['actors'] if a['class']=='car' and not g.vulnerable(a)
-             and 0<a['position'][0] and abs(a['yaw'])<.25
+             and 0<a['position'][0] and lead_route_motion(f,a) is not None
              and a.get('road_id')==m.get('road_id') and a.get('lane_id')==m.get('lane_id')
              and route_intersection(a,nav) is True]
-    nearest=min(aligned,key=lambda a:a['position'][0]) if aligned else None
+    nearest=min(aligned,key=lambda a:lead_route_motion(f,a)['gap']) if aligned else None
     from .teacher_events import seeds as extended_seeds
     return [s for s in out if s['event']!='U-E1' or s is lead and nearest is not None and s['actor_id']==nearest['id']] + extended_seeds(frames)
 
@@ -105,8 +105,21 @@ def route_motion(frame, participant):
         station+=length
     if not candidates:return None
     candidates.sort(key=lambda c:c[0]);best=candidates[0]
-    if any(c[0]<=best[0]+.25 and abs(math.atan2(math.sin(c[1]-best[1]),math.cos(c[1]-best[1])))>.25 for c in candidates[1:]):return None
+    if any(c[0]<=best[0]+.25 and (abs(math.atan2(math.sin(c[1]-best[1]),math.cos(c[1]-best[1])))>.25
+           or abs(c[2]['gap']-best[2]['gap'])>1.) for c in candidates[1:]):return None
     return best[2]
+
+
+def lead_route_motion(frame, participant):
+    """Resolve same-lane lead motion on the current causal navigation polyline.
+
+    Lane identity is necessary but not sufficient. Missing ownership, an
+    ambiguous projection or a crossing heading cannot establish a lead.
+    """
+    if any(frame['meta'].get(k) is None or participant.get(k)!=frame['meta'][k]
+           for k in ('road_id','lane_id')):return None
+    motion=route_motion(frame,participant)
+    return motion if motion is not None and abs(motion['yaw'])<=.25 else None
 
 
 def parallel_cyclist(frames,ident):
@@ -175,8 +188,10 @@ def lead_retirement(frames,episode,ident):
     if all(g.aabb(actor(f,ident))[0]>PARAMS['seed_horizon_m'] for f in frames[-3:]):
         return 'lead_visibly_beyond_event_horizon'
     f=frames[-1];a=actor(f,ident)
-    replacements=[x for x in f['actors'] if x['id']!=ident and 0<x['position'][0]<a['position'][0]-2
-                  and ordinary_lead(frames,x['id'])]
+    current_motion=lead_route_motion(f,a)
+    replacements=[x for x in f['actors'] if x['id']!=ident and current_motion is not None
+                  and ordinary_lead(frames,x['id'])
+                  and route_motion(f,x)['gap']<current_motion['gap']-2]
     if replacements:return 'lead_replaced_by_observed_moving_lead'
     return None
 
@@ -225,19 +240,36 @@ def image_change(frames,ident):
 def following_stable(frames,history,gaps):
     """Observed following milestone, not a certified safe headway policy.
 
-    Absolute ego-frame actor velocity must first subtract measured ego speed.
+    Callers project actor velocity onto the local route tangent before
+    subtracting measured ego speed (the two cars occupy different tangents).
     Five observations must agree: finite gap, no sustained closure, bounded
     relative velocity variation. Merely lowering a headway threshold is unsafe.
     """
-    if not all(g.vector(b.get('ego_velocity'),2) for b in history):return None
+    return following_stability_evidence(frames,history,gaps)['value']
+
+
+def following_stability_evidence(frames,history,gaps):
+    """The exact weak completion gates, separately inspectable, not approval.
+
+    Input actor velocities and gaps must already use the same route reference
+    as facts(). An incomplete window abstains instead of accepting a subset.
+    """
+    if (len(frames)!=5 or len(history)!=5 or len(gaps)!=5
+            or not all(b is not None and g.vector(b.get('ego_velocity'),2) for b in history)
+            or not all(g.finite(p['meta'].get('speed')) for p in frames)
+            or not all(g.finite(gap) for gap in gaps)):
+        return dict(value=None,checks={},reason='incomplete_following_measurements')
     relative=[b['ego_velocity'][0]-p['meta']['speed'] for b,p in zip(history,frames)]
-    return (all(p['meta']['speed']>.5 and gap>=max(PARAMS['stable_gap_m'],p['meta']['speed']*PARAMS['stable_time_gap_s'])
-                and abs(b['ego_velocity'][1])<.25 for p,b,gap in zip(frames,history,gaps))
-            and min(relative)>=-PARAMS['max_closing_speed_mps']
-            and max(relative)<=PARAMS['relative_speed_mps']
-            and max(relative)-min(relative)<=PARAMS['relative_speed_range_mps']
-            and all(y>=x-PARAMS['max_gap_loss_m'] for x,y in zip(gaps,gaps[1:]))
-            and gaps[-1]>=gaps[0]-PARAMS['max_gap_loss_m'])
+    checks=dict(moving=all(p['meta']['speed']>.5 for p in frames),
+        separated=all(gap>=max(PARAMS['stable_gap_m'],p['meta']['speed']*PARAMS['stable_time_gap_s']) for p,gap in zip(frames,gaps)),
+        route_lateral_stable=all(abs(b['ego_velocity'][1])<.25 for b in history),
+        closure_bounded=min(relative)>=-PARAMS['max_closing_speed_mps'],
+        relative_speed_bounded=max(relative)<=PARAMS['relative_speed_mps'],
+        relative_variation_bounded=max(relative)-min(relative)<=PARAMS['relative_speed_range_mps'],
+        step_gap_loss_bounded=all(y>=x-PARAMS['max_gap_loss_m'] for x,y in zip(gaps,gaps[1:])),
+        total_gap_loss_bounded=gaps[-1]>=gaps[0]-PARAMS['max_gap_loss_m'])
+    return dict(value=all(checks.values()),checks=checks,relative_speeds=relative,gaps=list(gaps),
+                reference='participant_route_tangent_and_arc_gap')
 
 
 def distant_control(frame,control,nav):
@@ -344,18 +376,19 @@ def facts(frames,episode,ident):
     following_event=episode.event=='U-E1' or episode.branch=='cyclist_follow'
     if following_event:
         history=[actor(p,ident) for p in frames[-5:]];gaps=[]
-        motions=[route_motion(p,b) if b is not None else None for p,b in zip(frames[-5:],history)] if episode.branch=='cyclist_follow' else None
-        if motions is not None:
-            if any(v is None for v in motions):return empty,['cyclist_route_motion_unresolved']
-            history=[dict(b,**{k:v[k] for k in ('yaw','ego_velocity')}) for b,v in zip(history,motions)]
+        project=lead_route_motion if episode.event=='U-E1' else route_motion
+        motions=[project(p,b) if b is not None else None for p,b in zip(frames[-5:],history)]
+        if any(v is None for v in motions):
+            return empty,['lead_route_motion_unresolved' if episode.event=='U-E1' else 'cyclist_route_motion_unresolved']
+        history=[dict(b,**{k:v[k] for k in ('yaw','ego_velocity')}) for b,v in zip(history,motions)]
         if any(b is None or g.visible(b,p) is not True or abs(b['yaw'])>.25
                or (episode.event=='U-E1' and (b.get('lane_id')!=p['meta'].get('lane_id') or b.get('road_id')!=p['meta'].get('road_id')))
                for b,p in zip(history,frames[-5:])):return empty,['lead_track_unresolved']
-        for p,b in zip(frames[-5:],history):
-            ego=next(x for x in p['actors'] if x['class']=='ego_car');gaps.append(g.aabb(b)[0]-ego['extent'][0])
-        if motions is not None:gaps=[v['gap'] for v in motions]
+        gaps=[v['gap'] for v in motions]
         moving_actor=history[-1]
-        stable=following_stable(frames[-5:],history,gaps)
+        stability=following_stability_evidence(frames[-5:],history,gaps)
+        stable=stability['value']
+        why.extend('following_'+key+'_not_established' for key,value in stability['checks'].items() if not value)
         blocked=a.get('speed',999)<.2 and gaps[-1]<8.
         growth=gaps[-1]-gaps[0]
         if stable is True:clear=True

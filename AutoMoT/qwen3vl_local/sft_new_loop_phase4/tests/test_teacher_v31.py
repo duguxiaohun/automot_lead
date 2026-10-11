@@ -45,6 +45,8 @@ def test_replacement_requires_visible_ordinary_following_not_cut_in():
     fs=frames()
     for f in fs:
         f['actors'][1]['position'][0]=25.
+        # Both leads need observed navigation support; no endpoint extrapolation.
+        f['meta']['route'] += [[25.,0.],[30.,0.]]
         f['actors'].append(actor(3,position=[15.,0.,0.],speed=5.,ego_velocity=[5.,0.]))
         f['image_evidence']['3']=dict(quality_pass=True)
         f['meta']['speed']=5.

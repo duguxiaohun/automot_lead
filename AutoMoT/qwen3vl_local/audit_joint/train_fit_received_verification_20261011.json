@@ -1,0 +1,896 @@
+{
+  "verification": {
+    "fit_package": {
+      "status": "verified",
+      "files": 1224,
+      "extracted_bytes": 43734970,
+      "archive_size_status": "not_verified_original_zip_not_provided",
+      "external_inputs_status": "not_verified_on_receiving_host",
+      "scope": "extracted bytes and included evidence bindings; omitted capture blobs, original ZIP size, live external inputs and experiment approval not verified"
+    },
+    "training_package": {
+      "status": "verified",
+      "files": 1264,
+      "extracted_bytes": 53793608,
+      "archive_size_status": "not_verified_original_zip_not_provided",
+      "external_inputs_status": "not_verified_on_receiving_host",
+      "scope": "extracted bytes and included evidence bindings; omitted capture blobs, original ZIP size, live external inputs and experiment approval not verified"
+    },
+    "fits": {
+      "2": {
+        "status": "internal_consistency_verified",
+        "unique_questions": 181,
+        "source_binding": "verified",
+        "selection_completeness": "not_verified_dataset_not_provided",
+        "scope": "internal consistency and supplied original sampling/checkpoint receipt binding; query completeness requires dataset",
+        "package": {
+          "status": "verified",
+          "files": 1264,
+          "extracted_bytes": 53793608,
+          "archive_size_status": "not_verified_original_zip_not_provided",
+          "external_inputs_status": "not_verified_on_receiving_host",
+          "scope": "extracted bytes and included evidence bindings; omitted capture blobs, original ZIP size, live external inputs and experiment approval not verified"
+        }
+      },
+      "4": {
+        "status": "internal_consistency_verified",
+        "unique_questions": 181,
+        "source_binding": "verified",
+        "selection_completeness": "not_verified_dataset_not_provided",
+        "scope": "internal consistency and supplied original sampling/checkpoint receipt binding; query completeness requires dataset",
+        "package": {
+          "status": "verified",
+          "files": 1264,
+          "extracted_bytes": 53793608,
+          "archive_size_status": "not_verified_original_zip_not_provided",
+          "external_inputs_status": "not_verified_on_receiving_host",
+          "scope": "extracted bytes and included evidence bindings; omitted capture blobs, original ZIP size, live external inputs and experiment approval not verified"
+        }
+      }
+    },
+    "audit_helper_source": "/home/codon/automot_lead/AutoMoT/qwen3vl_local/audit_joint/train_fit.py",
+    "frozen_parser": "/home/codon/automot_lead/AutoMoT/checkpoints/train_fit_received_20261011/runtime/qwen3vl_local/sft_new_loop_phase4/route_prompts.py",
+    "original_zip_available": false,
+    "original_dataset_available": false
+  },
+  "modes": {
+    "2": {
+      "fit": {
+        "count": 181,
+        "correct": 115,
+        "confusion": {
+          "YES->YES": 75,
+          "NO->YES": 54,
+          "NO->NO": 40,
+          "YES->NO": 12
+        },
+        "raw": {
+          "YES\n": 129,
+          "NO\n": 52
+        }
+      },
+      "metrics": {
+        "unique_questions": {
+          "count": 181,
+          "targets": {
+            "YES": 87,
+            "NO": 94
+          },
+          "predictions": {
+            "YES": 129,
+            "NO": 52
+          },
+          "recall": {
+            "YES": 0.8620689655172413,
+            "NO": 0.425531914893617
+          },
+          "balanced_reference_agreement": 0.6438004402054291,
+          "majority_reference_baseline": 0.5193370165745856,
+          "constant_prediction": null,
+          "warnings": [],
+          "reference_agreement": 0.6353591160220995
+        },
+        "exposure_weighted": {
+          "count": 181,
+          "targets": {
+            "YES": 87,
+            "NO": 94
+          },
+          "predictions": {
+            "YES": 129,
+            "NO": 52
+          },
+          "recall": {
+            "YES": 0.8620689655172413,
+            "NO": 0.425531914893617
+          },
+          "balanced_reference_agreement": 0.6438004402054291,
+          "majority_reference_baseline": 0.5193370165745856,
+          "constant_prediction": null,
+          "warnings": [],
+          "reference_agreement": 0.6353591160220995
+        },
+        "strata": [
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "NO",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "reviewed_transition_band"
+            ],
+            "metrics": {
+              "count": 3,
+              "targets": {
+                "NO": 3
+              },
+              "predictions": {
+                "YES": 3
+              },
+              "recall": {
+                "YES": null,
+                "NO": 0.0
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": "YES",
+              "warnings": [
+                "constant_prediction:YES",
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 0.0
+            },
+            "physical_groups": 1
+          },
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "NO",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "weak_rule_teacher"
+            ],
+            "metrics": {
+              "count": 91,
+              "targets": {
+                "NO": 91
+              },
+              "predictions": {
+                "YES": 51,
+                "NO": 40
+              },
+              "recall": {
+                "YES": null,
+                "NO": 0.43956043956043955
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": null,
+              "warnings": [
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 0.43956043956043955
+            },
+            "physical_groups": 29
+          },
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "YES",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "reviewed_transition_band"
+            ],
+            "metrics": {
+              "count": 1,
+              "targets": {
+                "YES": 1
+              },
+              "predictions": {
+                "YES": 1
+              },
+              "recall": {
+                "YES": 1.0,
+                "NO": null
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": "YES",
+              "warnings": [
+                "constant_prediction:YES",
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 1.0
+            },
+            "physical_groups": 1
+          },
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "YES",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "weak_rule_teacher"
+            ],
+            "metrics": {
+              "count": 86,
+              "targets": {
+                "YES": 86
+              },
+              "predictions": {
+                "YES": 74,
+                "NO": 12
+              },
+              "recall": {
+                "YES": 0.8604651162790697,
+                "NO": null
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": null,
+              "warnings": [
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 0.8604651162790697
+            },
+            "physical_groups": 86
+          }
+        ],
+        "cell_fields": [
+          "event",
+          "edge",
+          "phase",
+          "answer",
+          "state",
+          "longitudinal",
+          "branch",
+          "return_required",
+          "motion",
+          "original_label_basis"
+        ],
+        "scope": "in-sample fit diagnostic; repeated exposures are weights, not independent examples; not accuracy certification"
+      },
+      "groups": 101,
+      "answer_groups": {
+        "YES": 86,
+        "NO": 30
+      },
+      "largest_no_groups": [
+        {
+          "group": "DynamicObjectCrossing/Town04_Town04_Scenario3_4",
+          "no": 36,
+          "false_yes": 8
+        },
+        {
+          "group": "AccidentTwoWays/Town01_route_001544",
+          "no": 16,
+          "false_yes": 13
+        },
+        {
+          "group": "HardBreakRoute/Town12_3898_0",
+          "no": 8,
+          "false_yes": 8
+        },
+        {
+          "group": "HardBreakRoute/Town12_3452_0",
+          "no": 3,
+          "false_yes": 3
+        },
+        {
+          "group": "ParkingExit/Town12_901_2",
+          "no": 3,
+          "false_yes": 0
+        }
+      ],
+      "manual": {
+        "count": 4,
+        "correct": 1,
+        "confusion": {
+          "NO->YES": 3,
+          "YES->YES": 1
+        },
+        "raw": {
+          "YES\n": 4
+        }
+      },
+      "ue7_validation": {
+        "count": 56,
+        "correct": 44,
+        "confusion": {
+          "NO->NO": 44,
+          "YES->NO": 12
+        },
+        "raw": {
+          "NO\n": 56
+        }
+      },
+      "ue7_support": [
+        {
+          "event": "U-E7",
+          "edge": "complete",
+          "phase": "catchup",
+          "answer": "YES",
+          "pool_rows": 8,
+          "sampled_presentations": 8,
+          "val_rows": 5,
+          "val_correct": 0,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 207,
+          "sampled_presentations": 207,
+          "val_rows": 12,
+          "val_correct": 12,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "YES",
+          "pool_rows": 21,
+          "sampled_presentations": 21,
+          "val_rows": 3,
+          "val_correct": 0,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "proceed",
+          "phase": "catchup",
+          "answer": "YES",
+          "pool_rows": 0,
+          "sampled_presentations": 0,
+          "val_rows": 2,
+          "val_correct": 0,
+          "val_physical_groups": 1,
+          "status": "missing_pool_support",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "proceed",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 1942,
+          "sampled_presentations": 379,
+          "val_rows": 16,
+          "val_correct": 16,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "release",
+          "phase": "catchup",
+          "answer": "YES",
+          "pool_rows": 0,
+          "sampled_presentations": 0,
+          "val_rows": 2,
+          "val_correct": 0,
+          "val_physical_groups": 1,
+          "status": "missing_pool_support",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "release",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 0,
+          "sampled_presentations": 0,
+          "val_rows": 16,
+          "val_correct": 16,
+          "val_physical_groups": 3,
+          "status": "missing_pool_support",
+          "training_fit": "not_run"
+        }
+      ],
+      "ue7_presentations": {
+        "YES": 239,
+        "NO": 785
+      },
+      "ue7_proceed_pool": {
+        "readiness": {
+          "YES": 108,
+          "NO": 1942
+        },
+        "catchup": {
+          "YES": 0,
+          "NO": 0
+        }
+      },
+      "ue1_validation": {
+        "count": 33,
+        "correct": 10,
+        "confusion": {
+          "NO->NO": 5,
+          "YES->NO": 19,
+          "YES->YES": 5,
+          "NO->YES": 4
+        },
+        "raw": {
+          "NO\n": 24,
+          "YES\n": 9
+        }
+      },
+      "tool_sha256": "59fa80d10a5e187215989bcc56c21b24437cf69972ddf5c0a5e50bfbb9f35f76"
+    },
+    "4": {
+      "fit": {
+        "count": 181,
+        "correct": 101,
+        "confusion": {
+          "YES->YES": 82,
+          "NO->YES": 75,
+          "NO->NO": 19,
+          "YES->NO": 5
+        },
+        "raw": {
+          "YES\n": 157,
+          "NO\n": 24
+        }
+      },
+      "metrics": {
+        "unique_questions": {
+          "count": 181,
+          "targets": {
+            "YES": 87,
+            "NO": 94
+          },
+          "predictions": {
+            "YES": 157,
+            "NO": 24
+          },
+          "recall": {
+            "YES": 0.9425287356321839,
+            "NO": 0.20212765957446807
+          },
+          "balanced_reference_agreement": 0.572328197603326,
+          "majority_reference_baseline": 0.5193370165745856,
+          "constant_prediction": null,
+          "warnings": [],
+          "reference_agreement": 0.5580110497237569
+        },
+        "exposure_weighted": {
+          "count": 181,
+          "targets": {
+            "YES": 87,
+            "NO": 94
+          },
+          "predictions": {
+            "YES": 157,
+            "NO": 24
+          },
+          "recall": {
+            "YES": 0.9425287356321839,
+            "NO": 0.20212765957446807
+          },
+          "balanced_reference_agreement": 0.572328197603326,
+          "majority_reference_baseline": 0.5193370165745856,
+          "constant_prediction": null,
+          "warnings": [],
+          "reference_agreement": 0.5580110497237569
+        },
+        "strata": [
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "NO",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "reviewed_transition_band"
+            ],
+            "metrics": {
+              "count": 3,
+              "targets": {
+                "NO": 3
+              },
+              "predictions": {
+                "YES": 3
+              },
+              "recall": {
+                "YES": null,
+                "NO": 0.0
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": "YES",
+              "warnings": [
+                "constant_prediction:YES",
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 0.0
+            },
+            "physical_groups": 1
+          },
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "NO",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "weak_rule_teacher"
+            ],
+            "metrics": {
+              "count": 91,
+              "targets": {
+                "NO": 91
+              },
+              "predictions": {
+                "YES": 72,
+                "NO": 19
+              },
+              "recall": {
+                "YES": null,
+                "NO": 0.2087912087912088
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": null,
+              "warnings": [
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 0.2087912087912088
+            },
+            "physical_groups": 29
+          },
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "YES",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "reviewed_transition_band"
+            ],
+            "metrics": {
+              "count": 1,
+              "targets": {
+                "YES": 1
+              },
+              "predictions": {
+                "YES": 1
+              },
+              "recall": {
+                "YES": 1.0,
+                "NO": null
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": "YES",
+              "warnings": [
+                "constant_prediction:YES",
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 1.0
+            },
+            "physical_groups": 1
+          },
+          {
+            "cell": [
+              "U-E1",
+              "complete",
+              "readiness",
+              "YES",
+              "PROCEED",
+              "FOLLOW",
+              "default",
+              true,
+              "moving",
+              "weak_rule_teacher"
+            ],
+            "metrics": {
+              "count": 86,
+              "targets": {
+                "YES": 86
+              },
+              "predictions": {
+                "YES": 81,
+                "NO": 5
+              },
+              "recall": {
+                "YES": 0.9418604651162791,
+                "NO": null
+              },
+              "balanced_reference_agreement": null,
+              "majority_reference_baseline": 1.0,
+              "constant_prediction": null,
+              "warnings": [
+                "not_above_majority_reference_baseline"
+              ],
+              "reference_agreement": 0.9418604651162791
+            },
+            "physical_groups": 86
+          }
+        ],
+        "cell_fields": [
+          "event",
+          "edge",
+          "phase",
+          "answer",
+          "state",
+          "longitudinal",
+          "branch",
+          "return_required",
+          "motion",
+          "original_label_basis"
+        ],
+        "scope": "in-sample fit diagnostic; repeated exposures are weights, not independent examples; not accuracy certification"
+      },
+      "groups": 101,
+      "answer_groups": {
+        "YES": 86,
+        "NO": 30
+      },
+      "largest_no_groups": [
+        {
+          "group": "DynamicObjectCrossing/Town04_Town04_Scenario3_4",
+          "no": 36,
+          "false_yes": 27
+        },
+        {
+          "group": "AccidentTwoWays/Town01_route_001544",
+          "no": 16,
+          "false_yes": 14
+        },
+        {
+          "group": "HardBreakRoute/Town12_3898_0",
+          "no": 8,
+          "false_yes": 8
+        },
+        {
+          "group": "HardBreakRoute/Town12_3452_0",
+          "no": 3,
+          "false_yes": 3
+        },
+        {
+          "group": "ParkingExit/Town12_901_2",
+          "no": 3,
+          "false_yes": 0
+        }
+      ],
+      "manual": {
+        "count": 4,
+        "correct": 1,
+        "confusion": {
+          "NO->YES": 3,
+          "YES->YES": 1
+        },
+        "raw": {
+          "YES\n": 4
+        }
+      },
+      "ue7_validation": {
+        "count": 56,
+        "correct": 44,
+        "confusion": {
+          "NO->NO": 44,
+          "YES->NO": 12
+        },
+        "raw": {
+          "NO\n": 56
+        }
+      },
+      "ue7_support": [
+        {
+          "event": "U-E7",
+          "edge": "complete",
+          "phase": "catchup",
+          "answer": "YES",
+          "pool_rows": 8,
+          "sampled_presentations": 8,
+          "val_rows": 5,
+          "val_correct": 0,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 207,
+          "sampled_presentations": 207,
+          "val_rows": 12,
+          "val_correct": 12,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "complete",
+          "phase": "readiness",
+          "answer": "YES",
+          "pool_rows": 21,
+          "sampled_presentations": 21,
+          "val_rows": 3,
+          "val_correct": 0,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "proceed",
+          "phase": "catchup",
+          "answer": "YES",
+          "pool_rows": 0,
+          "sampled_presentations": 0,
+          "val_rows": 2,
+          "val_correct": 0,
+          "val_physical_groups": 1,
+          "status": "missing_pool_support",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "proceed",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 1942,
+          "sampled_presentations": 379,
+          "val_rows": 16,
+          "val_correct": 16,
+          "val_physical_groups": 3,
+          "status": "sampled_fit_unknown",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "release",
+          "phase": "catchup",
+          "answer": "YES",
+          "pool_rows": 0,
+          "sampled_presentations": 0,
+          "val_rows": 2,
+          "val_correct": 0,
+          "val_physical_groups": 1,
+          "status": "missing_pool_support",
+          "training_fit": "not_run"
+        },
+        {
+          "event": "U-E7",
+          "edge": "release",
+          "phase": "readiness",
+          "answer": "NO",
+          "pool_rows": 0,
+          "sampled_presentations": 0,
+          "val_rows": 16,
+          "val_correct": 16,
+          "val_physical_groups": 3,
+          "status": "missing_pool_support",
+          "training_fit": "not_run"
+        }
+      ],
+      "ue7_presentations": {
+        "YES": 239,
+        "NO": 785
+      },
+      "ue7_proceed_pool": {
+        "readiness": {
+          "YES": 108,
+          "NO": 1942
+        },
+        "catchup": {
+          "YES": 0,
+          "NO": 0
+        }
+      },
+      "ue1_validation": {
+        "count": 33,
+        "correct": 21,
+        "confusion": {
+          "NO->YES": 9,
+          "YES->YES": 21,
+          "YES->NO": 3
+        },
+        "raw": {
+          "YES\n": 30,
+          "NO\n": 3
+        }
+      },
+      "tool_sha256": "6192d035e542b5c2f01d53ddc2540a86c43c90b7eb3d17f398acf2c0d1d656f7"
+    }
+  },
+  "paired": {
+    "same_ids": true,
+    "target_agreement": true,
+    "changes": {
+      "YES/YES->YES": 73,
+      "NO/YES->YES": 50,
+      "NO/NO->YES": 25,
+      "YES/NO->YES": 9,
+      "NO/YES->NO": 4,
+      "NO/NO->NO": 15,
+      "YES/NO->NO": 3,
+      "YES/YES->NO": 2
+    }
+  },
+  "visual": {
+    "unique_frames": 13,
+    "contact_sheets": 4,
+    "scope": "exact rgb4 inputs of four already-reviewed training questions; selected with labels/predictions visible, not blind audit",
+    "sha256": "47902472afac7c1f8107a4f19a5532c63d986a6ab583e12168d7b1f35cb12be3"
+  },
+  "limitations": [
+    "original ZIP and bound original dataset unavailable locally",
+    "selection completeness remains server-reported verified, not independently verified here",
+    "no local model/adapter reload",
+    "UE7 train fit not present",
+    "different fit tool hashes are reported; numerical/parser/sample binding independently checked, not exact historical executable reconstruction"
+  ],
+  "artifact_bindings": {
+    "verification.json": {
+      "path": "checkpoints/train_fit_received_20261011/verification.json",
+      "sha256": "3313a82164ee933e50c86d21002b2d98bb2118009bc5dcb7a18b752b6f3040bf"
+    },
+    "analysis.json": {
+      "path": "checkpoints/train_fit_received_20261011/analysis.json",
+      "sha256": "c8c47644162892fea62102dac98887d566100837ba2ff6bda1a9f2471a7d902c"
+    },
+    "runtime_source_bindings.json": {
+      "path": "checkpoints/train_fit_received_20261011/runtime_source_bindings.json",
+      "sha256": "cfd6b022fe32e9aba0eb040cde2213c57addd2eec710778402f0f35c5c71f067"
+    },
+    "rgb_inputs_checked.json": {
+      "path": "checkpoints/train_fit_received_20261011/rgb_inputs_checked.json",
+      "sha256": "47902472afac7c1f8107a4f19a5532c63d986a6ab583e12168d7b1f35cb12be3"
+    },
+    "verify_received.py": {
+      "path": "checkpoints/train_fit_received_20261011/verify_received.py",
+      "sha256": "717f1413e4f59468b5550cdb2eb0a39703dcae0da5b1cb691762e9a05bf53780"
+    },
+    "analyze.py": {
+      "path": "checkpoints/train_fit_received_20261011/analyze.py",
+      "sha256": "65e1b6f8dc241c28b7970efe2425e19527c0f50bad9bc3ec0425282a9b731157"
+    }
+  }
+}

@@ -1,6 +1,8 @@
 # 联合审计第一批：G0 本机冻结与跨任务隔离
 
-落实 [总方案 §5、§14](../sft_new_loop_phase3/PHASE3_PHASE4_AUDIT_ROADMAP_20261008.md)。这是独立审计入口，不接入默认训练、修改标签或重新划分旧 split。G0 总体验收仍为 **in_progress**；E0/E1/G1/G2 尚未执行。本工具成功产出报告不代表基线可复现或独立性通过。
+落实 [总方案 §5、§14](../sft_new_loop_phase3/PHASE3_PHASE4_AUDIT_ROADMAP_20261008.md)。这是独立审计入口，不接入默认训练、修改标签或重新划分旧 split。当前 G0/E0/G1 为 **in_progress**，E1/G2 尚未完成；本工具成功产出报告不代表基线可复现或独立性通过。下方按日期保留历史记录，执行状态以总方案 §14.1 为准。
+
+2026-10-11 新增 [G1 全帧关联与条件区间审计](G1_TIMELINE_20261011.md)：`python -m qwen3vl_local.audit_joint.timeline --replay 原回放 --output-dir 新目录`。实测 v47 的45路线/5673帧及 v48 的47路线/5847帧，保留174帧 Phase3 来源未知；同类事件候选不当作实例匹配，UNKNOWN/停止问不当作 NO。29项新测试、联合审计243项通过，参与者关联及 G2 仍缺。拟合结果已经接收，无需重复181题，见 [接收复核](TRAIN_FIT_RECEIVED_20261011.md)。
 
 服务器从更新、已有资产检查到 G0、现有基线训练/验证的顺序见 [服务器执行手册](SERVER_RUN_20261008.md)，命令统一从 `AutoMoT/` 执行。
 
