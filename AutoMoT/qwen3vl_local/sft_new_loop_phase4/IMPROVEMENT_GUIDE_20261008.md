@@ -1,5 +1,7 @@
 # Phase4 改进指导：条件证据、可观察性、双轴状态与弱老师审计
 
+> 2026-10-12最新：服务器30路线pilot已通过并关闭。下一步按[正式规则池与自动首轮](../audit_joint/SERVER_V52_FULLFLOW_20261012.md)完成正式池，不重复pilot/readiness/旧fit。十事件训练及固定val/test等量已接通；正式池覆盖尚待验收。审计与代码修改见[FULLFLOW_REVIEW](../audit_joint/FULLFLOW_REVIEW_20261012.md)，新入口须发布同步后使用。
+
 > 2026-10-12 v52发布后当前服务器步骤：见[新版限量试建交接](../audit_joint/SERVER_V52_NEXT_20261012.md)，同步后仅运行 `bash qwen3vl_local/audit_joint/server_v52_pilot.sh`，交回 `pilot_report.zip` 与 `pilot_package.json`。不重复readiness/旧拟合，不直接全量建库或续七轮；本地107帧重算/28帧RGB续审见 `audit_joint/RELEASE_RGB_V52_20261012.md`。
 
 **2026-10-12 v52累计索引修复与自动首轮：** 分批回放改为累计回执，引用安装后封存集合，真实2+3→5及发布后2/3/5请求字节不变。自动基线固定单份RGB4→短视图→自动留出→`rgb_short/run_automatic.sh`，不走人工双库总入口；新增实际规则池/关键支持/等量/首轮预算启动门，通过后固定一轮、重载及test。755帧1116题/P3语义不变，70不同RGB与219份去重源SHA复核；2302完整回归+新增入口测试通过。小库空val/test/缺预算仍阻塞，正式池与预算未验收。readiness/旧fit不再重复，不等待全量人工/G2。详见[本轮修复及执行步骤](../audit_joint/BATCH_BASELINE_V52_20261012.md)。

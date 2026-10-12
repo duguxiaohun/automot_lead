@@ -65,21 +65,26 @@ def check(dataset, references, *, budget=None, space_path=None):
     try:
         before=dataset_bindings(dataset);ref_before=pack_binding(references)
         for mode in (2,4):
-            raw,manifest=load_dataset(dataset,rgb_mode=mode,require_trainable=False)
-            validate_dataset_scope(manifest)
-            # Keep diagnostics even if reference admission fails (e.g. empty val).
-            report['modes'][str(mode)]=dict(source_support=phase4_support(raw))
-            data,evaluation=prepare(raw,mode='rule_consistency',references=references,
-                                    rgb_mode=mode,short=True,seed=20260929)
-            result=measure(data,evaluation)
-            report['modes'][str(mode)].update(result)
-            if result['missing_critical_support']:
-                report['errors'].append(f'RGB{mode} missing critical support: '+str(result['missing_critical_support']))
-        two,four=report['modes']['2'],report['modes']['4']
-        if two['selected_ids_sha256']!=four['selected_ids_sha256'] or (
-            two['schedule']['worlds']['1'][0]['ordered_ids_sha256'] !=
-            four['schedule']['worlds']['1'][0]['ordered_ids_sha256']):
-            raise ValueError('RGB2/RGB4 selected membership or sampling order differs')
+            try:
+                raw,manifest=load_dataset(dataset,rgb_mode=mode,require_trainable=False)
+                validate_dataset_scope(manifest)
+                # Preserve both modes' source diagnostics even if one fails admission.
+                report['modes'][str(mode)]=dict(source_support=phase4_support(raw))
+                data,evaluation=prepare(raw,mode='rule_consistency',references=references,
+                                        rgb_mode=mode,short=True,seed=20260929)
+                result=measure(data,evaluation)
+                report['modes'][str(mode)].update(result)
+                if result['missing_critical_support']:
+                    report['errors'].append(f'RGB{mode} missing critical support: '+str(result['missing_critical_support']))
+            except (ValueError,OSError,KeyError,TypeError) as ex:
+                report['modes'].setdefault(str(mode),{})['error']=f'{type(ex).__name__}: {ex}'
+                report['errors'].append(f'RGB{mode}: {type(ex).__name__}: {ex}')
+        if all('selected_ids_sha256' in report['modes'][str(mode)] for mode in (2,4)):
+            two,four=report['modes']['2'],report['modes']['4']
+            if two['selected_ids_sha256']!=four['selected_ids_sha256'] or (
+                two['schedule']['worlds']['1'][0]['ordered_ids_sha256'] !=
+                four['schedule']['worlds']['1'][0]['ordered_ids_sha256']):
+                raise ValueError('RGB2/RGB4 selected membership or sampling order differs')
         if before!=dataset_bindings(dataset) or ref_before!=pack_binding(references):
             raise ValueError('baseline inputs changed during admission')
         report['input_bindings']=dict(dataset=before,references=ref_before)

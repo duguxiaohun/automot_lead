@@ -1,0 +1,97 @@
+{
+  "received": {
+    "zip_bytes": 30799,
+    "members": 6,
+    "zip_sha256": "3c055777b1cbcfc36b4c0ed7c1ad2ec4784e09517b7b9499a9e6709dddeb11a2",
+    "source_files": 454,
+    "source_release": "340931b4d/v52 pilot",
+    "status": "verified",
+    "candidate_summary": {
+      "routes": 8614,
+      "rgb_frames": 1062401,
+      "split_routes": {
+        "train": 7268,
+        "val": 658,
+        "test": 688
+      },
+      "discovered_routes": 9712,
+      "excluded_routes": 1098,
+      "exclusion_reasons": {
+        "abnormal_duration": 963,
+        "missing_all_metas": 135
+      },
+      "excluded_split_routes": {
+        "train": 898,
+        "test": 93,
+        "val": 107
+      }
+    },
+    "processed_routes": 30,
+    "processed_frames": 3858,
+    "replay_bytes": 1966539,
+    "complete_causal_production": false
+  },
+  "local": {
+    "routes": 12,
+    "frames": 1335,
+    "train": 498,
+    "automatic_val": 48,
+    "automatic_test": 75,
+    "status": "blocked_missing_events",
+    "runtime": {
+      "elapsed_seconds": 83.35772976488806,
+      "peak_rss_kib": 598512,
+      "scope": "12-route partial source, tiny config budget fixture; no GPU/model weights/training"
+    },
+    "final_runtime": {
+      "elapsed_seconds": 18.170554327080026,
+      "peak_rss_kib": 597816,
+      "package": {
+        "files": {
+          "build_result.json": "73427a0c37d4de07bb76165eba2cae236b7751e52eb3a53f586795881233f48a",
+          "model_budget_profile.json": "014c4539f1b982174b60a870c9a257cd7cd4275326eca3e05db4c2ad08fa3b0b",
+          "first_epoch_budget.json": "11d5234de80ffb6a0004ae8235784a1ebe653eb999ca22d65d853406950580dd",
+          "automatic_admission.json": "39d8731e33e9a95f5c4714c13184c264e1c023cf6a267651ff4d1261bb0daf85",
+          "finish_receipt.json": "50aae0675a63f70c0657422e6a0db659838a523ec7339d6dfad2bb5a7d830295",
+          "budget_plan.json": "d20dd31b0f6e53ef123a59bfc8afdbf62ea3704294ed4034ffb0044a78c7304b",
+          "data4_summary.json": "f48465fba1015029e36b49dca208f69d406819fb11e978f2eeeb71e4bd96fb8c",
+          "references4_summary.json": "8d58788da48b6e5fb3b0a2df26207841e1ee971ddef3f003e96af34262ec6f2a",
+          "view_summary.json": "38281369d8a8015f4261ddb17edefc9b520ea08968f03ce2aa06b3b4eeafb69c"
+        },
+        "zip_sha256": "1424ce6afbbabe7623cdba74d7d94f40b6ecc7717a3baf7dc476e631e4be8af5",
+        "bytes": 16811,
+        "status": "verified"
+      },
+      "errors": [
+        "RGB2: ValueError: training requires all ten events: missing=['R-E5']",
+        "RGB4: ValueError: training requires all ten events: missing=['R-E5']"
+      ]
+    },
+    "model_budget_scope": "tiny meta config fixture, not server 4B budget",
+    "rgb_viewed": 18,
+    "source_sha_verified": 54,
+    "scope": "known-label development review on training routes; no G2 or full-source certification"
+  },
+  "tests": {
+    "full_passed": 2311,
+    "full_seconds": 103.9,
+    "final_targeted_passed": 8,
+    "additional_new_test": 1
+  },
+  "evidence": {
+    "checkpoints/fullflow_audit_20261012/tests.log": "da2d6a78b5060c6df91707b4cc4977092fa6fb1309cf52bf6f879a52cef52731",
+    "checkpoints/fullflow_audit_20261012/tests.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "checkpoints/fullflow_audit_20261012/final_targeted2.log": "84e62c14cec424661cfa68b77a1aeff1c47adbd9c7827675f7e58b7e522678c2",
+    "checkpoints/fullflow_audit_20261012/runtime.json": "87a56fd0a1ae8931cf3a339f4b67b1b0b5c68978f106ea713755bb52b0c13889",
+    "checkpoints/fullflow_audit_20261012/final_runtime.json": "0ad3e12bfc34f63203eab5c18442c0fe205e546cbd41e4b642273e51e31f9f72",
+    "checkpoints/fullflow_audit_20261012/rgb_manifest.json": "9cb047352209fa7fbd63930b430b1894c35b8305f360d366897163d90df0c9bd",
+    "checkpoints/fullflow_audit_20261012/actual_pool_support.json": "569d9a55c44b3d6e545738c95203c7d7cad223c2231d4f4cb5197cf9d2a4f4d5",
+    "checkpoints/fullflow_audit_20261012/pipeline_final/finish_receipt.json": "50aae0675a63f70c0657422e6a0db659838a523ec7339d6dfad2bb5a7d830295",
+    "checkpoints/fullflow_audit_20261012/pipeline_final/automatic_admission.json": "39d8731e33e9a95f5c4714c13184c264e1c023cf6a267651ff4d1261bb0daf85",
+    "checkpoints/fullflow_audit_20261012/pipeline_final/data4/manifest.json": "8bcd3deaec5825a3be372087d8bb5a3e0dea20600b74a61888cad43a2942677c",
+    "checkpoints/fullflow_audit_20261012/pipeline_final/references4/references.json": "0f9fe849a5c07cc25c29d18a2dfea2d674a60722cdac88f4c82281b3dce60a44",
+    "checkpoints/fullflow_audit_20261012/pipeline_final/handoff/fullflow_package.json": "57114db2bead530e2314041498c957d3319c027b54f20e957ed08b564a0175b3"
+  },
+  "no_remote_gpu_training": true,
+  "no_label_or_prompt_change": true
+}

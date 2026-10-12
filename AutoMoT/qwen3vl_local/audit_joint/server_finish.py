@@ -1,0 +1,129 @@
+"""Finish an existing v52 pilot into automatic rule data, then stop before GPU."""
+import argparse
+import json
+from pathlib import Path
+import time
+
+from .io import digest, file_sha, write_json
+
+
+def build(pilot, root, output, model_dir, workers=4):
+    from qwen3vl_local.sft_new_loop_phase4 import candidate_pool, teacher_replay, dataset, teacher_data, teacher_evaluation
+    from qwen3vl_local.sft_new_loop_phase4.full_pipeline import default_registry
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.data import create
+    from .first_epoch_budget import profile, request
+    from .rule_baseline import check
+    result = dict(status='building',stage='inputs',stages={},errors=[],training_started=False)
+    started = time.monotonic()
+    def save():
+        result['elapsed_seconds'] = time.monotonic()-started
+        pending=output/'build_result.pending'
+        pending.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+        pending.replace(output/'build_result.json')
+    def stage(name):
+        result['stage'] = name; save()
+    try:
+        pilot = Path(pilot).absolute(); output = Path(output).absolute()
+        if pilot.resolve() == output.resolve() or output.resolve().is_relative_to(pilot.resolve()):
+            raise ValueError('build output must be fresh and outside pilot inputs')
+        if pilot.stat().st_dev != output.stat().st_dev:
+            raise ValueError('pilot replay and output must share the guarded filesystem')
+        pool = candidate_pool.validate(json.loads((pilot/'candidates.json').read_text()))
+        result['candidate_pool_sha256'] = file_sha(pilot/'candidates.json')
+        # Budget topology first, so a missing model config cannot waste a full build.
+        stage('checkpoint_budget_profile')
+        budget_profile = profile(model_dir)
+        write_json(output/'model_budget_profile.json',budget_profile)
+        stage('complete_replay')
+        replay = teacher_replay.produce(
+            pool,root,pilot/'production',workers=workers,compression='gzip')
+        ambiguous=replay.get('history_ambiguous_question_ids',[])
+        result['stages']['complete_replay'] = {k:v for k,v in replay.items() if k!='history_ambiguous_question_ids'}
+        result['stages']['complete_replay'].update(history_ambiguous_count=len(ambiguous),
+                                                  history_ambiguous_ids_sha256=digest(ambiguous))
+        if not replay['complete_causal_production']:
+            raise ValueError('incomplete replay; do not publish a partial shared collection')
+        stage('rgb4_rule_dataset')
+        registry = default_registry()
+        anns, selection = teacher_data.compile_bundle(pool,pilot/'production/index.json',registry,rgb_mode=4,max_per_route=0)
+        manifest = dataset.build(anns,root,output/'data4',rgb_mode=4,candidate_pool=pool,
+            teacher_registry=registry,production_index=pilot/'production/index.json',
+            teacher_selection={k:selection[k] for k in ('max_per_route','selection_policy')} |
+                              dict(route_budget_excluded=selection['counts']['route_budget_excluded']))
+        del anns
+        result['stages']['rgb4_rule_dataset'] = dict(counts=manifest['counts'],manifest_sha256=file_sha(output/'data4/manifest.json'))
+        stage('automatic_holdout')
+        refs = teacher_evaluation.export(pool,pilot/'production/index.json',root,output/'references4',rgb_mode=4)
+        result['stages']['automatic_holdout'] = refs['files']
+        stage('student_view')
+        view = create(output/'data4',output/'view')
+        result['stages']['student_view'] = dict(counts=view['counts'],observations=view['observation_contracts'])
+        stage('first_epoch_budget')
+        stored = {name:file_sha(output/name) for name in ('data4/manifest.json','references4/references.json','view/student_view.json')}
+        budget = request(budget_profile,output,stored_evidence=stored)
+        write_json(output/'first_epoch_budget.json',budget)
+        stage('automatic_admission')
+        admission = check(output/'view',output/'references4',budget=budget,space_path=output)
+        write_json(output/'automatic_admission.json',admission)
+        result.update(status=admission['status'],stage='finished_cpu',errors=admission['errors'])
+    except Exception as exc:
+        result.update(status='blocked',errors=[f'{type(exc).__name__}: {exc}'])
+    save()
+    return result
+
+
+def package(output, exit_code):
+    from .server_pilot import package as make_package
+    from .training_budget import plan
+    output = Path(output)
+    names = ('source_check.json','build_result.json','model_budget_profile.json','first_epoch_budget.json','automatic_admission.json')
+    members = {name:json.loads((output/name).read_text()) for name in names if (output/name).is_file()}
+    result = members.setdefault('build_result.json',dict(status='interrupted_before_report'))
+    result['command_exit_code'] = exit_code
+    if exit_code:
+        result['status'] = 'blocked_or_interrupted'
+    completion=dict(status=result['status'],command_exit_code=exit_code,
+                    build_result_exists=(output/'build_result.json').is_file())
+    write_json(output/'finish_receipt.json',completion)
+    members['finish_receipt.json']=completion
+    if 'first_epoch_budget.json' in members:
+        members['budget_plan.json'] = plan(members['first_epoch_budget.json'])
+    for folder, filename in (('data4','manifest.json'),('references4','references.json'),('view','student_view.json')):
+        p = output/folder/filename
+        if p.is_file():
+            data = json.loads(p.read_text())
+            members[f'{folder}_summary.json'] = dict(path=str(p),sha256=file_sha(p),
+                declared={k:data[k] for k in ('counts','files','production_reference_sha256','production_index_sha256') if k in data})
+    log = output/'build.log'
+    if log.exists():
+        with log.open('rb') as stream:
+            stream.seek(max(0,log.stat().st_size-100_000))
+            members['log_tail.json'] = dict(sha256=file_sha(log),tail=stream.read().decode(errors='replace'))
+    target = output/'handoff';target.mkdir(exist_ok=False)
+    receipt=make_package(target,members)
+    (target/'pilot_report.zip').rename(target/'fullflow_report.zip')
+    (target/'pilot_package.json').rename(target/'fullflow_package.json')
+    return receipt
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('command',choices=('build','package'))
+    p.add_argument('--pilot',type=Path)
+    p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--data-root',type=Path,default=Path('lead_data'))
+    p.add_argument('--model-dir',type=Path,default=Path('checkpoints/Qwen3.5-4B'))
+    p.add_argument('--workers',type=int,default=4)
+    p.add_argument('--exit-code',type=int,default=0)
+    a=p.parse_args()
+    if a.command=='package':
+        print(json.dumps(package(a.output,a.exit_code)));return 0
+    if not a.pilot:p.error('--pilot required')
+    if (a.output/'build_result.json').exists() or any((a.output/n).exists() for n in ('data4','references4','view')):
+        p.error('use a fresh output; partial outputs are preserved')
+    r=build(a.pilot,a.data_root,a.output,a.model_dir,a.workers)
+    print(json.dumps(dict(status=r['status'],stage=r['stage'],errors=r['errors']),ensure_ascii=False))
+    return 0 if r['status']=='admitted_rule_baseline' else 2
+
+
+if __name__=='__main__':raise SystemExit(main())

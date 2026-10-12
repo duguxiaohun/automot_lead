@@ -1,5 +1,12 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-12 服务器pilot通过与全自动开训收尾
+
+收到Downloads/pilot_report.zip 30799字节/6成员，外层与成员SHA及454发布源码核验通过。服务器30路线3858帧/236.74秒，原生回放104.6秒、gzip合计1966539字节；正式候选8614路线1062401帧。样本只覆盖7事件，未含UE3/5/6不能推断全源无支持；pilot关闭，不重复readiness/旧fit。
+修复rule_baseline首模式失败吞掉另一模式诊断；新增server_finish.sh/.py和first_epoch_budget.py（原生meta模块+同LoRA目标选择器计算rank16/vision-off两模式首轮预算，不加载权重/GPU）。新458源清单；正式池CPU入口复用30回放→完成全池→单份共享RGB4规则库→自动留出→短视图→预算/准入→≤30MB包，20GiB保留/约12GiB净写盘轮询上限；不调用人工总入口、不启动训练。原生v52/老师v17/标定提示词不变，学生准入合同更新需新view。发布同步后按audit_joint/SERVER_V52_FULLFLOW_20261012.md执行，交fullflow_report.zip+fullflow_package.json，只有admitted_rule_baseline才两模式各一轮。
+本机12路线1335帧真实链路83.36秒/598512KiB，规则train498、自动val48/test75；train缺RE5、val缺9/test缺8事件，两模式一致，按预期阻塞。预算使用tiny config测试夹具，不冒称服务器4B预算。实际三联系表18不同训练RGB/54源SHA（UE4/UE7/RE3），无新确定错标/盲审；雾天远端可见性仍有限制。2311完整回归103.90秒通过；收尾8工具专项通过含1新增回执测试。见FULLFLOW_REVIEW_20261012.md与fullflow_verification_20261012.json；checkpoints/fullflow_audit_20261012存原始证据。Phase3/Action缺失及联合隔离未完成，G0未过/G2未运行；未远程/GPU/训练/push。
+
+
 ### 2026-10-12 v52白名单发布准备与服务器限量试建
 
 用户授权push。新增server_v52_pilot.sh及454源SHA清单：正式候选扫描后最多30条/每条≤400帧，split/scenario轮转、单worker gzip；不编译封存部分回放/不训练。20GiB余量+约2GiB净写盘轮询保护，≤30MB ZIP及独立SHA回执；样本不保证全量容量/事件覆盖。服务器沿sync_automot.sh覆盖同步，仅运行该新入口，交pilot_report.zip+pilot_package.json；readiness/旧fit不重跑。详见audit_joint/SERVER_V52_NEXT_20261012.md。

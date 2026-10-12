@@ -1,5 +1,7 @@
 # v52：服务器现在执行什么
 
+> 2026-10-12最新：服务器30路线pilot已通过并关闭。下一步按[正式规则池与自动首轮](SERVER_V52_FULLFLOW_20261012.md)完成正式池，不重复pilot/readiness/旧fit。十事件训练及固定val/test等量已接通；正式池覆盖尚待验收。审计与代码修改见[FULLFLOW_REVIEW](FULLFLOW_REVIEW_20261012.md)，新入口须发布同步后使用。
+
 已通过的CPU readiness、模型预检和旧拟合不重跑。同步仍用你现有的 `sync_automot.sh`（源仓库 `duguxiaohun/automot_lead`，clone+rsync覆盖白名单）；服务器 AutoMoT 内遗留 Bosch `.git` 不作为版本核验依据。保留其它文件和旧实验。
 
 ## 本次只执行一个CPU数据准备入口
