@@ -1,8 +1,16 @@
 # Phase3 / Phase4 统一证据、独立语义与计算优化方案
 
-> 2026-10-12最新：服务器30路线pilot已通过并关闭。下一步按[正式规则池与自动首轮](../audit_joint/SERVER_V52_FULLFLOW_20261012.md)完成正式池，不重复pilot/readiness/旧fit。十事件训练及固定val/test等量已接通；正式池覆盖尚待验收。审计与代码修改见[FULLFLOW_REVIEW](../audit_joint/FULLFLOW_REVIEW_20261012.md)，新入口须发布同步后使用。
+> 最新服务器交接：同步本轮468源后，按[Phase3下一步](../audit_joint/SERVER_PHASE3_NEXT_20261012.md)执行一次数据入口，未确定索引也会产缺失/盘点包；交ZIP+SHA回执，不重跑readiness。并行本机14帧RGB/42源SHA续审未新增放行正例。
 
-> 2026-10-12 v52发布后当前服务器步骤：见[新版限量试建交接](../audit_joint/SERVER_V52_NEXT_20261012.md)，同步后仅运行 `bash qwen3vl_local/audit_joint/server_v52_pilot.sh`，交回 `pilot_report.zip` 与 `pilot_package.json`。不重复readiness/旧拟合，不直接全量建库或续七轮；本地107帧重算/28帧RGB续审见 `audit_joint/RELEASE_RGB_V52_20261012.md`。
+> 最新入口修复：Phase3正式train/eval统一强制manifest、提示词及全索引隔离；2368完整回归通过。Phase4 v53合同不变、无需重复回放。下一步交Phase3实际索引准入JSON与manifest，合格后可独立推进新基线，不等待U-E5。详见[修复与数据验收步骤](../audit_joint/PHASE3_ENTRY_FIX_20261012.md)。
+
+> **2026-10-12 v53最新：已修复U-E5离场前后走廊不一致，按每帧位姿投影同一实例走廊；老师v18，旧v52库/view不能混用。2342项完整回归通过，真实短两图/四图编译加载通过。** 标定阈值、提示词和事件等量实现未改；真实放行支持与新版正式池仍须单独验收。当前不重复服务器readiness、旧fit或全量建库，旧手册第0步不再要求执行。见[走廊修复与新旧数据边界](../audit_joint/UE5_CORRIDOR_V53_20261012.md)。Phase3正式资产/联合隔离仍待交付。
+
+> 历史v52续审（以下服务器诊断安排已由v53取代）：89条本地训练路线/10799帧仍无U-E5 proceed YES；收尾实际28帧RGB复核未支持直接补YES。新增原始支持提前检查，已知缺格跳过后续昂贵编译；原始窗口诊断保留源身份与失败证据，生产/学生合同不变。392联合审计回归通过。见[离场审计](../audit_joint/UE5_DEPARTURE_AUDIT_20261012.md)。服务器不用重建，仅发布后交手册第0步诊断JSON；本地继续离场证据与截止时序，不把此诊断当准入。
+
+> 历史v52正式池证据：8614路线正式规则池已完成，训练每事件1024次、val每事件37题/test18题及首轮预算通过；目前仅U-E5/proceed/readiness/YES缺失阻塞首轮。保留现有库，不重复建库/readiness/旧fit；发布后按[手册第0步](../audit_joint/SERVER_V52_FULLFLOW_20261012.md)读取现有U-E5回放交诊断。详细证据与限制见[FULLPOOL_RECEIVED](../audit_joint/FULLPOOL_RECEIVED_20261012.md)。规则一致率不是独立准确率，Phase3/Action与联合G0仍未完成。
+
+> 历史记录（pilot已完成，不再执行）：2026-10-12 v52发布后服务器步骤：见[新版限量试建交接](../audit_joint/SERVER_V52_NEXT_20261012.md)，同步后仅运行 `bash qwen3vl_local/audit_joint/server_v52_pilot.sh`，交回 `pilot_report.zip` 与 `pilot_package.json`。不重复readiness/旧拟合，不直接全量建库或续七轮；本地107帧重算/28帧RGB续审见 `audit_joint/RELEASE_RGB_V52_20261012.md`。
 
 **2026-10-12 v52累计索引修复与自动首轮：** 分批回放改为累计回执，引用安装后封存集合，真实2+3→5及发布后2/3/5请求字节不变。自动基线固定单份RGB4→短视图→自动留出→`rgb_short/run_automatic.sh`，不走人工双库总入口；新增实际规则池/关键支持/等量/首轮预算启动门，通过后固定一轮、重载及test。755帧1116题/P3语义不变，70不同RGB与219份去重源SHA复核；2302完整回归+新增入口测试通过。小库空val/test/缺预算仍阻塞，正式池与预算未验收。readiness/旧fit不再重复，不等待全量人工/G2。详见[本轮修复及执行步骤](../audit_joint/BATCH_BASELINE_V52_20261012.md)。
 

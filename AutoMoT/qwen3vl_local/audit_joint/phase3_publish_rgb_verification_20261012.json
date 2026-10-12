@@ -1,0 +1,52 @@
+{
+  "scope": "release handoff and development RGB review; not formal dataset admission",
+  "source_files": 468,
+  "tests": {
+    "passed": 29,
+    "seconds": 1.78,
+    "new_tool_tests": 3
+  },
+  "rgb": {
+    "frames_viewed": 14,
+    "source_files_verified": 42,
+    "routes": 2,
+    "blind": false,
+    "labels_changed": false
+  },
+  "packages": {
+    "valid": {
+      "files": {
+        "source_check.json": "26dd0dd1fd2de9cde64de91241062f83f12373616851b55d94036b38e0fda364",
+        "manifest.json": "898ec2f8a002aced841cb2d8fbf78018bbfad1a3d4fcd8ee1c2a8e4cb7120261",
+        "phase3_index_report.json": "dbc045a4e269d5229bfec40c6d88a1eb123d7f6261f05e94d7213b9b1bd83cea"
+      },
+      "zip_sha256": "b4ce3b018d94f01306d48f3570f15e5f30cf6dbd937cb6b48e542ce731f9b36e",
+      "bytes": 27990,
+      "status": "verified"
+    },
+    "missing": {
+      "files": {
+        "source_check.json": "26dd0dd1fd2de9cde64de91241062f83f12373616851b55d94036b38e0fda364",
+        "phase3_index_report.json": "490589195b36bf03dfb5360b86c055f69e4bf2f21b35e6fec8b250eea6fd6e2b"
+      },
+      "zip_sha256": "bf609fc2e3882ff64d99291f4ac0a431eeb56afff3a408efb6e7eb3e7357aea1",
+      "bytes": 25881,
+      "status": "verified"
+    }
+  },
+  "evidence": {
+    "checkpoints/phase3_publish_rgb_20261012/rgb_evidence.json": "f2338aedb808bf9eb2c8516b5ee4bea647185e330ab7bca0e5109c71c51d35c6",
+    "checkpoints/phase3_publish_rgb_20261012/rgb.py": "f51265522c5df364826925d304a74dde3e81a25bb8eeb82160e15075ed6599f1",
+    "checkpoints/phase3_publish_rgb_20261012/rgb.log": "9da715a74933e5524cc98c6d26413a438abe9718733fcfa2dd49a6ccb592d2e6",
+    "checkpoints/phase3_publish_rgb_20261012/tests.log": "44a111c491086cca85aca332a0d1a9ed626eead9f77490d03ddef0a9f96b0ab1",
+    "checkpoints/phase3_publish_rgb_20261012/Town13_Rep0_1159_1_route0_01_10_02_32_18.jpg": "96f8d80f55197003803df3dcdf08d6baa4a45dcb4157bda71389e23971ccdbca",
+    "checkpoints/phase3_publish_rgb_20261012/Town13_Rep0_1148_0_route0_01_08_19_01_21.jpg": "dabe34c5cc72835028f5f4bef5b6e714cd3a26f8602da75ebbfc7a6f00e748e0",
+    "checkpoints/phase3_publish_rgb_20261012/missing_handoff/phase3_index_package.json": "d62908061ef38f3136a5c8c8c311a4d846a61dfc3fedcb31711735efb8202bc5",
+    "checkpoints/phase3_publish_rgb_20261012/missing_handoff/phase3_index_report.zip": "bf609fc2e3882ff64d99291f4ac0a431eeb56afff3a408efb6e7eb3e7357aea1",
+    "checkpoints/phase3_publish_rgb_20261012/missing_handoff/phase3_index_report.json": "490589195b36bf03dfb5360b86c055f69e4bf2f21b35e6fec8b250eea6fd6e2b",
+    "checkpoints/phase3_publish_rgb_20261012/valid_handoff/phase3_index_package.json": "e254e6f2f8d21133ba2eb4358cbdf4f42602ff73d585f093e4a894512c6e8716",
+    "checkpoints/phase3_publish_rgb_20261012/valid_handoff/phase3_index_report.zip": "b4ce3b018d94f01306d48f3570f15e5f30cf6dbd937cb6b48e542ce731f9b36e",
+    "checkpoints/phase3_publish_rgb_20261012/valid_handoff/phase3_index_report.json": "dbc045a4e269d5229bfec40c6d88a1eb123d7f6261f05e94d7213b9b1bd83cea"
+  },
+  "release_sha256": "f4dcea82e5dc71e5088a0d3bb38d763f886998858d70be2b60bce84d50c15a4b"
+}

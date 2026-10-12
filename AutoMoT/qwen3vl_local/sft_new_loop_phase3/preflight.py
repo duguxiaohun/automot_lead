@@ -16,37 +16,42 @@ from qwen3vl_local.sft_new_loop_phase3.quality_guards import same_rs_coverage
 from qwen3vl_local.sft_new_loop_phase3.prompts import DEFAULT_ACTION_OUTPUT_MODE, PROMPT_NAME, action_prompt_sha256
 
 
-def check_index(path, action_output_mode="binary"):
+def check_index(path, action_output_mode="binary", *, prompt_variant="baseline"):
     """全索引检查；不加载 Qwen 或读取未来状态作为模型条件。"""
     path = Path(path)
     manifest_path = path.with_name("manifest.json")
-    extra_development = set()
-    if manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        extra_development = set(manifest.get("additional_development", {}).get("groups", []))
-        prompt_contract = manifest.get("prompt_contract")
-        if not isinstance(prompt_contract, dict):
-            raise ValueError(
-                f"{manifest_path}: missing prompt_contract; rebuild this index for the current prompt"
+    from qwen3vl_local.sft_new_loop_phase3.prompt_contract import prompt_name
+    prompt_name(prompt_variant)
+    if not manifest_path.is_file():
+        raise ValueError(f"{manifest_path}: full build manifest required; bare index is not admitted")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    extra_development = set(manifest.get("additional_development", {}).get("groups", []))
+    prompt_contract = manifest.get("prompt_contract")
+    if not isinstance(prompt_contract, dict):
+        raise ValueError(
+            f"{manifest_path}: missing prompt_contract; rebuild this index for the current prompt"
+        )
+    if prompt_contract.get("prompt_name") != PROMPT_NAME:
+        raise ValueError(
+            f"{manifest_path}: prompt_name mismatch: {prompt_contract.get('prompt_name')!r}; "
+            "rebuild the index for the current prompt contract"
+        )
+    expected_hashes = {
+        output_mode: {
+            history_mode: action_prompt_sha256(
+                audit=False, history_rgb_mode=history_mode, action_output_mode=output_mode,
             )
-        if prompt_contract.get("prompt_name") != PROMPT_NAME:
-            raise ValueError(
-                f"{manifest_path}: prompt_name mismatch: {prompt_contract.get('prompt_name')!r}; "
-                "rebuild the index for the current prompt contract"
-            )
-        expected_hashes = {
-            output_mode: {
-                history_mode: action_prompt_sha256(
-                    audit=False, history_rgb_mode=history_mode, action_output_mode=output_mode,
-                )
-                for history_mode in ("4rgb", "2rgb_endpoints")
-            }
-            for output_mode in ("binary", "choice")
+            for history_mode in ("4rgb", "2rgb_endpoints")
         }
-        if prompt_contract.get("production_prompt_sha256") != expected_hashes:
-            raise ValueError(
-                f"{manifest_path}: prompt hash mismatch; rebuild this index for the current prompt contract"
-            )
+        for output_mode in ("binary", "choice")
+    }
+    if prompt_contract.get("production_prompt_sha256") != expected_hashes:
+        raise ValueError(
+            f"{manifest_path}: prompt hash mismatch; rebuild this index for the current prompt contract"
+        )
+    if prompt_variant != "baseline":
+        from qwen3vl_local.sft_new_loop_phase3.candidate_data import validate_candidate_index
+        validate_candidate_index(path)
     counts = Counter()
     groups = {}
     unique = defaultdict(set)
@@ -113,13 +118,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--index", type=Path)
     parser.add_argument("--model-dir", type=Path)
+    parser.add_argument("--prompt-variant", default="baseline")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--action-output-mode", choices=("binary", "choice"), default=DEFAULT_ACTION_OUTPUT_MODE)
     args = parser.parse_args()
     report = {}
     try:
         if args.index:
-            report["index"] = check_index(args.index, args.action_output_mode)
+            report["index"] = check_index(args.index, args.action_output_mode, prompt_variant=args.prompt_variant)
         if args.model_dir:
             report["model"] = check_model(args.model_dir)
         report["ok"] = True

@@ -1,0 +1,186 @@
+{
+  "schema": "v52_flow_code_review_v1",
+  "production_changed": false,
+  "regression": {
+    "passed": 2328,
+    "seconds": 107.07,
+    "exit_code": 0
+  },
+  "finding": {
+    "priority": "P1",
+    "function": "teacher_events.visible_departure",
+    "historical_and_current_corridors_differ": true,
+    "synthetic_only": true,
+    "result": {
+      "same_corridor": {
+        "visible_departure": false,
+        "facts": {},
+        "reasons": [
+          "decisive_actor_not_visible"
+        ],
+        "proceed": "UNKNOWN",
+        "last_five": [
+          {
+            "frame_id": 6,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": true
+          },
+          {
+            "frame_id": 7,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": true
+          },
+          {
+            "frame_id": 8,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": true
+          },
+          {
+            "frame_id": 9,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": true
+          },
+          {
+            "frame_id": 10,
+            "visible": null,
+            "fixed_intersection": false,
+            "planned_intersection": false
+          }
+        ]
+      },
+      "historical_planner_shift_only": {
+        "visible_departure": true,
+        "facts": {
+          "event_restriction_observed": false,
+          "release_ready": true,
+          "corridor_clear": true,
+          "priority_satisfied": true,
+          "restriction_present": false,
+          "stationary_wait_required": false,
+          "restricted_progress_established": false,
+          "stable_progress_established": false,
+          "event_resolved": true
+        },
+        "reasons": [
+          "progress_moving_not_established"
+        ],
+        "proceed": "YES",
+        "last_five": [
+          {
+            "frame_id": 6,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": false
+          },
+          {
+            "frame_id": 7,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": false
+          },
+          {
+            "frame_id": 8,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": false
+          },
+          {
+            "frame_id": 9,
+            "visible": true,
+            "fixed_intersection": true,
+            "planned_intersection": false
+          },
+          {
+            "frame_id": 10,
+            "visible": null,
+            "fixed_intersection": false,
+            "planned_intersection": false
+          }
+        ]
+      }
+    },
+    "fixed": false,
+    "actual_dataset_false_positive_established": false
+  },
+  "evidence": {
+    "evidence_checks": {
+      "checkpoints/ue5_continuation_20261012/request.json": true,
+      "checkpoints/ue5_continuation_20261012/run.py": true,
+      "checkpoints/ue5_continuation_20261012/records.jsonl": true,
+      "checkpoints/ue5_continuation_20261012/summary.json": true,
+      "checkpoints/ue5_continuation_20261012/full_train_probe.json": true,
+      "checkpoints/ue5_continuation_20261012/rgb_sources.json": true,
+      "checkpoints/ue5_continuation_20261012/early_stop_verification.json": true,
+      "checkpoints/ue5_continuation_20261012/final_tests.log": true
+    },
+    "rgb_source_files": 84,
+    "rgb_source_checks_passed": 84,
+    "recounted_frames": 10799,
+    "questions": {
+      "proceed/NO": 711,
+      "restrict/YES": 109,
+      "hold/YES": 109,
+      "proceed/UNKNOWN": 290
+    },
+    "ends": {
+      "decisive_actor_passed_behind_censors_stale_wait": 78,
+      "observed_resumption_censors_stale_wait": 23,
+      "instance_rgb_discontinuity": 8
+    },
+    "viewed_sheets": {
+      "AutoMoT/checkpoints/ue5_continuation_20261012/rgb/Town12_Rep0_1450_0_route0_01_09_22_58_43.jpg": "85734a73ac4dce99e92576eb7b8b2783ff1ae40101d2f6d669f1ff4f47685126",
+      "AutoMoT/checkpoints/ue5_continuation_20261012/rgb/Town12_Rep0_1535_0_route0_01_08_01_01_48.jpg": "edc3c7d3d4eaed432537d78e4dd28be93208051c89f82a891f9b9bddd905aa36",
+      "AutoMoT/checkpoints/ue5_continuation_20261012/rgb/Town12_Rep0_1596_0_route0_01_08_13_30_06.jpg": "8c49dd3e5c3626725795fe58e172eabb0fc6a2b95f153084efc3456eb3b0b7e9",
+      "AutoMoT/checkpoints/ue5_continuation_20261012/rgb/Town12_Rep0_1596_1_route0_01_09_22_34_26.jpg": "aa51ee4502aa7843603d62338c07ab7a4564eed1e6144c34f7167b7c4db87085"
+    },
+    "source_replay_rerun": false
+  },
+  "rgb": {
+    "viewed_frames": 28,
+    "viewed_contact_sheets": 4,
+    "new_unique_frames_beyond_prior_review": 0,
+    "source_hashes_verified": 84,
+    "blind": false
+  },
+  "remaining": [
+    "U-E5 proceed readiness YES absent in received production and local replay",
+    "Phase3 formal assets and joint isolation not certified"
+  ],
+  "artifacts": {
+    "corridor_probe.py": {
+      "path": "AutoMoT/checkpoints/v52_flow_review_20261012/corridor_probe.py",
+      "sha256": "5aec38e5b7e921681016a599201c46942b339d9ab929b2a169195f7e36c5dc15"
+    },
+    "corridor_probe.json": {
+      "path": "AutoMoT/checkpoints/v52_flow_review_20261012/corridor_probe.json",
+      "sha256": "ded9d147191a24e0132abef09c0a8b0d9981bac35387e6c5efac46c0c5778ab4"
+    },
+    "tests.log": {
+      "path": "AutoMoT/checkpoints/v52_flow_review_20261012/tests.log",
+      "sha256": "b1da4d62d1e444eeecdd674454aa39d7a6469b459173f460ee2c7af48c4d1620"
+    },
+    "tests.exit": {
+      "path": "AutoMoT/checkpoints/v52_flow_review_20261012/tests.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    "evidence_check.json": {
+      "path": "AutoMoT/checkpoints/v52_flow_review_20261012/evidence_check.json",
+      "sha256": "aead942510b19d581977f20cb2561f448ef3a47f1ad7f3ac3f46a6014485b371"
+    }
+  },
+  "source_sha256": {
+    "teacher_events.py": "7e922ef1fe100ab81b9b97ca323c75990a53a3d6b13a337378305020a5a4136d",
+    "teacher_rules.py": "d8ed0241a30ca52a75091f20ac73790400458a0c1068ae01bd7f18a02c5946e4",
+    "teacher_replay.py": "2a692a8cb7051add7096ce1a23137e2ac42efc63f81d8f9090f90662e8765867",
+    "route_prompts.py": "2bd1fffafdf8ed082ff6677ebeded3263dfc7906b00efa58e548d3e1a9cba646"
+  },
+  "limitations": [
+    "no full-pool source replay this turn",
+    "no remote or GPU execution",
+    "no production changes or push"
+  ]
+}

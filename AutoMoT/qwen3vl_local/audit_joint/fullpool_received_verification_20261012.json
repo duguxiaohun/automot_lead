@@ -1,0 +1,199 @@
+{
+  "received_package": {
+    "files": {
+      "source_check.json": "599688c920f225f27f20b3c8e11ca2a4ac3514bd27f68e3afce30de39209448b",
+      "build_result.json": "904ca59bd46455cb62be87e1d0eee126eab3ac669f2dc400b574b42ce2117e8c",
+      "model_budget_profile.json": "9902fd550da6527518240c4f4cc34e2b27da454a11cccfce411303312dca1d9e",
+      "first_epoch_budget.json": "8f28d7298d3347c16e12c4327dc3e509aac4f9426141369c1d82f4502dcd1513",
+      "automatic_admission.json": "c357e2824d2009e3b9232bc0435d4471d8209b62ecb2c77f99228e8bf9405f09",
+      "finish_receipt.json": "50aae0675a63f70c0657422e6a0db659838a523ec7339d6dfad2bb5a7d830295",
+      "budget_plan.json": "24997e914cc77cf034968dad38af4b4f45c3c74a7dae6230daa9a91bf85c1fd4",
+      "data4_summary.json": "9106aa6d1380a81cee7ed22f603b88faa521fc555e6e52544bdcf727d0b7c205",
+      "references4_summary.json": "355259e49bdfae44d693f1793d04c3ae61cf71f78e766d9ef4da20d1c90e7e94",
+      "view_summary.json": "20ebef1d342d74c2d70f34dff7077581edf3e2c27905f150dafde557fcd280fa",
+      "log_tail.json": "5ee59486a26222866b9fd052c64fba34b940149b584eda4e55ffdd3273037fe2"
+    },
+    "zip_sha256": "a2aa3fa2c8e1f5d11dd436ecc6673d30b3044ac467f7f1999357bc9fd5aac54e",
+    "bytes": 864998,
+    "status": "verified"
+  },
+  "source_commit": "bafcedf21206936f7cacd6912ce6cc45b3b9fcf9",
+  "source_files_verified": 458,
+  "server_seconds": 18508.806628078222,
+  "routes": 8614,
+  "frames": 1062401,
+  "training_started": false,
+  "event_counts": {
+    "R-E2": {
+      "pool": 54097,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 37,
+      "test_groups": 18
+    },
+    "R-E3": {
+      "pool": 14949,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 14,
+      "test_groups": 17
+    },
+    "R-E5": {
+      "pool": 40290,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 37,
+      "test_groups": 18
+    },
+    "U-E1": {
+      "pool": 81757,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 37,
+      "test_groups": 18
+    },
+    "U-E2": {
+      "pool": 72941,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 37,
+      "test_groups": 18
+    },
+    "U-E3": {
+      "pool": 19421,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 37,
+      "test_groups": 18
+    },
+    "U-E4": {
+      "pool": 9353,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 37,
+      "test_groups": 18
+    },
+    "U-E5": {
+      "pool": 820,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 3,
+      "test_groups": 2
+    },
+    "U-E6": {
+      "pool": 3012,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 31,
+      "test_groups": 18
+    },
+    "U-E7": {
+      "pool": 4948,
+      "train_presentations": 1024,
+      "val": 37,
+      "test": 18,
+      "val_groups": 2,
+      "test_groups": 1
+    }
+  },
+  "critical_support": {
+    "U-E2/return/YES": {
+      "rows": 2,
+      "physical_groups": 2
+    },
+    "U-E2/return/NO": {
+      "rows": 62,
+      "physical_groups": 17
+    },
+    "U-E3/proceed/YES": {
+      "rows": 325,
+      "physical_groups": 109
+    },
+    "U-E3/proceed/NO": {
+      "rows": 14840,
+      "physical_groups": 689
+    },
+    "U-E5/proceed/YES": {
+      "rows": 0,
+      "physical_groups": 0
+    },
+    "U-E5/proceed/NO": {
+      "rows": 711,
+      "physical_groups": 72
+    },
+    "U-E6/proceed/YES": {
+      "rows": 760,
+      "physical_groups": 108
+    },
+    "U-E6/proceed/NO": {
+      "rows": 1922,
+      "physical_groups": 272
+    },
+    "U-E7/complete/YES": {
+      "rows": 13,
+      "physical_groups": 13
+    },
+    "U-E7/complete/NO": {
+      "rows": 202,
+      "physical_groups": 32
+    }
+  },
+  "errors": [
+    "RGB2 missing critical support: ['U-E5/proceed/YES']",
+    "RGB4 missing critical support: ['U-E5/proceed/YES']"
+  ],
+  "budget": {
+    "known_new_bytes": 6658588672,
+    "required_free_bytes": 28133425152,
+    "current_free_bytes": 42399571968,
+    "sufficient": true
+  },
+  "scope": "received report SHA and internal cross-checks; full server dataset and weights not transferred or independently reloaded",
+  "local_replay": {
+    "routes": 12,
+    "frames": 1634,
+    "counts": {
+      "proceed/NO": 89,
+      "restrict/YES": 16,
+      "hold/YES": 16,
+      "proceed/UNKNOWN": 51
+    },
+    "ends": {
+      "decisive_actor_passed_behind_censors_stale_wait": 11,
+      "observed_resumption_censors_stale_wait": 3,
+      "instance_rgb_discontinuity": 2
+    },
+    "elapsed": 73.95151917892508,
+    "peak_rss_kib": 58304
+  },
+  "rgb_viewed": 30,
+  "rgb_source_sha_count": 90,
+  "tests": {
+    "audit_joint_passed": 382,
+    "seconds": 7.3,
+    "initial_targeted_passed": 10
+  },
+  "contracts_unchanged": true,
+  "training_or_gpu_run": false,
+  "pushed": false,
+  "local_evidence": {
+    "checkpoints/fullflow_received_20261012/received_verification.json": "2f49d2aad5a41904216193aa46fa1c2da032fb4e4869bcc09d0d565604e4211f",
+    "checkpoints/fullflow_received_20261012/tests.log": "818961c0248dbf83cd3de9aa82e8279db1ab2ab51ba618e15438182b872c3281",
+    "checkpoints/fullflow_received_20261012/tests.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "checkpoints/fullflow_received_20261012/event_gap_native.json": "9a137c843e5b3a657de082ff6a8005dae78c0773e6e6864e35627cccb6b988c1",
+    "checkpoints/fullflow_received_20261012/local_ue5/request.json": "6115021e97fe986ee617e9784a7ca7678a5999398e9b9fbfe33868d98eb3e673",
+    "checkpoints/fullflow_received_20261012/local_ue5/records.jsonl": "d70445974c8919accd3509075d92b9d5b8533c36b06ae4195590ceeb931546c3",
+    "checkpoints/fullflow_received_20261012/local_ue5/summary.json": "f59bb448f3641e289fba4d5d14937deba1a558253720915c053e29cf4b8895c0",
+    "checkpoints/fullflow_received_20261012/local_ue5/rgb_manifest.json": "6219de15404956b2da662373671ed9f7f6dffb3515e6923f1e5f9e3ce4f2246b",
+    "checkpoints/fullflow_received_20261012/local_ue5/event_summary.json": "11f21a35b33e3a33be52eaae9f181fd44fd7ef97a6867ecb178a92fec1935088"
+  }
+}

@@ -59,7 +59,7 @@ def groups():
 
 
 HOLDOUT_PLAN = 'formal_holdout_plan_20260930.json'
-PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v32_20261012.json'
+PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v33_20261012.json'
 
 
 def producer_check_reservations():

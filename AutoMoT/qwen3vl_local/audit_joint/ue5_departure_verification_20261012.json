@@ -1,0 +1,65 @@
+{
+  "status": "verified_local_audit_not_training_admission",
+  "production_changed": false,
+  "student_contract_unchanged": true,
+  "replay": {
+    "routes": 89,
+    "frames": 10799,
+    "counts": {
+      "proceed/NO": 711,
+      "restrict/YES": 109,
+      "hold/YES": 109,
+      "proceed/UNKNOWN": 290
+    },
+    "ends": {
+      "decisive_actor_passed_behind_censors_stale_wait": 78,
+      "observed_resumption_censors_stale_wait": 23,
+      "instance_rgb_discontinuity": 8
+    },
+    "elapsed": 504.16228780010715,
+    "peak_rss_kib": 58728
+  },
+  "rgb": {
+    "actual_distinct_frames_viewed_in_final_review": 28,
+    "routes": 4,
+    "source_files_sha_verified": 84,
+    "blind": false,
+    "scope": "selected training event-end windows only; possible historical overlap"
+  },
+  "tests": {
+    "command": "python -m pytest -q qwen3vl_local/audit_joint/tests",
+    "passed": 392,
+    "seconds": 7.04,
+    "scope": "audit tools regression; no GPU/full production suite this turn"
+  },
+  "early_stop": {
+    "elapsed": 2.1126597211696208,
+    "source_files_unchanged": 49,
+    "compilation_skipped": true,
+    "package_bytes": 2813,
+    "package_sha256": "9a51c4301ac8a5652525b52d3d34c9c68f8961e7dc151b4faedca6a4cc3c4509",
+    "model_scope": "tiny CPU config fixture; no real 4B/GPU test"
+  },
+  "release": {
+    "files": 462,
+    "release": "phase4_v52_20261012_fullflow3",
+    "sha256": "279c9478adad4e0b5d9a4184da58bbf4846312cd3e633b334d21f5a156668aa1",
+    "pushed": false
+  },
+  "evidence": {
+    "checkpoints/ue5_continuation_20261012/request.json": "1a9980a91b013feae1e32c477f0256fe72d42c723246d00ae868ce42e0d532e7",
+    "checkpoints/ue5_continuation_20261012/run.py": "5db256430763d433194bbb4cc662e6e19481250d0e9573cc5dc3dc65350dbc6a",
+    "checkpoints/ue5_continuation_20261012/records.jsonl": "5051ae7500a95ae75d84e502434254f216eba33d26fb526213e9c7fb7ee38c45",
+    "checkpoints/ue5_continuation_20261012/summary.json": "135b440128aa098e797c0586e4ae99e2b17014eef2209c9be69c7fd2d0e70195",
+    "checkpoints/ue5_continuation_20261012/full_train_probe.json": "3d750a283157e1ce49eb6ef9a79b93222a266ce2b38be2e9b21130329f9bc79b",
+    "checkpoints/ue5_continuation_20261012/rgb_sources.json": "ebb863fe6c28cd9d120c32b7164175f61f4b0467f44b940aff79f519cb41e2b3",
+    "checkpoints/ue5_continuation_20261012/early_stop_verification.json": "60846e4e3d76c506b5adbf0b8e21c422b617936c5d18f3e143cfa79982cb5f35",
+    "checkpoints/ue5_continuation_20261012/final_tests.log": "d157174f5df169805eb65a37a6a8006e65717611f2464ed2dc7dc0bbc7ad3f22"
+  },
+  "limitations": [
+    "U-E5/proceed/readiness/YES remains missing; training blocked",
+    "89 local eligible InvadingTurn training routes, not all-source independent certification",
+    "clearance ablations are diagnostics, not labels or priority/lifecycle verification",
+    "G0 remains blocked; G2 not run; no remote/GPU/training/push"
+  ]
+}

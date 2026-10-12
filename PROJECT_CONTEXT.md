@@ -1,5 +1,43 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-12 Phase3白名单发布与并行RGB续审
+
+用户授权push。本轮新增server_phase3_index：468源SHA自动核验，未指定索引仅深度4/最多100条路径盘点、不自动选择；指定正式索引绑定逻辑/解析路径与前后SHA，完整准入并带manifest，正常/缺失/阻塞均交≤30MB ZIP+独立SHA回执，无训练。29专项通过1.78秒（含3新测试），原生CLI合法/缺失两包27990/25881字节核验；已有2368完整回归不重跑。服务器沿sync_automot.sh同步后按audit_joint/SERVER_PHASE3_NEXT_20261012.md执行一次，交phase3_index_report.zip+phase3_index_package.json；不重复readiness/旧fit/旧全库，旧v52不能混新版。
+本机实际查看Town13 1148_0 f58–64和1159_1 f77–83，共14不同RGB/42源SHA；均目标失去可见后才分离，未获真实proceed YES，不改标签/阈值/提示词，非G2；无完整路线重放。证据checkpoints/phase3_publish_rgb_20261012、phase3_publish_rgb_verification_20261012.json。P3正式索引验收后独立推进，不等待UE5；当前联合G0仍阻塞，无远程/GPU训练。
+
+### 2026-10-12 Phase3正式train/eval统一索引准入修复
+
+check_index强制manifest与提示词合同，候选variant额外校验冻结开发清单；独立eval在NCCL/输出/选题前执行全索引隔离，train含sampling-only共用，train.sh传实际variant；four_runs保留baseline也使用候选开发隔离池的原保护。未改P3标定/提示词/等量采样，P4 v53生产/学生合同与既有view一致。新增26回归，完整P3/P4/audit_joint2368通过105.36秒；6原生CLI合成验证5非法输入退出1/无输出目录，合法候选CPU采样40题=十事件各4、两类val各事件1/退出0，无模型加载或训练。466源清单matched未push。
+见audit_joint/PHASE3_ENTRY_FIX_20261012.md与phase3_entry_fix_verification_20261012.json，产物checkpoints/phase3_entry_fix_20261012。代码发布后仅收实际P3索引的preflight JSON+manifest，不重复readiness；缺索引先生成正式库，不能删manifest兼容。从基座新训不要求旧adapter，P3准入后可独立推进不等UE5。UE5真实YES仍0/未重复回放RGB，P3正式索引及联合隔离未验收，G0仍阻塞。无远程/GPU训练/推理/push。
+
+### 2026-10-12 Phase3独立入口准入续审
+
+确认两处入口缺口：独立eval未接完整索引/候选开发隔离检查；baseline preflight缺manifest时跳过提示词及额外开发清单。36行原生合成反例中，有manifest拒绝开发组入test，移开同一清单后CPU采样通过；恢复清单后候选eval仍生成十事件各1题并到模型加载哨兵（无加载/推理）。不声称实际正式库已泄漏；four_runs总入口已有前置保护。90相关回归4.54秒通过，未重复完整套件。目录盘点InvadingTurn train91/val8/test3，train过滤2后89均已重放，无新合格训练路线/帧号变化；未重读源内容、无新RGB/事件回放。U-E5真实正例及P3正式索引/联合隔离仍缺。仅报告建议统一正式入口准入，生产/标签/提示词未改，无远程/GPU/训练/push。见AutoMoT/qwen3vl_local/audit_joint/PHASE3_ENTRY_REVIEW_20261012.md及phase3_entry_verification_20261012.json；原始证据checkpoints/phase3_entry_review_20261012。
+
+### 2026-10-12 v53修复独立验收与开训收尾
+
+上轮U-E5走廊混用缺陷关闭，本轮未发现新的确定生产代码缺陷。实跑547相关回归14.20秒通过；既有完整2342/137.96秒日志SHA及退出0核验，本轮未重跑全套。11证据SHA/465源清单matched，逐行复算10799帧1219题语义差分0、32397来源回执SHA相同（未重读全部原文件）；原生v53短视图2/4各28train加载、旧v52合同拒绝。新增RGB目视0，无89路线重放。真实UE5 proceed仍711NO/290UNKNOWN/0YES；后续集中可观察源、新合同正式池准入与P3正式索引/跨任务隔离，不重复服务器readiness/旧fit/旧建库。旧adapter不是从基座新训前置条件。见AutoMoT/qwen3vl_local/audit_joint/V53_ACCEPTANCE_REVIEW_20261012.md及v53_acceptance_verification_20261012.json。生产/标签/提示词未改，无远程/GPU/训练/push。
+
+### 2026-10-12 v53 U-E5同实例走廊离场修复
+
+修复visible_departure历史导航/当前固定走廊混用：历史及当前均逐帧投影identity_world/width；缺几何不给离场证据，U-E3/可见性/阈值/优先权/截止/提示词未改。任务v53/老师v18、同预约plan v33/空registry v28，旧v52合同实测拒绝，不修改旧hash。14新增原生反例与否决测试；完整P3/P4/audit_joint2342通过137.96秒。真实一路线原生共享RGB4→短视图，两模式28train/空留出，4.84秒通过，非正式准入。
+本机89条训练路线10799帧单CPU重放496.74秒/58964KiB，1219道UE5四图问题语义差分0、32397源SHA一致；proceed711NO/290UNKNOWN/0YES、109实例截止78/23/8不变。复用既有RGB证据，本轮新增目视0/非盲审。修复确定机制缺陷但没有补出真实放行正例；定向寻找/补可观察源，不用出画/恢复运动/截止补YES。465源v53清单matched未push；server_finish指向新清单，旧v52手册命令已标历史不可混用，服务器不重跑readiness/旧fit/五小时建库。旧等量及预算仅为v52正式证据，v53全池待正例收敛后重建准入；Phase3正式资产/联合隔离仍缺。见audit_joint/UE5_CORRIDOR_V53_20261012.md和ue5_corridor_v53_verification_20261012.json；产物checkpoints/ue5_corridor_v53_20261012。无GPU/远程/训练/push。
+
+### 2026-10-12 v52流程复审与U-E5离场走廊反例
+
+完整P3/P4/audit_joint回归2328通过/107.07秒。原生合成反例定位teacher_events.visible_departure历史使用各帧导航、当前U-E5使用固定实例走廊；仅改历史导航、车辆/可见性/固定走廊不变，UNKNOWN变YES。确定口径缺陷，本轮只报告未修，不声称真实库已有此错标或修复会补出正例。复算既有89路线10799帧仍711NO/290UNKNOWN/0YES，8证据SHA通过；实际复看4联系表28不同RGB/84源SHA，非新独特帧/盲审，无全源重放。v51索引覆盖已修，正式P4池/等额/首轮预算已通过，不重复服务器建库/readiness；P3正式资产/联合隔离仍未验收。见AutoMoT/qwen3vl_local/audit_joint/V52_FLOW_CODE_REVIEW_20261012.md和v52_flow_code_review_verification_20261012.json，反例及日志checkpoints/v52_flow_review_20261012。生产/标签/提示词未改，无远程/GPU/训练/push。
+
+### 2026-10-12 U-E5原始支持提前检查与离场RGB续审
+
+本机按冻结split/异常时长过滤重放89条InvadingTurn训练路线10799帧，504.16秒/58728KiB；U-E5 proceed711NO/290UNKNOWN/0YES、109实例78后方截止/23运动截止/8源不连续。实际收尾四联系表28不同RGB、84源SHA，非G2/全源认证；几何变空不等于可见离场或完整许可，未改生产标定/提示词/学生合同。
+server_finish新增原始train/readiness/RGB4五关键边正反支持提前检查：缺格直接报告并跳过昂贵编译，非零仍需最终过滤准入。event_gap加入按物理组限量训练样例和可选原始七帧绑定；departure_probe分报固定走廊/历史导航与忽略旧目标消融，绝不生成标签；原始样例失败保留原生统计、退出2。真实五路线复用2.11秒提前停止，49原文件不变、2813字节包通过；tiny预算夹具非4B/GPU。392联合审计回归7.04秒通过，新462源fullflow3未push。见audit_joint/UE5_DEPARTURE_AUDIT_20261012.md与ue5_departure_verification_20261012.json；产物checkpoints/ue5_continuation_20261012。服务器发布后仅手册第0步加--data-root读取既有证据，不重跑五小时建库/readiness/旧fit；本地可继续同实例离场与截止规则研究。UE5正例缺口仍阻塞首轮、G0未过/G2未运行，无GPU/远程/训练/push。
+
+### 2026-10-12 正式全池交接通过与U-E5唯一首轮阻塞
+
+收到fullflow ZIP 864998字节/11成员，外层及成员SHA、458源码与bafcedf21一致；两模式/world1/4题序及绑定对照通过。8614路线1062401帧完成，CPU18508.81秒/增量回放7980.4秒；规则train301588，实际每事件1024，val每事件37/test18（370/180），自动留出原池28052/26525；两模式首轮预算新增6.20GiB+20GiB保留、当前39.49GiB通过。仅缺UE5/proceed/readiness/YES：原始764NO/320UNKNOWN/0YES，实际train711NO/0YES；不能用hold/restrict YES代替。UE2 return2YES/2组、UE7 complete13YES/13组仍稀疏，UE5留出3/2组、UE7留出2/1组，不冒称独立泛化或所有状态覆盖。
+修复server_finish打包：保留原build_result、区分finished_cpu的admission_blocked与执行中断；新增只读event_gap绑定交回index SHA，原生核验事件路线收据、统计条件/截止，仅train限量示例，val/test汇总。生产/学生合同不变，旧正式库/view保留；新460源清单尚未push。服务器同步发布后只按SERVER_V52_FULLFLOW第0步读取既有回放，交v52_ue5_gap_20261012.json，不重跑五小时建库/readiness/旧fit，不训练。
+本机tmux单CPU12训练路线1634帧/73.95秒/58304KiB，proceed89NO/51UNKNOWN；16实例11后方截止/3运动截止/2源不连续。实际三联系表30不同RGB、90源SHA，非G2；未证实可直接改YES，标签阈值提示词不改。真实原生5路线集合中1条UE5新诊断核验通过；382联合审计测试7.30秒通过（先行10专项不相加）。证据checkpoints/fullflow_received_20261012，报告audit_joint/FULLPOOL_RECEIVED_20261012.md。服务器完整数据未传本机，核验交接证据非全库独立重载。Phase3/Action/联合G0仍未完成，无GPU/训练/push。
+
 ### 2026-10-12 服务器pilot通过与全自动开训收尾
 
 收到Downloads/pilot_report.zip 30799字节/6成员，外层与成员SHA及454发布源码核验通过。服务器30路线3858帧/236.74秒，原生回放104.6秒、gzip合计1966539字节；正式候选8614路线1062401帧。样本只覆盖7事件，未含UE3/5/6不能推断全源无支持；pilot关闭，不重复readiness/旧fit。

@@ -68,3 +68,66 @@ def test_guard_rejection_still_leaves_a_completion_receipt(tmp_path):
         status='blocked_or_interrupted',command_exit_code=2,build_result_exists=False)
     assert (tmp_path/'handoff/fullflow_report.zip').is_file()
     assert (tmp_path/'handoff/fullflow_package.json').is_file()
+
+
+def test_completed_admission_block_is_not_interruption_and_report_is_preserved(tmp_path):
+    import zipfile
+    original = dict(status='blocked', stage='finished_cpu', errors=['missing U-E5/proceed/YES'])
+    (tmp_path/'build_result.json').write_text(json.dumps(original))
+    finish.package(tmp_path, 2)
+    receipt = json.loads((tmp_path/'finish_receipt.json').read_text())
+    assert receipt['status'] == 'admission_blocked'
+    assert receipt['build_stage'] == 'finished_cpu'
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        assert json.loads(z.read('build_result.json')) == original
+    assert json.loads((tmp_path/'build_result.json').read_text()) == original
+
+
+def test_failure_after_successful_report_never_grants_admission(tmp_path):
+    (tmp_path/'build_result.json').write_text(json.dumps(dict(status='admitted_rule_baseline',stage='finished_cpu')))
+    finish.package(tmp_path, 9)
+    receipt = json.loads((tmp_path/'finish_receipt.json').read_text())
+    assert receipt['status'] == 'blocked_or_interrupted'
+    assert receipt['build_status'] == 'admitted_rule_baseline'
+
+
+def test_raw_gate_matches_final_cells_and_ignores_holdout_or_catchup():
+    from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool
+    from qwen3vl_local.sft_new_loop_phase4.teacher_rules import rule_class
+    data = pool('rule_teacher')
+    for row in data['train']:
+        row['edge'] = {'U-E2':'return', 'U-E7':'complete'}.get(row['episode']['event'], 'proceed')
+    final = rb.measure(data, dict(train_ids=[], plans={}, exclusions=[]))
+    rows = []
+    for row in data['train']:
+        key = rule_class(row['episode']['event'],row['edge'],4,'readiness')+'/'+row['target']
+        rows.append(dict(split='train',physical_group=row['physical_group'],targets={key:1}))
+    raw = finish.raw_training_support(dict(routes=rows))
+    assert raw['critical_support'] == final['critical_support']
+    assert not raw['missing_critical_support']
+    target = rule_class('U-E5','proceed',4,'readiness')+'/YES'
+    for row in rows:
+        if target in row['targets']:row['split']='val'
+    rows.append(dict(split='train',physical_group='p',targets={rule_class('U-E5','proceed',4,'catchup')+'/YES':20}))
+    assert finish.raw_training_support(dict(routes=rows))['missing_critical_support'] == ['U-E5/proceed/YES']
+
+
+def test_missing_raw_support_stops_before_compilation_and_still_packages(tmp_path, monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase4 import candidate_pool, teacher_replay, teacher_data
+    from qwen3vl_local.audit_joint.io import file_sha
+    pilot = tmp_path/'pilot';(pilot/'production').mkdir(parents=True)
+    (pilot/'candidates.json').write_text('{}')
+    index = pilot/'production/index.json';index.write_text(json.dumps(dict(routes=[])))
+    out = tmp_path/'out';out.mkdir()
+    monkeypatch.setattr(candidate_pool,'validate',lambda x:x)
+    monkeypatch.setattr(budget,'profile',lambda _:dict(fixture=True))
+    monkeypatch.setattr(teacher_replay,'produce',lambda *a,**kw:dict(complete_causal_production=True,index_sha256=file_sha(index)))
+    monkeypatch.setattr(teacher_data,'compile_bundle',lambda *a,**kw:pytest.fail('must not compile missing support'))
+    result = finish.build(pilot,tmp_path,out,tmp_path/'model')
+    assert result['compilation_skipped'] is True and result['blocking_stage']=='raw_training_support'
+    assert result['training_started'] is False and not (out/'data4').exists()
+    finish.package(out,2)
+    assert json.loads((out/'finish_receipt.json').read_text())['status']=='admission_blocked'
+    import zipfile
+    with zipfile.ZipFile(out/'handoff/fullflow_report.zip') as z:
+        assert 'raw_training_support.json' in z.namelist()

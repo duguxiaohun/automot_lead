@@ -181,5 +181,9 @@ def test_preflight_rejects_legacy_rows_without_manifest(tmp_path, mode):
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
     row = index_row(); row.pop("primary_action_version")
     path = tmp_path/"index.jsonl"; path.write_text(json.dumps(row)+"\n")
+    with pytest.raises(ValueError, match="manifest required"):
+        check_index(path, mode)
+    from .test_rgb_review_20260916 import write_manifest
+    write_manifest(tmp_path)
     with pytest.raises(ValueError, match="version"):
         check_index(path, mode)

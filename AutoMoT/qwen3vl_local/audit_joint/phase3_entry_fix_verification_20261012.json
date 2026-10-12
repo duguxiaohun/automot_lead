@@ -1,0 +1,319 @@
+{
+  "status": "verified_entry_fix_not_formal_dataset_admission",
+  "tests": {
+    "passed": 2368,
+    "seconds": 105.36,
+    "new_tests": 26
+  },
+  "native_cli": [
+    {
+      "defect": "missing",
+      "entry": "train",
+      "variant": "baseline",
+      "exit_code": 1,
+      "output_created": false,
+      "argv": [
+        "/tmp/automot-qwen35-env/bin/python",
+        "-m",
+        "qwen3vl_local.sft_new_loop_phase3.train",
+        "--index",
+        "checkpoints/phase3_entry_fix_20261012/missing_train/index.jsonl",
+        "--action-output-mode",
+        "choice",
+        "--prompt-variant",
+        "baseline",
+        "--output-dir",
+        "checkpoints/phase3_entry_fix_20261012/missing_train/output",
+        "--device",
+        "cpu",
+        "--sampling-only",
+        "--focus-balance-count",
+        "4",
+        "--eval-balance-count",
+        "1",
+        "--generation-eval-balance-count",
+        "1",
+        "--no-require-invalid-coverage"
+      ],
+      "error_tail": [
+        "ValueError: checkpoints/phase3_entry_fix_20261012/missing_train/manifest.json: full build manifest required; bare index is not admitted"
+      ]
+    },
+    {
+      "defect": "development",
+      "entry": "eval",
+      "variant": "v23_rgb_stage_candidate_20261006",
+      "exit_code": 1,
+      "output_created": false,
+      "argv": [
+        "/tmp/automot-qwen35-env/bin/python",
+        "-m",
+        "qwen3vl_local.sft_new_loop_phase3.eval",
+        "--index",
+        "checkpoints/phase3_entry_fix_20261012/development_eval/index.jsonl",
+        "--action-output-mode",
+        "choice",
+        "--prompt-variant",
+        "v23_rgb_stage_candidate_20261006",
+        "--output-dir",
+        "checkpoints/phase3_entry_fix_20261012/development_eval/output",
+        "--device",
+        "cpu",
+        "--no-timestamp-output"
+      ],
+      "error_tail": [
+        "ValueError: development route in holdout: Accident/Town06_route_001856"
+      ]
+    },
+    {
+      "defect": "overlap",
+      "entry": "eval",
+      "variant": "baseline",
+      "exit_code": 1,
+      "output_created": false,
+      "argv": [
+        "/tmp/automot-qwen35-env/bin/python",
+        "-m",
+        "qwen3vl_local.sft_new_loop_phase3.eval",
+        "--index",
+        "checkpoints/phase3_entry_fix_20261012/overlap_eval/index.jsonl",
+        "--action-output-mode",
+        "choice",
+        "--prompt-variant",
+        "baseline",
+        "--output-dir",
+        "checkpoints/phase3_entry_fix_20261012/overlap_eval/output",
+        "--device",
+        "cpu",
+        "--no-timestamp-output"
+      ],
+      "error_tail": [
+        "ValueError: physical route leakage: synthetic/train_0"
+      ]
+    },
+    {
+      "defect": "prompt",
+      "entry": "eval",
+      "variant": "baseline",
+      "exit_code": 1,
+      "output_created": false,
+      "argv": [
+        "/tmp/automot-qwen35-env/bin/python",
+        "-m",
+        "qwen3vl_local.sft_new_loop_phase3.eval",
+        "--index",
+        "checkpoints/phase3_entry_fix_20261012/prompt_eval/index.jsonl",
+        "--action-output-mode",
+        "choice",
+        "--prompt-variant",
+        "baseline",
+        "--output-dir",
+        "checkpoints/phase3_entry_fix_20261012/prompt_eval/output",
+        "--device",
+        "cpu",
+        "--no-timestamp-output"
+      ],
+      "error_tail": [
+        "ValueError: checkpoints/phase3_entry_fix_20261012/prompt_eval/manifest.json: prompt hash mismatch; rebuild this index for the current prompt contract"
+      ]
+    },
+    {
+      "defect": "exposure",
+      "entry": "eval",
+      "variant": "v23_rgb_stage_candidate_20261006",
+      "exit_code": 1,
+      "output_created": false,
+      "argv": [
+        "/tmp/automot-qwen35-env/bin/python",
+        "-m",
+        "qwen3vl_local.sft_new_loop_phase3.eval",
+        "--index",
+        "checkpoints/phase3_entry_fix_20261012/exposure_eval/index.jsonl",
+        "--action-output-mode",
+        "choice",
+        "--prompt-variant",
+        "v23_rgb_stage_candidate_20261006",
+        "--output-dir",
+        "checkpoints/phase3_entry_fix_20261012/exposure_eval/output",
+        "--device",
+        "cpu",
+        "--no-timestamp-output"
+      ],
+      "error_tail": [
+        "ValueError: candidate training requires the RGB-audit exposure-isolated index; rebuild with --development-groups-extra"
+      ]
+    },
+    {
+      "defect": "valid",
+      "entry": "train",
+      "variant": "v23_rgb_stage_candidate_20261006",
+      "exit_code": 0,
+      "output_created": false,
+      "argv": [
+        "/tmp/automot-qwen35-env/bin/python",
+        "-m",
+        "qwen3vl_local.sft_new_loop_phase3.train",
+        "--index",
+        "checkpoints/phase3_entry_fix_20261012/valid_train/index.jsonl",
+        "--action-output-mode",
+        "choice",
+        "--prompt-variant",
+        "v23_rgb_stage_candidate_20261006",
+        "--output-dir",
+        "checkpoints/phase3_entry_fix_20261012/valid_train/output",
+        "--device",
+        "cpu",
+        "--sampling-only",
+        "--focus-balance-count",
+        "4",
+        "--eval-balance-count",
+        "1",
+        "--generation-eval-balance-count",
+        "1",
+        "--no-require-invalid-coverage"
+      ],
+      "error_tail": []
+    }
+  ],
+  "sampling": {
+    "train_event_counts": {
+      "all_random_order/class/DYNAMIC_CUTIN": 4,
+      "all_random_order/class/JUNCTION_RULE_CONFLICT": 4,
+      "all_random_order/class/LEAD_BRAKE": 4,
+      "all_random_order/class/ONCOMING_INVASION": 4,
+      "all_random_order/class/POST_BYPASS_RETURN": 4,
+      "all_random_order/class/RAMP_MERGE_EXIT": 4,
+      "all_random_order/class/SIGNAL_FAILURE": 4,
+      "all_random_order/class/STATIC_BLOCKAGE": 4,
+      "all_random_order/class/UNSIGNALIZED_PRIORITY": 4,
+      "all_random_order/class/VULNERABLE_CROSSING": 4
+    },
+    "validation_sampling": {
+      "generation": {
+        "available": {
+          "DYNAMIC_CUTIN": 1,
+          "JUNCTION_RULE_CONFLICT": 1,
+          "LEAD_BRAKE": 1,
+          "ONCOMING_INVASION": 1,
+          "POST_BYPASS_RETURN": 1,
+          "RAMP_MERGE_EXIT": 1,
+          "SIGNAL_FAILURE": 1,
+          "STATIC_BLOCKAGE": 1,
+          "UNSIGNALIZED_PRIORITY": 1,
+          "VULNERABLE_CROSSING": 1
+        },
+        "effective": 1,
+        "invalid_policy": "all eligible unique INVALID, separate from ten valid events",
+        "invalid_unique_cases": 0,
+        "limit": 1,
+        "ordered_ids_sha256": "f4da9517d9ec7383dea2a446fce3786f7e5eccef6def2dada9bd800651987538",
+        "per_event": 1,
+        "policy": "fixed_ten_event_evaluation_v1",
+        "pool_sha256": "f60c712943cb65dc9357b5a1f4d05d0120e52d207a78effb41df306d43a66210",
+        "requested": 1,
+        "sampled_cases": 10,
+        "scope": "question equality; not answer balance or independent label certification",
+        "seed": 20260904,
+        "selected_ids": [
+          "8e3c0a9001a28364486832ff5f7bf2f01ad35f869391830dc43f271c93ba8963",
+          "684375c7953799133b0ec36cde2d8879c64c858f04bf6328c76c6eff6b50d09d",
+          "627987973d4ac3b18dea0c1fc9bbd45c788512216cecd73c0a758ee9274a8047",
+          "dfb49603ee52e45e0adf52141ae818cd2b08ca41ccdf052c0bc411c702630d7b",
+          "af1eb1f9cb0ac48a93a60e3f770b68923162ea28956d9b7ff211f13869b4fe67",
+          "e4b5113fba53797ba6d32ccc78c1a67ea459517a8a8cb7122d9a70a17d1308ef",
+          "aa7f754b5300c5c28e6b346ebbe2bd76cf4c3cf7235d74890ae936a3aee8cf98",
+          "6d80520238bbb766e88dedfe4507276b5458d07edae60f2853bc1a987ce4f781",
+          "531c15235ca76c293d21e4d4e7366c4f7a07fca03e69f18c032544cb52db5181",
+          "7e134c38cf6e9c5a11578e7f11196b41c2c4ed77fa66524f2288dca108e6a64b"
+        ],
+        "unique_cases": 10
+      },
+      "loss": {
+        "available": {
+          "DYNAMIC_CUTIN": 1,
+          "JUNCTION_RULE_CONFLICT": 1,
+          "LEAD_BRAKE": 1,
+          "ONCOMING_INVASION": 1,
+          "POST_BYPASS_RETURN": 1,
+          "RAMP_MERGE_EXIT": 1,
+          "SIGNAL_FAILURE": 1,
+          "STATIC_BLOCKAGE": 1,
+          "UNSIGNALIZED_PRIORITY": 1,
+          "VULNERABLE_CROSSING": 1
+        },
+        "effective": 1,
+        "invalid_policy": "all eligible unique INVALID, separate from ten valid events",
+        "invalid_unique_cases": 0,
+        "limit": 1,
+        "ordered_ids_sha256": "f4da9517d9ec7383dea2a446fce3786f7e5eccef6def2dada9bd800651987538",
+        "per_event": 1,
+        "policy": "fixed_ten_event_evaluation_v1",
+        "pool_sha256": "f60c712943cb65dc9357b5a1f4d05d0120e52d207a78effb41df306d43a66210",
+        "requested": 1,
+        "sampled_cases": 10,
+        "scope": "question equality; not answer balance or independent label certification",
+        "seed": 20261913,
+        "selected_ids": [
+          "8e3c0a9001a28364486832ff5f7bf2f01ad35f869391830dc43f271c93ba8963",
+          "684375c7953799133b0ec36cde2d8879c64c858f04bf6328c76c6eff6b50d09d",
+          "627987973d4ac3b18dea0c1fc9bbd45c788512216cecd73c0a758ee9274a8047",
+          "dfb49603ee52e45e0adf52141ae818cd2b08ca41ccdf052c0bc411c702630d7b",
+          "af1eb1f9cb0ac48a93a60e3f770b68923162ea28956d9b7ff211f13869b4fe67",
+          "e4b5113fba53797ba6d32ccc78c1a67ea459517a8a8cb7122d9a70a17d1308ef",
+          "aa7f754b5300c5c28e6b346ebbe2bd76cf4c3cf7235d74890ae936a3aee8cf98",
+          "6d80520238bbb766e88dedfe4507276b5458d07edae60f2853bc1a987ce4f781",
+          "531c15235ca76c293d21e4d4e7366c4f7a07fca03e69f18c032544cb52db5181",
+          "7e134c38cf6e9c5a11578e7f11196b41c2c4ed77fa66524f2288dca108e6a64b"
+        ],
+        "unique_cases": 10
+      }
+    }
+  },
+  "phase4_v53_contract_unchanged": true,
+  "labels_and_prompts_changed": false,
+  "rgb_frames_viewed": 0,
+  "production_replay_frames": 0,
+  "source_release": {
+    "files": 466,
+    "status": "matched",
+    "sha256": "88c1c5c02b33078637077d73a7ff5e51ef9ceb333fc121bdd8a8b962394325c4"
+  },
+  "evidence": {
+    "checkpoints/phase3_entry_fix_20261012/entries.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "checkpoints/phase3_entry_fix_20261012/verify_entries.py": "85fb40ef8a9ce32b542982bd3fef6f0def06cbb0a6eb19ea59b0c71bba7a6122",
+    "checkpoints/phase3_entry_fix_20261012/tests.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "checkpoints/phase3_entry_fix_20261012/entry_results.json": "82d70fb2daf5df38a92ba8ed6a9c5cda7d0a905035807be01aae05814b80cf15",
+    "checkpoints/phase3_entry_fix_20261012/entries.sh": "48584b43a7e614d8161e02ecfd9104fa4e9f80e2e15fbe46f8158d275f4c7643",
+    "checkpoints/phase3_entry_fix_20261012/tests.sh": "9edad979113cbaa0c9c174e4c28bad71b99c96a0523c6894818ad1510737b7eb",
+    "checkpoints/phase3_entry_fix_20261012/entries.log": "b8e1f5c8f7f6f0db9ce878cf5d1a54cdb6e20e3225ab183fb503adff74ccf81b",
+    "checkpoints/phase3_entry_fix_20261012/tests.log": "b2e857ea66ba3e040daae0235bd756d109514d0a6d8be6ce8833e111c7ee3a65",
+    "checkpoints/phase3_entry_fix_20261012/prompt_eval/stderr.log": "784da93de1a23208fa8897d8862e8c477ac9af757635da0525ed8acf04a98a05",
+    "checkpoints/phase3_entry_fix_20261012/prompt_eval/manifest.json": "8fbceee31466ed6828399ceb0e81a3bd2873d0deb3c5e5f18978c67bb52c8f5a",
+    "checkpoints/phase3_entry_fix_20261012/prompt_eval/index.jsonl": "9fc8c38210a8e6911de75c8aa79dcdc644addaad272727c03cec1d662d38c7c0",
+    "checkpoints/phase3_entry_fix_20261012/prompt_eval/stdout.log": "ad9193df1a0026ea5d2b6654241c453477f8f2940a67b367bb02c7f8dc781ce6",
+    "checkpoints/phase3_entry_fix_20261012/exposure_eval/stderr.log": "2b6e4192578becb32251a61b5273f7085474a69cb18ca02d003724773d07763c",
+    "checkpoints/phase3_entry_fix_20261012/exposure_eval/manifest.json": "e245a5edc0c40166fafedf25a70f295dd93bd122ea00362d6d4a1660adacdb50",
+    "checkpoints/phase3_entry_fix_20261012/exposure_eval/index.jsonl": "9fc8c38210a8e6911de75c8aa79dcdc644addaad272727c03cec1d662d38c7c0",
+    "checkpoints/phase3_entry_fix_20261012/exposure_eval/stdout.log": "ad9193df1a0026ea5d2b6654241c453477f8f2940a67b367bb02c7f8dc781ce6",
+    "checkpoints/phase3_entry_fix_20261012/missing_train/stderr.log": "ce020122ef7b592f9ae7a568e32ba7306a86b9e8fb32b213d22ebf453ec7711b",
+    "checkpoints/phase3_entry_fix_20261012/missing_train/index.jsonl": "9fc8c38210a8e6911de75c8aa79dcdc644addaad272727c03cec1d662d38c7c0",
+    "checkpoints/phase3_entry_fix_20261012/missing_train/stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "checkpoints/phase3_entry_fix_20261012/development_eval/stderr.log": "942ef86c92964044b692b3192d06093ad9a30b9b2d2e168c704f88dad4f1d4ee",
+    "checkpoints/phase3_entry_fix_20261012/development_eval/manifest.json": "3b33c6bb28a80dcc5c243ae3e4480590c671b8ec69474c0bed17a531413da9e7",
+    "checkpoints/phase3_entry_fix_20261012/development_eval/index.jsonl": "801a34e80caa16ed00dfe825ccc4690f7b156833ead8a4128c9fe1dc5c7d1496",
+    "checkpoints/phase3_entry_fix_20261012/development_eval/stdout.log": "ad9193df1a0026ea5d2b6654241c453477f8f2940a67b367bb02c7f8dc781ce6",
+    "checkpoints/phase3_entry_fix_20261012/overlap_eval/stderr.log": "baaad817e048d3efdafb1f855175322fccd8be12c255c3540980e55d6ce07f75",
+    "checkpoints/phase3_entry_fix_20261012/overlap_eval/manifest.json": "3b33c6bb28a80dcc5c243ae3e4480590c671b8ec69474c0bed17a531413da9e7",
+    "checkpoints/phase3_entry_fix_20261012/overlap_eval/index.jsonl": "54a0bf198c6e55b0bc5d0c3c1f35ed8eb6a111714c091914fa828819208f784d",
+    "checkpoints/phase3_entry_fix_20261012/overlap_eval/stdout.log": "ad9193df1a0026ea5d2b6654241c453477f8f2940a67b367bb02c7f8dc781ce6",
+    "checkpoints/phase3_entry_fix_20261012/valid_train/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "checkpoints/phase3_entry_fix_20261012/valid_train/manifest.json": "3b33c6bb28a80dcc5c243ae3e4480590c671b8ec69474c0bed17a531413da9e7",
+    "checkpoints/phase3_entry_fix_20261012/valid_train/index.jsonl": "9fc8c38210a8e6911de75c8aa79dcdc644addaad272727c03cec1d662d38c7c0",
+    "checkpoints/phase3_entry_fix_20261012/valid_train/stdout.log": "1154a3ea0d35ab446ecc9cb0b9a0ad05eeedd6d05c0ec69739a41b063b34b4be"
+  },
+  "limitations": [
+    "Synthetic CPU tests are not formal Phase3 index acceptance",
+    "U-E5 real positive support and joint isolation remain unresolved",
+    "No remote/GPU training/model inference/push"
+  ]
+}

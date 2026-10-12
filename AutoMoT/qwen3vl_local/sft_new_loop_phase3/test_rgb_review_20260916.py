@@ -46,7 +46,18 @@ def index_rows(same_count=2):
     return rows
 
 
+def write_manifest(tmp_path):
+    from . import prompts
+    manifest = dict(prompt_contract=dict(prompt_name=prompts.PROMPT_NAME,
+        production_prompt_sha256={o: {r: prompts.action_prompt_sha256(
+            history_rgb_mode=r, action_output_mode=o) for r in ("4rgb", "2rgb_endpoints")}
+            for o in ("binary", "choice")}))
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    return manifest
+
+
 def write_index(tmp_path, rows):
+    write_manifest(tmp_path)
     path = tmp_path/'index.jsonl'
     path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
     return path

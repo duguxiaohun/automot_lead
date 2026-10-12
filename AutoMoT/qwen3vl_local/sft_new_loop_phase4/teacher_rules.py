@@ -9,7 +9,7 @@ from . import privileged_geometry as g
 from .event_scope import local_navigation
 from .automatic_context import route_intersection
 
-VERSION='ten_event_causal_teacher_v17'
+VERSION='ten_event_causal_teacher_v18'
 PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band_m=.25,
             lead_growth_m=1.,lead_min_gap_m=3.,min_pixel_change=6.,
             stationary_lead_displacement_m=.75,stationary_ego_displacement_m=.25,

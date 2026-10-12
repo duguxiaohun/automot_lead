@@ -919,7 +919,6 @@ def _resolve_output_dir(
 def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     """评估主流程。"""
 
-    rank, local_rank, world_size = setup_distributed()
     adapter_cfg = (
         _validate_action_adapter(pathlib.Path(args.adapter_dir), pathlib.Path(args.model_dir))
         if args.adapter_dir
@@ -930,6 +929,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     action_output_mode, action_output_mode_source = _resolve_action_output_mode(
         args.action_output_mode, adapter_cfg
     )
+    from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+    check_index(args.index, action_output_mode=action_output_mode, prompt_variant=prompt_variant)
+    # Reject invalid full indices before creating output or initializing NCCL.
+    rank, local_rank, world_size = setup_distributed()
     output_dir = _resolve_output_dir(
         pathlib.Path(args.output_dir),
         timestamp_output=bool(args.timestamp_output),

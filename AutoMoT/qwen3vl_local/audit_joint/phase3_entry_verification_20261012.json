@@ -1,0 +1,170 @@
+{
+  "schema": "phase3_entry_review_v1",
+  "scope": "native synthetic admission and local UE5 directory inventory",
+  "probe": {
+    "scope": "synthetic native admission, not real data leakage or GPU training",
+    "exposed_group": "Accident/Town06_route_001856",
+    "rows": 36,
+    "with_manifest": "development route in holdout: Accident/Town06_route_001856",
+    "without_manifest": {
+      "counts": {
+        "train/LEAD_BRAKE": 1,
+        "train/STATIC_BLOCKAGE": 1,
+        "train/DYNAMIC_CUTIN": 1,
+        "train/VULNERABLE_CROSSING": 1,
+        "train/ONCOMING_INVASION": 1,
+        "train/JUNCTION_RULE_CONFLICT": 1,
+        "train/SIGNAL_FAILURE": 1,
+        "train/POST_BYPASS_RETURN": 1,
+        "train/UNSIGNALIZED_PRIORITY": 1,
+        "train/RAMP_MERGE_EXIT": 1,
+        "train/INVALID": 2,
+        "val/LEAD_BRAKE": 1,
+        "val/STATIC_BLOCKAGE": 1,
+        "val/DYNAMIC_CUTIN": 1,
+        "val/VULNERABLE_CROSSING": 1,
+        "val/ONCOMING_INVASION": 1,
+        "val/JUNCTION_RULE_CONFLICT": 1,
+        "val/SIGNAL_FAILURE": 1,
+        "val/POST_BYPASS_RETURN": 1,
+        "val/UNSIGNALIZED_PRIORITY": 1,
+        "val/RAMP_MERGE_EXIT": 1,
+        "val/INVALID": 2,
+        "test/LEAD_BRAKE": 1,
+        "test/STATIC_BLOCKAGE": 1,
+        "test/DYNAMIC_CUTIN": 1,
+        "test/VULNERABLE_CROSSING": 1,
+        "test/ONCOMING_INVASION": 1,
+        "test/JUNCTION_RULE_CONFLICT": 1,
+        "test/SIGNAL_FAILURE": 1,
+        "test/POST_BYPASS_RETURN": 1,
+        "test/UNSIGNALIZED_PRIORITY": 1,
+        "test/RAMP_MERGE_EXIT": 1,
+        "test/INVALID": 2
+      },
+      "unique_cases": {
+        "train": 12,
+        "val": 12,
+        "test": 12
+      },
+      "same_rs_physical_routes": {
+        "train": 1,
+        "val": 1,
+        "test": 1
+      },
+      "same_rs_evaluation": {
+        "train": {
+          "unique_physical_routes": 1,
+          "minimum": 2,
+          "status": "insufficient_support",
+          "supported": false,
+          "required_for_training": false,
+          "used_for_checkpoint_guard": false
+        },
+        "val": {
+          "unique_physical_routes": 1,
+          "minimum": 2,
+          "status": "insufficient_support",
+          "supported": false,
+          "required_for_training": false,
+          "used_for_checkpoint_guard": false
+        },
+        "test": {
+          "unique_physical_routes": 1,
+          "minimum": 2,
+          "status": "insufficient_support",
+          "supported": false,
+          "required_for_training": false,
+          "used_for_checkpoint_guard": false
+        }
+      },
+      "physical_routes": 36,
+      "physical_route_overlap": 0
+    },
+    "baseline_sampling_without_manifest": "passed",
+    "candidate_evaluation": "reached model loader with exposed test input",
+    "evaluation_plan": {
+      "distribution": "equal_events",
+      "plan": {
+        "policy": "fixed_ten_event_evaluation_v1",
+        "seed": 20260904,
+        "limit": 0,
+        "per_event": 1,
+        "available": {
+          "LEAD_BRAKE": 1,
+          "STATIC_BLOCKAGE": 1,
+          "DYNAMIC_CUTIN": 1,
+          "VULNERABLE_CROSSING": 1,
+          "ONCOMING_INVASION": 1,
+          "JUNCTION_RULE_CONFLICT": 1,
+          "SIGNAL_FAILURE": 1,
+          "POST_BYPASS_RETURN": 1,
+          "UNSIGNALIZED_PRIORITY": 1,
+          "RAMP_MERGE_EXIT": 1
+        },
+        "selected_ids": [
+          "cedf0927385f746491254dc3aa0b8e2bf3977d5fca554aaceb8af2f330d590fe",
+          "bbe3f00e8e1e9ca2a660cfdb8405199a22c7a70fdbe1c3cb86d80548b7b0373a",
+          "094bdb350c742e7f7f8666dbefec3ddba2f8d1e6844e6cf14b542f30b07ee8c3",
+          "7486da3d4a941e4da6813219ecc4443155b8e83e5668e850d444f8566cf394cc",
+          "f77cd557aee64c075a30c6848fbdb21b6d87df431cae10a543658c36520893fb",
+          "f261048006ebb074c7167f0299b3be59c93b0b6a0418c4f2a9acb701863270d9",
+          "601c1b4b8a50ef70d369c726ced5c6941da561875480f27f27f0987226c09f09",
+          "0e35f50e3c0c18b203a073e1a8fe610ca78eabf722b83e1e3d638509117b1a44",
+          "0ac14347990ae33551426c1567d907397f3b20994cea570eb5ab811e7507dc33",
+          "4a2a794998309905b2a6bcc452f55b79b92b6c6a6ba1a933e54ff8733b61e50f"
+        ],
+        "ordered_ids_sha256": "09e9fca0843728a4fd4c6078dc915b21e676288f47d8d51867765946105d80f7",
+        "pool_sha256": "05999279f237fe4111c6585c8a4fb0c31c8ba91f907d56ddb85ea39a7a8a3b0b",
+        "scope": "question equality; not answer balance or independent label certification",
+        "invalid_unique_cases": 0,
+        "invalid_policy": "all eligible unique INVALID, separate from ten valid events"
+      }
+    },
+    "exposed_test_row_read": true,
+    "model_loaded": false,
+    "index_sha256": "801a34e80caa16ed00dfe825ccc4690f7b156833ead8a4128c9fe1dc5c7d1496",
+    "source_sha256": {
+      "preflight.py": "31dca370650db9d722965509c08e591bb7f7b895be1b5d2ab6d60750661a86a6",
+      "train.py": "59c16c4ebfd7acac12a6bff14d238151e190f3e6079a8a371a23b42f9b158105",
+      "eval.py": "09b04523cd02fb0a9cd14d26576fe10bb6d3b04cc944f9979d682595eab240c8",
+      "candidate_data.py": "910a574959fdc5ae7ca8779c456a39d593030599cafebf42bf336671851ee667"
+    }
+  },
+  "ue5_inventory": {
+    "scope": "local InvadingTurn directory/frame inventory only; no source-byte recheck or replay",
+    "routes_by_split": {
+      "train": 91,
+      "val": 8,
+      "test": 3
+    },
+    "previous_replayed_train_routes": 89,
+    "new_eligible_train_routes": [],
+    "rgb_frame_inventory_changed": [],
+    "excluded_train": [
+      "Town13_Rep0_1568_0_route0_01_10_06_41_01",
+      "Town13_Rep0_1568_0_route0_01_11_15_46_18"
+    ],
+    "request_sha256": "ff4a28cff0ed4104961611a89a3a80ff3fb6b2a5a08f77f56183caa052b554d7"
+  },
+  "tests": {
+    "passed": 90,
+    "seconds": 4.54,
+    "exit_code": 0,
+    "full_suite_rerun": false
+  },
+  "new_rgb_frames_viewed": 0,
+  "native_replay_frames": 0,
+  "production_changed": false,
+  "trained": false,
+  "pushed": false,
+  "evidence_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_ENTRY_REVIEW_20261012.md": "675aedee20e80dec569dba2f8e0506481341df4176a57676375d956f44968da4",
+    "AutoMoT/checkpoints/phase3_entry_review_20261012/probe.py": "2a68eabed50eb6ba497e13f694d9f4d12cbb52586bb1f4298a3912020b5f6f57",
+    "AutoMoT/checkpoints/phase3_entry_review_20261012/probe.json": "b67e0150dd6cc0d35dec8a35c8ed972473059db1be30e7270062f58b24acefa6",
+    "AutoMoT/checkpoints/phase3_entry_review_20261012/probe_final.log": "45049a6f6a1ab727b0f60ec83ca7a4ea31b12b4df1986ed1c168562a41c51472",
+    "AutoMoT/checkpoints/phase3_entry_review_20261012/baseline_sampling.log": "f8a24224432cce6d7f96588443fe7423392fc09882ec895661225e7cdf754c57",
+    "AutoMoT/checkpoints/phase3_entry_review_20261012/tests.log": "d724f9a9b69f2759d15d8bd9cd32af0cdeb95517c635eaacda43a30f228d98d0",
+    "AutoMoT/checkpoints/phase3_entry_review_20261012/ue5_inventory.json": "27e57668c737e31f84cd26b19df8a656dfa80efefc960a84d9e7084577f9528e"
+  }
+}

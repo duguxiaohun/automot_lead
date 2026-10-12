@@ -1388,10 +1388,8 @@ def train(args: argparse.Namespace) -> None:
     prompt_name(getattr(args, "prompt_variant", "baseline"))
     validate_history_rgb_mode(args.history_rgb_mode)
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
-    if getattr(args, "prompt_variant", "baseline") != "baseline":
-        from qwen3vl_local.sft_new_loop_phase3.candidate_data import validate_candidate_index
-        validate_candidate_index(args.index)
-    check_index(args.index, action_output_mode=args.action_output_mode)
+    check_index(args.index, action_output_mode=args.action_output_mode,
+                prompt_variant=getattr(args, "prompt_variant", "baseline"))
     if not args.sampling_only:
         if (pathlib.Path(args.output_dir) / "train_run_manifest.json").exists():
             raise ValueError("existing training run: choose a fresh output directory; resume is not implemented")

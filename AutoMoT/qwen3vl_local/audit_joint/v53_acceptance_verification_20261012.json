@@ -1,0 +1,97 @@
+{
+  "evidence_hashes": {
+    "checkpoints/ue5_corridor_v53_20261012/request.json": true,
+    "checkpoints/ue5_corridor_v53_20261012/run.py": true,
+    "checkpoints/ue5_corridor_v53_20261012/run.log": true,
+    "checkpoints/ue5_corridor_v53_20261012/summary.json": true,
+    "checkpoints/ue5_corridor_v53_20261012/records.jsonl": true,
+    "checkpoints/ue5_corridor_v53_20261012/comparison.json": true,
+    "checkpoints/ue5_corridor_v53_20261012/tests.log": true,
+    "checkpoints/ue5_corridor_v53_20261012/corridor_probe.py": true,
+    "checkpoints/ue5_corridor_v53_20261012/corridor_probe.json": true,
+    "checkpoints/ue5_corridor_v53_20261012/native/verification.json": true,
+    "checkpoints/ue5_corridor_v53_20261012/source_check.json": true
+  },
+  "comparison": {
+    "frames": 10799,
+    "questions": 1219,
+    "changed": 0,
+    "source_receipts_same": 32397,
+    "counts": {
+      "proceed/NO": 711,
+      "restrict/YES": 109,
+      "hold/YES": 109,
+      "proceed/UNKNOWN": 290
+    },
+    "ends": {
+      "decisive_actor_passed_behind_censors_stale_wait": 78,
+      "observed_resumption_censors_stale_wait": 23,
+      "instance_rgb_discontinuity": 8
+    },
+    "scope": "recorded source SHA comparison, not rereading 32397 raw files"
+  },
+  "fix_probe": {
+    "False/unchanged": "UNKNOWN",
+    "False/shifted": "UNKNOWN",
+    "False/missing": "UNKNOWN",
+    "True/unchanged": "YES",
+    "True/shifted": "YES",
+    "True/missing": "YES"
+  },
+  "native_load": {
+    "2": {
+      "train": 28,
+      "val": 0,
+      "test": 0
+    },
+    "4": {
+      "train": 28,
+      "val": 0,
+      "test": 0
+    }
+  },
+  "old_view_rejected": "student source/producer contract changed; use the original source or a new experiment",
+  "source_check_status": "matched",
+  "full_test_log_tail": "2342 passed in 137.96s (0:02:17)",
+  "full_test_exit": "0",
+  "schema": "v53_acceptance_review_v1",
+  "new_confirmed_code_defects": [],
+  "previous_corridor_defect_closed": true,
+  "production_modified": false,
+  "tests_this_turn": {
+    "passed": 547,
+    "seconds": 14.2,
+    "exit_code": 0
+  },
+  "full_suite": {
+    "passed": 2342,
+    "seconds": 137.96,
+    "rerun_this_turn": false,
+    "verified_saved_log": true
+  },
+  "new_rgb_frames_viewed": 0,
+  "remaining": [
+    "real U-E5 proceed readiness YES support",
+    "v53 formal data and first-epoch admission",
+    "Phase3 formal index and joint isolation evidence"
+  ],
+  "artifacts": {
+    "verify.py": {
+      "path": "AutoMoT/checkpoints/v53_acceptance_review_20261012/verify.py",
+      "sha256": "ff51246c30e450519e82ee08ef738d2d95a308c7357bb580db615d290781d17f"
+    },
+    "verification.json": {
+      "path": "AutoMoT/checkpoints/v53_acceptance_review_20261012/verification.json",
+      "sha256": "4942a2a821fb266711dd70151278dc671be81bd6c197063c1f755850b696e3f5"
+    },
+    "tests.log": {
+      "path": "AutoMoT/checkpoints/v53_acceptance_review_20261012/tests.log",
+      "sha256": "a9b5bc034232475a5c2b1913af32915bae3a68524031b6626c7c42f11901ca6e"
+    },
+    "tests.exit": {
+      "path": "AutoMoT/checkpoints/v53_acceptance_review_20261012/tests.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    }
+  },
+  "no_remote_gpu_training_push": true
+}

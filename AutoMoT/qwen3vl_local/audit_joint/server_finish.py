@@ -1,10 +1,32 @@
-"""Finish an existing v52 pilot into automatic rule data, then stop before GPU."""
+"""Finish an existing current-contract pilot into automatic rule data, then stop before GPU."""
 import argparse
 import json
 from pathlib import Path
 import time
 
 from .io import digest, file_sha, write_json
+
+
+def raw_training_support(index):
+    """Necessary pre-compilation gate, not certification of the filtered pool.
+
+    Keep these cells aligned with rule_baseline.measure (regression checked).
+    A zero native readiness count cannot become a valid automatic training row.
+    """
+    from qwen3vl_local.sft_new_loop_phase4.teacher_rules import rule_class
+    critical = {}
+    for event, edge in (('U-E2', 'return'), ('U-E3', 'proceed'), ('U-E5', 'proceed'),
+                        ('U-E6', 'proceed'), ('U-E7', 'complete')):
+        for answer in ('YES', 'NO'):
+            key = rule_class(event, edge, 4, 'readiness') + '/' + answer
+            receipts = [r for r in index['routes'] if r['split'] == 'train' and r['targets'].get(key, 0) > 0]
+            critical[f'{event}/{edge}/{answer}'] = dict(
+                rows=sum(r['targets'][key] for r in receipts),
+                physical_groups=len({r['physical_group'] for r in receipts}))
+    missing = [k for k, v in critical.items() if not v['rows']]
+    return dict(status='missing_raw_support' if missing else 'raw_support_present',
+                critical_support=critical, missing_critical_support=missing,
+                scope='necessary raw train/readiness/RGB4 support only; final filtered admission still required')
 
 
 def build(pilot, root, output, model_dir, workers=4):
@@ -43,6 +65,22 @@ def build(pilot, root, output, model_dir, workers=4):
                                                   history_ambiguous_ids_sha256=digest(ambiguous))
         if not replay['complete_causal_production']:
             raise ValueError('incomplete replay; do not publish a partial shared collection')
+        stage('raw_training_support')
+        index_path = pilot/'production/index.json'
+        if file_sha(index_path) != replay['index_sha256']:
+            raise ValueError('replay index changed before raw support check')
+        raw_support = raw_training_support(json.loads(index_path.read_text()))
+        if file_sha(index_path) != replay['index_sha256']:
+            raise ValueError('replay index changed during raw support check')
+        raw_support['index_sha256'] = replay['index_sha256']
+        write_json(output/'raw_training_support.json', raw_support)
+        result['stages']['raw_training_support'] = raw_support
+        if raw_support['missing_critical_support']:
+            result.update(status='blocked', stage='finished_cpu', compilation_skipped=True,
+                blocking_stage='raw_training_support',
+                errors=['raw training replay missing critical support: ' + str(raw_support['missing_critical_support'])])
+            save()
+            return result
         stage('rgb4_rule_dataset')
         registry = default_registry()
         anns, selection = teacher_data.compile_bundle(pool,pilot/'production/index.json',registry,rgb_mode=4,max_per_route=0)
@@ -76,14 +114,22 @@ def package(output, exit_code):
     from .server_pilot import package as make_package
     from .training_budget import plan
     output = Path(output)
-    names = ('source_check.json','build_result.json','model_budget_profile.json','first_epoch_budget.json','automatic_admission.json')
+    names = ('source_check.json','build_result.json','model_budget_profile.json','raw_training_support.json','first_epoch_budget.json','automatic_admission.json')
     members = {name:json.loads((output/name).read_text()) for name in names if (output/name).is_file()}
-    result = members.setdefault('build_result.json',dict(status='interrupted_before_report'))
-    result['command_exit_code'] = exit_code
-    if exit_code:
-        result['status'] = 'blocked_or_interrupted'
-    completion=dict(status=result['status'],command_exit_code=exit_code,
+    result = members.get('build_result.json',dict(status='interrupted_before_report'))
+    # Keep the original build report byte semantics: a completed admission
+    # rejection (exit 2) is not an interrupted build. Record execution outcome
+    # separately, including failures after a report claimed success.
+    if exit_code == 0 and result.get('status') == 'admitted_rule_baseline':
+        status = 'admitted_rule_baseline'
+    elif exit_code == 2 and result.get('stage') == 'finished_cpu' and result.get('status') == 'blocked':
+        status = 'admission_blocked'
+    else:
+        status = 'blocked_or_interrupted'
+    completion=dict(status=status,command_exit_code=exit_code,
                     build_result_exists=(output/'build_result.json').is_file())
+    if completion['build_result_exists']:
+        completion.update(build_status=result.get('status'),build_stage=result.get('stage'))
     write_json(output/'finish_receipt.json',completion)
     members['finish_receipt.json']=completion
     if 'first_epoch_budget.json' in members:

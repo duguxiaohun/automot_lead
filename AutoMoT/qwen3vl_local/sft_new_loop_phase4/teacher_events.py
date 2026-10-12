@@ -496,6 +496,16 @@ def progress_stability_evidence(frames):
                 scope='weak_longitudinal_stability_not_geometric_completion')
 
 
+def instance_navigation(frame,seed):
+    """Project the frozen U-E5 corridor into this observation's ego frame."""
+    points=seed.get('identity_world');width=seed.get('identity_half_width')
+    if (not isinstance(points,list) or len(points)<2 or
+            any(not g.vector(p,3) for p in points) or not g.finite(width) or width<=0):
+        return None
+    nav=bounded(dict(points=local_path(frame,points),half_width=width))
+    return nav if len(nav['points'])>=2 else None
+
+
 def facts(frames,ep,seed):
     from .teacher_rules import conjunction,actor,ordinary_lead
     if not g.history_valid(frames,7) or frames[0]['frame_id']<4:return {},['incomplete_causal_history']
@@ -505,7 +515,8 @@ def facts(frames,ep,seed):
     if a is None:return {},['identity_gap_not_clearance']
     nav=corridor(f,seed) if seed.get('target_world') and ep.state!='DONE' else navigation(f)
     if ep.event=='U-E5' and seed.get('identity_world'):
-        nav=dict(points=local_path(f,seed['identity_world']),half_width=seed['identity_half_width'])
+        nav=instance_navigation(f,seed)
+        if nav is None:return {},['navigation_missing']
     # Bound to this local event, never a later turn 50m down the route.
     nav=bounded(nav)
     if len(nav['points'])<2:return {},['navigation_missing']
@@ -565,11 +576,18 @@ def facts(frames,ep,seed):
 def visible_departure(frames,seed,nav):
     """Continuous identity plus a visibly cleared footprint; absence is not exit."""
     from .teacher_rules import actor
+    if seed['event']=='U-E5':
+        nav=instance_navigation(frames[-1],seed)
+        if nav is None:return False
     current=actor(frames[-1],seed['actor_id'])
     if current is None or route_intersection(current,nav,margin=PARAMS['separation_m']) is not False:return False
     for frame in frames[-5:-1]:
         obj=actor(frame,seed['actor_id'])
-        if obj is not None and g.visible(obj,frame) is True and route_intersection(obj,local_navigation(frame,PARAMS['horizon_m']),margin=PARAMS['separation_m']) is False:
+        # A planner change cannot prove exit from the frozen instance corridor.
+        # Reproject in each past frame; current ego coordinates are not reusable.
+        historical_nav=(instance_navigation(frame,seed) if seed['event']=='U-E5'
+                        else local_navigation(frame,PARAMS['horizon_m']))
+        if historical_nav is not None and obj is not None and g.visible(obj,frame) is True and route_intersection(obj,historical_nav,margin=PARAMS['separation_m']) is False:
             return True
     return False
 

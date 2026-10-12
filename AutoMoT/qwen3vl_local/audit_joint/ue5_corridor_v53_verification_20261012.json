@@ -1,0 +1,112 @@
+{
+  "status": "verified_fix_real_positive_gap_remains",
+  "task": "phase4_state_pair_binary_v53",
+  "teacher": "ten_event_causal_teacher_v18",
+  "replay": {
+    "routes": 89,
+    "frames": 10799,
+    "counts": {
+      "proceed/NO": 711,
+      "restrict/YES": 109,
+      "hold/YES": 109,
+      "proceed/UNKNOWN": 290
+    },
+    "ends": {
+      "decisive_actor_passed_behind_censors_stale_wait": 78,
+      "observed_resumption_censors_stale_wait": 23,
+      "instance_rgb_discontinuity": 8
+    },
+    "elapsed": 496.74438869813457,
+    "peak_rss_kib": 58964
+  },
+  "comparison": {
+    "frames": 10799,
+    "rgb4_questions": 1219,
+    "semantically_changed_frames": 0,
+    "source_files_same_sha": 32397,
+    "route_scope": "89 local eligible InvadingTurn training routes, not full formal candidate pool",
+    "ignored_identity_fields": [
+      "question_id",
+      "teacher_sha256",
+      "rule_class teacher version prefix only"
+    ],
+    "inputs": {
+      "checkpoints/ue5_corridor_v53_20261012/records.jsonl": "1ad6465f78bdaae1e1c7b311b34f952ac21236c434688d22abe222149c193c60",
+      "checkpoints/ue5_continuation_20261012/records.jsonl": "5051ae7500a95ae75d84e502434254f216eba33d26fb526213e9c7fb7ee38c45"
+    },
+    "changes": []
+  },
+  "native": {
+    "counts": {
+      "train": 28
+    },
+    "view_counts": {
+      "train": 28,
+      "val": 0,
+      "test": 0
+    },
+    "observations": {
+      "2": {
+        "version": "phase4_rgb2_short_student_v1",
+        "rgb_mode": 2,
+        "frame_offsets": [
+          -2,
+          0
+        ],
+        "frame_rate_hz": 4,
+        "min_frame": 4,
+        "order": "oldest_to_current"
+      },
+      "4": {
+        "version": "phase4_causal_rgb_v1",
+        "rgb_mode": 4,
+        "frame_offsets": [
+          -6,
+          -4,
+          -2,
+          0
+        ],
+        "frame_rate_hz": 4,
+        "min_frame": 4,
+        "order": "oldest_to_current"
+      }
+    },
+    "elapsed": 4.838772266171873,
+    "old_student_contract_rejected": true
+  },
+  "tests": {
+    "passed": 2342,
+    "seconds": 137.96,
+    "new_regressions": 14,
+    "command": "python -m pytest -q qwen3vl_local/sft_new_loop_phase3 qwen3vl_local/sft_new_loop_phase4 qwen3vl_local/audit_joint/tests"
+  },
+  "release": {
+    "files": 465,
+    "sha256": "4507a4952c4f8db1109af6371e54d45a1aaca3406ba619be7525b421630bb26f",
+    "source_check": "matched",
+    "pushed": false
+  },
+  "visual_review": {
+    "new_rgb_frames_viewed": 0,
+    "scope": "reuse previous development review; source SHA rebound by native replay; no G2"
+  },
+  "evidence": {
+    "checkpoints/ue5_corridor_v53_20261012/request.json": "ff4a28cff0ed4104961611a89a3a80ff3fb6b2a5a08f77f56183caa052b554d7",
+    "checkpoints/ue5_corridor_v53_20261012/run.py": "5ba1086e117c682cd922c56d597b037cf4e37919b2c99068f33094218eada0c7",
+    "checkpoints/ue5_corridor_v53_20261012/run.log": "6f2597301e9146ba85d01f2e375a91a014038c2a56d0f1643bd59dd1b9e102cc",
+    "checkpoints/ue5_corridor_v53_20261012/summary.json": "c8d9a0e634604c689e1859a60de3b0911ede9b9537528813b29ba1558ca91348",
+    "checkpoints/ue5_corridor_v53_20261012/records.jsonl": "1ad6465f78bdaae1e1c7b311b34f952ac21236c434688d22abe222149c193c60",
+    "checkpoints/ue5_corridor_v53_20261012/comparison.json": "230fa583bfae594dde9d32ba36e70ec7e26ad58a0102bfbbd5bba0e5b30a8da7",
+    "checkpoints/ue5_corridor_v53_20261012/tests.log": "40b8976bc4babc22c9b2edd1d97fb71dc1ce14b839f8ff0b253ac13c853409af",
+    "checkpoints/ue5_corridor_v53_20261012/corridor_probe.py": "b94703a3d72d31e41788145b8e8e172fea064a9f90e834deb69176045c8a2e67",
+    "checkpoints/ue5_corridor_v53_20261012/corridor_probe.json": "8ca72f2af19831727463203cc1abdba85ca60a660a938e372c6eea01bb7dcd41",
+    "checkpoints/ue5_corridor_v53_20261012/native/verification.json": "ced1a377ac99e8b0e0cf47532fb24ef34a83418805aa70778905d6eaa3e162ac",
+    "checkpoints/ue5_corridor_v53_20261012/source_check.json": "e90698890e9ad585f8affb5a3fb29bc4bf3f3c839cc945c8d1b18f55b47d66db"
+  },
+  "limits": [
+    "Only 89 local InvadingTurn training routes; not full formal data certification",
+    "0 real U-E5 proceed YES remains; no training admission",
+    "Phase3 formal index/adapter and joint isolation not validated",
+    "No remote/GPU/training/push"
+  ]
+}

@@ -113,12 +113,13 @@ def prepare(args):
             '--development-groups-extra', SOURCE / 'development_route_groups_rgb_stage_20261006.json',
             '--workers', args.workers, '--split-seed', '20260920', '--test-ratio', '0.10',
             '--val-ratio', '0.05', '--require-invalid-true-rs-coverage'), 'build.log')
-    if not args.index.with_name('manifest.json').is_file():
-        raise ValueError('full build manifest required; bare/custom partial index is not admitted')
+    from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+    write(args.output / 'index_preflight.json',
+          check_index(args.index, prompt_variant=args.prompt_variant))
+    # This comparison entry reserves candidate development routes even when
+    # explicitly running the baseline prompt on the common comparison pool.
     from qwen3vl_local.sft_new_loop_phase3.candidate_data import validate_candidate_index
     validate_candidate_index(args.index)
-    from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
-    write(args.output / 'index_preflight.json', check_index(args.index))
     for output in ('binary', 'choice'):
         for name in ('audit_rebuilt_index', 'audit_raw_index'):
             argv = module(name, '--index', args.index, '--data-root', args.data_root,

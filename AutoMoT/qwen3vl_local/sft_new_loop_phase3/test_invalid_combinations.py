@@ -107,6 +107,8 @@ def _minimal_index(path, manual):
 def test_binary_preflight_reports_sparse_subgroup_and_still_rejects_leakage(tmp_path, manual):
     path = tmp_path / 'index.jsonl'
     rows = _minimal_index(path, manual)
+    from .test_rgb_review_20260916 import write_manifest
+    write_manifest(tmp_path)
     report = preflight.check_index(path, 'binary')
     assert report['same_rs_evaluation']['val']['status'] == 'insufficient_support'
     assert report['same_rs_physical_routes']['val'] == manual

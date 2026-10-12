@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
-: "${PILOT_ROOT:?Set PILOT_ROOT to the successful v52 pilot directory}"
+: "${PILOT_ROOT:?Set PILOT_ROOT to the a pilot directory built with the current producer contract (old v52 is incompatible)}"
 FINISH_PYTHON="${PYTHON:-python}"
-FINISH_OUT="${OUTPUT_DIR:-checkpoints/v52_automatic_$(date +%Y%m%d_%H%M%S_%N)}"
+FINISH_OUT="${OUTPUT_DIR:-checkpoints/v53_automatic_$(date +%Y%m%d_%H%M%S_%N)}"
 mkdir "$FINISH_OUT"
 export FINISH_OUT PILOT_ROOT
 "$FINISH_PYTHON" - <<'PY'
 import json,os
 from pathlib import Path
 from qwen3vl_local.audit_joint.server_readiness import source_check
-r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v52_finish_20261012.json'))
+r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v53_20261012.json'))
 (Path(os.environ['FINISH_OUT'])/'source_check.json').write_text(json.dumps(r,indent=2)+'\n')
 if r['status']!='matched':raise SystemExit('Source mismatch; inspect source_check.json and synchronize latest files')
 PY

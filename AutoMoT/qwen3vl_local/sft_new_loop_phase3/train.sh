@@ -71,7 +71,7 @@ if sys.argv[1] != "baseline":
 PYCODE
 # 在写 latest 或创建运行目录前检查合同与完整本地权重。
 if [[ "${MODE}" != "sampling" ]]; then
-python qwen3vl_local/sft_new_loop_phase3/preflight.py --index "${INDEX}" --model-dir "${MODEL_DIR}" --action-output-mode "${ACTION_OUTPUT_MODE}"
+python qwen3vl_local/sft_new_loop_phase3/preflight.py --index "${INDEX}" --model-dir "${MODEL_DIR}" --action-output-mode "${ACTION_OUTPUT_MODE}" --prompt-variant "${PROMPT_VARIANT}"
 mkdir -p "${OUTPUT_DIR}" "${OUTPUT_DIR_BASE}/${RUN_NAME}"
 LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
 ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/${RUN_NAME}/latest"
