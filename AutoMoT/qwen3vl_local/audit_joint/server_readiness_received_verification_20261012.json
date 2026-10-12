@@ -1,0 +1,88 @@
+{
+  "status": "verified",
+  "files": 7,
+  "scope": "package byte integrity only",
+  "zip_bytes": 51716,
+  "zip_sha256": "4db82822c77d7c33dfd915fb1484296c18118a5afd42429a4d57afcd609096f8",
+  "release_files": 440,
+  "commands": {
+    "pytest_exit_code": 2,
+    "preflight_exit_code": 0,
+    "source_preflight_exit_code": 2,
+    "pytest_started": false,
+    "model_dir": "/home/cruser1/lda/AutoMoT/checkpoints/Qwen3.5-4B",
+    "gpu_training_run": false,
+    "dataset_build_run": false
+  },
+  "unexpected_python_files": [
+    "qwen3vl_local/sft_new_loop_phase3/capacity_diagnostic.py",
+    "qwen3vl_local/sft_new_loop_phase3/invalid_capacity.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_invalid_capacity.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_training_pool_audit.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_v24_near_stop.py"
+  ],
+  "production_changed": false,
+  "date": "2026-10-12",
+  "published_commit": "93f05dd7a786af45c9c6331df94446ebdbe6892c",
+  "current_free_bytes": 49083883520,
+  "inventory_records": 29,
+  "clean_snapshot": {
+    "source_status": "matched",
+    "unexpected_python_files": [],
+    "with_data_link": true,
+    "passed": 2259,
+    "skipped": 1,
+    "seconds": 101.52,
+    "exit_code": 0,
+    "skip_reason": "unpublished checkpoints/ten_event_label_audit_20261010/selected_collection unavailable",
+    "collected": 2260
+  },
+  "excluded_failed_trials": {
+    "manifest_only": {
+      "collection_errors": 27,
+      "exit_code": 2
+    },
+    "full_git_without_data": {
+      "passed": 2135,
+      "failed": 67,
+      "skipped": 54,
+      "errors": 4,
+      "exit_code": 1
+    }
+  },
+  "new_rgb_visual_review_frames": 0,
+  "new_label_replay_frames": 0,
+  "remote_execution_by_assistant": false,
+  "gpu_training": false,
+  "artifacts": {
+    "report.zip": {
+      "bytes": 51716,
+      "sha256": "4db82822c77d7c33dfd915fb1484296c18118a5afd42429a4d57afcd609096f8"
+    },
+    "package.json": {
+      "bytes": 290,
+      "sha256": "ac7bee83442f82435a18ab1a676f3d8c085641cdd26491f97b8ed13cd9699468"
+    },
+    "clean_tests.log": {
+      "bytes": 27071,
+      "sha256": "363d1d78fdaa3a22414551fa35bee54941cd7bf9c6ffcac2d0ef7a04b97e25a3"
+    },
+    "checkout_tests.log": {
+      "bytes": 222051,
+      "sha256": "78cff6a7bb7bc833d62f07122a7ddd7151548139919f600113659f10753408cf"
+    },
+    "checkout_with_data_tests.log": {
+      "bytes": 2604,
+      "sha256": "d73492c5830b305998c48714d193b76b07abc2e6aca9a8c858edc6596eb401c4"
+    },
+    "checkout_collection.log": {
+      "bytes": 288866,
+      "sha256": "8ded1c2b1e33d9fc50419b29bfc1f9a8b2451a51780baeb016ee243075d3a0be"
+    },
+    "checkout_source.json": {
+      "bytes": 125722,
+      "sha256": "16c034fdf2c02c0f5d26f4dfe26bd906656e682bc88600e9b3ccaaa37a74ce08"
+    }
+  }
+}

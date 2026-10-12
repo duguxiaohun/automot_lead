@@ -1,5 +1,17 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-12 覆盖同步适配：发布测试清单与导入检查
+
+用户确认sync_automot.sh使用正确仓库、rsync -a --checksum或cp覆盖白名单且保留本地其它文件；440文件SHA已证同步成功，额外文件不是同步失败。修正此前readiness2的全目录额外文件硬阻断：readiness3逐文件核验发布SHA，仅运行清单中已发布CPU测试，关闭本地pytest配置/conftest/自动插件扩展，审计进程拒绝受检包清单外模块/另一目录模块导入；额外文件记录并保留，不改sync或要求新目录。外部依赖/子进程不冒充全环境认证，生产v50/标定/提示词不改。
+15项专项通过；完整隔离副本保留服务器6个额外文件名及额外conftest哨兵，实际入口2264通过/1项本地历史collection依赖跳过，101.76秒退出0，26,892字节/6成员诊断包通过。日志SHA见audit_joint/overlay_readiness_verification_20261012.json，原始产物checkpoints/server_readiness_overlay_20261012。新版发布后沿用原同步，在原AutoMoT运行server_readiness.sh交report.zip/package.json；不用重复空间盘点或旧拟合。当前报告SERVER_READINESS_REVIEW_20261012.md已修正部署建议，仍待正式池/新建存储预算/服务器GPU新基线，无新RGB目视或标定回放。
+
+
+### 2026-10-12 第二份服务器CPU包与独立快照验收
+
+51,716字节/7成员ZIP及外层SHA通过，440发布文件与本机一致；原应用目录额外6个Phase3 Python导致source_preflight=2、pytest_started=false，模型preflight=0。29资产记录仍旧v42未认证声明，当前45.713GiB空闲，留20后25.713，旧规模复制式新建约差13.419GiB，未确认新正式池/P3索引。不要重复原目录失败或旧拟合。
+本机只复制440清单不能独立运行（27导入错误，清单非依赖闭包）；完整Git 93f05dd7a快照缺lead_data时67失败/4错误，补显式原始数据链接后2259通过/1本地历史collection依赖跳过，101.52秒退出0；前两次失败保留，不冒称2260全通过。完整Git快照+数据链接远程步骤见audit_joint/SERVER_READINESS_REVIEW_20261012.md，核验server_readiness_received_verification_20261012.json，原包/日志在checkpoints/server_readiness_received_20261012。生产/规则/提示词未改，无新RGB目视/回放/GPU/远程/push；事件等量及自动规则选优已接通，收尾集中干净CPU、存储减少复制、正式池覆盖与一次新基线。
+
+
 ### 2026-10-11 服务器混版前置检查与755帧RGB续审
 
 server_readiness在pytest前检查440文件SHA及声明包中额外Python，混版不执行测试、不删文件，失败仍交两文件包；readiness2清单不改生产v50合同。4新增回归、完整2260通过103.57秒，真实隔离混版入口退出2/pytest未启动/50306字节包核验。服务器按SERVER_V50_START_20261011.md最新命令，真正新目录同步，沿用旧模型和资产绝对路径；同盘45.71GiB已知，不重复盘点、不建库/训练。

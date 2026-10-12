@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-12",
+  "release": "phase4_v50_20261012_overlay_readiness3",
+  "manifest_sha256": "d98ffc5375de636208d1047de849da37a73a6fe181ccf8bd5d560b9a98051e35",
+  "source_files": 440,
+  "policy": "manifest_tests_guarded_imports_v1",
+  "sync_script_unchanged": true,
+  "source_status": "matched",
+  "extra_sentinel_files": [
+    "qwen3vl_local/sft_new_loop_phase3/capacity_diagnostic.py",
+    "qwen3vl_local/sft_new_loop_phase3/conftest.py",
+    "qwen3vl_local/sft_new_loop_phase3/invalid_capacity.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_invalid_capacity.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_training_pool_audit.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_v24_near_stop.py"
+  ],
+  "all_extra_sentinels_preserved": true,
+  "extra_scope": "synthetic contents under the six server filenames plus conftest; actual remote file bodies were not received",
+  "tests": {
+    "passed": 2264,
+    "skipped": 1,
+    "collected": 2265,
+    "seconds": 101.76,
+    "exit_code": 0,
+    "skip": "unpublished local selected_collection unavailable"
+  },
+  "focused_tests": {
+    "passed": 15,
+    "seconds": 0.71
+  },
+  "production_unchanged": true,
+  "production_contract_sha256": "47b0d01cc3564fe4509b013f73cf2172e7daf48fa3047ed2bc0e799468f03e44",
+  "package": {
+    "bytes": 26892,
+    "sha256": "b2497c710c85e3e611e7e810ca4e30a4d4a1c50bdedabc648488bde336150ccc",
+    "verification": {
+      "status": "verified",
+      "files": 6,
+      "scope": "package byte integrity only"
+    },
+    "source_status": "matched"
+  },
+  "logs": {
+    "full_tests.log": {
+      "bytes": 10350,
+      "sha256": "6d0bdc0f5bdf26db6835c961a98398f618100057c1c8a16249bdbda7f434cea3"
+    },
+    "final_tests.log": {
+      "bytes": 10350,
+      "sha256": "4ce566f89b1155a378e52a021392637ec7010b120c6321f120774dafd01736a1"
+    },
+    "fixture.json": {
+      "bytes": 554,
+      "sha256": "50256254aa47afd92317ce73b685b3f1283b38bd6b490b8fdb6795dbaa51a364"
+    }
+  },
+  "gpu": false,
+  "remote_execution": false,
+  "new_rgb_frames": 0
+}

@@ -1,5 +1,8 @@
 # 服务器下一步：v50正式池CPU准入，通过后新基线一轮
 
+**2026-10-12同步方式已确认，以下新目录要求不再适用：** 用户现有sync脚本正确覆盖更新白名单并保留本地文件；440文件SHA一致已经证明同步成功。readiness3适配该方式：额外文件登记但不一概阻断，仅运行已发布测试，阻止受检包实际导入清单外模块；沿用原目录/lead_data，不改同步、不删除文件。新版同步后仍运行server_readiness.sh交report.zip＋package.json。见 [当前复核与原目录命令](SERVER_READINESS_REVIEW_20261012.md)。
+
+
 **收到服务器包及两份空间盘点后的当前步骤：** 按 [SERVER_V50_START最新readiness2步骤](SERVER_V50_START_20261011.md) 在真正新源码目录运行CPU交接，交report.zip＋package.json。本次先检查混版再执行pytest；本机2260项通过。已知同盘45.71 GiB可用且lead_data可访问，不再重复空间盘点。B–D仍是存储预算和新生产资产齐备后的模板；当前不能将旧v42路径直接代入。同步推进的本机755帧回放、70帧RGB实审见 [续审结果](LOCAL_RGB_FOLLOWUP_V50_20261011.md)。
 
 **本次发布后的立即执行入口：** 先按 [SERVER_V50_START](SERVER_V50_START_20261011.md) 运行 `server_readiness.sh`，交回不超过30MB的 `report.zip` 与 `package.json`。它自动收集CPU日志、退出码、资产元数据和发布源码SHA，缺资产也能报告。下面B–D是后续资产齐备后的模板，不是要求现在从头建库/开训。

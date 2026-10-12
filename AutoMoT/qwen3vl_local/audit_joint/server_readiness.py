@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import zipfile
 
 from .io import file_sha
@@ -105,8 +106,8 @@ def source_check(app, expected):
             actual, status = None, 'missing'
         rows.append(dict(path=name, expected=sha, actual=actual, status=status))
     extras, errors = [], []
-    # The release manifest binds files, but recursive pytest also discovers
-    # unlisted tests. Preserve them and reject the mixed directory before tests.
+    # Overlay synchronization deliberately preserves local files. Report them;
+    # run_tests selects published tests and rejects imports from unlisted files.
     roots = [name for name in PYTHON_ROOTS if any(p.startswith(name+'/') for p in spec['files'])]
     for name in roots:
         for directory, dirs, files in os.walk(Path(app)/name, followlinks=False,
@@ -117,11 +118,82 @@ def source_check(app, expected):
                 relative = path.relative_to(app).as_posix()
                 if path.suffix in ('.py', '.pyc') and relative not in spec['files']:
                     extras.append(relative)
-    return dict(status='matched' if rows and all(r['status']=='matched' for r in rows) and not extras and not errors else 'mismatch',
+    return dict(status='matched' if rows and all(r['status']=='matched' for r in rows) and not errors else 'mismatch',
                 expected_manifest_sha256=file_sha(expected), files=rows,
                 unexpected_python_files=sorted(extras), scan_errors=errors,
                 python_scan_roots=roots,
                 scope='release file hashes plus unexpected Python files in declared runtime packages; probe_output/cache excluded, directory links not followed; not authentication of Git remote or all external imports')
+
+
+def run_tests(app, expected):
+    """Run published CPU tests in an overlay checkout without discovering local tests.
+
+    Additional source files are preserved, but must not supply imported modules
+    inside the four checked runtime packages. External dependencies retain the
+    existing manifest's scope; this is not a complete environment certificate.
+    """
+    import importlib.abc
+    import importlib.machinery
+    app = Path(app).absolute()
+    report = source_check(app, expected)
+    if report['status'] != 'matched':
+        print(json.dumps(dict(stage='published_tests', status='source_mismatch')))
+        return 2
+    allowed = {r['path'] for r in report['files']}
+    roots = report['python_scan_roots']
+    test_roots = ('qwen3vl_local/audit_joint/tests/',
+                  'qwen3vl_local/sft_new_loop_phase4/tests/',
+                  'qwen3vl_local/sft_new_loop_phase3/')
+    tests = sorted(p for p in allowed if p.startswith(test_roots)
+                   and Path(p).name.startswith('test_') and p.endswith('.py'))
+    if not tests:
+        raise ValueError('release manifest contains no CPU tests')
+
+    def check_origin(origin, fullname=''):
+        if not origin or origin in ('built-in', 'frozen'):
+            return
+        path = Path(os.path.abspath(origin))
+        try:
+            name = path.relative_to(app).as_posix()
+        except ValueError:
+            if any(fullname == root.replace('/', '.') or
+                   fullname.startswith(root.replace('/', '.') + '.') for root in roots):
+                raise ImportError('checked runtime module loaded outside application: ' + fullname)
+            return
+        if any(name.startswith(root + '/') for root in roots) and name not in allowed:
+            raise ImportError('unlisted local runtime module: ' + name)
+
+    class PublishedImports(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+            if spec is not None:
+                check_origin(spec.origin, fullname)
+            return None  # Normal import machinery and pytest rewriting still run.
+
+    for name, module in tuple(sys.modules.items()):
+        check_origin(getattr(module, '__file__', None), name)
+    # Do not let retained pytest.ini/conftest, user addopts or entrypoint plugins
+    # expand the release's test scope. These tests require no conftest/plugin.
+    os.environ.pop('PYTEST_ADDOPTS', None)
+    os.environ.pop('PYTEST_PLUGINS', None)
+    os.environ['PYTEST_DISABLE_PLUGIN_AUTOLOAD'] = '1'
+    sys.path.insert(0, str(app))
+    guard = PublishedImports()
+    sys.meta_path.insert(0, guard)
+    print(json.dumps(dict(stage='published_tests', policy='manifest_tests_guarded_imports_v1',
+        test_files=tests, extra_files_preserved=report['unexpected_python_files']), ensure_ascii=False), flush=True)
+    try:
+        import pytest
+        code = int(pytest.main(['-q', '-rs', '-c', os.devnull, '--noconftest',
+                               '--rootdir', str(app), *[str(app/p) for p in tests]]))
+        for name, module in tuple(sys.modules.items()):
+            check_origin(getattr(module, '__file__', None), name)
+        if source_check(app, expected)['status'] != 'matched':
+            raise ValueError('release sources changed during tests')
+        return code
+    finally:
+        sys.meta_path.remove(guard)
+        sys.path.remove(str(app))
 
 
 def collect(checkpoints, output, *, app, expected, logs=()):
@@ -197,7 +269,11 @@ def main():
     p.add_argument('--output', type=Path)
     p.add_argument('--log', action='append', type=Path, default=[])
     p.add_argument('--verify', type=Path)
+    p.add_argument('--run-tests', action='store_true', help='Published CPU tests only; preserve overlay files')
     a = p.parse_args()
+    if a.run_tests:
+        app = Path(__file__).resolve().parents[2]
+        raise SystemExit(run_tests(app, Path(__file__).with_name('release_sources_v50_20261011.json')))
     if a.verify:
         result = verify(a.verify)
     else:

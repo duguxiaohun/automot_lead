@@ -1,6 +1,6 @@
 {
   "schema": "automot_source_release_v1",
-  "release": "phase4_v50_20261011_readiness2",
+  "release": "phase4_v50_20261012_overlay_readiness3",
   "files": {
     "lead_video_tools/abnormal_duration_filter.py": "9a3df626182ff0ba0d581898dc1a16510b31f95b17129ce1eb64e30b03071616",
     "qwen3vl_local/audit_joint/__init__.py": "6fa34971a5d978c86794bfe712f8e0cd577d1c9e657a28b50a2fec6222f69008",
@@ -24,8 +24,8 @@
     "qwen3vl_local/audit_joint/rgb_review.py": "4a98ea21771558af783d7a2feb3804aea1663e19bffc7e09ba8a079fb2d2eb38",
     "qwen3vl_local/audit_joint/run_guarded.sh": "7aebc84816fdedeca73567ae6e7dcffcffb9b83ce5a5dadd99d4164a89ad69cb",
     "qwen3vl_local/audit_joint/run_local_replay.sh": "a0a2b8789bf16f6903d63aa9ab25f1002d19e8e6c538bc5aaeda4ea0bbc505de",
-    "qwen3vl_local/audit_joint/server_readiness.py": "59e7d5b15399605bd1d0d832b5e743f7f863c364fb902c716af99d72ffa1534b",
-    "qwen3vl_local/audit_joint/server_readiness.sh": "1c7f4c7793fa7f8e8de2478b0ae9e36966e42481dba011035d6eaa869e2fdc63",
+    "qwen3vl_local/audit_joint/server_readiness.py": "5aef994e63729d5c31c865236b952351c13546efe79225f2e9f4f5b963972055",
+    "qwen3vl_local/audit_joint/server_readiness.sh": "4e8c25f6e7f3249fc8d8423524e22dc9b6f799d0fc41c98ef1083a11423fc330",
     "qwen3vl_local/audit_joint/splits.py": "579a95204ab35bc0fb23cd5f6f88fd38e36921c12889abf241927c85a8beff7f",
     "qwen3vl_local/audit_joint/storage.py": "2e9cc7522e1ad135a8d41b39296a5c0c4fc4524c4ad219f8865dbf084eddbeca",
     "qwen3vl_local/audit_joint/tests/test_action_dependencies.py": "b35d30e238f5360c4eb69f1ae6908b18de06b30d7fdb4d64c76ae2d0a09441af",
@@ -40,7 +40,7 @@
     "qwen3vl_local/audit_joint/tests/test_native_quarantine.py": "182ea911b0314df675c9cd119b21f45d42dc0c199c8bd4026386b323ffb2437b",
     "qwen3vl_local/audit_joint/tests/test_recovery.py": "76ddbdcde223f65d7f86be45f8a7dd7dd415d62fe9a4d1094762e0eb43fb7e12",
     "qwen3vl_local/audit_joint/tests/test_rgb_review.py": "4e2bfbf33390b50799b4fb36e175d3b848e23ed9f5fee2204d0c4f6230bb9b84",
-    "qwen3vl_local/audit_joint/tests/test_server_readiness.py": "5b84d2ecd7c3df51886153166d796ad026fe6d677dcd0e13e34eb09c2402bb3a",
+    "qwen3vl_local/audit_joint/tests/test_server_readiness.py": "ae1589146fc2b1525751596be8ee1412c284265650e483a74b199a98a79eeba5",
     "qwen3vl_local/audit_joint/tests/test_storage.py": "ef9a841e5a25e1a23de76bafed1c4596e841bc3937bbae4c5e6ddcb6549945eb",
     "qwen3vl_local/audit_joint/tests/test_timeline.py": "20849faa409d12b7f6c25e4d244c4d1488550cf300ea1e746249f37ebd0d0ed4",
     "qwen3vl_local/audit_joint/tests/test_train_fit.py": "7b653a3cf62f1e5f3915f60caf08ce2d1531bfe0f43d8d77d15c112f5e03df73",

@@ -22,12 +22,11 @@ PY
 if [[ "$P50_SOURCE_PREFLIGHT" == 0 ]]; then
 PYTHON="$P50_PYTHON" bash qwen3vl_local/audit_joint/run_guarded.sh \
   --space-path "$P50_OUTPUT" --min-free-gib 20 -- \
-  "$P50_PYTHON" -m pytest -q qwen3vl_local/audit_joint/tests \
-  qwen3vl_local/sft_new_loop_phase4/tests qwen3vl_local/sft_new_loop_phase3 \
+  "$P50_PYTHON" -m qwen3vl_local.audit_joint.server_readiness --run-tests \
   >> "$P50_OUTPUT/tests.log" 2>&1 || P50_TEST_EXIT=$?
 else
   P50_TEST_EXIT=2
-  echo 'Source check failed; pytest not run. Use a fresh synchronized source directory; no files were deleted.' >> "$P50_OUTPUT/tests.log"
+  echo 'Published source hashes failed; pytest not run. Synchronize the release files; local extras are preserved.' >> "$P50_OUTPUT/tests.log"
 fi
 P50_PREFLIGHT_EXIT=0
 "$P50_PYTHON" -m qwen3vl_local.qwen35.preflight --model-dir "$P50_MODEL" \
