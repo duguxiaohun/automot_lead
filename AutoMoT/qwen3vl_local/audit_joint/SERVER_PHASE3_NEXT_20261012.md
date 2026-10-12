@@ -1,5 +1,7 @@
 # 本轮发布后：Phase3正式索引交接
 
+> 本次盘点交接已收到并核验：`index_not_selected`、空路径且搜索截断。不要重复以下盘点。后续新建正式索引的 CPU 流程见 [收件结论与下一步](PHASE3_RECEIVED_NEXT_20261012.md)；新入口随本次发布，同步后执行。
+
 沿用已经验证的`sync_automot.sh`（源仓库`duguxiaohun/automot_lead`）覆盖同步；不要通过服务器遗留Bosch `.git`判断版本。本轮发布清单`release_sources_v53_20261012.json`含468文件，以下入口自动核验源码。旧Phase4 v52题库保留，当前不重复readiness、旧fit、五小时建库或GPU训练。
 
 ## 1. 同步后在AutoMoT目录运行

@@ -1,5 +1,10 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-12 Phase3缺索引交接核验与自动建库入口
+
+收到Downloads Phase3包25977字节/2成员，外层及成员SHA/CRC、468源码与本机及4e59862ed01ef9dae8266024e1e210a2fc074f36逐项一致。结果index_not_selected/paths空/truncated=true，仅限定路径盘点，非全服务器缺失证明或正式数据准入。不重跑readiness/路径盘点。新增server_phase3_prepare.sh/.py：471源清单，fresh输出，原生全源build+候选隔离+binary/choice原始meta/标签/RGB路径核验+等量计划，四图/短两图合同与提示词SHA，训练1024/event、val16/32上限/test固定无放回、world1/4题序；默认CPU2worker，20GiB余量/约8GiB净写盘轮询保护，成功/失败≤30MB包。不复制RGB/回放/权重，不训练；完整原始信号检查不冒称全源RGB视觉认证。
+214相关回归通过29.16秒含9新增；原生CLI缺collection退出2、26279字节/3成员包核验，471源matched。见audit_joint/PHASE3_RECEIVED_NEXT_20261012.md及phase3_received_verification_20261012.json；本机证据checkpoints/phase3_received_20261012。用户随后授权push，新入口按白名单发布；同步后运行一次交phase3_prepare_report.zip+phase3_prepare_package.json。P3正式索引/首轮预算后可独立推进；P4仍缺UE5真实proceed YES、新v53全池待准入，旧v52不可混用。生产标签/阈值/提示词未改，无新RGB目视/全源重放/GPU/远程训练，联合G0未过。
+
 ### 2026-10-12 Phase3白名单发布与并行RGB续审
 
 用户授权push。本轮新增server_phase3_index：468源SHA自动核验，未指定索引仅深度4/最多100条路径盘点、不自动选择；指定正式索引绑定逻辑/解析路径与前后SHA，完整准入并带manifest，正常/缺失/阻塞均交≤30MB ZIP+独立SHA回执，无训练。29专项通过1.78秒（含3新测试），原生CLI合法/缺失两包27990/25881字节核验；已有2368完整回归不重跑。服务器沿sync_automot.sh同步后按audit_joint/SERVER_PHASE3_NEXT_20261012.md执行一次，交phase3_index_report.zip+phase3_index_package.json；不重复readiness/旧fit/旧全库，旧v52不能混新版。

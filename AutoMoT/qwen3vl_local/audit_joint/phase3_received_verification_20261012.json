@@ -1,0 +1,65 @@
+{
+  "status": "verified",
+  "head": "4e59862ed01ef9dae8266024e1e210a2fc074f36",
+  "zip_bytes": 25977,
+  "zip_sha256": "0c60d6116e458225a36976f3da84a78f9e0133c088b550825e3c71cdbf2dd2c9",
+  "members": 2,
+  "source_files": 468,
+  "source_matches_local_and_git": true,
+  "server_result": {
+    "status": "index_not_selected",
+    "inventory": {
+      "status": "inventoried",
+      "root": "/home/cruser1/lda/AutoMoT/checkpoints",
+      "paths": [],
+      "errors": [],
+      "truncated": true,
+      "scope": "bounded depth-4 path discovery only; no automatic index selection; directory symlinks not followed"
+    },
+    "training_started": false
+  },
+  "interpretation": "No selected index; bounded inventory truncated. No formal Phase3 data admission or GPU training evidence.",
+  "targeted_tests": {
+    "command": [
+      "/tmp/automot-qwen35-env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "qwen3vl_local/audit_joint/tests/test_server_phase3_prepare.py",
+      "qwen3vl_local/audit_joint/tests/test_server_phase3_index.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_entry_admission.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_fixed_evaluation.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_validation_balance.py",
+      "qwen3vl_local/sft_new_loop_phase3/test_four_runs.py",
+      "qwen3vl_local/audit_joint/tests/test_training_scope.py",
+      "qwen3vl_local/sft_new_loop_phase4/tests/test_ten_event_teacher.py",
+      "qwen3vl_local/sft_new_loop_phase4/tests/test_training_admission.py",
+      "qwen3vl_local/sft_new_loop_phase4/tests/test_production_selection_v50.py",
+      "qwen3vl_local/audit_joint/tests/test_rule_baseline.py"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 29.64130522403866,
+    "log_sha256": "d0d2279c8fcbd4fdd157c716a1fc669dd5293e821d4382b3aab85baf10a8a9f1"
+  },
+  "tests_passed": 214,
+  "native_cli": {
+    "source_status": "matched",
+    "source_files": 471,
+    "build_exit": 2,
+    "package_exit": 2,
+    "package": {
+      "files": {
+        "source_check.json": "b08195af2b5e39ae00d8b7c50b788e7fc2303917642c4b2defda2ae191221570",
+        "prepare_result.json": "d2fbb26140b165f2acb698d7a2b3707bf37746f4338809115cb42b1ccc9a122f",
+        "handoff.json": "c6ad114e8d732db0a136d029cd673bc3e25f0865ee4f93329a1bee7f408885b5"
+      },
+      "zip_sha256": "24ae057fb5eff51d6daefc53e226c0fccde406c2fccc4a8c00807ff565939de4",
+      "bytes": 26279,
+      "status": "verified"
+    }
+  },
+  "new_rgb_frames_viewed": 0,
+  "production_labels_changed": false,
+  "gpu_used": false,
+  "pushed": false
+}
