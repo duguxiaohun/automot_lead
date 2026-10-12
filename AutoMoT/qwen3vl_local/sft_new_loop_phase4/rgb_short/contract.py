@@ -9,9 +9,11 @@ POLICY = 'phase4_rgb2_short_student_v1'
 
 def contract():
     return dict(policy=POLICY, producer=producer_contract(),
+                automatic_admission_sources={name:file_sha(ROOT.parents[1]/'audit_joint'/name)
+                    for name in ('rule_baseline.py','training_budget.py','training_scope.py')},
                 exposure_normalizer_sha256=file_sha(ROOT.parents[1] / 'audit_joint/splits.py'), sources={
         name: file_sha(ROOT / name) for name in
-        ('__init__.py', 'contract.py', 'data.py', 'model.py', 'train.py', 'evaluate.py', 'build.py', 'run.sh', 'diagnostics.py', 'reload_check.py')})
+        ('__init__.py', 'contract.py', 'data.py', 'model.py', 'train.py', 'evaluate.py', 'build.py', 'run.sh', 'diagnostics.py', 'reload_check.py', 'run_automatic.sh')})
 
 
 def observation_contract(mode):

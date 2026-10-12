@@ -1,5 +1,10 @@
 # v50发布后：服务器先交CPU与正式资产盘点包
 
+> 2026-10-12 v52发布后当前服务器步骤：见[新版限量试建交接](SERVER_V52_NEXT_20261012.md)，同步后仅运行 `bash qwen3vl_local/audit_joint/server_v52_pilot.sh`，交回 `pilot_report.zip` 与 `pilot_package.json`。不重复readiness/旧拟合，不直接全量建库或续七轮；本地107帧重算/28帧RGB续审见 `audit_joint/RELEASE_RGB_V52_20261012.md`。
+
+**2026-10-12 08:31反馈已验收：服务器2262通过、3项历史产物依赖跳过，source/pytest/preflight全部退出0。此次CPU检查已完成，不需要再运行本页命令或重复磁盘盘点。** 当前剩余的新建存储预算与正式池覆盖见 [开训审计](CPU_PASS_TRAINING_AUDIT_20261012.md)。下方保留此前执行记录，不作为当前立即执行指令。
+
+
 **2026-10-12同步方式已确认，以下新目录要求不再适用：** 用户现有sync脚本正确覆盖更新白名单并保留本地文件；440文件SHA一致已经证明同步成功。readiness3适配该方式：额外文件登记但不一概阻断，仅运行已发布测试，阻止受检包实际导入清单外模块；沿用原目录/lead_data，不改同步、不删除文件。新版同步后仍运行server_readiness.sh交report.zip＋package.json。见 [当前复核与原目录命令](SERVER_READINESS_REVIEW_20261012.md)。
 
 

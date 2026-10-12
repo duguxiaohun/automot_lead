@@ -1,0 +1,2195 @@
+{
+  "schema": "batch_baseline_v52_audit_v1",
+  "producer": {
+    "task": "phase4_state_pair_binary_v52",
+    "answers": [
+      "YES",
+      "NO"
+    ],
+    "sources": {
+      "production_storage.py": "2435bcdb8cd0e01b3d3600567bed6ea7a423b4da539befc64f3520586bb19582",
+      "history_admission.py": "01f2ed0a3590353c574b1bec7192c1852edcf94e1a51f71e87a35d2d29e25261",
+      "evaluation_policy.py": "ebc2f4d44910e0ad2abb90bbe8e85f648c832d01af4d54507fbfd5b9c8f387ee",
+      "teacher_events.py": "7e922ef1fe100ab81b9b97ca323c75990a53a3d6b13a337378305020a5a4136d",
+      "phase3_sampling.py": "8cb2553dab77903ff96e7fd3740ccd39ab26282bd33b298070e6564b8d036dae",
+      "data_paths.py": "3427a781d96fa6222dda8faab83ec7ad2331a957f558d9e63862250bc382f59d",
+      "full_pipeline.py": "dabb48e82d088fef8b108b19d69f1889f375fbbdb74a5c9da802e5b116959cb1",
+      "full_sampling.py": "13851f34f8ef93ae3ab89ee83b662eaea520760771a9bed2cb28f05dc69f3c05",
+      "train_full.sh": "d48d575473768b0882d3dbc3eb73ab37d6f8eb3d0ea4f90d9e3ef6ccb63c7368",
+      "paired_training.py": "4f4eff93183c8f5119e73510da106592992c83c7bdb280b3259ec2e78562a4eb",
+      "branch_support.py": "0ebfb75d366d9e79c8dcff90f2e1de0d2b16a9ec6e80d7179104e8fa5bb707cb",
+      "paired_eval.py": "8d55360c7362e1e64b7b1957ed695f11eea62d5291e66a271b5080aeece8d9fb",
+      "launch.py": "771e60b84af8444312921de2f655f268d5ef514e32939aef729a6792c741e004",
+      "train.sh": "ed3f119c3cba4e696d436d5297bb35441912bb180cde5845a5e93340bfa22c32",
+      "run_full_pipeline.sh": "237009439f16b9f82bbbb2da92471d0b5e23c0fa4095042489d3e2dda8204668",
+      "route_quality.py": "7c38bc280f5cccb9c5be6e4d946d0a32e01364832871610ea6972bb3b1cfe26e",
+      "weighted_sampling.py": "d4edc02dcd580cbbf1b8cd839f001506292d061c4f9e451cdd7d6d41dd8a934d",
+      "teacher_evaluation.py": "4102ef6d6f2cc926c1cc94420113e670ce3995ff8099223960e71faf78148098",
+      "teacher_controls.py": "b033251b99b00363e188d49417406dc63ebf10dc9bcfdf39f1f48c8eabd73b57",
+      "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+      "teacher_review.py": "131a2142fbea9c37a3ae96db2cbf34117ad12626767d8c83fdfe367bb246e914",
+      "teacher_rules.py": "d8ed0241a30ca52a75091f20ac73790400458a0c1068ae01bd7f18a02c5946e4",
+      "teacher_replay.py": "2a692a8cb7051add7096ce1a23137e2ac42efc63f81d8f9090f90662e8765867",
+      "teacher_approval.py": "b7715788759bc8a296a4ce83bf6199e4a37ec8a3fed2164fb52e815ba9271aba",
+      "teacher_data.py": "49745ef656f92bfe2ca3047988ee8846696e559f3f5fb2a2cf95b048fe041a68",
+      "visual_review.py": "8ea4d3383005b0f9e82de5c6830677c51f8e61b174f1d8849f7fc044c8e40c47",
+      "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+      "review_queue.py": "c685816059902103c98b82f5cd2146e2f8bdff68dc0948477a32eacd681e4236",
+      "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+      "privileged_context.py": "9a4745d7acf051047a0ca30c9f99dc9a0a255392c18ef4a4019c5c47f497e163",
+      "privileged_visibility.py": "f4ce5aaacb33963732321ac1025d88607b8e735613cbc1f6419984c1b834279b",
+      "privileged_geometry.py": "2024cc84b7b2a83be2fa8231c1674e0cf409543a99d673338ae87110188fa6c1",
+      "privileged_producer.py": "e14a5ab67886feeabb48640851a37695044acc2d190e74d407034fc9259c2a52",
+      "replay_safety.py": "121378437a8955778d75efdd1d2879aab26ae1138e75d08557d3cb98339db980",
+      "maneuver_safety.py": "aad6adb9ace9e715c20538662487ba771dce61467346fba0ff56486f665eb7eb",
+      "visible_scope.py": "2bef271c9bcba53c4b23a3808caf755547b22d542e8b9c7275db0a432b46b038",
+      "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+      "route_prompts.py": "2bd1fffafdf8ed082ff6677ebeded3263dfc7906b00efa58e548d3e1a9cba646",
+      "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+      "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+      "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+      "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+      "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+      "dataset.py": "bfc95ef42962d3700bc01457599d85894de8cd045086308658b8309c787a8898",
+      "sampling.py": "424cdfdf7908f6ee76041dd7efd8eda6bed991ca7ace56cba57105ba07474cd2",
+      "model.py": "e30e9f581261c5a6a4aa218511ccc542270d8858dfe766916206fb5927cf04ad",
+      "train.py": "2e5c594bc2d5c9df70daa11d54ebcf69ca49758819ef35917f2142f721441728",
+      "evaluate.py": "ee43c16df51ba884df32fa909b15301ad123767e98ca132f2add7fc28315bc37",
+      "runtime.py": "fa268158c96ee671d2b95449c9c0bebd2b07c4ccf73f7dcfcec4846e6bea8c4a",
+      "identity.py": "dbb8bc218a38b472edf54a6e4f5d64573b3dceb7c4e17efa0f7f04476ed1fff2",
+      "action_prior.py": "c0dc9aac6c1e294bb7964685202945b34a5a4236037e6d619f660457d3daf81a",
+      "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+      "replay.py": "a4ddd7eabddf3d30c9a8e9d6806ef16be1d15ba4342e43365a4d256a16dc2f13",
+      "input_identity.py": "e7e7ebe9fc28ee2c3704ed7ef27755835f884e87476a7b3c253abe9df6a8b3d1",
+      "risk_review.py": "2d570c9f5cc8fa9036f6ef01a49dec1cf772eddb3ea6df820ce8f138ce26e253",
+      "admission.py": "ff965b9ef69ec7451c3aa1cc62b6353e02b29b8d5fef48445eeae2dffcc90f93",
+      "condition_builder.py": "76fbc30a600840dc531a5a06397cedca14603bda281f8a9ec22e6406a424ef60",
+      "preflight.py": "76dfbe197e6d0f59d5673b956b5a9c08e04c6dea0bf0c2d203ca6ee66873422f",
+      "candidate_pool.py": "ed21db1025a4bde8bc265bf8dde758d0df735c4e0b28e94f438a0efad4346672",
+      "selection.py": "4c46214b361f97839306e8cf5cd7c5ba36333bf144efb992345c83ec68f4e49d"
+    },
+    "calibration_assets": {
+      "teacher_exposure_v42_20261008.json": "36cfb236bd10429ee3c95388076820cb454aaaaf3f93d231b2e86bdae2dff6f7",
+      "teacher_exposure_v41_20261008.json": "106083f70ef3941a6d83d6e4e6708bad2b7b2c1ebe8bebef4e530e2b06bf21fc",
+      "thirty_sixth_audit_exposure_20261006.json": "a5fd49ece82be111147c54f4828c3b2d6beccb8378d99e266b7c0b7639ac2453",
+      "thirty_fifth_audit_exposure_20261006.json": "fefded4d24862941f9c26fa3ce861dc2474fa2e161aa359e5b4d5522a74ddfad",
+      "thirty_fourth_audit_exposure_20261006.json": "3e27211558ae768ce7be2a5c34f4dcf8e937d78760f66a2225ec825712b849d0",
+      "thirty_third_audit_exposure_20261006.json": "a169d032ff58827db9054906d267154e01075cfa70836138f5101b06cafa85ea",
+      "thirty_second_audit_exposure_20261005.json": "e05790f3fd831c366ec7af14aa39ae25a33cb5e7e4c20e256279876e3a4e9c05",
+      "thirty_first_audit_exposure_20261005.json": "6ab7e5ab85d5f4807e9b0a23d24c83e36fa41eac9b21941fee098613ccac4324",
+      "thirtieth_audit_exposure_20261005.json": "1ca3a27a245eae654ab095d13238d10316496f61c0ba46e67cb2ae1cc84ab98c",
+      "producer_manual_check_plan_v32_20261012.json": "68c9dcddb4bcf885af9dc39861a2c71d589689e0925504082c6a2618d42de0b0",
+      "teacher_registry_v27.json": "ef74d0f35aa279a2378747980b5f3a2398b12ada4f6ea93e9536ba22be13ddbb",
+      "producer_manual_check_plan_v6_20261002.json": "0afc82c20abfb861a226af6b119fb3bb6ab70b17c077e3e54d945b3d1085d9ee",
+      "teacher_registry_v1.json": "9451415588717c95828b8e5ec0d507087e93d0a4a694d5203ddaf0593954b1f2",
+      "reviewed_state_pairs_v9.json": "27b503f02a4b0c3209144942a03aa057e2404f1b65abe2e7b507375fc0b55583",
+      "twenty_fifth_rgb_review_20261002.json": "2dfa386a3d960b59bee51d4231eaf609fce180c146e2fa2aa0bfbac6cd172a1b",
+      "twenty_fifth_review_decisions_20261002.json": "71a82eef60df5a7f8db9597f8c42b912a7224f3aebd591d3d1d95e9757aa1e3b",
+      "twenty_fifth_review_queue_20261002.json": "3277d915f06a103d4c2204218ba616a8fff90ff5423689fce39b6d6c38adf2d9",
+      "producer_manual_check_plan_v5_20261002.json": "6f620c01c89fab5bc44078c6173e4fe605f1b606f887db5065e49ede030229cb",
+      "VISUAL_REVIEW_RUBRIC_V25.md": "a073a7e67b5394412dbaf9b2690bbb8f0c945ef30d4d67bf3c83e99f75bed71a",
+      "twenty_fourth_rgb_review_20261002.json": "d5cb6e0e0a902f9260f4fea97f87dc776dc17a6c393761a92dd5a9f860304e0c",
+      "twenty_fourth_review_queue_20261002.json": "6398966670bf510168b5d300b8e475162915cd4859d6d8ccd88f26be8225784f",
+      "twenty_fourth_review_decisions_20261002.json": "e83b758a50c9942abe44e7bd670d308882a961be2094ad3c5186bf56bf95a144",
+      "reviewed_state_pairs_v8.json": "e77e1902f930887c7cc4e6816bc341cd7ce59065c0332397a578cc8c24861334",
+      "twenty_third_rgb_review_20261002.json": "58aca6d8c35dd9b23a45aba41a6232d427598db99a35cb4a8462fd7f9d135480",
+      "twenty_third_audit_exposure_20261002.json": "456edac8c3a6e330370c05f7485875f350a25f85090258c47b83016a26d3f7ae",
+      "producer_manual_check_plan_v4_20261002.json": "4b86a12eab3692a9f6c0d988573fb21de6b273f9045208710ba2604757ebf6fb",
+      "twenty_second_audit_exposure_20261002.json": "a2278d6d9f3a9b1460e1d57024c5dfc68bf6aa015652f0b4a68adbd57336993c",
+      "twenty_first_audit_exposure_20261001.json": "7637f7cf6d8edf503ea86757664a6734370dd9b029e70c8421a42cad38345fda",
+      "twentieth_audit_exposure_20261001.json": "096487139608adff37784d28d530594533e39f993e14a69ad58d58158a637fa4",
+      "eighteenth_nineteenth_audit_exposure_20261001.json": "1e7165a34c091f6f775e6d030ea6c7d3f9f9ef311430e6f44c4b47b25b810f00",
+      "seventeenth_audit_exposure_20261001.json": "c9835d70ef19c80c5a9cf10c7c04befe68690fda86db1079101ba57d995874e5",
+      "sixteenth_audit_exposure_20260930.json": "5166fb9a755fdc3f55675094e23bbab77ff0316df437d39712fb8ddb9424bb82",
+      "fifteenth_audit_exposure_20260930.json": "cf00b2f57a3fb406f0fb326afc30117a27bdff88bab5b8ef0f988821e4848d32",
+      "fourteenth_audit_exposure_20260930.json": "a8c8b06a2a61a0a109a28f51d8e890c07e77c866fd731cc19c090653ac079242",
+      "twelfth_thirteenth_audit_exposure_20260930.json": "211aaba44d9857698d60a9740d2a8d4bdac94857e5f7ef47e81a7d8294623dcb",
+      "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+      "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c",
+      "rgb_holdout_review_v3.json": "6cee912a8044f606a47f93b2550fe2433b7f252f6a332d11d3f99c10960b7335",
+      "reviewed_holdout_state_pairs_v1.json": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb",
+      "rgb_holdout_review_v1.json": "7f31909ed138e27f657744d963ba74db49c8790a946cb04c3a2e874c4062e2be",
+      "reviewed_state_pairs_v6.json": "5549224df241260f8d9b48fe47694289b4d467a7351846e70f402fd0639ef9c6",
+      "reviewed_holdout_state_pairs_v2.json": "44d4b65966c61ed063dd0d88aff50cfe0b820fe3893a6fc5fb63e1645cadb5d5",
+      "rgb_holdout_review_v2.json": "2fac9176699ddd48d126ed190a89c61f103db44933b35993a62d0c36684fafc0",
+      "rgb_boundary_review_v3.json": "c1b4b6b3e7903322856ce236bc64067a15bd9530b80d02834085d10bc8a4918a",
+      "reviewed_state_pairs_v3.json": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+      "rgb_boundary_review_v4.json": "ede62026ec4cd6927e66d605c5067de64bbe1d2952e26de37c8f66191be7d617",
+      "reviewed_state_pairs_v4.json": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+      "rgb_boundary_review_v5.json": "558f7a3cf7fd460b57e9f2fbc9c83af0a45f6637640d05db529d4048740f08f3",
+      "reviewed_state_pairs_v5.json": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+      "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+      "reaudit_exposure_20260929.json": "0d54eb987f238177abe4fc9004b0b124f7a053e895d216bf2862e0d326d6881f",
+      "third_audit_exposure_20260930.json": "7d5a0727c7e55dcb159a763d009c5f0469c480dc327eaba2e5d7a6ae6efee5a4",
+      "eighth_audit_exposure_20260930.json": "1d0de86b50a0c161cb89a70d1b9d78ecb263361d346dcfa96715f6ef3c118782",
+      "ninth_audit_exposure_20260930.json": "70f636b21624360e350f51d5c621101b67b7100fe3d26a900e74a0a4f5982087",
+      "tenth_audit_exposure_20260930.json": "ccf79a74cb5602665fb97d626f20d98d5c898cf81ce7229969d4e914bd94754f",
+      "eleventh_audit_exposure_20260930.json": "ebd32c592ed9c0a5e45d480f160057d092ed2b60f9e500fee38c090ee025640e"
+    },
+    "dependencies": {
+      "sft_new_loop_phase3/evaluation_balance.py": "e13ea3354577778651d039656bd5b8569337f5003bbea1de3b5c1840c016f344",
+      "../lead_video_tools/abnormal_duration_filter.py": "9a3df626182ff0ba0d581898dc1a16510b31f95b17129ce1eb64e30b03071616",
+      "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+      "sft_new_loop_phase3/build_dataset.py": "a63cd3b10479b6b2a20128e0e2b06d7ae3d63d92982538097de4e065af1d34fa",
+      "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+      "audit_joint/label_quarantine.py": "cfc1e517f8fd3ff756d4868e0f9aa4eb2a12d7dc6de7f8a63bdd18601a845629",
+      "audit_joint/label_quarantine_20261010.json": "833681a4ff415b2af60baa3613e16eb0074d88507cd8a9054fee8b8970b2060e"
+    }
+  },
+  "student": {
+    "policy": "phase4_rgb2_short_student_v1",
+    "producer": {
+      "task": "phase4_state_pair_binary_v52",
+      "answers": [
+        "YES",
+        "NO"
+      ],
+      "sources": {
+        "production_storage.py": "2435bcdb8cd0e01b3d3600567bed6ea7a423b4da539befc64f3520586bb19582",
+        "history_admission.py": "01f2ed0a3590353c574b1bec7192c1852edcf94e1a51f71e87a35d2d29e25261",
+        "evaluation_policy.py": "ebc2f4d44910e0ad2abb90bbe8e85f648c832d01af4d54507fbfd5b9c8f387ee",
+        "teacher_events.py": "7e922ef1fe100ab81b9b97ca323c75990a53a3d6b13a337378305020a5a4136d",
+        "phase3_sampling.py": "8cb2553dab77903ff96e7fd3740ccd39ab26282bd33b298070e6564b8d036dae",
+        "data_paths.py": "3427a781d96fa6222dda8faab83ec7ad2331a957f558d9e63862250bc382f59d",
+        "full_pipeline.py": "dabb48e82d088fef8b108b19d69f1889f375fbbdb74a5c9da802e5b116959cb1",
+        "full_sampling.py": "13851f34f8ef93ae3ab89ee83b662eaea520760771a9bed2cb28f05dc69f3c05",
+        "train_full.sh": "d48d575473768b0882d3dbc3eb73ab37d6f8eb3d0ea4f90d9e3ef6ccb63c7368",
+        "paired_training.py": "4f4eff93183c8f5119e73510da106592992c83c7bdb280b3259ec2e78562a4eb",
+        "branch_support.py": "0ebfb75d366d9e79c8dcff90f2e1de0d2b16a9ec6e80d7179104e8fa5bb707cb",
+        "paired_eval.py": "8d55360c7362e1e64b7b1957ed695f11eea62d5291e66a271b5080aeece8d9fb",
+        "launch.py": "771e60b84af8444312921de2f655f268d5ef514e32939aef729a6792c741e004",
+        "train.sh": "ed3f119c3cba4e696d436d5297bb35441912bb180cde5845a5e93340bfa22c32",
+        "run_full_pipeline.sh": "237009439f16b9f82bbbb2da92471d0b5e23c0fa4095042489d3e2dda8204668",
+        "route_quality.py": "7c38bc280f5cccb9c5be6e4d946d0a32e01364832871610ea6972bb3b1cfe26e",
+        "weighted_sampling.py": "d4edc02dcd580cbbf1b8cd839f001506292d061c4f9e451cdd7d6d41dd8a934d",
+        "teacher_evaluation.py": "4102ef6d6f2cc926c1cc94420113e670ce3995ff8099223960e71faf78148098",
+        "teacher_controls.py": "b033251b99b00363e188d49417406dc63ebf10dc9bcfdf39f1f48c8eabd73b57",
+        "teacher_pool.py": "61e01925643dcc07b4fe3742ae9f84844d9a66f730c549dcad25f8f9fb611b1a",
+        "teacher_review.py": "131a2142fbea9c37a3ae96db2cbf34117ad12626767d8c83fdfe367bb246e914",
+        "teacher_rules.py": "d8ed0241a30ca52a75091f20ac73790400458a0c1068ae01bd7f18a02c5946e4",
+        "teacher_replay.py": "2a692a8cb7051add7096ce1a23137e2ac42efc63f81d8f9090f90662e8765867",
+        "teacher_approval.py": "b7715788759bc8a296a4ce83bf6199e4a37ec8a3fed2164fb52e815ba9271aba",
+        "teacher_data.py": "49745ef656f92bfe2ca3047988ee8846696e559f3f5fb2a2cf95b048fe041a68",
+        "visual_review.py": "8ea4d3383005b0f9e82de5c6830677c51f8e61b174f1d8849f7fc044c8e40c47",
+        "event_scope.py": "70ea2b508cc7d94835f08090a6405f17bf73b77f59b183e92bda9ea105568c38",
+        "review_queue.py": "c685816059902103c98b82f5cd2146e2f8bdff68dc0948477a32eacd681e4236",
+        "automatic_context.py": "aa40aef906b0286fc3b35f3c7c95769dad5e35952a646c2e3549a8ad8200b299",
+        "privileged_context.py": "9a4745d7acf051047a0ca30c9f99dc9a0a255392c18ef4a4019c5c47f497e163",
+        "privileged_visibility.py": "f4ce5aaacb33963732321ac1025d88607b8e735613cbc1f6419984c1b834279b",
+        "privileged_geometry.py": "2024cc84b7b2a83be2fa8231c1674e0cf409543a99d673338ae87110188fa6c1",
+        "privileged_producer.py": "e14a5ab67886feeabb48640851a37695044acc2d190e74d407034fc9259c2a52",
+        "replay_safety.py": "121378437a8955778d75efdd1d2879aab26ae1138e75d08557d3cb98339db980",
+        "maneuver_safety.py": "aad6adb9ace9e715c20538662487ba771dce61467346fba0ff56486f665eb7eb",
+        "visible_scope.py": "2bef271c9bcba53c4b23a3808caf755547b22d542e8b9c7275db0a432b46b038",
+        "route_context.py": "358656d13eb0ae0595d50b3876e7a2f5a260d33f2a894f687fad9b34fbec9123",
+        "route_prompts.py": "2bd1fffafdf8ed082ff6677ebeded3263dfc7906b00efa58e548d3e1a9cba646",
+        "route_calibration.py": "a9f7c1f1f2a11b60074af765dfb144094c1f429f6c88978355b5be7225f0a95f",
+        "taxonomy.py": "9da0fce33e5acc7827cd6817a30ff8c81525dfcedc66c5234259016a21101b59",
+        "controller.py": "914f102d496cbcc3ae64edfb12d023761f73217346455202b1b723edca018d2d",
+        "prompts.py": "7368b2366f0999c4597b5cb2545aa34b78074a656035795a76d0b247f0c99f3a",
+        "calibration.py": "b201440df00b7c639b4dab4b1b134f1848958ce640f76dc43fe1f5d722191c5a",
+        "dataset.py": "bfc95ef42962d3700bc01457599d85894de8cd045086308658b8309c787a8898",
+        "sampling.py": "424cdfdf7908f6ee76041dd7efd8eda6bed991ca7ace56cba57105ba07474cd2",
+        "model.py": "e30e9f581261c5a6a4aa218511ccc542270d8858dfe766916206fb5927cf04ad",
+        "train.py": "2e5c594bc2d5c9df70daa11d54ebcf69ca49758819ef35917f2142f721441728",
+        "evaluate.py": "ee43c16df51ba884df32fa909b15301ad123767e98ca132f2add7fc28315bc37",
+        "runtime.py": "fa268158c96ee671d2b95449c9c0bebd2b07c4ccf73f7dcfcec4846e6bea8c4a",
+        "identity.py": "dbb8bc218a38b472edf54a6e4f5d64573b3dceb7c4e17efa0f7f04476ed1fff2",
+        "action_prior.py": "c0dc9aac6c1e294bb7964685202945b34a5a4236037e6d619f660457d3daf81a",
+        "observation.py": "398adcbe2268d403f30b5879d8a5c08c12716f1e9bee23ca5691e3f4101ca994",
+        "replay.py": "a4ddd7eabddf3d30c9a8e9d6806ef16be1d15ba4342e43365a4d256a16dc2f13",
+        "input_identity.py": "e7e7ebe9fc28ee2c3704ed7ef27755835f884e87476a7b3c253abe9df6a8b3d1",
+        "risk_review.py": "2d570c9f5cc8fa9036f6ef01a49dec1cf772eddb3ea6df820ce8f138ce26e253",
+        "admission.py": "ff965b9ef69ec7451c3aa1cc62b6353e02b29b8d5fef48445eeae2dffcc90f93",
+        "condition_builder.py": "76fbc30a600840dc531a5a06397cedca14603bda281f8a9ec22e6406a424ef60",
+        "preflight.py": "76dfbe197e6d0f59d5673b956b5a9c08e04c6dea0bf0c2d203ca6ee66873422f",
+        "candidate_pool.py": "ed21db1025a4bde8bc265bf8dde758d0df735c4e0b28e94f438a0efad4346672",
+        "selection.py": "4c46214b361f97839306e8cf5cd7c5ba36333bf144efb992345c83ec68f4e49d"
+      },
+      "calibration_assets": {
+        "teacher_exposure_v42_20261008.json": "36cfb236bd10429ee3c95388076820cb454aaaaf3f93d231b2e86bdae2dff6f7",
+        "teacher_exposure_v41_20261008.json": "106083f70ef3941a6d83d6e4e6708bad2b7b2c1ebe8bebef4e530e2b06bf21fc",
+        "thirty_sixth_audit_exposure_20261006.json": "a5fd49ece82be111147c54f4828c3b2d6beccb8378d99e266b7c0b7639ac2453",
+        "thirty_fifth_audit_exposure_20261006.json": "fefded4d24862941f9c26fa3ce861dc2474fa2e161aa359e5b4d5522a74ddfad",
+        "thirty_fourth_audit_exposure_20261006.json": "3e27211558ae768ce7be2a5c34f4dcf8e937d78760f66a2225ec825712b849d0",
+        "thirty_third_audit_exposure_20261006.json": "a169d032ff58827db9054906d267154e01075cfa70836138f5101b06cafa85ea",
+        "thirty_second_audit_exposure_20261005.json": "e05790f3fd831c366ec7af14aa39ae25a33cb5e7e4c20e256279876e3a4e9c05",
+        "thirty_first_audit_exposure_20261005.json": "6ab7e5ab85d5f4807e9b0a23d24c83e36fa41eac9b21941fee098613ccac4324",
+        "thirtieth_audit_exposure_20261005.json": "1ca3a27a245eae654ab095d13238d10316496f61c0ba46e67cb2ae1cc84ab98c",
+        "producer_manual_check_plan_v32_20261012.json": "68c9dcddb4bcf885af9dc39861a2c71d589689e0925504082c6a2618d42de0b0",
+        "teacher_registry_v27.json": "ef74d0f35aa279a2378747980b5f3a2398b12ada4f6ea93e9536ba22be13ddbb",
+        "producer_manual_check_plan_v6_20261002.json": "0afc82c20abfb861a226af6b119fb3bb6ab70b17c077e3e54d945b3d1085d9ee",
+        "teacher_registry_v1.json": "9451415588717c95828b8e5ec0d507087e93d0a4a694d5203ddaf0593954b1f2",
+        "reviewed_state_pairs_v9.json": "27b503f02a4b0c3209144942a03aa057e2404f1b65abe2e7b507375fc0b55583",
+        "twenty_fifth_rgb_review_20261002.json": "2dfa386a3d960b59bee51d4231eaf609fce180c146e2fa2aa0bfbac6cd172a1b",
+        "twenty_fifth_review_decisions_20261002.json": "71a82eef60df5a7f8db9597f8c42b912a7224f3aebd591d3d1d95e9757aa1e3b",
+        "twenty_fifth_review_queue_20261002.json": "3277d915f06a103d4c2204218ba616a8fff90ff5423689fce39b6d6c38adf2d9",
+        "producer_manual_check_plan_v5_20261002.json": "6f620c01c89fab5bc44078c6173e4fe605f1b606f887db5065e49ede030229cb",
+        "VISUAL_REVIEW_RUBRIC_V25.md": "a073a7e67b5394412dbaf9b2690bbb8f0c945ef30d4d67bf3c83e99f75bed71a",
+        "twenty_fourth_rgb_review_20261002.json": "d5cb6e0e0a902f9260f4fea97f87dc776dc17a6c393761a92dd5a9f860304e0c",
+        "twenty_fourth_review_queue_20261002.json": "6398966670bf510168b5d300b8e475162915cd4859d6d8ccd88f26be8225784f",
+        "twenty_fourth_review_decisions_20261002.json": "e83b758a50c9942abe44e7bd670d308882a961be2094ad3c5186bf56bf95a144",
+        "reviewed_state_pairs_v8.json": "e77e1902f930887c7cc4e6816bc341cd7ce59065c0332397a578cc8c24861334",
+        "twenty_third_rgb_review_20261002.json": "58aca6d8c35dd9b23a45aba41a6232d427598db99a35cb4a8462fd7f9d135480",
+        "twenty_third_audit_exposure_20261002.json": "456edac8c3a6e330370c05f7485875f350a25f85090258c47b83016a26d3f7ae",
+        "producer_manual_check_plan_v4_20261002.json": "4b86a12eab3692a9f6c0d988573fb21de6b273f9045208710ba2604757ebf6fb",
+        "twenty_second_audit_exposure_20261002.json": "a2278d6d9f3a9b1460e1d57024c5dfc68bf6aa015652f0b4a68adbd57336993c",
+        "twenty_first_audit_exposure_20261001.json": "7637f7cf6d8edf503ea86757664a6734370dd9b029e70c8421a42cad38345fda",
+        "twentieth_audit_exposure_20261001.json": "096487139608adff37784d28d530594533e39f993e14a69ad58d58158a637fa4",
+        "eighteenth_nineteenth_audit_exposure_20261001.json": "1e7165a34c091f6f775e6d030ea6c7d3f9f9ef311430e6f44c4b47b25b810f00",
+        "seventeenth_audit_exposure_20261001.json": "c9835d70ef19c80c5a9cf10c7c04befe68690fda86db1079101ba57d995874e5",
+        "sixteenth_audit_exposure_20260930.json": "5166fb9a755fdc3f55675094e23bbab77ff0316df437d39712fb8ddb9424bb82",
+        "fifteenth_audit_exposure_20260930.json": "cf00b2f57a3fb406f0fb326afc30117a27bdff88bab5b8ef0f988821e4848d32",
+        "fourteenth_audit_exposure_20260930.json": "a8c8b06a2a61a0a109a28f51d8e890c07e77c866fd731cc19c090653ac079242",
+        "twelfth_thirteenth_audit_exposure_20260930.json": "211aaba44d9857698d60a9740d2a8d4bdac94857e5f7ef47e81a7d8294623dcb",
+        "reviewed_state_pairs_v7.json": "f140347ccaaba3d5b2b3acb94864f1718a60ee9ad6681cc9f378962740097b23",
+        "reviewed_holdout_state_pairs_v3.json": "5a3a3f54d230439db199ab70f18b93e2eaacb6019e1114ad6d3b25b3532c5f0c",
+        "rgb_holdout_review_v3.json": "6cee912a8044f606a47f93b2550fe2433b7f252f6a332d11d3f99c10960b7335",
+        "reviewed_holdout_state_pairs_v1.json": "965ef3765e4b3dc339e7cb6a92b3a936339193bceee38ec690e8f89e1c95ddbb",
+        "rgb_holdout_review_v1.json": "7f31909ed138e27f657744d963ba74db49c8790a946cb04c3a2e874c4062e2be",
+        "reviewed_state_pairs_v6.json": "5549224df241260f8d9b48fe47694289b4d467a7351846e70f402fd0639ef9c6",
+        "reviewed_holdout_state_pairs_v2.json": "44d4b65966c61ed063dd0d88aff50cfe0b820fe3893a6fc5fb63e1645cadb5d5",
+        "rgb_holdout_review_v2.json": "2fac9176699ddd48d126ed190a89c61f103db44933b35993a62d0c36684fafc0",
+        "rgb_boundary_review_v3.json": "c1b4b6b3e7903322856ce236bc64067a15bd9530b80d02834085d10bc8a4918a",
+        "reviewed_state_pairs_v3.json": "c4df896b75fa520de3a6af5c1aa9f0e2d2bdd6d7b8da0f873045a6e8c4807aa0",
+        "rgb_boundary_review_v4.json": "ede62026ec4cd6927e66d605c5067de64bbe1d2952e26de37c8f66191be7d617",
+        "reviewed_state_pairs_v4.json": "739d5baac08755f0361e9c3d9a922c51598b239d0ddc330a99f6ca5e407974f2",
+        "rgb_boundary_review_v5.json": "558f7a3cf7fd460b57e9f2fbc9c83af0a45f6637640d05db529d4048740f08f3",
+        "reviewed_state_pairs_v5.json": "7b19f6e73ad630f71280cfe2420d1aff3736948bfcc000eefe147cb9bb27a1d8",
+        "formal_holdout_plan_20260930.json": "d4ba7a0845ca1dbc2a2c11198b3c20ae9eec732158507f5c80e32b11c61cc78c",
+        "reaudit_exposure_20260929.json": "0d54eb987f238177abe4fc9004b0b124f7a053e895d216bf2862e0d326d6881f",
+        "third_audit_exposure_20260930.json": "7d5a0727c7e55dcb159a763d009c5f0469c480dc327eaba2e5d7a6ae6efee5a4",
+        "eighth_audit_exposure_20260930.json": "1d0de86b50a0c161cb89a70d1b9d78ecb263361d346dcfa96715f6ef3c118782",
+        "ninth_audit_exposure_20260930.json": "70f636b21624360e350f51d5c621101b67b7100fe3d26a900e74a0a4f5982087",
+        "tenth_audit_exposure_20260930.json": "ccf79a74cb5602665fb97d626f20d98d5c898cf81ce7229969d4e914bd94754f",
+        "eleventh_audit_exposure_20260930.json": "ebd32c592ed9c0a5e45d480f160057d092ed2b60f9e500fee38c090ee025640e"
+      },
+      "dependencies": {
+        "sft_new_loop_phase3/evaluation_balance.py": "e13ea3354577778651d039656bd5b8569337f5003bbea1de3b5c1840c016f344",
+        "../lead_video_tools/abnormal_duration_filter.py": "9a3df626182ff0ba0d581898dc1a16510b31f95b17129ce1eb64e30b03071616",
+        "sft_v2/train.py": "381eee24ad0a195e9d85d612beb63563ec354ffd8334fe71767b349d03c409ca",
+        "sft_new_loop_phase3/build_dataset.py": "a63cd3b10479b6b2a20128e0e2b06d7ae3d63d92982538097de4e065af1d34fa",
+        "sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+        "audit_joint/label_quarantine.py": "cfc1e517f8fd3ff756d4868e0f9aa4eb2a12d7dc6de7f8a63bdd18601a845629",
+        "audit_joint/label_quarantine_20261010.json": "833681a4ff415b2af60baa3613e16eb0074d88507cd8a9054fee8b8970b2060e"
+      }
+    },
+    "automatic_admission_sources": {
+      "rule_baseline.py": "8951bf74b1ac96221919c074389b75ac93e43fc0304cecd3e4780a22c69b1ef1",
+      "training_budget.py": "e1c0149a3e58fafd4a22e62cfc424cc6e6ccba33c9de4c59edf5afcf757f56a1",
+      "training_scope.py": "0f5a403178e4e1f701b39d38bd14dffa29550b7e443145c12a3632bd53a91b4a"
+    },
+    "exposure_normalizer_sha256": "579a95204ab35bc0fb23cd5f6f88fd38e36921c12889abf241927c85a8beff7f",
+    "sources": {
+      "__init__.py": "faba4f8d0f8cdfe4c3e65d173456f4eb51094e2e658124ff9903ac8d94576c46",
+      "contract.py": "db87f79182e34a537dcec1c86208166c2776a6b0bfaf969a12528137ee8e58a4",
+      "data.py": "9e26f7b851694d0c560c08c99d51d164b51f48227dc4b0fa02343185a0bed72b",
+      "model.py": "235609e8dc4fa9f220adba62ed06f513afda47903e7ee3e8375e2ba05d0e3add",
+      "train.py": "7ca8c6f4da7404c249833830918517ba15d2f012e4200c04a27b35946d87e770",
+      "evaluate.py": "5592d1733d1e2503c990186eacdbd35b7163f5b544dba0a6cf02ce17f31d8a84",
+      "build.py": "b2a3f69979af382593cb8329f45405d10cbe2fa565e82799fbd7fd46fba44dfa",
+      "run.sh": "c283eeceecb5f5d062e6d56729991566fe979026623d0f8b2aa225d1774bed45",
+      "diagnostics.py": "6ced2f335e2fcc030d4f03ec486ea3fe28c535bca733db582708178e5cc97922",
+      "reload_check.py": "82dc203b16aee5a94281d58c67234c6ce11d755e75cbde6b2a2de38b5713d6cc",
+      "run_automatic.sh": "13ed2a49eaa86d5751506b8475679a65a129b522ec1a8d44c3022a0017f307e1"
+    }
+  },
+  "test_results": {
+    "full_passed": 2302,
+    "full_seconds": 121.89,
+    "additional_launcher_passed": 4,
+    "new_launcher_cases_after_full_suite": 1
+  },
+  "batch": {
+    "first": {
+      "processed_routes": 2,
+      "processed_frames": 304,
+      "dispositions": {
+        "abstained": 109,
+        "questions": 195
+      },
+      "history_ambiguous_question_ids": [],
+      "rule_targets": {
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb2/readiness/NO": 46,
+        "ten_event_causal_teacher_v17/U-E2/restrict/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb4/readiness/NO": 46,
+        "ten_event_causal_teacher_v17/U-E2/restrict/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb2/catchup/UNKNOWN": 8,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb4/catchup/UNKNOWN": 8,
+        "ten_event_causal_teacher_v17/U-E2/pass/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb2/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/stable/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/renewed_restriction/rgb2/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/recover_follow/rgb2/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/pass/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb4/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/stable/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/renewed_restriction/rgb4/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/recover_follow/rgb4/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb2/readiness/NO": 99,
+        "ten_event_causal_teacher_v17/U-E1/restrict/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/hold/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb4/readiness/NO": 99,
+        "ten_event_causal_teacher_v17/U-E1/restrict/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/hold/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb2/readiness/UNKNOWN": 7,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb4/readiness/UNKNOWN": 7,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb2/readiness/NO": 15,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb2/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb2/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb4/readiness/NO": 15,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb4/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb4/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb2/catchup/UNKNOWN": 2,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb4/catchup/UNKNOWN": 2,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/recover_follow/rgb2/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/recover_follow/rgb4/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb2/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb2/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb4/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb4/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb2/readiness/NO": 11,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb2/readiness/NO": 12,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb4/readiness/NO": 11,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb4/readiness/NO": 12,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb4/readiness/YES": 1
+      },
+      "complete_causal_production": false,
+      "index_sha256": "c61968f648917de67c8d4fa949688ca46596fb74af8d7a98c72c3342c4a8d686",
+      "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+    },
+    "first_index_sha256": "c61968f648917de67c8d4fa949688ca46596fb74af8d7a98c72c3342c4a8d686",
+    "second": {
+      "processed_routes": 5,
+      "processed_frames": 755,
+      "dispositions": {
+        "abstained": 322,
+        "questions": 433
+      },
+      "history_ambiguous_question_ids": [],
+      "rule_targets": {
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb2/readiness/NO": 68,
+        "ten_event_causal_teacher_v17/U-E2/restrict/rgb2/readiness/YES": 4,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb2/readiness/YES": 7,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb4/readiness/NO": 68,
+        "ten_event_causal_teacher_v17/U-E2/restrict/rgb4/readiness/YES": 4,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb4/readiness/YES": 7,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb2/readiness/YES": 4,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb4/readiness/YES": 4,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb2/catchup/UNKNOWN": 8,
+        "ten_event_causal_teacher_v17/U-E2/depart/rgb4/catchup/UNKNOWN": 8,
+        "ten_event_causal_teacher_v17/U-E2/pass/rgb2/readiness/YES": 4,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb2/readiness/NO": 4,
+        "ten_event_causal_teacher_v17/U-E2/stable/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/renewed_restriction/rgb2/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/recover_follow/rgb2/readiness/NO": 4,
+        "ten_event_causal_teacher_v17/U-E2/pass/rgb4/readiness/YES": 4,
+        "ten_event_causal_teacher_v17/U-E2/hold/rgb4/readiness/NO": 4,
+        "ten_event_causal_teacher_v17/U-E2/stable/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/renewed_restriction/rgb4/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E2/recover_follow/rgb4/readiness/NO": 4,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb2/readiness/NO": 264,
+        "ten_event_causal_teacher_v17/U-E1/restrict/rgb2/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E1/hold/rgb2/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb4/readiness/NO": 264,
+        "ten_event_causal_teacher_v17/U-E1/restrict/rgb4/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E1/hold/rgb4/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb2/readiness/UNKNOWN": 28,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb4/readiness/UNKNOWN": 28,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb2/readiness/NO": 15,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb2/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb2/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb4/readiness/NO": 15,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb4/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb4/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb2/catchup/UNKNOWN": 2,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb4/catchup/UNKNOWN": 2,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/recover_follow/rgb2/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/recover_follow/rgb4/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/proceed/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb2/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb2/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/re_yield/rgb4/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/hold/rgb4/readiness/NO": 14,
+        "ten_event_causal_teacher_v17/U-E7/renewed_restriction/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/stable/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb2/readiness/NO": 11,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb2/readiness/NO": 12,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb4/readiness/NO": 11,
+        "ten_event_causal_teacher_v17/U-E7/restrict/rgb4/readiness/NO": 12,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E7/complete/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/restrict/rgb2/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E2/restrict/rgb4/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E5/proceed/rgb2/readiness/NO": 6,
+        "ten_event_causal_teacher_v17/U-E5/restrict/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E5/hold/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E5/proceed/rgb4/readiness/NO": 6,
+        "ten_event_causal_teacher_v17/U-E5/restrict/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E5/hold/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E2/stable/rgb2/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E2/renewed_restriction/rgb2/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E2/stable/rgb4/readiness/NO": 3,
+        "ten_event_causal_teacher_v17/U-E2/renewed_restriction/rgb4/readiness/YES": 3,
+        "ten_event_causal_teacher_v17/U-E5/proceed/rgb2/readiness/UNKNOWN": 2,
+        "ten_event_causal_teacher_v17/U-E5/proceed/rgb4/readiness/UNKNOWN": 2,
+        "ten_event_causal_teacher_v17/U-E6/proceed/rgb2/readiness/NO": 26,
+        "ten_event_causal_teacher_v17/U-E6/restrict/rgb2/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E6/hold/rgb2/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E6/proceed/rgb4/readiness/NO": 26,
+        "ten_event_causal_teacher_v17/U-E6/restrict/rgb4/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E6/hold/rgb4/readiness/YES": 2,
+        "ten_event_causal_teacher_v17/U-E3/proceed/rgb2/readiness/NO": 8,
+        "ten_event_causal_teacher_v17/U-E3/restrict/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E3/hold/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E3/proceed/rgb4/readiness/NO": 8,
+        "ten_event_causal_teacher_v17/U-E3/restrict/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E3/hold/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb2/catchup/UNKNOWN": 1,
+        "ten_event_causal_teacher_v17/U-E1/proceed/rgb4/catchup/UNKNOWN": 1,
+        "ten_event_causal_teacher_v17/U-E1/re_yield/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E1/hold/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E1/stable/rgb2/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E1/renewed_restriction/rgb2/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E1/recover_follow/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/re_yield/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E1/hold/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E1/stable/rgb4/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E1/renewed_restriction/rgb4/readiness/NO": 2,
+        "ten_event_causal_teacher_v17/U-E1/recover_follow/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/complete/rgb2/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/release/rgb2/readiness/NO": 1,
+        "ten_event_causal_teacher_v17/U-E1/complete/rgb4/readiness/YES": 1,
+        "ten_event_causal_teacher_v17/U-E1/release/rgb4/readiness/NO": 1
+      },
+      "complete_causal_production": true,
+      "index_sha256": "81d808aba543e6ffc46950c9c9f2d72090e810a0168cb32ac3cdea02bcd4dd5d",
+      "scope": "complete frame accounting, including reasoned abstentions; not label approval"
+    }
+  },
+  "publication": {
+    "repeated_subsets": [
+      2,
+      3,
+      5
+    ],
+    "index_routes": 5,
+    "all_bytes_unchanged": true,
+    "source_files": {
+      "published.json": "8723c1b4931335fe336765202c9e3d21da4a48eb0409a82871ec9218e50b26e1",
+      ".production.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "6e0b4ee026ba78cb6007db5edff1c2bd63e71f16af1c1c3be5ab341da0eb5d99.jsonl.gz": "88a1a7335a0dade5b54d221f82cd061293022d6d9c508478153858a9654ec87a",
+      "5792ae44443d2c701215e5e1e3e609bf039311e22b7f0f9aa48ae8816e147a2c.jsonl.gz": "96f2839bc55a6956f91e8fc87b6996b2e8cddb6664b3084e10f1f94daf45425e",
+      "progress.json": "dc65292af32611ff6ba3f06742ca9efbf8ef228ef0b905052a8a1ae88ed0d4b8",
+      "b13e342f985622bafbd6369db575adc855645ab849fea23770048b4cf1f32f40.jsonl.gz": "b7dc409c551e5bbae3a0f26951389f03597542202410b31c901703d126fe6b4a",
+      "index.json": "81d808aba543e6ffc46950c9c9f2d72090e810a0168cb32ac3cdea02bcd4dd5d",
+      "storage.json": "0d15abea7f08be2520a5c97fe6bcb98c35abf513f5e26f948f0bd060a06f78c0",
+      "614b0407e5f85f9c8aa743cd3eedb010796e34fa54320151db6f77283542787b.jsonl.gz": "0df5cfb20555d2dfb27de8747a867041e05a70edf3b137fb82fef78ff5603806",
+      "36999059a47eb3690bf8c50e9b2c0806610f94b49d79005c649757c2eb9b6e82.jsonl.gz": "9a7891595ad167f307dceaa9ac8a7b434f6b14c6f8a17cccfa5c3295ae649d2c"
+    }
+  },
+  "replay": {
+    "frames": 755,
+    "raw_questions": 1116,
+    "p3_unchanged": true,
+    "paired": 464,
+    "storage_bytes": {
+      "4": 6558663
+    },
+    "elapsed_seconds": 68.86584647302516,
+    "peak_rss_kib": 262300
+  },
+  "automatic_admission": {
+    "status": "blocked",
+    "selection_mode": "rule_consistency",
+    "epochs": 1,
+    "modes": {
+      "2": {
+        "source_support": {
+          "splits": {
+            "train": {
+              "events": {
+                "U-E1": {
+                  "presentations": 277,
+                  "unique_questions": 277,
+                  "physical_groups": 2
+                },
+                "U-E2": {
+                  "presentations": 74,
+                  "unique_questions": 74,
+                  "physical_groups": 2
+                },
+                "U-E3": {
+                  "presentations": 9,
+                  "unique_questions": 9,
+                  "physical_groups": 1
+                },
+                "U-E4": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E5": {
+                  "presentations": 7,
+                  "unique_questions": 7,
+                  "physical_groups": 1
+                },
+                "U-E6": {
+                  "presentations": 28,
+                  "unique_questions": 28,
+                  "physical_groups": 1
+                },
+                "U-E7": {
+                  "presentations": 69,
+                  "unique_questions": 69,
+                  "physical_groups": 1
+                },
+                "R-E2": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E3": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E5": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                }
+              },
+              "missing_events": [
+                "U-E4",
+                "R-E2",
+                "R-E3",
+                "R-E5"
+              ],
+              "equal_presentations": false,
+              "equal_unique_questions": false,
+              "max_equal_eval_questions_per_event_without_replacement": 0,
+              "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee",
+              "answers": {
+                "YES": 29,
+                "NO": 435
+              },
+              "original_label_basis": {
+                "weak_rule_teacher": 464
+              }
+            },
+            "val": {
+              "events": {
+                "U-E1": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E2": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E3": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E4": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E5": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E6": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E7": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E2": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E3": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E5": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                }
+              },
+              "missing_events": [
+                "U-E1",
+                "U-E2",
+                "U-E3",
+                "U-E4",
+                "U-E5",
+                "U-E6",
+                "U-E7",
+                "R-E2",
+                "R-E3",
+                "R-E5"
+              ],
+              "equal_presentations": false,
+              "equal_unique_questions": false,
+              "max_equal_eval_questions_per_event_without_replacement": 0,
+              "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee",
+              "answers": {},
+              "original_label_basis": {},
+              "equal_event_selection": {
+                "status": "blocked_missing_events",
+                "seed": 20261011,
+                "per_event": 0,
+                "missing_events": [
+                  "U-E1",
+                  "U-E2",
+                  "U-E3",
+                  "U-E4",
+                  "U-E5",
+                  "U-E6",
+                  "U-E7",
+                  "R-E2",
+                  "R-E3",
+                  "R-E5"
+                ],
+                "pool_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "selected_ids": [],
+                "ordered_ids_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "distribution": {
+                  "events": {
+                    "U-E1": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E2": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E3": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E4": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E5": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E6": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E7": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "R-E2": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "R-E3": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "R-E5": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    }
+                  },
+                  "missing_events": [
+                    "U-E1",
+                    "U-E2",
+                    "U-E3",
+                    "U-E4",
+                    "U-E5",
+                    "U-E6",
+                    "U-E7",
+                    "R-E2",
+                    "R-E3",
+                    "R-E5"
+                  ],
+                  "equal_presentations": false,
+                  "equal_unique_questions": false,
+                  "max_equal_eval_questions_per_event_without_replacement": 0,
+                  "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee"
+                },
+                "scope": "supplementary fixed subset; natural evaluation unchanged; question equality only; no label or independence approval"
+              }
+            },
+            "test": {
+              "events": {
+                "U-E1": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E2": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E3": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E4": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E5": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E6": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "U-E7": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E2": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E3": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                },
+                "R-E5": {
+                  "presentations": 0,
+                  "unique_questions": 0,
+                  "physical_groups": 0
+                }
+              },
+              "missing_events": [
+                "U-E1",
+                "U-E2",
+                "U-E3",
+                "U-E4",
+                "U-E5",
+                "U-E6",
+                "U-E7",
+                "R-E2",
+                "R-E3",
+                "R-E5"
+              ],
+              "equal_presentations": false,
+              "equal_unique_questions": false,
+              "max_equal_eval_questions_per_event_without_replacement": 0,
+              "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee",
+              "answers": {},
+              "original_label_basis": {},
+              "equal_event_selection": {
+                "status": "blocked_missing_events",
+                "seed": 20261011,
+                "per_event": 0,
+                "missing_events": [
+                  "U-E1",
+                  "U-E2",
+                  "U-E3",
+                  "U-E4",
+                  "U-E5",
+                  "U-E6",
+                  "U-E7",
+                  "R-E2",
+                  "R-E3",
+                  "R-E5"
+                ],
+                "pool_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "selected_ids": [],
+                "ordered_ids_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "distribution": {
+                  "events": {
+                    "U-E1": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E2": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E3": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E4": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E5": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E6": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "U-E7": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "R-E2": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "R-E3": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    },
+                    "R-E5": {
+                      "presentations": 0,
+                      "unique_questions": 0,
+                      "physical_groups": 0
+                    }
+                  },
+                  "missing_events": [
+                    "U-E1",
+                    "U-E2",
+                    "U-E3",
+                    "U-E4",
+                    "U-E5",
+                    "U-E6",
+                    "U-E7",
+                    "R-E2",
+                    "R-E3",
+                    "R-E5"
+                  ],
+                  "equal_presentations": false,
+                  "equal_unique_questions": false,
+                  "max_equal_eval_questions_per_event_without_replacement": 0,
+                  "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee"
+                },
+                "scope": "supplementary fixed subset; natural evaluation unchanged; question equality only; no label or independence approval"
+              }
+            }
+          },
+          "priority_automatic_support": {
+            "U-E3/proceed/YES": {
+              "rows": 0,
+              "unique_questions": 0,
+              "physical_groups": 0,
+              "status": "missing_in_supplied_pool"
+            },
+            "U-E5/proceed/YES": {
+              "rows": 0,
+              "unique_questions": 0,
+              "physical_groups": 0,
+              "status": "missing_in_supplied_pool"
+            },
+            "U-E6/proceed/YES": {
+              "rows": 0,
+              "unique_questions": 0,
+              "physical_groups": 0,
+              "status": "missing_in_supplied_pool"
+            },
+            "U-E7/complete/YES": {
+              "rows": 1,
+              "unique_questions": 1,
+              "physical_groups": 1,
+              "status": "present_not_certified"
+            },
+            "U-E2/return/any_answer": {
+              "rows": 0,
+              "unique_questions": 0,
+              "physical_groups": 0,
+              "status": "missing_in_supplied_pool"
+            }
+          },
+          "automatic_train": {
+            "events": {
+              "U-E1": {
+                "presentations": 277,
+                "unique_questions": 277,
+                "physical_groups": 2
+              },
+              "U-E2": {
+                "presentations": 74,
+                "unique_questions": 74,
+                "physical_groups": 2
+              },
+              "U-E3": {
+                "presentations": 9,
+                "unique_questions": 9,
+                "physical_groups": 1
+              },
+              "U-E4": {
+                "presentations": 0,
+                "unique_questions": 0,
+                "physical_groups": 0
+              },
+              "U-E5": {
+                "presentations": 7,
+                "unique_questions": 7,
+                "physical_groups": 1
+              },
+              "U-E6": {
+                "presentations": 28,
+                "unique_questions": 28,
+                "physical_groups": 1
+              },
+              "U-E7": {
+                "presentations": 69,
+                "unique_questions": 69,
+                "physical_groups": 1
+              },
+              "R-E2": {
+                "presentations": 0,
+                "unique_questions": 0,
+                "physical_groups": 0
+              },
+              "R-E3": {
+                "presentations": 0,
+                "unique_questions": 0,
+                "physical_groups": 0
+              },
+              "R-E5": {
+                "presentations": 0,
+                "unique_questions": 0,
+                "physical_groups": 0
+              }
+            },
+            "missing_events": [
+              "U-E4",
+              "R-E2",
+              "R-E3",
+              "R-E5"
+            ],
+            "equal_presentations": false,
+            "equal_unique_questions": false,
+            "max_equal_eval_questions_per_event_without_replacement": 0,
+            "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee"
+          },
+          "automatic_readiness_support": {
+            "train/U-E1/default/proceed": {
+              "YES": 0,
+              "NO": 264
+            },
+            "train/U-E1/default/complete": {
+              "YES": 1,
+              "NO": 0
+            },
+            "train/U-E1/default/re_yield": {
+              "YES": 0,
+              "NO": 2
+            },
+            "train/U-E1/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E1/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E1/default/hold": {
+              "YES": 3,
+              "NO": 2
+            },
+            "train/U-E1/default/release": {
+              "YES": 0,
+              "NO": 1
+            },
+            "train/U-E1/default/stable": {
+              "YES": 0,
+              "NO": 1
+            },
+            "train/U-E1/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 2
+            },
+            "train/U-E1/default/recover_follow": {
+              "YES": 1,
+              "NO": 0
+            },
+            "train/U-E2/default/return/depart": {
+              "YES": 4,
+              "NO": 54
+            },
+            "train/U-E2/default/return/pass": {
+              "YES": 2,
+              "NO": 0
+            },
+            "train/U-E2/default/return/return": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/return/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/return/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/return/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/return/hold": {
+              "YES": 4,
+              "NO": 4
+            },
+            "train/U-E2/default/return/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/return/stable": {
+              "YES": 1,
+              "NO": 1
+            },
+            "train/U-E2/default/return/renewed_restriction": {
+              "YES": 1,
+              "NO": 1
+            },
+            "train/U-E2/default/return/recover_follow": {
+              "YES": 0,
+              "NO": 2
+            },
+            "train/U-E3/default/proceed": {
+              "YES": 0,
+              "NO": 8
+            },
+            "train/U-E3/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/hold": {
+              "YES": 1,
+              "NO": 0
+            },
+            "train/U-E3/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E3/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/proceed": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/proceed": {
+              "YES": 0,
+              "NO": 6
+            },
+            "train/U-E5/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/hold": {
+              "YES": 1,
+              "NO": 0
+            },
+            "train/U-E5/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E5/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/proceed": {
+              "YES": 0,
+              "NO": 26
+            },
+            "train/U-E6/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/hold": {
+              "YES": 2,
+              "NO": 0
+            },
+            "train/U-E6/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E6/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E7/default/proceed": {
+              "YES": 1,
+              "NO": 15
+            },
+            "train/U-E7/default/complete": {
+              "YES": 1,
+              "NO": 11
+            },
+            "train/U-E7/default/re_yield": {
+              "YES": 1,
+              "NO": 14
+            },
+            "train/U-E7/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E7/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E7/default/hold": {
+              "YES": 3,
+              "NO": 14
+            },
+            "train/U-E7/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E7/default/stable": {
+              "YES": 1,
+              "NO": 2
+            },
+            "train/U-E7/default/renewed_restriction": {
+              "YES": 1,
+              "NO": 2
+            },
+            "train/U-E7/default/recover_follow": {
+              "YES": 0,
+              "NO": 3
+            },
+            "train/R-E2/default/enter": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E2/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/enter": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E3/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/proceed": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/R-E5/default/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/depart": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/pass": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/default/no_return/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/proceed": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E2/in_lane_pass/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/proceed": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/re_yield": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_follow/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/depart": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/pass": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/return": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/return/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/depart": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/pass": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/complete": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/restrict": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/settle": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/hold": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/release": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/stable": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/renewed_restriction": {
+              "YES": 0,
+              "NO": 0
+            },
+            "train/U-E4/cyclist_bypass/no_return/recover_follow": {
+              "YES": 0,
+              "NO": 0
+            }
+          },
+          "automatic_missing_readiness_edges": [
+            "train/U-E1/default/proceed",
+            "train/U-E1/default/complete",
+            "train/U-E1/default/re_yield",
+            "train/U-E1/default/restrict",
+            "train/U-E1/default/settle",
+            "train/U-E1/default/release",
+            "train/U-E1/default/stable",
+            "train/U-E1/default/renewed_restriction",
+            "train/U-E1/default/recover_follow",
+            "train/U-E2/default/return/pass",
+            "train/U-E2/default/return/return",
+            "train/U-E2/default/return/complete",
+            "train/U-E2/default/return/restrict",
+            "train/U-E2/default/return/settle",
+            "train/U-E2/default/return/release",
+            "train/U-E2/default/return/recover_follow",
+            "train/U-E3/default/proceed",
+            "train/U-E3/default/complete",
+            "train/U-E3/default/re_yield",
+            "train/U-E3/default/restrict",
+            "train/U-E3/default/settle",
+            "train/U-E3/default/hold",
+            "train/U-E3/default/release",
+            "train/U-E3/default/stable",
+            "train/U-E3/default/renewed_restriction",
+            "train/U-E3/default/recover_follow",
+            "train/U-E4/default/proceed",
+            "train/U-E4/default/complete",
+            "train/U-E4/default/re_yield",
+            "train/U-E4/default/restrict",
+            "train/U-E4/default/settle",
+            "train/U-E4/default/hold",
+            "train/U-E4/default/release",
+            "train/U-E4/default/stable",
+            "train/U-E4/default/renewed_restriction",
+            "train/U-E4/default/recover_follow",
+            "train/U-E5/default/proceed",
+            "train/U-E5/default/complete",
+            "train/U-E5/default/re_yield",
+            "train/U-E5/default/restrict",
+            "train/U-E5/default/settle",
+            "train/U-E5/default/hold",
+            "train/U-E5/default/release",
+            "train/U-E5/default/stable",
+            "train/U-E5/default/renewed_restriction",
+            "train/U-E5/default/recover_follow",
+            "train/U-E6/default/proceed",
+            "train/U-E6/default/complete",
+            "train/U-E6/default/re_yield",
+            "train/U-E6/default/restrict",
+            "train/U-E6/default/settle",
+            "train/U-E6/default/hold",
+            "train/U-E6/default/release",
+            "train/U-E6/default/stable",
+            "train/U-E6/default/renewed_restriction",
+            "train/U-E6/default/recover_follow",
+            "train/U-E7/default/restrict",
+            "train/U-E7/default/settle",
+            "train/U-E7/default/release",
+            "train/U-E7/default/recover_follow",
+            "train/R-E2/default/enter",
+            "train/R-E2/default/complete",
+            "train/R-E2/default/restrict",
+            "train/R-E2/default/settle",
+            "train/R-E2/default/hold",
+            "train/R-E2/default/release",
+            "train/R-E2/default/stable",
+            "train/R-E2/default/renewed_restriction",
+            "train/R-E2/default/recover_follow",
+            "train/R-E3/default/enter",
+            "train/R-E3/default/complete",
+            "train/R-E3/default/restrict",
+            "train/R-E3/default/settle",
+            "train/R-E3/default/hold",
+            "train/R-E3/default/release",
+            "train/R-E3/default/stable",
+            "train/R-E3/default/renewed_restriction",
+            "train/R-E3/default/recover_follow",
+            "train/R-E5/default/proceed",
+            "train/R-E5/default/complete",
+            "train/R-E5/default/re_yield",
+            "train/R-E5/default/restrict",
+            "train/R-E5/default/settle",
+            "train/R-E5/default/hold",
+            "train/R-E5/default/release",
+            "train/R-E5/default/stable",
+            "train/R-E5/default/renewed_restriction",
+            "train/R-E5/default/recover_follow",
+            "train/U-E2/default/no_return/depart",
+            "train/U-E2/default/no_return/pass",
+            "train/U-E2/default/no_return/complete",
+            "train/U-E2/default/no_return/restrict",
+            "train/U-E2/default/no_return/settle",
+            "train/U-E2/default/no_return/hold",
+            "train/U-E2/default/no_return/release",
+            "train/U-E2/default/no_return/stable",
+            "train/U-E2/default/no_return/renewed_restriction",
+            "train/U-E2/default/no_return/recover_follow",
+            "train/U-E2/in_lane_pass/proceed",
+            "train/U-E2/in_lane_pass/complete",
+            "train/U-E2/in_lane_pass/re_yield",
+            "train/U-E2/in_lane_pass/restrict",
+            "train/U-E2/in_lane_pass/settle",
+            "train/U-E2/in_lane_pass/hold",
+            "train/U-E2/in_lane_pass/release",
+            "train/U-E2/in_lane_pass/stable",
+            "train/U-E2/in_lane_pass/renewed_restriction",
+            "train/U-E2/in_lane_pass/recover_follow",
+            "train/U-E4/cyclist_follow/proceed",
+            "train/U-E4/cyclist_follow/complete",
+            "train/U-E4/cyclist_follow/re_yield",
+            "train/U-E4/cyclist_follow/restrict",
+            "train/U-E4/cyclist_follow/settle",
+            "train/U-E4/cyclist_follow/hold",
+            "train/U-E4/cyclist_follow/release",
+            "train/U-E4/cyclist_follow/stable",
+            "train/U-E4/cyclist_follow/renewed_restriction",
+            "train/U-E4/cyclist_follow/recover_follow",
+            "train/U-E4/cyclist_bypass/return/depart",
+            "train/U-E4/cyclist_bypass/return/pass",
+            "train/U-E4/cyclist_bypass/return/return",
+            "train/U-E4/cyclist_bypass/return/complete",
+            "train/U-E4/cyclist_bypass/return/restrict",
+            "train/U-E4/cyclist_bypass/return/settle",
+            "train/U-E4/cyclist_bypass/return/hold",
+            "train/U-E4/cyclist_bypass/return/release",
+            "train/U-E4/cyclist_bypass/return/stable",
+            "train/U-E4/cyclist_bypass/return/renewed_restriction",
+            "train/U-E4/cyclist_bypass/return/recover_follow",
+            "train/U-E4/cyclist_bypass/no_return/depart",
+            "train/U-E4/cyclist_bypass/no_return/pass",
+            "train/U-E4/cyclist_bypass/no_return/complete",
+            "train/U-E4/cyclist_bypass/no_return/restrict",
+            "train/U-E4/cyclist_bypass/no_return/settle",
+            "train/U-E4/cyclist_bypass/no_return/hold",
+            "train/U-E4/cyclist_bypass/no_return/release",
+            "train/U-E4/cyclist_bypass/no_return/stable",
+            "train/U-E4/cyclist_bypass/no_return/renewed_restriction",
+            "train/U-E4/cyclist_bypass/no_return/recover_follow"
+          ],
+          "train_cells": {
+            "U-E1/default/return/PROCEED/FOLLOW/complete/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/FOLLOW/hold/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/FOLLOW/re_yield/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/FOLLOW/release/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/FOLLOW/renewed_restriction/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/RECOVER/hold/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/RECOVER/re_yield/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/RECOVER/recover_follow/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/RECOVER/renewed_restriction/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/PROCEED/RECOVER/stable/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E1/default/return/YIELD/HOLD/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 261,
+              "physical_groups": 2
+            },
+            "U-E1/default/return/YIELD/STABLE/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 3,
+              "physical_groups": 2
+            },
+            "U-E1/default/return/YIELD/STABLE/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 3,
+              "physical_groups": 2
+            },
+            "U-E2/default/return/DEPART/RECOVER/hold/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/DEPART/RECOVER/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/DEPART/RECOVER/pass/readiness/YES/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 2
+            },
+            "U-E2/default/return/DEPART/RECOVER/recover_follow/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 2
+            },
+            "U-E2/default/return/DEPART/RECOVER/renewed_restriction/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/DEPART/RECOVER/renewed_restriction/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/DEPART/RECOVER/stable/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/DEPART/RECOVER/stable/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/WAIT/HOLD/depart/readiness/NO/weak_rule_teacher": {
+              "rows": 52,
+              "physical_groups": 2
+            },
+            "U-E2/default/return/WAIT/HOLD/depart/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/WAIT/STABLE/depart/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 2
+            },
+            "U-E2/default/return/WAIT/STABLE/depart/readiness/YES/weak_rule_teacher": {
+              "rows": 3,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/WAIT/STABLE/hold/readiness/NO/weak_rule_teacher": {
+              "rows": 3,
+              "physical_groups": 1
+            },
+            "U-E2/default/return/WAIT/STABLE/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 3,
+              "physical_groups": 2
+            },
+            "U-E3/default/return/YIELD/HOLD/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 7,
+              "physical_groups": 1
+            },
+            "U-E3/default/return/YIELD/STABLE/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E3/default/return/YIELD/STABLE/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E5/default/return/YIELD/HOLD/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 5,
+              "physical_groups": 1
+            },
+            "U-E5/default/return/YIELD/STABLE/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E5/default/return/YIELD/STABLE/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E6/default/return/YIELD/HOLD/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 24,
+              "physical_groups": 1
+            },
+            "U-E6/default/return/YIELD/STABLE/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E6/default/return/YIELD/STABLE/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/hold/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/re_yield/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/re_yield/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/recover_follow/readiness/NO/weak_rule_teacher": {
+              "rows": 3,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/renewed_restriction/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/renewed_restriction/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/stable/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/RECOVER/stable/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/STABLE/complete/readiness/NO/weak_rule_teacher": {
+              "rows": 11,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/STABLE/complete/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/STABLE/hold/readiness/NO/weak_rule_teacher": {
+              "rows": 12,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/PROCEED/STABLE/re_yield/readiness/NO/weak_rule_teacher": {
+              "rows": 12,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/YIELD/HOLD/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 13,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/YIELD/HOLD/proceed/readiness/YES/weak_rule_teacher": {
+              "rows": 1,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/YIELD/STABLE/hold/readiness/YES/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            },
+            "U-E7/default/return/YIELD/STABLE/proceed/readiness/NO/weak_rule_teacher": {
+              "rows": 2,
+              "physical_groups": 1
+            }
+          },
+          "automatic_scope": "native rule-generated rows only; per_frame_conditions/reviewed labels are not automatic rule approval"
+        }
+      }
+    },
+    "errors": [
+      "ValueError: selection input admission failed: test: empty split; val: empty split",
+      "budget: missing first-epoch budget"
+    ],
+    "independent_accuracy_certified": false,
+    "joint_g0_certified": false
+  },
+  "rgb": {
+    "distinct_viewed_frames": 70,
+    "contact_sheets": 5,
+    "original_zooms": 0,
+    "blind": false,
+    "new_historical_coverage_not_claimed": true,
+    "window_source_files": 210,
+    "participant_trace_source_files": 30,
+    "union_source_files": 219,
+    "windows": [
+      {
+        "event": "U-E2",
+        "scenario": "ConstructionObstacleTwoWays",
+        "route_id": "Town01_Rep0_route_001275_route0_01_09_16_43_40",
+        "frames": [
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113
+        ],
+        "sheet_sha256": "cd4e710b114218a1ec92ec85ea54ada944e44573df33a9d8b43cb36489558d01"
+      },
+      {
+        "event": "U-E3",
+        "scenario": "ParkingCutIn",
+        "route_id": "Town12_Rep0_1681_0_route0_01_09_14_15_55",
+        "frames": [
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135
+        ],
+        "sheet_sha256": "c1945e6fd304c150a46682859cd2ca1603862e43afc52e17a7ef0617eb7aa8a8"
+      },
+      {
+        "event": "U-E5",
+        "scenario": "InvadingTurn",
+        "route_id": "Town12_Rep0_1450_0_route0_01_09_22_58_43",
+        "frames": [
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77
+        ],
+        "sheet_sha256": "d9200db3c6133624d1894e088832333dff79406581c770cb78655ab773871b14"
+      },
+      {
+        "event": "U-E6",
+        "scenario": "OppositeVehicleRunningRedLight",
+        "route_id": "Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34",
+        "frames": [
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81
+        ],
+        "sheet_sha256": "248e988ddd5768c19e80c326e17841c292cb096c06c4a011ad2a65ee5f1526cd"
+      },
+      {
+        "event": "U-E7",
+        "scenario": "CrossJunctionDefectTrafficLight",
+        "route_id": "Town03_Rep0_route_002134_route0_01_11_02_06_33",
+        "frames": [
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54
+        ],
+        "sheet_sha256": "5d5bd74c83034d1c88fb8e2217aba3de21638e6289ff66837fa8c2da42c381f8"
+      }
+    ]
+  },
+  "artifact_root": "checkpoints/batch_rgb_v52_20261012",
+  "evidence": {
+    "run.py": {
+      "bytes": 8088,
+      "sha256": "dd63e7a4fe1622836dbae7b116f16136beec5cd30c2352cadf49dac02a846404"
+    },
+    "run.sh": {
+      "bytes": 412,
+      "sha256": "27e962cb4fe1a3707ebb30931438418396baa3c8450c922ba35d5b44c9ea002c"
+    },
+    "run.log": {
+      "bytes": 993,
+      "sha256": "092cf433fc148788e243530e01cb94dfb1fc72e448fd5d9396b3272a6dd01e81"
+    },
+    "exit_code": {
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    "full_tests.log": {
+      "bytes": 2593,
+      "sha256": "d7c9d104eb06dc69a5345943bb6f94d7561b409be6cc761e334242a6b3b450ff"
+    },
+    "automatic_launcher_tests.log": {
+      "bytes": 98,
+      "sha256": "7256316818e0211d1c4dc30d19c5b69dd944b4f7c923e409b47993643d15fb98"
+    },
+    "verification.json": {
+      "bytes": 17272,
+      "sha256": "0ce16c38f2699d4311d376feecec0d9c7cf5d1e374ff484f559df3288e826330"
+    },
+    "batch_progress.json": {
+      "bytes": 12993,
+      "sha256": "1b5c918650f65607d94ee59da31df525383a37af1ad37f8d9bac6925b85cfa96"
+    },
+    "published_reuse.json": {
+      "bytes": 1318,
+      "sha256": "ae99c3aa92f6fec875ed6ba7c503cf356467f489422a07e7ba8b8a398d4dc026"
+    },
+    "view_final_receipt.json": {
+      "bytes": 15301,
+      "sha256": "e8b4f436d86761e78c818181c369e0d7dd416bc72797b0142eba6d6bc8e4b27b"
+    },
+    "automatic_final_admission.json": {
+      "bytes": 46876,
+      "sha256": "79bb4652c88555276cdd675b8948ec96ee1ea6b07cef5f0013db549f59767ac1"
+    },
+    "rgb_manifest.json": {
+      "bytes": 58657,
+      "sha256": "2ab4f06266653c8677c31e1c80706513cc146b4ce0286d88dccc73796af505bd"
+    },
+    "ue5_actor_trace.json": {
+      "bytes": 16004,
+      "sha256": "74afdf33760ec00695900f778db18604579769610e623445c0db18da96ab6371"
+    },
+    "p3_actions.jsonl": {
+      "bytes": 1852385,
+      "sha256": "5c4221d9f29173d88f03416cf76a67752c7dc0e245140f1cad72a5d68937136c"
+    },
+    "timeline.jsonl": {
+      "bytes": 787707,
+      "sha256": "7b853aabe8209dd7ca11be4837a2416d3b8be223990c26a3943a37bb66018bc9"
+    }
+  },
+  "production_labels_changed": false,
+  "prompt_changed": false,
+  "remote_execution": false,
+  "gpu_training": false,
+  "push": false,
+  "remaining": [
+    "formal current Phase3 index",
+    "formal full Phase4 rule pool and automatic references",
+    "complete first-epoch capacity upper bounds",
+    "server first-epoch and reload/test"
+  ],
+  "scope": "development evidence; G0 not accepted, G1 ongoing, G2 not_run"
+}

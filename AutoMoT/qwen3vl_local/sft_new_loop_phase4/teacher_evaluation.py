@@ -2,6 +2,7 @@
 
 No approval is implied. This artifact cannot be loaded as a training dataset.
 """
+from .production_storage import open_route
 import argparse
 from collections import Counter,defaultdict
 import json
@@ -40,7 +41,7 @@ def export(pool,index_path,root,output,*,rgb_mode):
         for receipt in index['routes']:
             if receipt['split']!=split:continue
             by_input=defaultdict(list);pixels={};speeds={}
-            with (index_path.parent/receipt['artifact']).open() as stream:
+            with open_route(index_path.parent/receipt['artifact']) as stream:
                 next(stream)
                 for line in stream:
                     original=json.loads(line).get('questions',[])

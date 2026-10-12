@@ -154,9 +154,9 @@ def _check(base, data_root, annotations, reserve, lock_status):
     production = check('production_inventory', production_inventory)
     free = shutil.disk_usage(base).free
     copy_bytes = production.get('referenced_copy_bytes') if production else None
-    minimum = copy_bytes * len(rebuild_modes) if copy_bytes is not None else None
+    minimum = 0 if copy_bytes is not None else None
     report['storage'] = dict(free_bytes=free, reserve_bytes=reserve, production=production,
-                             compile_modes=rebuild_modes, additional_production_copy_bytes_lower_bound=minimum,
+                             compile_modes=rebuild_modes, production_storage='references', additional_production_copy_bytes_lower_bound=minimum,
                              lower_bound_and_reserve_fit=None if minimum is None else free >= minimum + reserve,
                              total_required_bytes=None, sufficient_for_build=None,
                              caveat='lower bound only: retained partial datasets remain; JSONL, metadata, '

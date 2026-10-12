@@ -3,6 +3,7 @@
 Keep the private snapshot separate from the public reviewer directory. This
 module does not invent human answers, appoint reviewers, or approve a rule.
 """
+from .production_storage import open_route
 import argparse
 from collections import Counter,defaultdict
 import json
@@ -73,7 +74,7 @@ def select(pool,index_path,*,purpose='development',per_class=200,per_route=10,se
     for receipt in index['routes']:
         allowed=receipt['split']=='train' if purpose=='development' else receipt['physical_group'] in reserved
         if not allowed:exclusions['outside_review_scope_frames']+=receipt['frames'];continue
-        with (index_path.parent/receipt['artifact']).open() as stream:
+        with open_route(index_path.parent/receipt['artifact']) as stream:
             next(stream)
             for line in stream:
                 for q in json.loads(line).get('questions',[]):

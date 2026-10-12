@@ -61,8 +61,8 @@ def test_valid_native_replay_read_only_and_space_is_only_lower_bound(replay):
     assert not report['training_ready']
     assert report['datasets']['data2']['native_next_action'] == 'retain_by_rename_then_recompile'
     assert report['storage']['compile_modes'] == [2, 4]
-    assert report['storage']['additional_production_copy_bytes_lower_bound'] == sum(
-        p.stat().st_size for p in (base / 'full_production').iterdir()) * 2
+    assert report['storage']['additional_production_copy_bytes_lower_bound'] == 0
+    assert report['storage']['production_storage'] == 'references'
     assert report['storage']['sufficient_for_build'] is None
     assert snapshot(base) == before
     assert not (base / '.build.lock').exists()

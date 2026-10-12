@@ -35,9 +35,10 @@ def main():
         while not ancestor.exists():
             ancestor = ancestor.parent
         free = shutil.disk_usage(ancestor).free
-        minimum = report['storage']['production']['referenced_copy_bytes']
+        minimum = 0  # Native compilation now references the existing replay.
         if free < minimum + 20 * 1024 ** 3:
-            raise ValueError('one production copy plus 20 GiB reserve does not fit; no build started')
+            raise ValueError('20 GiB reserve does not fit; no build started')
+        # Reserve alone is not a complete build/training budget; use training_budget.
         # Do not create a lock in the old base. Native ownership must already exist.
         if not (base / '.build.lock').is_file():
             raise ValueError('old build lock missing; use an already complete --dataset4')

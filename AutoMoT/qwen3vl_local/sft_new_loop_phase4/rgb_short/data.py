@@ -85,6 +85,7 @@ def parent_binding(parent, manifest):
     names = {'manifest.json', 'review_queue.jsonl', *manifest['files']}
     for key, name in [('candidate_pool_sha256', 'candidate_pool.json'),
                       ('teacher_registry_sha256', 'teacher_registry.json'),
+                      ('production_reference_sha256', 'production_reference.json'),
                       ('production_index_sha256', 'production/index.json')]:
         if manifest.get(key):
             names.add(name)

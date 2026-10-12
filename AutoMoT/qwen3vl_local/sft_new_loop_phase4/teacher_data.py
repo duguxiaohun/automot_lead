@@ -1,4 +1,5 @@
 """Compile approved teacher questions without calling them human RGB reviews."""
+from .production_storage import open_route
 from collections import Counter,defaultdict,deque
 import json
 from pathlib import Path
@@ -75,7 +76,7 @@ def compile_bundle(pool,index_path,registry,*,rgb_mode,max_per_route=100):
     index=json.loads(index_path.read_text())
     for receipt in index['routes']:
         strata=defaultdict(list)
-        with (index_path.parent/receipt['artifact']).open() as stream:
+        with open_route(index_path.parent/receipt['artifact']) as stream:
             next(stream)
             for line in stream:
                 row=json.loads(line)

@@ -1,0 +1,98 @@
+{
+  "package": {
+    "status": "verified",
+    "files": 7,
+    "scope": "package byte integrity only"
+  },
+  "bytes": 53866,
+  "sha256": "44a462562705d3fe6cce11a90ad2b0aa5858c1b76050ca96791116ad19ee809f",
+  "source_files": 440,
+  "release": "phase4_v50_20261012_overlay_readiness3",
+  "manifest_sha256": "d98ffc5375de636208d1047de849da37a73a6fe181ccf8bd5d560b9a98051e35",
+  "published_test_files": 111,
+  "test_list_exact": true,
+  "commands": {
+    "pytest_exit_code": 0,
+    "preflight_exit_code": 0,
+    "source_preflight_exit_code": 0,
+    "pytest_started": true,
+    "model_dir": "checkpoints/Qwen3.5-4B",
+    "gpu_training_run": false,
+    "dataset_build_run": false
+  },
+  "tests": {
+    "passed": 2262,
+    "skipped": 3,
+    "warnings": 9543,
+    "seconds": 165.52,
+    "skip_reasons": [
+      "SKIPPED [1] qwen3vl_local/audit_joint/tests/test_native_quarantine.py:14: local audit RGB/collection unavailable",
+      "SKIPPED [2] qwen3vl_local/sft_new_loop_phase4/tests/test_fifteenth_audit_fixes.py:36: previous production pool unavailable"
+    ]
+  },
+  "inventory_records": 29,
+  "inventory_errors": [],
+  "inventory_truncated": false,
+  "free_bytes": 49070149632,
+  "extra_files": [
+    "qwen3vl_local/sft_new_loop_phase3/capacity_diagnostic.py",
+    "qwen3vl_local/sft_new_loop_phase3/invalid_capacity.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_invalid_capacity.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_training_pool_audit.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_v24_near_stop.py"
+  ],
+  "model_preflight_only": true,
+  "gpu_training_verified": false,
+  "formal_dataset_verified": false,
+  "storage_probe": {
+    "routes": 5,
+    "counts": {
+      "train": 464
+    },
+    "candidate_coverage": true,
+    "trainable": false,
+    "event_counts": {
+      "U-E1": 277,
+      "U-E2": 74,
+      "U-E7": 69,
+      "U-E5": 7,
+      "U-E6": 28,
+      "U-E3": 9
+    },
+    "seconds": 7.344470032025129,
+    "peak_rss_kib": 102712,
+    "dataset_bytes": 20805713,
+    "production_copy_bytes": 14268323,
+    "gzip6_separate_files_bytes": 1243439,
+    "copies_same_bytes": true,
+    "copies_distinct_inodes": true,
+    "gzip_roundtrip_verified": true,
+    "scope": "five existing training routes; no extrapolation to full source, no production compression implementation"
+  },
+  "artifacts": {
+    "storage_probe.json": {
+      "bytes": 16795,
+      "sha256": "c1aee40ec1343b2f2e4281b1c6e452371ac9987c91630b43d9745e6d676d09a9"
+    },
+    "storage_probe.log": {
+      "bytes": 43,
+      "sha256": "fe50642b8ce247db38fdcaea5357e373b05786fde42e965557ad9cb39033b491"
+    },
+    "storage_probe.py": {
+      "bytes": 2652,
+      "sha256": "cf5e0e2ac8922f25df2151083ff0577baddca5377619ad5727a5131e84a90547"
+    },
+    "tests.log": {
+      "bytes": 140828,
+      "sha256": "7e7be7d09fc842245df51746269b42e5a1898d8d4f0a561ed6aa1e91fe75b66c"
+    },
+    "inventory.json": {
+      "bytes": 15363,
+      "sha256": "5ee95049d7eb6bb425ffa61564a3d019dc58c0bc9a13a4dd1d15b33f42e86cd0"
+    }
+  },
+  "production_modified": false,
+  "new_rgb_visual_frames": 0,
+  "native_label_replay_run": false
+}

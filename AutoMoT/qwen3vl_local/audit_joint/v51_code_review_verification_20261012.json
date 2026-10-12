@@ -1,0 +1,84 @@
+{
+  "schema": "v51_code_review_v1",
+  "source_contract": "v51 unchanged",
+  "checks": {
+    "producer_matches": true,
+    "evidence_hashes": {
+      "run.py": true,
+      "run.sh": true,
+      "run.log": true,
+      "exit_code": true,
+      "verification.json": true,
+      "rgb_manifest.json": true,
+      "p3_actions.jsonl": true,
+      "timeline.jsonl": true,
+      "budget_report.json": true,
+      "budget.exit": true
+    },
+    "rgb_source_hashes": 210,
+    "sheet_hashes": {
+      "U-E2": true,
+      "U-E3": true,
+      "U-E5": true,
+      "U-E6": true,
+      "U-E7": true
+    },
+    "before_routes": 5,
+    "after_subset_routes": 2,
+    "complete_after_subset": false,
+    "old_reference_rejected": "production source path/content changed",
+    "after_second_batch_routes": 3,
+    "complete_after_second_batch": false
+  },
+  "regression": {
+    "passed": 2294,
+    "seconds": 105.92,
+    "exit_code": 0,
+    "log_sha256": "c253ab52b35f605f43f9719b6a0861fe90d5e4896e557b8726a940d0ec8d4cb0"
+  },
+  "findings": [
+    {
+      "priority": "P1",
+      "id": "route_subset_replaces_published_index",
+      "reproduced": true,
+      "fixed": false
+    },
+    {
+      "priority": "P2",
+      "id": "native_pipeline_reference_admission_not_unified",
+      "evidence": "source review; short-view rule_consistency path available",
+      "fixed": false
+    }
+  ],
+  "rgb": {
+    "contact_sheets_viewed": 5,
+    "distinct_frames_reviewed": 70,
+    "new_distinct_frames_beyond_previous_review": 0,
+    "source_hashes_verified": 210,
+    "new_label_defect_confirmed": false,
+    "blind": false
+  },
+  "artifacts": {
+    "probe.py": {
+      "path": "AutoMoT/checkpoints/v51_code_review_20261012/probe.py",
+      "sha256": "a66088251df60ab7b3f3c7207900d9ec68588e3b6c1b9ec9cce8f36541f5a226"
+    },
+    "probe.json": {
+      "path": "AutoMoT/checkpoints/v51_code_review_20261012/probe.json",
+      "sha256": "1ed3edf3143e443ab4ff57d4facac3d5ae64f38c0f6d00026082defee4a820d4"
+    },
+    "tests.log": {
+      "path": "AutoMoT/checkpoints/v51_code_review_20261012/tests.log",
+      "sha256": "c253ab52b35f605f43f9719b6a0861fe90d5e4896e557b8726a940d0ec8d4cb0"
+    },
+    "tests.exit": {
+      "path": "AutoMoT/checkpoints/v51_code_review_20261012/tests.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    }
+  },
+  "limitations": [
+    "formal full pool and heldout not built",
+    "capacity bounds incomplete",
+    "no production edits, remote execution, GPU, training or push"
+  ]
+}

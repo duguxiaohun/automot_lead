@@ -1,5 +1,33 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-12 v52白名单发布准备与服务器限量试建
+
+用户授权push。新增server_v52_pilot.sh及454源SHA清单：正式候选扫描后最多30条/每条≤400帧，split/scenario轮转、单worker gzip；不编译封存部分回放/不训练。20GiB余量+约2GiB净写盘轮询保护，≤30MB ZIP及独立SHA回执；样本不保证全量容量/事件覆盖。服务器沿sync_automot.sh覆盖同步，仅运行该新入口，交pilot_report.zip+pilot_package.json；readiness/旧fit不重跑。详见audit_joint/SERVER_V52_NEXT_20261012.md。
+本机两UE7路线107帧重算11.23秒/123172KiB；P4语义及P3动作证据与v50同范围一致。实际两联系表28不同RGB+两个已包含原图，84源SHA；Town12 002113先解除后稳定、Town15 002214先稳定后解除，分别48/52才complete YES，保留并发身份和雾天观察限制，非G2。37专项通过含5新测试；原生试建CLI真实2050字节包通过，shell因本机管道core门退出2仍产25606字节包/454源SHA通过。补自动训练脚本core软限制后新建view_release，2/4各464train/空留出。见RELEASE_RGB_V52_20261012.md及release_rgb_v52_verification_20261012.json；完整产物checkpoints/v52_release_rgb_20261012，未远程/GPU/训练，未新改标签/阈值/提示词。
+
+
+### 2026-10-12 v52累计回放索引、自动首轮门与RGB续审
+
+修复分批produce覆盖index：写锁内核验累计回执、按候选顺序合并，仅计算未登记路线。共享安装同锁封存published.json；已有子集请求不重写，已发布集合禁止扩展/需新目录，旧产物不改。合同v52/老师算法v17不变/同预约v32/空registry v27。固定自动入口rgb_short/run_automatic.sh：rule_baseline先核验实际过滤后的规则train/留出、十事件等量、world1/4及两模式同序、五关键边readiness正反支持、2模式各1检查点与20GiB首轮预算，再四卡一轮10240/重载/本次epoch000固定test；不走原生人工双库总入口。预算不认证操作者上限或所有历史入口。
+本机真实5路线2+3累计5，封存后2/3/5子集重复全字节不变、共享库仍可载；755帧1116问题/P3动作与v50语义一致。只建RGB4及短视图，两模式各464train/空val-test，自动准入按预期empty val/test+missing budget阻塞。68.87秒/262300KiB；2302完整回归121.89秒，追加4入口测试（1新增）通过，最终学生视图重建于view_final。实际5联系表70不同RGB、210源SHA，UE5十帧参与者跟踪30源与前者去重219；3752/3753/3754不同车，ParkingCutIn后继U-E1不回填旧U-E3正例。部分窗口与历史重叠，非G2/全源认证，标签阈值提示词不改。见audit_joint/BATCH_BASELINE_V52_20261012.md及batch_baseline_v52_verification_20261012.json；产物checkpoints/batch_rgb_v52_20261012。服务器readiness已关闭/不重跑旧fit；正式池、真实首轮预算及服务器新训练仍待交付，无远程/GPU/push。
+
+
+### 2026-10-12 v51开训代码复审与索引覆盖反例
+
+本机完整CPU回归2294通过/105.92秒；v51合同与记录一致，10证据SHA及210源SHA通过。实际复看既有5联系表70不同RGB，无新增独特帧/盲审/新错标。真实produce在独立副本复现5路线index被子集请求改为2、再下一批改为3，完整性丢失且既有共享引用拒绝加载；原产物未改，缺陷本轮只报告未修。原生full_pipeline/train.sh/preflight仍按原val/test准入，自动参考未统一；首轮可固定采用RGB4库→短视图→rule_consistency入口，不必扩大改造原生总入口。正式池、关键条件覆盖和首轮容量上限仍待交付；服务器readiness保持关闭。见AutoMoT/qwen3vl_local/audit_joint/V51_CODE_REVIEW_20261012.md及v51_code_review_verification_20261012.json，复现副本/日志在checkpoints/v51_code_review_20261012。未改生产/规则/提示词，无全池构建、远程、GPU、训练或push。
+
+### 2026-10-12 v51共享回放、原生gzip与RGB续审
+
+新库默认共享production引用（逻辑/解析路径+index/逐路线SHA），缺失、漂移、同字节软链接改指拒绝；短视图/pipeline/统计绑定同步。原生CLI/full_pipeline流式gzip6、无未压缩临时副本；旧目录编码/合同变化禁止覆盖；显式copy保留。合同v51/老师算法v17不变/同预约v31/空registry v26，旧资产不改hash。新增training_budget逐项上限与证据，含两模式每轮adapter/optimizer、自动留出/P3索引/临时峰值/20GiB；缺项sufficient=null退出2，不用小样本压缩率保证全池空间。
+最终tmux低优先级单CPU5训练路线755帧1116原始题，与v50状态/答案/证据及P3动作一致，两模式原生464条完整配对/建载通过，6事件空val-test/trainable=false。回放14,251,070→499,958字节，RGB4引用库6,558,759字节，共享回放另计；64.84秒/237348KiB。实际5联系表70不同RGB/1原图含在70内、210源SHA，扩展UE2/3/5/6/7前史；没有足够新证据改标签/阈值/提示词，非G2。2292完整回归118.23秒+gzip留出/抽样4专项通过（2新增）。见audit_joint/STORAGE_RGB_V51_20261012.md及storage_rgb_v51_verification_20261012.json；最终产物checkpoints/storage_rgb_v51_final_20261012，首轮独立产物保留。服务器CPU已关闭，不再readiness/空间盘点/旧拟合；正式池/自动留出和全源预算仍待补，无远程/GPU/训练/push。
+
+
+### 2026-10-12 服务器CPU正式反馈通过与原生存储实测
+
+收到08:24启动/08:31交回readiness3包：53,866字节/7成员及外层SHA通过，440源SHA、日志111测试文件清单逐项一致；服务器2262通过/3历史本地产物依赖跳过/9543弃用告警，165.52秒，source/pytest/preflight均0。额外6文件保留，覆盖同步与CPU入口问题关闭，不要求再readiness/空间盘点/旧拟合。29资产记录仍旧v42未认证元数据，当前45.700GiB余量，不冒称新正式池/GPU训练。
+本机tmux低优先级单CPU复用v50的5路线既有回放，原生build/load464条RGB4规则题，7.34秒/102712KiB；库20,805,713字节，其中14,268,323为SHA相同、inode不同的production副本。逐文件gzip6诊断合计1,243,439字节且还原一致，仅5路线不外推；小库6事件/空val-test/trainable=false，不当正式库。新复制式建库按旧规模超可新增预算约13.432GiB，优先新产物单份回放/压缩及完整峰值预算，存储实现尚未改。见audit_joint/CPU_PASS_TRAINING_AUDIT_20261012.md及server_cpu_pass_verification_20261012.json，原包/编译产物checkpoints/server_cpu_pass_received_20261012。生产/提示词/标签未改，无新增RGB目视/标定回放/远程/GPU/push。
+
+
 ### 2026-10-12 覆盖同步适配：发布测试清单与导入检查
 
 用户确认sync_automot.sh使用正确仓库、rsync -a --checksum或cp覆盖白名单且保留本地其它文件；440文件SHA已证同步成功，额外文件不是同步失败。修正此前readiness2的全目录额外文件硬阻断：readiness3逐文件核验发布SHA，仅运行清单中已发布CPU测试，关闭本地pytest配置/conftest/自动插件扩展，审计进程拒绝受检包清单外模块/另一目录模块导入；额外文件记录并保留，不改sync或要求新目录。外部依赖/子进程不冒充全环境认证，生产v50/标定/提示词不改。

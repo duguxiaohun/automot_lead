@@ -207,7 +207,8 @@ def _write_route(args):
         # Resume only after validating all frame identities and the frozen code.
         return inspect_route(output,route,header)
     pending=output.with_suffix('.pending')
-    with pending.open('x') as stream:
+    from .production_storage import write_route
+    with write_route(pending,compressed=output.name.endswith('.gz')) as stream:
         stream.write(json.dumps(dict(kind='header',**header))+'\n')
         for row in route_records(root,route):stream.write(json.dumps(row,ensure_ascii=False)+'\n')
     pending.replace(output)
@@ -218,7 +219,8 @@ def inspect_route(path,route,header):
     from .history_admission import quarantine
     history_blocked=set()
     counts=Counter();targets=Counter();seen=[];question_ids=set()
-    with Path(path).open() as stream:
+    from .production_storage import open_route
+    with open_route(path) as stream:
         if json.loads(next(stream))!=dict(kind='header',**header):raise ValueError('stale teacher route artifact')
         for line in stream:
             row=json.loads(line);frame=row['frame_id'];seen.append(frame)
@@ -310,15 +312,48 @@ def validate_question(q,*,expected_teacher_sha=None):
     return q
 
 
-def produce(pool,root,output,*,route_keys=None,workers=4):
+def produce(pool,root,output,*,route_keys=None,workers=4,compression="none"):
     from .candidate_pool import validate
     validate(pool)
     if type(workers) is not int or not 1<=workers<=64:raise ValueError('invalid route worker count')
     selected=[r for r in pool['routes'] if route_keys is None or (r['scenario'],r['route_id']) in route_keys]
     if not selected or route_keys is not None and len(selected)!=len(route_keys):raise ValueError('unknown/empty route selection')
+    if compression not in ('none','gzip'):raise ValueError('invalid replay compression')
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
+    from .production_storage import production_lock
+    with production_lock(output):
+        return _produce_locked(pool,root,output,selected,workers,compression)
+
+
+def _produce_locked(pool,root,output,selected,workers,compression):
+    from .production_storage import publication
+    # Legacy bundles have no storage.json. Never overwrite their index by
+    # silently switching the route filename/encoding or the source contract.
+    existing_index=output/'index.json'
+    old_receipts={}
+    if existing_index.exists():
+        old=json.loads(existing_index.read_text())
+        if any(row['artifact'].endswith('.gz')!=(compression=='gzip') for row in old['routes']):
+            raise ValueError('replay storage changed; use a fresh directory')
+        accounting(pool,existing_index)
+        old_receipts={(r['scenario'],r['route_id']):r for r in old['routes']}
+    if any(path.name.endswith('.gz')!=(compression=='gzip') for path in output.glob('*.jsonl*')
+           if path.name.endswith(('.jsonl','.jsonl.gz'))):
+        raise ValueError('existing route encoding differs; use a fresh directory')
+    sealed=publication(existing_index)
+    missing=[r for r in selected if (r['scenario'],r['route_id']) not in old_receipts]
+    if sealed and missing:
+        raise ValueError('published production is immutable; build a new collection')
+    if not missing:
+        # Idempotent subset/reordered/full requests leave every published byte intact.
+        return accounting(pool,existing_index)
+    encoding_path=output/'storage.json'
+    encoding=dict(compression=compression)
+    if encoding_path.exists() and json.loads(encoding_path.read_text())!=encoding:
+        raise ValueError('replay storage changed; use a fresh directory')
+    if not encoding_path.exists():write_json(encoding_path,encoding)
     header=dict(policy=POLICY,teacher=rules.identity(),candidate_pool_sha256=pool['sha256'])
-    jobs=[(str(root),r,str(output/(digest([r['scenario'],r['route_id']])+'.jsonl')),header) for r in selected]
+    jobs=[(str(root),r,str(output/(digest([r['scenario'],r['route_id']])+('.jsonl.gz' if compression=='gzip' else '.jsonl'))),header) for r in missing]
     import time,sys
     started=time.monotonic();receipts=[]
     def collect(iterator):
@@ -331,7 +366,18 @@ def produce(pool,root,output,*,route_keys=None,workers=4):
     if workers==1:collect(map(_write_route,jobs))
     else:
         with ProcessPoolExecutor(max_workers=workers) as executor:collect(executor.map(_write_route,jobs))
-    index=dict(**header,routes=receipts)
+    merged=dict(old_receipts)
+    for receipt in receipts:
+        key=receipt['scenario'],receipt['route_id']
+        if key in merged and merged[key]!=receipt:raise ValueError('conflicting cumulative route receipt')
+        merged[key]=receipt
+    # Validate all accumulated receipts immediately before atomic publication.
+    for route in pool['routes']:
+        key=route['scenario'],route['route_id']
+        if key in merged and inspect_route(output/merged[key]['artifact'],route,header)!=merged[key]:
+            raise ValueError('previous route changed during batch replay')
+    index=dict(**header,routes=[merged[(r['scenario'],r['route_id'])] for r in pool['routes']
+                               if (r['scenario'],r['route_id']) in merged])
     index['sha256']=digest(index);write_json(output/'index.json',index)
     return accounting(pool,output/'index.json')
 
@@ -362,8 +408,9 @@ def main():
     p.add_argument('--data-root',type=Path,default=ROOT.parents[1]/'lead_data')
     p.add_argument('--candidate-pool',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
     p.add_argument('--route-list',type=Path);p.add_argument('--workers',type=int,default=4)
+    p.add_argument('--compression',choices=('none','gzip'),default='gzip')
     a=p.parse_args();pool=json.loads(a.candidate_pool.read_text())
     keys=None if a.route_list is None else {(r['scenario'],r['route_id']) for r in json.loads(a.route_list.read_text())}
-    print(json.dumps(produce(pool,a.data_root,a.output_dir,route_keys=keys,workers=a.workers),ensure_ascii=False))
+    print(json.dumps(produce(pool,a.data_root,a.output_dir,route_keys=keys,workers=a.workers,compression=a.compression),ensure_ascii=False))
 
 if __name__=='__main__':main()

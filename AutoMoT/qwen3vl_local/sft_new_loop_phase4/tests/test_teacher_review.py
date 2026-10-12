@@ -136,8 +136,18 @@ def test_unresolved_actor_cannot_rearm(case):
     assert seen
 
 
-def test_selector_reports_scope_gaps_and_freezes_deterministic_sample(tmp_path,monkeypatch):
+@pytest.mark.parametrize('compressed',[False,True])
+def test_selector_reports_scope_gaps_and_freezes_deterministic_sample(tmp_path,monkeypatch,compressed):
     pool,_,_,_=make_bundle(tmp_path)
+    if compressed:
+        from qwen3vl_local.sft_new_loop_phase4.production_storage import write_route
+        raw=tmp_path/'route.jsonl';packed=tmp_path/'route.jsonl.gz'
+        with write_route(packed,compressed=True) as stream:stream.write(raw.read_text())
+        index=json.loads((tmp_path/'index.json').read_text())
+        index['routes'][0].update(artifact=packed.name,sha256=file_sha(packed))
+        index['sha256']=digest({k:v for k,v in index.items() if k!='sha256'})
+        write_json(tmp_path/'index.json',index)
+
     monkeypatch.setattr(candidate_pool,'validate',lambda pool:pool)
     monkeypatch.setattr(dataset,'groups',lambda:set())
     monkeypatch.setattr(dataset,'holdout_reservations',lambda:{})

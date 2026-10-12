@@ -82,7 +82,8 @@ def test_reference_pack_rejects_training_access(tmp_path):
     with pytest.raises(ValueError,match='held-out'):load(tmp_path,split='train',rgb_mode=2)
 
 
-def test_heldout_reference_export_load_and_tamper(tmp_path,monkeypatch):
+@pytest.mark.parametrize('compressed',[False,True])
+def test_heldout_reference_export_load_and_tamper(tmp_path,monkeypatch,compressed):
     from qwen3vl_local.sft_new_loop_phase4.tests.test_privileged_producer import write_source
     from qwen3vl_local.sft_new_loop_phase4.tests.test_teacher import question,seal
     from qwen3vl_local.sft_new_loop_phase4 import teacher_replay as replay,teacher_rules as rules,teacher_evaluation as evaluation
@@ -99,7 +100,10 @@ def test_heldout_reference_export_load_and_tamper(tmp_path,monkeypatch):
     for n in route['rgb_frames']:
         items.append(dict(kind='frame_disposition',**{k:route[k] for k in ('scenario','route_id','physical_group','split')},frame_id=n,
             disposition='questions' if n==10 else 'abstained',questions=[q] if n==10 else [],reasons=['synthetic']))
-    path=tmp_path/'route.jsonl';path.write_text(''.join(json.dumps(r)+'\n' for r in items))
+    from qwen3vl_local.sft_new_loop_phase4.production_storage import write_route
+    path=tmp_path/('route.jsonl.gz' if compressed else 'route.jsonl')
+    with write_route(path,compressed=compressed) as stream:
+        stream.write(''.join(json.dumps(r)+'\n' for r in items))
     index=dict(**header,routes=[replay.inspect_route(path,route,header)]);index['sha256']=digest(index);write_json(tmp_path/'index.json',index)
     output=tmp_path/'refs';report=evaluation.export(pool,tmp_path/'index.json',tmp_path/'data',output,rgb_mode=2)
     rows=evaluation.load(output,split='val',rgb_mode=2)

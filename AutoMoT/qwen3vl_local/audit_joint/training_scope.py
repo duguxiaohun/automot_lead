@@ -99,6 +99,11 @@ def dataset_bindings(dataset):
     paths.add(parent / 'manifest.json')
     manifest = json.loads((parent / 'manifest.json').read_text())
     paths.update(parent / name for name in parent_binding(parent, manifest))
+    if manifest.get('production_reference_sha256'):
+        from qwen3vl_local.sft_new_loop_phase4.production_storage import resolve
+        resolve(parent,manifest)
+        ref=json.loads((parent/'production_reference.json').read_text())
+        paths.update(Path(r['logical_path']) for r in [ref['index'],*ref['routes'].values()])
     return [file_binding(path) for path in sorted(paths)]
 
 

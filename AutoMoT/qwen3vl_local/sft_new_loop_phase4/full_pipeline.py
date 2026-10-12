@@ -47,7 +47,7 @@ def artifact_hashes(base):
         path=base/f'data{mode}'
         manifest=read(path/'manifest.json')
         for name in ('manifest.json','review_queue.jsonl','candidate_pool.json',
-                     'teacher_registry.json','production/index.json',*manifest['files']):
+                     'teacher_registry.json','production/index.json',*(['production_reference.json'] if manifest.get('production_reference_sha256') else []),*manifest['files']):
             files[str((path/name).relative_to(base))]=file_sha(path/name)
     return files
 
@@ -67,6 +67,8 @@ def validate_ready(base, request):
             raise ValueError('full pipeline dataset contract/RGB mode mismatch')
         if not manifest.get('production_index_sha256'):
             raise ValueError('full pipeline requires teacher production, not a manual-only dataset')
+        from .production_storage import resolve
+        resolve(base/f'data{mode}',manifest)
         validate_dataset_scope(manifest,receipt['pairing'])
     return receipt
 
@@ -78,7 +80,7 @@ def default_registry():
     classes={rules.rule_class(event,edge.key,mode) for event in EVENTS
              for edge in (*event_edges(EVENTS[event][1]),*(event_edges('bypass') if event=='U-E4' else ()),*COMMON,RECOVER_FOLLOW)
              for mode in (2,4) if edge.key!='restrict'}
-    return approval.weak_registry(classes,'full_pipeline_v50_scoped_teacher')
+    return approval.weak_registry(classes,'full_pipeline_v52_scoped_teacher')
 
 
 def prepare(base, data_root, annotations, *, workers=16, skip_build=False,
@@ -114,7 +116,7 @@ def prepare(base, data_root, annotations, *, workers=16, skip_build=False,
             for pending in sorted(index.parent.glob('*.pending')):
                 pending.rename(pending.with_name(pending.name+f'.interrupted-{time.time_ns()}'))
             print('[Phase4 build] replaying every eligible route in all frozen splits',flush=True)
-            replay.produce(pool,data_root,index.parent,workers=workers)
+            replay.produce(pool,data_root,index.parent,workers=workers,compression="gzip")
         accounting=replay.accounting(pool,index)
         if not accounting['complete_causal_production']:
             raise ValueError('full pipeline requires complete route/frame accounting')

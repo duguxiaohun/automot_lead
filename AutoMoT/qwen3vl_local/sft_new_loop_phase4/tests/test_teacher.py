@@ -242,9 +242,10 @@ def test_ledger_rejects_incomplete_or_modified_artifacts(tmp_path,case):
     with pytest.raises(ValueError):r.accounting(pool,tmp_path/'index.json')
 
 
+@pytest.mark.parametrize('compressed',[False,True])
 @pytest.mark.parametrize('weak',[False,True])
 @pytest.mark.parametrize('external_links',[False,True])
-def test_approved_teacher_compiles_builds_and_loads_with_distinct_provenance(tmp_path,monkeypatch,weak,external_links):
+def test_approved_teacher_compiles_builds_and_loads_with_distinct_provenance(tmp_path,monkeypatch,weak,external_links,compressed):
     from qwen3vl_local.sft_new_loop_phase4.tests.test_privileged_producer import write_source
     for n in range(4,12):write_source(tmp_path/'data',n)
     import lzma,pickle
@@ -270,7 +271,10 @@ def test_approved_teacher_compiles_builds_and_loads_with_distinct_provenance(tmp
     for n in route['rgb_frames']:
         items.append(dict(kind='frame_disposition',**{k:route[k] for k in ('scenario','route_id','physical_group','split')},frame_id=n,
                           disposition='questions' if n==10 else 'abstained',questions=[q] if n==10 else [],reasons=['synthetic']))
-    path.write_text(''.join(json.dumps(x)+'\n' for x in items))
+    from qwen3vl_local.sft_new_loop_phase4.production_storage import write_route
+    if compressed:path=path.with_suffix('.jsonl.gz')
+    with write_route(path,compressed=compressed) as stream:
+        stream.write(''.join(json.dumps(x)+'\n' for x in items))
     index=dict(**header,routes=[r.inspect_route(path,route,header)]);index['sha256']=digest(index);write_json(bundle/'index.json',index)
     reg=registry()
     # The real approval path is tested separately above with 200 independent

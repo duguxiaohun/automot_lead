@@ -59,7 +59,7 @@ def groups():
 
 
 HOLDOUT_PLAN = 'formal_holdout_plan_20260930.json'
-PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v30_20261011.json'
+PRODUCER_CHECK_PLAN = 'producer_manual_check_plan_v32_20261012.json'
 
 
 def producer_check_reservations():
@@ -167,7 +167,7 @@ def dump_rows(path, rows):
     Path(path).write_text(''.join(json.dumps(r,ensure_ascii=False,sort_keys=True)+'\n' for r in rows))
 
 
-def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidate_pool=None, teacher_registry=None, production_index=None, teacher_selection=None):
+def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidate_pool=None, teacher_registry=None, production_index=None, teacher_selection=None, production_storage="references"):
     from qwen3vl_local.sft_new_loop_phase3.trajectory_action import _load_meta
     from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route
     if rgb_mode not in (2,4):
@@ -316,11 +316,10 @@ def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidat
     output.mkdir(parents=True)
     if candidate_pool is not None:write_json(output/'candidate_pool.json',candidate_pool)
     if teacher_registry is not None:write_json(output/'teacher_registry.json',teacher_registry)
+    reference_sha=None
     if production_index is not None:
-        import shutil
-        index=json.loads(Path(production_index).read_text());bundle=output/'production';bundle.mkdir()
-        shutil.copyfile(production_index,bundle/'index.json')
-        for r in index['routes']:shutil.copyfile(Path(production_index).parent/r['artifact'],bundle/r['artifact'])
+        from .production_storage import install
+        reference_sha=install(production_index,output,mode=production_storage)
     review_queue=[r for r in rows if r['target'] not in ('YES','NO')]
     dump_rows(output/'review_queue.jsonl',review_queue)
     rows=[r for r in rows if r['target'] in ('YES','NO')]
@@ -332,6 +331,7 @@ def build(annotations, data_root, output, *, rgb_mode=4, seed=20260929, candidat
     manifest = dict(contract=contract(),rgb_mode=rgb_mode,observation_contract=observation_contract(rgb_mode),seed=seed,annotations_sha256=digest(annotations),
                     candidate_pool_sha256=file_sha(output/'candidate_pool.json') if candidate_pool is not None else None,
                     production_coverage=production,teacher_selection=teacher_selection,
+                    production_reference_sha256=reference_sha,
                     teacher_registry_sha256=file_sha(output/'teacher_registry.json') if teacher_registry is not None else None,
                     production_index_sha256=file_sha(output/'production/index.json') if production_index is not None else None,
                     exposure_sha256=digest(sorted(exposed)),counts=dict(Counter(r['split'] for r in rows)),
@@ -424,8 +424,8 @@ def load_dataset(path, *, require_ready=False, require_trainable=False, require_
         teacher_approval=validate_registry(json.loads((path/'teacher_registry.json').read_text()))
     production_index=None
     if manifest.get('production_index_sha256') is not None:
-        production_index=path/'production/index.json'
-        if file_sha(production_index)!=manifest['production_index_sha256']:raise ValueError('production index hash mismatch')
+        from .production_storage import resolve
+        production_index=resolve(path,manifest)
     if check_observation_contract(manifest.get('observation_contract')) != observation_contract(manifest['rgb_mode']):
         raise ValueError('dataset observation contract mismatch')
     if manifest['exposure_sha256'] != digest(sorted(exposed)):

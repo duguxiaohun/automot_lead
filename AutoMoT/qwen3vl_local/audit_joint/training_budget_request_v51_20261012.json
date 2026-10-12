@@ -1,0 +1,41 @@
+{
+  "free_bytes": 49070149632,
+  "free_bytes_evidence": "received server readiness3 2026-10-12; not a new live measurement",
+  "reserve_bytes": 21474836480,
+  "modes": 2,
+  "retained_checkpoints_per_mode": 1,
+  "components": {
+    "shared_replay": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "compiled_datasets": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "automatic_holdout": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "phase3_index": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "adapters_per_checkpoint": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "optimizer_per_checkpoint": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "logs_and_reports": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    },
+    "temporary_peak": {
+      "upper_bound_bytes": null,
+      "evidence": ""
+    }
+  }
+}
