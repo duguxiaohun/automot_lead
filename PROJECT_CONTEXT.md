@@ -1,5 +1,12 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-13 Phase3正式数据通过与实际等量首轮入口
+
+收到phase3_prepare_report.zip163418字节/19成员，外层/成员SHA/CRC、471源与3f9daefe1420e199d0c6772536912b987cda1cec一致；manifest无尾换行原生序列化重现登记SHA，非漂移。服务器CPU正式索引15096行=14124/516/456，3510run/3509物理组，原始速度/动作不一致0、跨split物理重叠0；choice训练1024/event、val16/32/test38，评测各事件至少5物理组，正式建库关闭，不再readiness/重建。只核交接证据，本机未独立重算全库/新RGB。
+发现正式train超长输入零损失推进及val跳题仍评分会破坏实际1:1；修复完整轮次任一rank打包拒绝即同步停止、DDP填充损失归零、各rank消费计数汇总核对计划/十事件、固定val漏题拒绝。显式max_steps smoke不冒充完整轮次。新增server_phase3_epoch.sh/.py及475源清单：冻结已验收索引SHA，CPU LoRA预算→choice短2/4各从基座1轮10240→final-only adapter→未合并LoRA同320题重载/raw重解析→380题固定test→≤30MB包；20GiB守护，无optimizer/RGB复制，不自动7轮。按既有4B拓扑预算约4.734GiB增量+20保留，实际启动重算。无P3优化器恢复能力，不声称可无损续训。
+完整2396回归通过103.77秒；首轮2392通过4旧测试期待静默跳题，修正断言后全套通过，失败日志保留。真实CPU线性小模型40题原生循环验证各事件4及缺题拒绝（替代图像/损失，不是QwenGPU）；原生CLI本机缺服务器索引退出2/未训练，26344字节3成员包及475源通过。用户随后授权push，按白名单发布。见audit_joint/PHASE3_ADMISSION_FIRST_EPOCH_20261013.md和phase3_admission_verification_20261013.json；证据checkpoints/phase3_prepare_received_20261013。发布同步后仅运行新epoch入口PREPARED_ROOT=checkpoints/phase3_prepare_20261012_231356_193369568，交phase3_epoch_report.zip+phase3_epoch_package.json。
+P3部分动作评测支持窄（JUNCTION_RULE_CONFLICT val全STOP、VULNERABLE_CROSSING test全STOP），binary同RS错事件留出0；不以事件等量冒称所有动作准确，但可先choice基线。P4UE5真实proceed YES仍0、新v53全池和联合隔离未验收；不阻塞P3独立开发实验。生产标定/阈值/提示词未改，无新RGB/本机GPU/远程训练，G0仍未通过。
+
 ### 2026-10-12 Phase3缺索引交接核验与自动建库入口
 
 收到Downloads Phase3包25977字节/2成员，外层及成员SHA/CRC、468源码与本机及4e59862ed01ef9dae8266024e1e210a2fc074f36逐项一致。结果index_not_selected/paths空/truncated=true，仅限定路径盘点，非全服务器缺失证明或正式数据准入。不重跑readiness/路径盘点。新增server_phase3_prepare.sh/.py：471源清单，fresh输出，原生全源build+候选隔离+binary/choice原始meta/标签/RGB路径核验+等量计划，四图/短两图合同与提示词SHA，训练1024/event、val16/32上限/test固定无放回、world1/4题序；默认CPU2worker，20GiB余量/约8GiB净写盘轮询保护，成功/失败≤30MB包。不复制RGB/回放/权重，不训练；完整原始信号检查不冒称全源RGB视觉认证。

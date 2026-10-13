@@ -1,0 +1,226 @@
+{
+  "status": "verified",
+  "source_commit": "3f9daefe1420e199d0c6772536912b987cda1cec",
+  "package": {
+    "files": {
+      "source_check.json": "7c1d63da08737b930e25703259ab7cd75752a1361845b1496274060c469ce7ff",
+      "prepare_result.json": "94f6aaf0f889ac3b53b00f8536bf34a4fbdffd54adff4e23047b4dc3d9dcc488",
+      "input_bindings.json": "ef386c09040a97c4602efa3386eef9d2532500e3c70753bb79040ff067537667",
+      "index_preflight.json": "e29a45a626e03a0176e711ca7c515dde98189a0c47f948bfe2168da2b0b7e8dd",
+      "sampling_plans.json": "726de55b468522a2f8f281867ba5d60a46087d8ef7d845caf23f0db05f72e65d",
+      "temporal_slices.json": "fd9814235fbfa5d7a313314b39757fb262de1ae8390db1618139e140efb62e68",
+      "audit_rebuilt_index_binary.json": "5a94aa554706a12caa3347a78db6f7a3746293cc4b4698aa8dde81a79629562f",
+      "audit_rebuilt_index_choice.json": "5a94aa554706a12caa3347a78db6f7a3746293cc4b4698aa8dde81a79629562f",
+      "audit_raw_index_binary.json": "ccbca3a18e7ca5ea2877dfcacd2de548b3ab90c0a38542acaa1714a0c0612c17",
+      "audit_raw_index_choice.json": "ccbca3a18e7ca5ea2877dfcacd2de548b3ab90c0a38542acaa1714a0c0612c17",
+      "manifest.json": "1483f13d6f97fd6d1c50f2157b72f8b29a27f7d0b0c59eeb360cd5bab463b600",
+      "prepare_log_tail.json": "fd091c06157acf6fcd3f821f4041ec83328c5e27d7e08242932834c6559c0181",
+      "build_log_tail.json": "b614c84f18d44b5e6f27112ea104f55fc4743f597f746c14acca40721503d4cc",
+      "temporal_slices_log_tail.json": "827bcc3795b685651f19e37fbb22e2af29a78eb42d17ee958268c6b8162b3c4c",
+      "audit_rebuilt_index_binary_log_tail.json": "e810fefe4fe301bddecddef201ed6645f4bf94ecc0e5d67b65e05540299300f9",
+      "audit_rebuilt_index_choice_log_tail.json": "864583c361edff89e9260dfa433c02a84d3164afe9b97c36fa0b233b536502e1",
+      "audit_raw_index_binary_log_tail.json": "aeb96e17639d1f55e282e0381d936f8639ec101bb2ef6193b6b219cc5264cde3",
+      "audit_raw_index_choice_log_tail.json": "4c7983ea809d2c3393113facba23707e03ec33b9bf9f65fc59ee1cf03e228a56",
+      "handoff.json": "25d773166da08bc2cf3d73b6cddd3a8549dae463b33099932ad9ecd33246be46"
+    },
+    "zip_sha256": "96b9f9162f7c15daf2bd7b4c12e83d4d1db7b8b06d82a9c41573cd9d82ee8130",
+    "bytes": 163418,
+    "status": "verified"
+  },
+  "source_files": 471,
+  "manifest_original_serialization_sha256": "12b8dd5391e9baaa0441900463f7063b6dea055cc51c66077dd442e3cd49912e",
+  "index_sha256": "925053e34c47f35dfe4987f14a1be3a8abdc206d75bea31964dc4ca9b8fcee99",
+  "raw": {
+    "counts": {
+      "train/INVALID": 2354,
+      "train/LEAD_BRAKE": 1177,
+      "train/JUNCTION_RULE_CONFLICT": 1177,
+      "train/RAMP_MERGE_EXIT": 1177,
+      "train/ONCOMING_INVASION": 1177,
+      "train/SIGNAL_FAILURE": 1177,
+      "train/DYNAMIC_CUTIN": 1177,
+      "train/VULNERABLE_CROSSING": 1177,
+      "train/POST_BYPASS_RETURN": 1177,
+      "train/STATIC_BLOCKAGE": 1177,
+      "train/UNSIGNALIZED_PRIORITY": 1177,
+      "val/JUNCTION_RULE_CONFLICT": 43,
+      "val/RAMP_MERGE_EXIT": 43,
+      "val/INVALID": 86,
+      "val/LEAD_BRAKE": 43,
+      "val/SIGNAL_FAILURE": 43,
+      "val/POST_BYPASS_RETURN": 43,
+      "val/VULNERABLE_CROSSING": 43,
+      "val/ONCOMING_INVASION": 43,
+      "val/UNSIGNALIZED_PRIORITY": 43,
+      "val/STATIC_BLOCKAGE": 43,
+      "val/DYNAMIC_CUTIN": 43,
+      "test/POST_BYPASS_RETURN": 38,
+      "test/INVALID": 76,
+      "test/RAMP_MERGE_EXIT": 38,
+      "test/SIGNAL_FAILURE": 38,
+      "test/VULNERABLE_CROSSING": 38,
+      "test/ONCOMING_INVASION": 38,
+      "test/UNSIGNALIZED_PRIORITY": 38,
+      "test/DYNAMIC_CUTIN": 38,
+      "test/JUNCTION_RULE_CONFLICT": 38,
+      "test/LEAD_BRAKE": 38,
+      "test/STATIC_BLOCKAGE": 38
+    },
+    "unique_cases": {
+      "train": 14002,
+      "val": 516,
+      "test": 456
+    },
+    "same_rs_physical_routes": {
+      "train": 20,
+      "val": 0,
+      "test": 0
+    },
+    "same_rs_evaluation": {
+      "train": {
+        "unique_physical_routes": 20,
+        "minimum": 2,
+        "status": "supported",
+        "supported": true,
+        "required_for_training": false,
+        "used_for_checkpoint_guard": true
+      },
+      "val": {
+        "unique_physical_routes": 0,
+        "minimum": 2,
+        "status": "insufficient_support",
+        "supported": false,
+        "required_for_training": false,
+        "used_for_checkpoint_guard": false
+      },
+      "test": {
+        "unique_physical_routes": 0,
+        "minimum": 2,
+        "status": "insufficient_support",
+        "supported": false,
+        "required_for_training": false,
+        "used_for_checkpoint_guard": false
+      }
+    },
+    "physical_routes": 3509,
+    "physical_route_overlap": 0,
+    "raw_rows_verified": 15096,
+    "raw_routes_verified": 3510,
+    "raw_speed_mismatches": 0,
+    "raw_action_mismatches": 0,
+    "manual_rgb_confirmation_by_this_program": false
+  },
+  "actual_sampling": {
+    "binary": {
+      "train": {
+        "per_event": 1024,
+        "total": 12288,
+        "invalid": 2048,
+        "minimum_physical_groups": 70
+      },
+      "val_loss": {
+        "per_event": 16,
+        "total": 246,
+        "invalid": 86,
+        "minimum_physical_groups": 5
+      },
+      "val_generation": {
+        "per_event": 32,
+        "total": 406,
+        "invalid": 86,
+        "minimum_physical_groups": 5
+      },
+      "test": {
+        "per_event": 38,
+        "total": 456,
+        "invalid": 76,
+        "minimum_physical_groups": 5
+      }
+    },
+    "choice": {
+      "train": {
+        "per_event": 1024,
+        "total": 10240,
+        "invalid": 0,
+        "minimum_physical_groups": 70
+      },
+      "val_loss": {
+        "per_event": 16,
+        "total": 160,
+        "invalid": 0,
+        "minimum_physical_groups": 5
+      },
+      "val_generation": {
+        "per_event": 32,
+        "total": 320,
+        "invalid": 0,
+        "minimum_physical_groups": 5
+      },
+      "test": {
+        "per_event": 38,
+        "total": 380,
+        "invalid": 0,
+        "minimum_physical_groups": 5
+      }
+    }
+  },
+  "limitations": [
+    "Local audit verifies handoff evidence; full server index/raw signals not copied here",
+    "No new RGB visual inspection",
+    "Some event/action holdout cells absent; not universal action accuracy",
+    "Phase4 U-E5 proceed positives and joint isolation still unresolved"
+  ],
+  "full_regression": {
+    "command": [
+      "/tmp/automot-qwen35-env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "qwen3vl_local/sft_new_loop_phase3",
+      "qwen3vl_local/sft_new_loop_phase4",
+      "qwen3vl_local/audit_joint/tests"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 104.3506784690544,
+    "log_sha256": "5d075c3fd9080626b43f49b470218b375864bca45c9aecf6da683ed0459c0d67"
+  },
+  "tests_passed": 2396,
+  "earlier_test_run": {
+    "command": [
+      "/tmp/automot-qwen35-env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "qwen3vl_local/sft_new_loop_phase3",
+      "qwen3vl_local/sft_new_loop_phase4",
+      "qwen3vl_local/audit_joint/tests"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 107.55781845306046,
+    "log_sha256": "fb9d0150cec58a502d4ff23e9945e987d60c16c17b692d2f28b3e2cdb948a9e8"
+  },
+  "earlier_failures": "4 old tests expected silent loss-validation skipping; expectations updated, full final suite passed",
+  "native_epoch_cli": {
+    "result": {
+      "status": "blocked",
+      "completed_modes": [],
+      "training_started": false,
+      "error": "FileNotFoundError: [Errno 2] No such file or directory: '/home/cruser1'"
+    },
+    "package": {
+      "files": {
+        "source_check.json": "1e2dce884470e02c1ad095c97a604b4cbe8958089dc058d9b384bad0e3b7466a",
+        "epoch_result.json": "ff801971cc9a8b2087f4212099858f9d8bb315a5708c50468ef0851adb24e470",
+        "handoff.json": "e38abfccb33697584156da965316d1948362cb2c75ea3c36eebe442d2828d651"
+      },
+      "zip_sha256": "171f8ccbf9ce012a7a36223316f44e7488b7c004b808533282a9f9f7872f9a86",
+      "bytes": 26344,
+      "status": "verified"
+    },
+    "source_files": 475
+  },
+  "production_labels_changed": false,
+  "prompt_changed": false,
+  "remote_training_started_by_this_audit": false,
+  "new_rgb_frames_viewed": 0
+}

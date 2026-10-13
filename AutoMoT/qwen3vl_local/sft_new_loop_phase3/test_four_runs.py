@@ -161,8 +161,11 @@ def test_loss_and_generation_validation_forward_candidate(rgb, output, monkeypat
     model=torch.nn.Linear(1,1)
     bundle=SimpleNamespace(model=model,unwrap=lambda:model,processor=Processor(),tokenizer=object(),device=torch.device('cpu'))
     monkeypatch.setattr(train,'_load_images',lambda paths:[object() for _ in paths])
-    train.evaluate_loss(bundle,[item],history_rgb_mode=rgb,prompt_variant=CANDIDATE_NAME,
-        max_length=1,format_loss_weight=.25,device=torch.device('cpu'),world_size=1)
+    # The tiny tokenizer stub deliberately exceeds max_length. The prompt must
+    # still be rendered, but an incomplete validation list must no longer score.
+    with pytest.raises(ValueError, match='fixed validation cannot skip'):
+        train.evaluate_loss(bundle,[item],history_rgb_mode=rgb,prompt_variant=CANDIDATE_NAME,
+            max_length=1,format_loss_weight=.25,device=torch.device('cpu'),world_size=1)
     monkeypatch.setattr(train,'_kv_start_state',lambda b,m:seen.append(m))
     monkeypatch.setattr(train,'_student_generate_kv',lambda *a:(prompts.build_action_target(item.spec),None,None))
     metrics=train.evaluate_generation_probe(bundle,[item],history_rgb_mode=rgb,prompt_variant=CANDIDATE_NAME,max_new_tokens=64)

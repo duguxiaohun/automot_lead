@@ -789,6 +789,31 @@ def _split_work_for_rank(work: Sequence[WorkItem], *, rank: int, world_size: int
     return shard
 
 
+def require_packed_on_all_ranks(packed, *, padded, device, world_size):
+    """A full epoch may not silently discard a real sample on any rank."""
+    missing = torch.tensor(int(packed is None and not padded), device=device)
+    if world_size > 1:
+        dist.all_reduce(missing, op=dist.ReduceOp.MAX)
+    if missing.item():
+        raise ValueError('complete epoch requires every input: max_length/packing rejected a sample; '
+                         'no successful equal-event epoch can be reported')
+
+
+def verify_epoch_consumption(work, consumed, *, device, world_size):
+    keys = [*CONTEXT_IDS, 'INVALID']
+    counts = torch.tensor([consumed.get(k, 0) for k in keys], device=device, dtype=torch.int64)
+    if world_size > 1:
+        dist.all_reduce(counts, op=dist.ReduceOp.SUM)
+    actual = dict(zip(keys, map(int, counts.tolist())))
+    expected = Counter(_balance_class(item.row) for item in work)
+    if any(actual[k] != expected[k] for k in keys):
+        raise ValueError(f'actual epoch consumption differs from plan: {actual} expected={dict(expected)}')
+    if len({actual[k] for k in CONTEXT_IDS}) != 1 or not actual[CONTEXT_IDS[0]]:
+        raise ValueError('actual epoch events are not equal')
+    return dict(status='verified', actual=actual, expected=dict(expected),
+                scope='all-rank samples contributing loss; excludes DDP padding; INVALID separate')
+
+
 @torch.no_grad()
 def evaluate_loss(
     bundle: Any,
@@ -890,6 +915,10 @@ def evaluate_loss(
     if int(world_size) > 1:
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
     vals = [float(x) for x in tensor.detach().cpu().tolist()]
+    if vals[2] > 0:
+        if was_training:
+            bundle.model.train()
+        raise ValueError('fixed validation cannot skip inputs rejected by max_length/packing')
     total_samples = max(1.0, vals[1])
     offset = 12
     metrics: Dict[str, float] = {
@@ -1698,6 +1727,7 @@ def train(args: argparse.Namespace) -> None:
                 for guard, passed in epoch_invalid_report["guards"].items():
                     writer.add_scalar(f"balance/invalid_guard/{_tb_tag(guard)}", float(bool(passed)), int(epoch + 1))
         epoch_start_step = global_step
+        consumed = Counter()
         for step_in_epoch in range(steps_per_epoch):
             if global_step >= total_steps:
                 break
@@ -1717,14 +1747,20 @@ def train(args: argparse.Namespace) -> None:
                 max_length=int(args.max_length),
                 format_loss_weight=float(args.format_loss_weight),
             )
+            if int(args.max_steps) == 0:
+                require_packed_on_all_ranks(packed, padded=padded_step, device=device, world_size=world_size)
             if packed is None:
                 skipped += 1
                 loss = _ddp_sync_zero_loss(bundle, images)
                 stats = {"denom": 0.0, "token_acc": 0.0, "value_token_acc": 0.0, "format_token_acc": 0.0}
             else:
                 loss, stats = _loss_one(bundle, packed, spec)
+            if padded_step:
+                loss = loss * 0
+            elif packed is not None:
+                consumed[_balance_class(row)] += 1
             loss_value = float(loss.detach().item())
-            if packed is not None:
+            if packed is not None and not padded_step:
                 window_loss_sum += loss_value
                 window_samples += 1
                 for key, value in stats.items():
@@ -1986,6 +2022,11 @@ def train(args: argparse.Namespace) -> None:
                 break
         if global_step == epoch_start_step:
             raise RuntimeError("no train steps were completed in an epoch; check max_length and input data")
+        if int(args.max_steps) == 0:
+            consumption = verify_epoch_consumption(full_work, consumed, device=device, world_size=world_size)
+            if rank == 0:
+                (output_dir / 'balance' / f'consumed_epoch_{epoch + 1:04d}.json').write_text(
+                    json.dumps(consumption, indent=2) + '\n')
         epoch += 1
 
     if accum_steps > 0:

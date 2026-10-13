@@ -1,5 +1,7 @@
 # Phase3 交接核验与自动建库下一步
 
+> 2026-10-13：正式建库交接已收到并通过，**不要重复本页建库命令**。下一步直接复用正式索引进行首轮，见 [正式准入与首轮步骤](PHASE3_ADMISSION_FIRST_EPOCH_20261013.md)。
+
 ## 收到的文件说明了什么
 
 Downloads 中只有 `phase3_index_report.zip`、对应 package JSON 和一份同内容的报告 JSON。本轮 ZIP 为 **25,977 字节、2 个成员**；外层 SHA、成员 SHA、CRC 通过。468 个源码 SHA 与本机及 Git `4e59862ed01ef9dae8266024e1e210a2fc074f36` 逐项一致。服务器同步正常，不再运行 readiness 或重复本次路径盘点。
