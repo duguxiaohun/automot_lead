@@ -29,13 +29,14 @@ def raw_training_support(index):
                 scope='necessary raw train/readiness/RGB4 support only; final filtered admission still required')
 
 
-def build(pilot, root, output, model_dir, workers=4):
+def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'):
     from qwen3vl_local.sft_new_loop_phase4 import candidate_pool, teacher_replay, dataset, teacher_data, teacher_evaluation
     from qwen3vl_local.sft_new_loop_phase4.full_pipeline import default_registry
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.data import create
     from .first_epoch_budget import profile, request
-    from .rule_baseline import check
-    result = dict(status='building',stage='inputs',stages={},errors=[],training_started=False)
+    from .rule_baseline import check, coverage_decision
+    result = dict(status='building',stage='inputs',stages={},errors=[],training_started=False,
+                  coverage_policy=coverage_policy,unsupported_capabilities=[])
     started = time.monotonic()
     def save():
         result['elapsed_seconds'] = time.monotonic()-started
@@ -45,6 +46,7 @@ def build(pilot, root, output, model_dir, workers=4):
     def stage(name):
         result['stage'] = name; save()
     try:
+        coverage_decision([],coverage_policy)
         pilot = Path(pilot).absolute(); output = Path(output).absolute()
         if pilot.resolve() == output.resolve() or output.resolve().is_relative_to(pilot.resolve()):
             raise ValueError('build output must be fresh and outside pilot inputs')
@@ -73,12 +75,15 @@ def build(pilot, root, output, model_dir, workers=4):
         if file_sha(index_path) != replay['index_sha256']:
             raise ValueError('replay index changed during raw support check')
         raw_support['index_sha256'] = replay['index_sha256']
+        decision=coverage_decision(raw_support['missing_critical_support'],coverage_policy)
+        raw_support.update(coverage_policy=coverage_policy,**decision)
         write_json(output/'raw_training_support.json', raw_support)
         result['stages']['raw_training_support'] = raw_support
-        if raw_support['missing_critical_support']:
+        result['unsupported_capabilities']=decision['unsupported_capabilities']
+        if decision['blocking_missing_support']:
             result.update(status='blocked', stage='finished_cpu', compilation_skipped=True,
                 blocking_stage='raw_training_support',
-                errors=['raw training replay missing critical support: ' + str(raw_support['missing_critical_support'])])
+                errors=['raw training replay missing critical support: ' + str(decision['blocking_missing_support'])])
             save()
             return result
         stage('rgb4_rule_dataset')
@@ -101,9 +106,11 @@ def build(pilot, root, output, model_dir, workers=4):
         budget = request(budget_profile,output,stored_evidence=stored)
         write_json(output/'first_epoch_budget.json',budget)
         stage('automatic_admission')
-        admission = check(output/'view',output/'references4',budget=budget,space_path=output)
+        admission = check(output/'view',output/'references4',budget=budget,space_path=output,
+                          coverage_policy=coverage_policy)
         write_json(output/'automatic_admission.json',admission)
-        result.update(status=admission['status'],stage='finished_cpu',errors=admission['errors'])
+        result.update(status=admission['status'],stage='finished_cpu',errors=admission['errors'],
+                      unsupported_capabilities=admission['unsupported_capabilities'])
     except Exception as exc:
         result.update(status='blocked',errors=[f'{type(exc).__name__}: {exc}'])
     save()
@@ -111,6 +118,7 @@ def build(pilot, root, output, model_dir, workers=4):
 
 
 def package(output, exit_code):
+    from .rule_baseline import ADMITTED
     from .server_pilot import package as make_package
     from .training_budget import plan
     output = Path(output)
@@ -120,8 +128,8 @@ def package(output, exit_code):
     # Keep the original build report byte semantics: a completed admission
     # rejection (exit 2) is not an interrupted build. Record execution outcome
     # separately, including failures after a report claimed success.
-    if exit_code == 0 and result.get('status') == 'admitted_rule_baseline':
-        status = 'admitted_rule_baseline'
+    if exit_code == 0 and result.get('status') in ADMITTED:
+        status = result['status']
     elif exit_code == 2 and result.get('stage') == 'finished_cpu' and result.get('status') == 'blocked':
         status = 'admission_blocked'
     else:
@@ -129,7 +137,9 @@ def package(output, exit_code):
     completion=dict(status=status,command_exit_code=exit_code,
                     build_result_exists=(output/'build_result.json').is_file())
     if completion['build_result_exists']:
-        completion.update(build_status=result.get('status'),build_stage=result.get('stage'))
+        completion.update(build_status=result.get('status'),build_stage=result.get('stage'),
+                          coverage_policy=result.get('coverage_policy','strict'),
+                          unsupported_capabilities=result.get('unsupported_capabilities',[]))
     write_json(output/'finish_receipt.json',completion)
     members['finish_receipt.json']=completion
     if 'first_epoch_budget.json' in members:
@@ -153,23 +163,40 @@ def package(output, exit_code):
 
 
 def main():
+    from .rule_baseline import COVERAGE_POLICIES, ADMITTED
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=('build','package'))
+    p.add_argument('command',choices=('build','prepare','package'))
     p.add_argument('--pilot',type=Path)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--data-root',type=Path,default=Path('lead_data'))
     p.add_argument('--model-dir',type=Path,default=Path('checkpoints/Qwen3.5-4B'))
     p.add_argument('--workers',type=int,default=4)
     p.add_argument('--exit-code',type=int,default=0)
+    p.add_argument('--coverage-policy',choices=COVERAGE_POLICIES,default='strict')
     a=p.parse_args()
     if a.command=='package':
         print(json.dumps(package(a.output,a.exit_code)));return 0
-    if not a.pilot:p.error('--pilot required')
     if (a.output/'build_result.json').exists() or any((a.output/n).exists() for n in ('data4','references4','view')):
         p.error('use a fresh output; partial outputs are preserved')
-    r=build(a.pilot,a.data_root,a.output,a.model_dir,a.workers)
+    if a.command=='prepare':
+        if a.pilot:p.error('prepare creates a fresh inventory of existing raw data; do not pass --pilot')
+        from qwen3vl_local.sft_new_loop_phase4 import candidate_pool
+        a.pilot=a.output/'inputs'
+        try:
+            # Fail before even scanning the existing dataset when assets are absent.
+            if not (a.model_dir/'config.json').is_file():
+                raise FileNotFoundError('model config missing')
+            a.pilot.mkdir(exist_ok=False)
+            candidate_pool.scan(a.data_root,a.pilot/'candidates.json')
+        except Exception as ex:
+            write_json(a.output/'build_result.json',dict(status='blocked',stage='candidate_inventory',
+                coverage_policy=a.coverage_policy,training_started=False,
+                errors=[f'{type(ex).__name__}: {ex}']))
+            return 2
+    elif not a.pilot:p.error('--pilot required')
+    r=build(a.pilot,a.data_root,a.output,a.model_dir,a.workers,coverage_policy=a.coverage_policy)
     print(json.dumps(dict(status=r['status'],stage=r['stage'],errors=r['errors']),ensure_ascii=False))
-    return 0 if r['status']=='admitted_rule_baseline' else 2
+    return 0 if r['status'] in ADMITTED else 2
 
 
 if __name__=='__main__':raise SystemExit(main())

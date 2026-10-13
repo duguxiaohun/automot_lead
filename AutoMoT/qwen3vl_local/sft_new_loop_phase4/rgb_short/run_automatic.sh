@@ -13,7 +13,8 @@ mkdir -p "$OUTPUT_DIR"
 P4_AUTO_REPORT="$OUTPUT_DIR/admission_${RGB_MODE:-2}_$(date +%Y%m%d_%H%M%S_%N).json"
 "$P4_AUTO_PYTHON" -m qwen3vl_local.audit_joint.rule_baseline \
   --dataset "$DATASET" --teacher-references "$TEACHER_REFERENCES" \
-  --budget "$FIRST_EPOCH_BUDGET" --space-path "$OUTPUT_DIR" --output "$P4_AUTO_REPORT"
+  --budget "$FIRST_EPOCH_BUDGET" --space-path "$OUTPUT_DIR" --output "$P4_AUTO_REPORT" \
+  --coverage-policy "${AUTOMATIC_COVERAGE_POLICY:-strict}"
 bash qwen3vl_local/sft_new_loop_phase4/rgb_short/run.sh \
   --selection-mode rule_consistency --teacher-references "$TEACHER_REFERENCES" \
   --epochs 1 --sampling-policy phase3_balanced --epoch-samples 10240 --seed 20260929

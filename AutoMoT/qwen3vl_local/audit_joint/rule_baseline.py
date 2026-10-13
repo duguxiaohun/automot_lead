@@ -12,6 +12,19 @@ from .io import digest, write_json
 from .training_scope import dataset_bindings, phase4_support, phase4_schedule
 from .training_budget import plan as disk_plan
 
+COVERAGE_POLICIES = ('strict', 'existing_data_development')
+DEVELOPMENT_GAPS = frozenset({'U-E5/proceed/YES'})
+ADMITTED = ('admitted_rule_baseline', 'admitted_existing_data_development')
+
+
+def coverage_decision(missing, policy):
+    """Separate this known capability gap from data validity; never fill a cell."""
+    if policy not in COVERAGE_POLICIES:
+        raise ValueError('unknown coverage policy')
+    allowed = DEVELOPMENT_GAPS if policy == 'existing_data_development' else frozenset()
+    return dict(blocking_missing_support=[k for k in missing if k not in allowed],
+                unsupported_capabilities=[k for k in missing if k in allowed])
+
 
 def budget_check(request, space_path):
     if request.get('modes') != 2 or request.get('retained_checkpoints_per_mode') != 1:
@@ -63,13 +76,16 @@ def measure(data, evaluation):
                 selected_ids_sha256=digest(ids),evaluation=compact_evaluation)
 
 
-def check(dataset, references, *, budget=None, space_path=None):
+def check(dataset, references, *, budget=None, space_path=None, coverage_policy='strict'):
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.data import load_dataset
     from qwen3vl_local.sft_new_loop_phase4.full_sampling import validate_dataset_scope
     from qwen3vl_local.sft_new_loop_phase4.evaluation_policy import prepare,pack_binding
     report=dict(status='blocked',selection_mode='rule_consistency',epochs=1,modes={},errors=[],
-                independent_accuracy_certified=False,joint_g0_certified=False)
+                coverage_policy=coverage_policy,unsupported_capabilities=[],
+                independent_accuracy_certified=False,joint_g0_certified=False,
+                all_critical_capabilities_supported=False)
     try:
+        coverage_decision([], coverage_policy)
         before=dataset_bindings(dataset)
         ref_before=None
         try:
@@ -86,9 +102,13 @@ def check(dataset, references, *, budget=None, space_path=None):
                 report['modes'][str(mode)]=dict(source_support=phase4_support(raw),
                     source_automatic_support=dict(**source_critical,
                         scope='native loaded automatic training rows; not final evaluation or training admission'))
-                if source_critical['missing_critical_support']:
+                source_decision=coverage_decision(source_critical['missing_critical_support'],coverage_policy)
+                report['modes'][str(mode)]['source_coverage_decision']=source_decision
+                report['unsupported_capabilities']=sorted(set(report['unsupported_capabilities']) |
+                                                         set(source_decision['unsupported_capabilities']))
+                if source_decision['blocking_missing_support']:
                     report['errors'].append(f'RGB{mode} source missing automatic critical support: '+
-                                            str(source_critical['missing_critical_support']))
+                                            str(source_decision['blocking_missing_support']))
                 if ref_before is None:
                     report['modes'][str(mode)]['error']='automatic reference inputs unavailable; selection not run'
                     continue
@@ -96,8 +116,12 @@ def check(dataset, references, *, budget=None, space_path=None):
                                         rgb_mode=mode,short=True,seed=20260929)
                 result=measure(data,evaluation)
                 report['modes'][str(mode)].update(result)
-                if result['missing_critical_support']:
-                    report['errors'].append(f'RGB{mode} missing critical support: '+str(result['missing_critical_support']))
+                decision=coverage_decision(result['missing_critical_support'],coverage_policy)
+                report['modes'][str(mode)]['coverage_decision']=decision
+                report['unsupported_capabilities']=sorted(set(report['unsupported_capabilities']) |
+                                                         set(decision['unsupported_capabilities']))
+                if decision['blocking_missing_support']:
+                    report['errors'].append(f'RGB{mode} missing critical support: '+str(decision['blocking_missing_support']))
             except (ValueError,OSError,KeyError,TypeError) as ex:
                 report['modes'].setdefault(str(mode),{})['error']=f'{type(ex).__name__}: {ex}'
                 report['errors'].append(f'RGB{mode}: {type(ex).__name__}: {ex}')
@@ -120,7 +144,10 @@ def check(dataset, references, *, budget=None, space_path=None):
             report['errors'].append('first-epoch budget incomplete or insufficient')
     except (ValueError,OSError,KeyError,TypeError) as ex:
         report['errors'].append(f'budget: {ex}')
-    if not report['errors']:report['status']='admitted_rule_baseline'
+    if not report['errors']:
+        report['status']=ADMITTED[coverage_policy=='existing_data_development']
+        report['all_critical_capabilities_supported']=all(
+            not m['missing_critical_support'] for m in report['modes'].values())
     return report
 
 
@@ -131,6 +158,7 @@ def main():
     p.add_argument('--budget',type=Path)
     p.add_argument('--space-path',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--coverage-policy',choices=COVERAGE_POLICIES,default='strict')
     a=p.parse_args()
     from .training_scope import check_output
     check_output(a.output,a.dataset)
@@ -144,12 +172,12 @@ def main():
                 raise ValueError('budget request must be an object')
         except (OSError,ValueError) as ex:
             budget=None;budget_error=f'budget input {a.budget}: {type(ex).__name__}: {ex}'
-    report=check(a.dataset,a.teacher_references,budget=budget,space_path=a.space_path)
+    report=check(a.dataset,a.teacher_references,budget=budget,space_path=a.space_path,coverage_policy=a.coverage_policy)
     if budget_error:
         report['errors'].append(budget_error)
     write_json(a.output,report)
-    print(json.dumps(dict(status=report['status'],errors=report['errors']),ensure_ascii=False))
-    return 0 if report['status']=='admitted_rule_baseline' else 2
+    print(json.dumps({k:report[k] for k in ('status','coverage_policy','unsupported_capabilities','errors')},ensure_ascii=False))
+    return 0 if report['status'] in ADMITTED else 2
 
 
 if __name__=='__main__':raise SystemExit(main())

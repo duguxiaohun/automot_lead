@@ -55,7 +55,8 @@ def test_automatic_launcher_blocks_before_any_gpu_command(tmp_path):
     assert result.returncode==2 and log.read_text().splitlines()==calls
 
 
-def test_automatic_launcher_wires_one_epoch_reload_and_fixed_test_without_latest(tmp_path):
+@pytest.mark.parametrize('coverage',['strict','existing_data_development'])
+def test_automatic_launcher_wires_one_epoch_reload_and_fixed_test_without_latest(tmp_path,coverage):
     from qwen3vl_local.sft_new_loop_phase4.identity import ROOT
     run=tmp_path/'qwen3vl_local/sft_new_loop_phase4/rgb_short/run.sh';run.parent.mkdir(parents=True)
     run.write_text('#!/bin/sh\nprintf "TRAIN %s\\n" "$*" >> "$CALL_LOG"\n')
@@ -64,10 +65,12 @@ def test_automatic_launcher_wires_one_epoch_reload_and_fixed_test_without_latest
     stub=tmp_path/'python';log=tmp_path/'calls'
     stub.write_text('#!/bin/sh\nprintf "CHECK %s\\n" "$*" >> "$CALL_LOG"\n');stub.chmod(0o755)
     env=dict(os.environ,PYTHON=str(stub),CALL_LOG=str(log),DATASET='/view',TEACHER_REFERENCES='/refs',
-             FIRST_EPOCH_BUDGET='/budget',OUTPUT_DIR=str(tmp_path/'run'),RGB_MODE='4',RUN_TAG='fixture')
+             FIRST_EPOCH_BUDGET='/budget',OUTPUT_DIR=str(tmp_path/'run'),RGB_MODE='4',RUN_TAG='fixture',
+             AUTOMATIC_COVERAGE_POLICY=coverage)
     result=subprocess.run(['bash',str(ROOT/'rgb_short/run_automatic.sh')],cwd=tmp_path,env=env,capture_output=True)
     assert result.returncode==0,result.stderr
     calls=log.read_text().splitlines();assert len(calls)==3
+    assert '--coverage-policy '+coverage in calls[0]
     assert '--selection-mode rule_consistency' in calls[1] and '--epochs 1' in calls[1]
     assert '--epoch-samples 10240' in calls[1]
     assert 'run_fixture_rgb4/epoch_000 --rgb-mode 4 --split test' in calls[2]

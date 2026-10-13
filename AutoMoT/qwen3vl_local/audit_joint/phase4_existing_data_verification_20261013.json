@@ -1,0 +1,126 @@
+{
+  "policy": "existing_data_development",
+  "permitted_capability_gap": [
+    "U-E5/proceed/YES"
+  ],
+  "strict_default_unchanged": true,
+  "production_labels_prompts_unchanged": true,
+  "new_capture": false,
+  "full_tests": {
+    "passed": 2478,
+    "seconds": 108.66,
+    "log_sha256": "514344f49eb81156429e58e085d1592e3af1a91ce4401e14474fe03deee20bf0"
+  },
+  "real_local": {
+    "real_datasets": [
+      {
+        "parent": "checkpoints/v54_flow_review_20261013/native/data4",
+        "counts": {
+          "train": 191,
+          "val": 0,
+          "test": 0
+        },
+        "paired_ids_targets_equal": true,
+        "input_bindings_unchanged": 21,
+        "reports": {
+          "strict": {
+            "status": "blocked",
+            "errors": [
+              "references: FileNotFoundError: [Errno 2] No such file or directory: '/home/codon/automot_lead/AutoMoT/checkpoints/phase4_existing_development_20261013/absent_references/references.json'",
+              "RGB2 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E5/proceed/YES', 'U-E6/proceed/YES', 'U-E6/proceed/NO', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "RGB4 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E5/proceed/YES', 'U-E6/proceed/YES', 'U-E6/proceed/NO', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "budget: missing first-epoch budget"
+            ],
+            "unsupported_capabilities": []
+          },
+          "existing_data_development": {
+            "status": "blocked",
+            "errors": [
+              "references: FileNotFoundError: [Errno 2] No such file or directory: '/home/codon/automot_lead/AutoMoT/checkpoints/phase4_existing_development_20261013/absent_references/references.json'",
+              "RGB2 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E6/proceed/YES', 'U-E6/proceed/NO', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "RGB4 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E6/proceed/YES', 'U-E6/proceed/NO', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "budget: missing first-epoch budget"
+            ],
+            "unsupported_capabilities": [
+              "U-E5/proceed/YES"
+            ]
+          }
+        }
+      },
+      {
+        "parent": "checkpoints/v54_flow_review_20261013/native_extra/data4",
+        "counts": {
+          "train": 53,
+          "val": 0,
+          "test": 0
+        },
+        "paired_ids_targets_equal": true,
+        "input_bindings_unchanged": 13,
+        "reports": {
+          "strict": {
+            "status": "blocked",
+            "errors": [
+              "references: FileNotFoundError: [Errno 2] No such file or directory: '/home/codon/automot_lead/AutoMoT/checkpoints/phase4_existing_development_20261013/absent_references/references.json'",
+              "RGB2 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E3/proceed/NO', 'U-E5/proceed/YES', 'U-E5/proceed/NO', 'U-E6/proceed/YES', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "RGB4 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E3/proceed/NO', 'U-E5/proceed/YES', 'U-E5/proceed/NO', 'U-E6/proceed/YES', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "budget: missing first-epoch budget"
+            ],
+            "unsupported_capabilities": []
+          },
+          "existing_data_development": {
+            "status": "blocked",
+            "errors": [
+              "references: FileNotFoundError: [Errno 2] No such file or directory: '/home/codon/automot_lead/AutoMoT/checkpoints/phase4_existing_development_20261013/absent_references/references.json'",
+              "RGB2 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E3/proceed/NO', 'U-E5/proceed/NO', 'U-E6/proceed/YES', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "RGB4 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E3/proceed/NO', 'U-E5/proceed/NO', 'U-E6/proceed/YES', 'U-E7/complete/YES', 'U-E7/complete/NO']",
+              "budget: missing first-epoch budget"
+            ],
+            "unsupported_capabilities": [
+              "U-E5/proceed/YES"
+            ]
+          }
+        }
+      }
+    ],
+    "source_release": "matched",
+    "release_files": 480,
+    "native_prepare_exit": 2,
+    "package": {
+      "files": {
+        "build_result.json": "bee20995a90a2e17eb2b11748a57a449f761d3d98109c11868067880d6b2c54a",
+        "finish_receipt.json": "692d53aa4c77d86ddad00de93deedc0bb3a34bb9d9a281bdeb98df694870c8c5"
+      },
+      "zip_sha256": "f52caf9f53ebd1930d6347ef5a2aba162632af44b964b116d9fd6010226300c7",
+      "bytes": 550,
+      "status": "verified"
+    },
+    "scope": "existing real v54 datasets reloaded into new views; local empty holdouts still block; no replay, capture, GPU or training"
+  },
+  "phase3_completed_admission": {
+    "status": "verified",
+    "archive": {
+      "logical_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "resolved_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "sha256": "b555c258a4c8f8953ec60b7d54b6932524eedcb94a716bc0205cdd132345b544"
+    },
+    "scope": "workflow admission only; model quality guards remain unmet; fresh development training"
+  },
+  "release_files": 480,
+  "release_sha256": "117e6b4f6806744ca5d58c995e11e69fff032ac049c1ed72c99315100248ef53",
+  "artifacts": {
+    "checkpoints/phase4_existing_development_20261013/missing_model_cli.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "checkpoints/phase4_existing_development_20261013/native_existing_data_development.json": "6e2e1ef7fe3baf4dbbc8920bf5fd5bed50146468279a77ac393768e930134754",
+    "checkpoints/phase4_existing_development_20261013/native_extra_existing_data_development.json": "bee37c9e0d4e5f545345d8d5a3c180937cf940955e550f79c540ec5c58df717e",
+    "checkpoints/phase4_existing_development_20261013/native_extra_strict.json": "f269c481dac67a0ce879d1bc1e7a8ebbb1142a032b3226c780a522ac2319e2a5",
+    "checkpoints/phase4_existing_development_20261013/native_strict.json": "d67cdd1979f221c02f8ef3728d726190be14c53f0183978eed94c627db6f4755",
+    "checkpoints/phase4_existing_development_20261013/source_check.json": "2466f2aed005ae6d22d386ce4821f9d3a8274060b8de642c6dc75d7614997fdf",
+    "checkpoints/phase4_existing_development_20261013/tests.log": "9b028402e2c0284935b9564a70c79152d9bce42b33840aee3eb417a6863fa56c",
+    "checkpoints/phase4_existing_development_20261013/tests_full.log": "514344f49eb81156429e58e085d1592e3af1a91ce4401e14474fe03deee20bf0",
+    "checkpoints/phase4_existing_development_20261013/verification.json": "076c5d1d006b22647dee873b4bd9bfec00309afe7c4fae51318cdcf53b77022c",
+    "checkpoints/phase4_existing_development_20261013/verify_local.log": "8bacf339410295a1054e3d35af0f4cec2615a9fd43f66a1731c16f01e336c0af",
+    "checkpoints/phase4_existing_development_20261013/verify_local.py": "50478d4779a2dc5be40ddb8f40bc724cfa1b3e0031550f1d5de4f0aafd75d272"
+  },
+  "formal_phase4_pool_verified": false,
+  "remote_training_run": false,
+  "joint_g0_certified": false
+}

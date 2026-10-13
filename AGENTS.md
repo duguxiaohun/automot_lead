@@ -1,5 +1,16 @@
 # AGENTS.md
 
+### 2026-10-13 用户明确不补采：现有数据Phase4开发入口
+
+最新用户纠正：只使用现有数据集，不采集新RGB/CARLA；撤销上一条补采方向，不再索取采集环境路径。本轮新增显式existing_data_development准入，仅容许U-E5/proceed/readiness/YES已知缺格，实际0和unsupported_capabilities保留，成功状态admitted_existing_data_development不冒充能力完整/独立准确率/联合G0。strict默认仍阻断；其它关键格、十事件缺失、原生隔离/等量留出、来源/合同/两模式配对/预算守护继续硬拒绝。生产v54/老师v19/标签/提示词/采样均未改；仅短视图准入源码合同变化，新描述文件不能伪改旧SHA兼容。
+新增server_phase4_existing.sh：对已有lead_data新目录CPU候选扫描→v54gzip回放→共享RGB4→自动留出→短视图→首轮预算/开发准入→≤30MB两文件包，无仿真/新RGB/训练；20GiB保留/约12GiB净写盘守护。服务器旧v52池不能混新版，需要已有原始数据按当前规则生成一次正式库。发布同步后按audit_joint/PHASE4_EXISTING_DATA_20261013.md命令执行，交handoff/fullflow_report.zip+fullflow_package.json，先核正式池后两模式各首轮重载/test。跨任务完整G0尚未过，不阻塞独立开发实验而不冒称全部审完。
+完整2478通过108.66秒；复用两真实v54父库，两模式各244train ID/标签配对、21/13输入绑定不变，空留出仍blocked。480源matched、真实P3已收首轮原生三轮准入verified；缺模型原生prepare退出2/550字节包通过。无新目视/全池重放/远程/GPU运行。新release_sources_v54_existing_data_20261013.json及P3入口清单指向同步，P3三轮数据与命令不变。见phase4_existing_data_verification_20261013.json及checkpoints/phase4_existing_development_20261013。
+
+### 2026-10-13 U-E5缺口收敛与截止后原始窗口检查
+
+用户要求补齐而非重复报告缺口。当前v54对23运动截止+8源不连续实例（28训练路线）检查最多20帧后续：含前史536不同帧/1608源SHA前后核验，截止起350帧均无侵入后可见且含原裕量分离；10可见仍相交、340未通过可见门，5.80秒。实际看Town12 3131_0 f139–145、Town13 1176_1 f130–136共14不同RGB/42源，非盲审。未全89路线重放、未复活实例/改标/降门/跑仿真/训练/push。原生场景本机源码使用固定侵入offset且无显式可见撤回阶段，与画面相符；未核采集服务器源码SHA，不断言所有旧数据由此版本生成。
+收敛为少量“真实侵入→镜头内平滑回本车道→自车等待后放行”的补采机制验证；保留同ID、三相机/同步源、前后7帧和正常路线运动，现有原生老师及最终两模式过滤自动验收真实proceed/readiness YES，不要求逐题人工/YESNO等量。成功后再一次当前正式池+联合隔离；不重复旧池找已否定的截止窗口。已询问服务器是否有CARLA+LEAD采集环境，尚未答复，不编造可运行采集命令。Phase3已发布三轮入口照常独立推进。详见audit_joint/UE5_LOCAL_RGB_20261013.md顶部补采条件和ue5_completion_verification_20261013.json；完整证据checkpoints/ue5_completion_20261013。生产合同/478源清单不变。
+
 ### 2026-10-13 v54白名单发布与U-E7双条件RGB续审
 
 用户授权本轮白名单push。当前478源v54_admission matched、真实P3首轮ZIP原生三轮准入verified，79专项回归4.70秒通过，shell语法通过；只发布源码/测试/轻量文档与回执，checkpoints/RGB/权重及白名单外资料留本机。服务器沿既有sync覆盖同步，按audit_joint/SERVER_V54_RELEASE_RGB_20261013.md运行固定三轮P3，原PREPARED_ROOT及COMPLETED_EPOCH_ROOT不变，交phase3_epoch_report.zip+phase3_epoch_package.json；不重复readiness/建库/首轮。Phase4仍缺UE5真实放行YES、v54正式池与联合隔离，暂不启动旧全库/fit/训练。
