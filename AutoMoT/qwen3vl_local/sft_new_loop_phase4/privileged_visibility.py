@@ -8,10 +8,33 @@ import math
 import numpy as np
 from PIL import Image
 
-POLICY='projected_rgb_quality_v1'
+POLICY='projected_rgb_quality_v2_partial_diagnostics'
 # Development veto limits; passing does not certify actor visibility.
 MIN_P95=64.0
 MIN_CONTRAST=20.0
+NEAR_DEPTH=.1
+
+
+def clip_box_near_plane(vertices):
+    """Clip a cuboid to depth >= .1; ordering is the x/y/z binary corner order.
+
+    Retain front vertices and intersections of the 12 edges. Dropping rear
+    vertices alone loses the silhouette where the box crosses the near plane.
+    This envelope is only a crop proposal, not an actor segmentation mask.
+    """
+    if (len(vertices)!=8 or any(len(p)!=3 or not all(math.isfinite(v) for v in p) for p in vertices)
+            or max(p[0] for p in vertices)<=NEAR_DEPTH):
+        return []
+    points=[p for p in vertices if p[0]>=NEAR_DEPTH]
+    for i,a in enumerate(vertices):
+        for bit in (1,2,4):
+            j=i^bit
+            if i>=j:continue
+            b=vertices[j]
+            if (a[0]<NEAR_DEPTH<b[0]) or (b[0]<NEAR_DEPTH<a[0]):
+                t=(NEAR_DEPTH-a[0])/(b[0]-a[0])
+                points.append((NEAR_DEPTH,a[1]+t*(b[1]-a[1]),a[2]+t*(b[2]-a[2])))
+    return points
 
 
 def image_evidence(path, frame):
@@ -26,12 +49,12 @@ def image_evidence(path, frame):
     if offset!=rgb.shape[1] or any(c['height']!=rgb.shape[0] for _,c in tiles):return {}
     for actor in frame['actors']:
         if actor['class']=='ego_car':continue
-        samples=[]
+        samples=[];partial_samples=[]
         for offset,c in tiles:
             if any(abs(v)>1e-6 for v in c['rot'][:2]):continue
             yaw=math.radians(c['rot'][2]);cy,sy=math.cos(yaw),math.sin(yaw)
             ax,ay,az=actor['position'];ex,ey,ez=actor['extent'];co,si=math.cos(actor['yaw']),math.sin(actor['yaw'])
-            points=[]
+            vertices=[]
             # Actor positions are actor origins; extents do not record local box
             # center height. Project a conservative vertical [z-ez,z+2ez] range.
             for x in (-ex,ex):
@@ -39,18 +62,27 @@ def image_evidence(path, frame):
                     for z in (-ez,2*ez):
                         dx=ax+co*x-si*y-c['pos'][0];dy=ay+si*x+co*y-c['pos'][1];dz=az+z-c['pos'][2]
                         depth=cy*dx+sy*dy;horizontal=-sy*dx+cy*dy
-                        if depth<=.1:continue
-                        focal=c['width']/(2*math.tan(math.radians(c['fov']/2)))
-                        points.append((c['width']/2+focal*horizontal/depth,c['height']/2-focal*dz/depth))
-            if len(points)!=8:continue
+                        vertices.append((depth,horizontal,dz))
+            partial=any(p[0]<=NEAR_DEPTH for p in vertices)
+            clipped=clip_box_near_plane(vertices)
+            if not clipped:continue
+            focal=c['width']/(2*math.tan(math.radians(c['fov']/2)))
+            points=[(c['width']/2+focal*y/x,c['height']/2-focal*z/x) for x,y,z in clipped]
             x0=max(0,math.floor(min(x for x,y in points)));x1=min(c['width'],math.ceil(max(x for x,y in points)))
             y0=max(0,math.floor(min(y for x,y in points)));y1=min(c['height'],math.ceil(max(y for x,y in points)))
             if x1-x0<4 or y1-y0<8:continue
             crop=rgb[y0:y1,offset+x0:offset+x1];gray=crop@np.array([.2126,.7152,.0722])
             p10,p90,p95=np.percentile(gray,[10,90,95]);clipped=float((gray>=250).mean())
-            samples.append(dict(bounds=[offset+x0,y0,offset+x1,y1],p95=float(p95),contrast=float(p90-p10),
-                                saturated_fraction=clipped,usable=bool(p95>=MIN_P95 and p90-p10>=MIN_CONTRAST and clipped<.5)))
-        results[str(actor['id'])]=dict(policy=POLICY,crops=samples,quality_pass=any(s['usable'] for s in samples))
+            sample=dict(bounds=[offset+x0,y0,offset+x1,y1],p95=float(p95),contrast=float(p90-p10),
+                        saturated_fraction=clipped,usable=bool(p95>=MIN_P95 and p90-p10>=MIN_CONTRAST and clipped<.5))
+            if partial:
+                sample.update(near_plane_clipped=True,scope='partial_projection_quality_only_not_full_footprint')
+                partial_samples.append(sample)
+            else:samples.append(sample)
+        # Partial crops must not enter teacher_rules' motion matching or the
+        # existing visible() gate: background quality cannot certify departure.
+        results[str(actor['id'])]=dict(policy=POLICY,crops=samples,quality_pass=any(s['usable'] for s in samples),
+            partial_crops=partial_samples,partial_quality_pass=any(s['usable'] for s in partial_samples))
     return results
 
 

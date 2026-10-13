@@ -5,7 +5,8 @@ ulimit -S -c 0 2>/dev/null || true
 EPOCH_PYTHON="${PYTHON:-python}"
 EPOCH_OUT="${OUTPUT_DIR:-checkpoints/phase3_epoch_$(date +%Y%m%d_%H%M%S_%N)}"
 mkdir "$EPOCH_OUT"
-EPOCH_EXTRA=()
+EPOCH_EXTRA=(--epochs "${EPOCHS:-1}")
+if [[ -n "${COMPLETED_EPOCH_ROOT:-}" ]]; then EPOCH_EXTRA+=(--completed-epoch "$COMPLETED_EPOCH_ROOT"); fi
 if [[ -n "${REUSE_EPOCH_ROOT:-}" ]]; then EPOCH_EXTRA+=(--reuse-epoch "$REUSE_EPOCH_ROOT"); fi
 set +e
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHON="$EPOCH_PYTHON" \
@@ -16,7 +17,7 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHON="$EPOCH_PYTHON
  > "$EPOCH_OUT/epoch.log" 2>&1
 EPOCH_RC=$?
 "$EPOCH_PYTHON" -m qwen3vl_local.audit_joint.server_phase3_epoch package \
- --output "$EPOCH_OUT" --exit-code "$EPOCH_RC"
+ --output "$EPOCH_OUT" --exit-code "$EPOCH_RC" --epochs "${EPOCHS:-1}"
 EPOCH_PACK_RC=$?
 set -e
 printf 'Return: %s/phase3_epoch_report.zip and %s/phase3_epoch_package.json\n' "$EPOCH_OUT" "$EPOCH_OUT"

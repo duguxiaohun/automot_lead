@@ -9,7 +9,7 @@ from qwen3vl_local.sft_new_loop_phase4.tests.test_ten_event_teacher import frame
 
 def departure(visible_exit=False):
     fs=frames('U-E5',True)
-    s=dict(seed('U-E5'),identity_world=[[float(x),0.,0.] for x in range(0,31,2)],identity_half_width=1.75)
+    s=dict(seed('U-E5'),restriction_frame=4,identity_world=[[float(x),0.,0.] for x in range(0,31,2)],identity_half_width=1.75)
     for f,y in zip(fs,[0.,0.,0.,0.,1.,4. if visible_exit else 3.,4.]):
         f['actors'][1]['position'][1]=y
     fs[-1]['image_evidence']['2']['quality_pass']=False

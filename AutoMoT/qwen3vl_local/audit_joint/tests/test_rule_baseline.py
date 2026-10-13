@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -71,3 +72,82 @@ def test_automatic_launcher_wires_one_epoch_reload_and_fixed_test_without_latest
     assert '--epoch-samples 10240' in calls[1]
     assert 'run_fixture_rgb4/epoch_000 --rgb-mode 4 --split test' in calls[2]
     assert 'latest' not in calls[2] and '--min-free-gib 20' in calls[2]
+
+
+def diagnostic_pool(tmp_path,monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import data
+    from qwen3vl_local.sft_new_loop_phase4 import full_sampling
+    raw=pool('rule_teacher')
+    for row in raw['train']:
+        row['edge']={'U-E2':'return','U-E7':'complete'}.get(row['episode']['event'],'proceed')
+    raw['train']=[r for r in raw['train'] if not (r['episode']['event']=='U-E5' and r['target']=='YES')]
+    monkeypatch.setattr(rb,'dataset_bindings',lambda _:dict(index='fixture'))
+    monkeypatch.setattr(data,'load_dataset',lambda *a,**kw:(deepcopy(raw),{}))
+    monkeypatch.setattr(full_sampling,'validate_dataset_scope',lambda _:None)
+    monkeypatch.setattr(rb,'budget_check',lambda *a:dict(sufficient=True))
+    return raw
+
+
+@pytest.mark.parametrize('references',['missing','malformed'])
+def test_unavailable_references_preserve_both_source_support_reports(tmp_path,monkeypatch,references):
+    diagnostic_pool(tmp_path,monkeypatch)
+    refs=tmp_path/'refs'
+    if references=='malformed':
+        refs.mkdir()
+        for name in ('references.json','val.jsonl','test.jsonl'):(refs/name).write_text('{')
+    report=rb.check(tmp_path,refs,budget=budget(),space_path=tmp_path)
+    assert report['status']=='blocked' and not report['joint_g0_certified']
+    assert set(report['modes'])=={'2','4'}
+    for mode in report['modes'].values():
+        assert mode['source_support']['splits']['train']['missing_events']==[]
+        assert mode['source_automatic_support']['missing_critical_support']==['U-E5/proceed/YES']
+        assert 'error' in mode and 'schedule' not in mode
+
+
+@pytest.mark.parametrize('defect',['manual','hold','catchup','short_manual','holdout'])
+def test_critical_support_requires_native_automatic_readiness_and_exact_edge(defect):
+    row=next(r for r in pool('rule_teacher')['train'] if r['episode']['event']=='U-E5' and r['target']=='YES')
+    if defect=='manual':row['label_basis']='reviewed_transition_band'
+    if defect=='hold':row['edge']='hold'
+    if defect=='catchup':row['slice']='catchup'
+    if defect=='short_manual':row['student_reference']={'original_label_basis':'reviewed_transition_band'}
+    if defect=='holdout':row['split']='val'
+    result=rb.critical_support([row])
+    assert result['critical_support']['U-E5/proceed/YES']==dict(rows=0,physical_groups=0)
+
+
+@pytest.mark.parametrize('content',[None,'{','[]'])
+def test_bad_budget_still_writes_blocked_report_with_source_evidence(tmp_path,monkeypatch,content):
+    diagnostic_pool(tmp_path,monkeypatch)
+    budget_path=tmp_path/'budget.json'
+    if content is not None:budget_path.write_text(content)
+    output=tmp_path/'report.json'
+    monkeypatch.setattr('sys.argv',['rule_baseline','--dataset',str(tmp_path/'data'),
+        '--teacher-references',str(tmp_path/'refs'),'--budget',str(budget_path),
+        '--space-path',str(tmp_path),'--output',str(output)])
+    assert rb.main()==2
+    report=json.loads(output.read_text())
+    assert report['status']=='blocked' and set(report['modes'])=={'2','4'}
+    assert any('budget input' in error for error in report['errors'])
+
+
+def test_source_drift_still_blocks_with_missing_references(tmp_path,monkeypatch):
+    diagnostic_pool(tmp_path,monkeypatch)
+    captures=iter([dict(index='before'),dict(index='after')])
+    monkeypatch.setattr(rb,'dataset_bindings',lambda _:next(captures))
+    report=rb.check(tmp_path,tmp_path/'refs',budget=budget(),space_path=tmp_path)
+    assert report['status']=='blocked'
+    assert 'baseline inputs changed during admission' in report['errors'][-1]
+
+
+def test_complete_support_and_selection_can_still_be_admitted(tmp_path,monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy
+    raw=diagnostic_pool(tmp_path,monkeypatch)
+    raw['train'].append(next(r for r in pool('rule_teacher')['train']
+                            if r['episode']['event']=='U-E5' and r['target']=='YES'))
+    monkeypatch.setattr(evaluation_policy,'pack_binding',lambda _:dict(references='fixture'))
+    monkeypatch.setattr(evaluation_policy,'prepare',lambda data,**kw:(data,dict(plans={},exclusions=[])))
+    report=rb.check(tmp_path,tmp_path/'refs',budget=budget(),space_path=tmp_path)
+    assert report['status']=='admitted_rule_baseline' and report['errors']==[]
+    assert all(not m['missing_critical_support'] for m in report['modes'].values())
+    assert all(m['schedule']['world1_world4_order_equal'] for m in report['modes'].values())

@@ -1,0 +1,166 @@
+{
+  "source_status": "matched",
+  "source_files": 475,
+  "source_manifest_sha256": "025da44b8f3b3cc5d9e97e203661ce0d3029db71fd03731d330f0220a43486de",
+  "prior_complete_suite_log_sha_verified": true,
+  "prior_complete_suite_rerun": false,
+  "completed_admission": {
+    "status": "verified",
+    "archive": {
+      "logical_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "resolved_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "sha256": "b555c258a4c8f8953ec60b7d54b6932524eedcb94a716bc0205cdd132345b544"
+    },
+    "scope": "workflow admission only; model quality guards remain unmet; fresh development training"
+  },
+  "cpu_runs": {
+    "three_complete": {
+      "input_calls": 120,
+      "completed_epochs": 3,
+      "actual_counts": [
+        {
+          "LEAD_BRAKE": 4,
+          "STATIC_BLOCKAGE": 4,
+          "DYNAMIC_CUTIN": 4,
+          "VULNERABLE_CROSSING": 4,
+          "ONCOMING_INVASION": 4,
+          "JUNCTION_RULE_CONFLICT": 4,
+          "SIGNAL_FAILURE": 4,
+          "POST_BYPASS_RETURN": 4,
+          "UNSIGNALIZED_PRIORITY": 4,
+          "RAMP_MERGE_EXIT": 4,
+          "INVALID": 0
+        },
+        {
+          "LEAD_BRAKE": 4,
+          "STATIC_BLOCKAGE": 4,
+          "DYNAMIC_CUTIN": 4,
+          "VULNERABLE_CROSSING": 4,
+          "ONCOMING_INVASION": 4,
+          "JUNCTION_RULE_CONFLICT": 4,
+          "SIGNAL_FAILURE": 4,
+          "POST_BYPASS_RETURN": 4,
+          "UNSIGNALIZED_PRIORITY": 4,
+          "RAMP_MERGE_EXIT": 4,
+          "INVALID": 0
+        },
+        {
+          "LEAD_BRAKE": 4,
+          "STATIC_BLOCKAGE": 4,
+          "DYNAMIC_CUTIN": 4,
+          "VULNERABLE_CROSSING": 4,
+          "ONCOMING_INVASION": 4,
+          "JUNCTION_RULE_CONFLICT": 4,
+          "SIGNAL_FAILURE": 4,
+          "POST_BYPASS_RETURN": 4,
+          "UNSIGNALIZED_PRIORITY": 4,
+          "RAMP_MERGE_EXIT": 4,
+          "INVALID": 0
+        }
+      ],
+      "error": null,
+      "limitation": "CPU linear model and replacement image/packing/loss; no Qwen or distributed GPU execution"
+    },
+    "second_epoch_reject": {
+      "input_calls": 41,
+      "completed_epochs": 1,
+      "actual_counts": [
+        {
+          "LEAD_BRAKE": 4,
+          "STATIC_BLOCKAGE": 4,
+          "DYNAMIC_CUTIN": 4,
+          "VULNERABLE_CROSSING": 4,
+          "ONCOMING_INVASION": 4,
+          "JUNCTION_RULE_CONFLICT": 4,
+          "SIGNAL_FAILURE": 4,
+          "POST_BYPASS_RETURN": 4,
+          "UNSIGNALIZED_PRIORITY": 4,
+          "RAMP_MERGE_EXIT": 4,
+          "INVALID": 0
+        }
+      ],
+      "error": "complete epoch requires every input: max_length/packing rejected a sample; no successful equal-event epoch can be reported",
+      "limitation": "CPU linear model and replacement image/packing/loss; no Qwen or distributed GPU execution"
+    }
+  },
+  "sampling": [
+    {
+      "epoch": 1,
+      "seed": 20260904,
+      "counts": {
+        "SIGNAL_FAILURE": 1024,
+        "STATIC_BLOCKAGE": 1024,
+        "LEAD_BRAKE": 1024,
+        "UNSIGNALIZED_PRIORITY": 1024,
+        "VULNERABLE_CROSSING": 1024,
+        "POST_BYPASS_RETURN": 1024,
+        "JUNCTION_RULE_CONFLICT": 1024,
+        "RAMP_MERGE_EXIT": 1024,
+        "ONCOMING_INVASION": 1024,
+        "DYNAMIC_CUTIN": 1024
+      },
+      "world1_world4_order_equal": true,
+      "limitation": "synthetic pool, validates sampler mechanism; actual server consumption still required"
+    },
+    {
+      "epoch": 2,
+      "seed": 21260907,
+      "counts": {
+        "UNSIGNALIZED_PRIORITY": 1024,
+        "ONCOMING_INVASION": 1024,
+        "SIGNAL_FAILURE": 1024,
+        "LEAD_BRAKE": 1024,
+        "JUNCTION_RULE_CONFLICT": 1024,
+        "RAMP_MERGE_EXIT": 1024,
+        "DYNAMIC_CUTIN": 1024,
+        "VULNERABLE_CROSSING": 1024,
+        "POST_BYPASS_RETURN": 1024,
+        "STATIC_BLOCKAGE": 1024
+      },
+      "world1_world4_order_equal": true,
+      "limitation": "synthetic pool, validates sampler mechanism; actual server consumption still required"
+    },
+    {
+      "epoch": 3,
+      "seed": 22260910,
+      "counts": {
+        "STATIC_BLOCKAGE": 1024,
+        "UNSIGNALIZED_PRIORITY": 1024,
+        "VULNERABLE_CROSSING": 1024,
+        "POST_BYPASS_RETURN": 1024,
+        "ONCOMING_INVASION": 1024,
+        "SIGNAL_FAILURE": 1024,
+        "RAMP_MERGE_EXIT": 1024,
+        "LEAD_BRAKE": 1024,
+        "DYNAMIC_CUTIN": 1024,
+        "JUNCTION_RULE_CONFLICT": 1024
+      },
+      "world1_world4_order_equal": true,
+      "limitation": "synthetic pool, validates sampler mechanism; actual server consumption still required"
+    }
+  ],
+  "schedule": {
+    "optimizer_steps": 7680,
+    "warmup_steps": 2000,
+    "warmup_fraction": 0.2604166666666667,
+    "learning_rate": "1e-5",
+    "from_base": true,
+    "final_only": true
+  },
+  "tests": {
+    "passed": 107,
+    "seconds": 6.26,
+    "exit_code": 0
+  },
+  "new_rgb_frames_viewed": 0,
+  "native_full_route_replay_frames": 0,
+  "production_modified": false,
+  "pushed": false,
+  "evidence_sha256": {
+    "AutoMoT/checkpoints/phase3_three_epoch_review_20261013/verify.py": "d1b7c8209c5846cfcffd21d145e2b36daa37a5bd3c4e0b20511510f5b1e04a98",
+    "AutoMoT/checkpoints/phase3_three_epoch_review_20261013/verify.log": "afa501b642256cc890227260eb8f356ad94165e8fe407565cb4af06065c2adeb",
+    "AutoMoT/checkpoints/phase3_three_epoch_review_20261013/verification.json": "654f9cc676ab58de8468f504d12cc3932651bebce60e841c9006087e8f8ce9ed",
+    "AutoMoT/checkpoints/phase3_three_epoch_review_20261013/tests.log": "0797b1e5869869e9bd8c1a156890d2890621856983ecebf5010cbdd687991362",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_THREE_EPOCH_REVIEW_20261013.md": "f339a0dcc30c66069c0e8d83783c4d1001bdcaf2c2dc1b11af490fa3724dd0d0"
+  }
+}

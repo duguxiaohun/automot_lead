@@ -1,0 +1,691 @@
+{
+  "status": "first_epoch_evidence_verified",
+  "source_commit": "364e1e4b137688ca3c8f3cef680396d6e55094d5",
+  "package_bytes": 843428,
+  "members": 43,
+  "source_files": 475,
+  "model_quality_approved": false,
+  "modes": {
+    "2rgb_short": {
+      "actual_train_per_event": 1024,
+      "primary_actions": {
+        "DECELERATE": 2080,
+        "RESUME": 1680,
+        "STOP": 3422,
+        "LANE_CHANGE_LEFT": 684,
+        "KEEP": 1690,
+        "LANE_CHANGE_RIGHT": 684
+      },
+      "reload_val": {
+        "cases": 320,
+        "per_event": 32,
+        "correct": 215,
+        "exact": 0.671875,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 23,
+            "total": 32
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 20,
+            "total": 32
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 24,
+            "total": 32
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 29,
+            "total": 32
+          },
+          "ONCOMING_INVASION": {
+            "correct": 21,
+            "total": 32
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 32,
+            "total": 32
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 18,
+            "total": 32
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 12,
+            "total": 32
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 17,
+            "total": 32
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 19,
+            "total": 32
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 58,
+            "correct": 4,
+            "predicted": 12,
+            "recall": 0.06896551724137931,
+            "precision": 0.3333333333333333
+          },
+          "STOP": {
+            "support": 153,
+            "correct": 140,
+            "predicted": 159,
+            "recall": 0.9150326797385621,
+            "precision": 0.8805031446540881
+          },
+          "RESUME": {
+            "support": 38,
+            "correct": 18,
+            "predicted": 36,
+            "recall": 0.47368421052631576,
+            "precision": 0.5
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 8,
+            "correct": 3,
+            "predicted": 6,
+            "recall": 0.375,
+            "precision": 0.5
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 14,
+            "correct": 12,
+            "predicted": 18,
+            "recall": 0.8571428571428571,
+            "precision": 0.6666666666666666
+          },
+          "KEEP": {
+            "support": 49,
+            "correct": 38,
+            "predicted": 89,
+            "recall": 0.7755102040816326,
+            "precision": 0.42696629213483145
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 140,
+            "RESUME": 2,
+            "LANE_CHANGE_LEFT": 1,
+            "DECELERATE": 2,
+            "KEEP": 8
+          },
+          "RESUME": {
+            "STOP": 15,
+            "RESUME": 18,
+            "KEEP": 3,
+            "DECELERATE": 2
+          },
+          "DECELERATE": {
+            "DECELERATE": 4,
+            "RESUME": 8,
+            "LANE_CHANGE_LEFT": 2,
+            "KEEP": 38,
+            "STOP": 4,
+            "LANE_CHANGE_RIGHT": 2
+          },
+          "KEEP": {
+            "DECELERATE": 3,
+            "KEEP": 38,
+            "RESUME": 4,
+            "LANE_CHANGE_RIGHT": 4
+          },
+          "LANE_CHANGE_LEFT": {
+            "RESUME": 4,
+            "LANE_CHANGE_LEFT": 3,
+            "KEEP": 1
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 12,
+            "DECELERATE": 1,
+            "KEEP": 1
+          }
+        },
+        "physical_groups": 59,
+        "quality_guards_passed": false
+      },
+      "test": {
+        "cases": 380,
+        "per_event": 38,
+        "correct": 227,
+        "exact": 0.5973684210526315,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 18,
+            "total": 38
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 15,
+            "total": 38
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 28,
+            "total": 38
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 35,
+            "total": 38
+          },
+          "ONCOMING_INVASION": {
+            "correct": 18,
+            "total": 38
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 34,
+            "total": 38
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 26,
+            "total": 38
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 16,
+            "total": 38
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 23,
+            "total": 38
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 14,
+            "total": 38
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 81,
+            "correct": 19,
+            "predicted": 29,
+            "recall": 0.2345679012345679,
+            "precision": 0.6551724137931034
+          },
+          "STOP": {
+            "support": 144,
+            "correct": 127,
+            "predicted": 165,
+            "recall": 0.8819444444444444,
+            "precision": 0.7696969696969697
+          },
+          "RESUME": {
+            "support": 52,
+            "correct": 20,
+            "predicted": 42,
+            "recall": 0.38461538461538464,
+            "precision": 0.47619047619047616
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 27,
+            "correct": 8,
+            "predicted": 12,
+            "recall": 0.2962962962962963,
+            "precision": 0.6666666666666666
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 20,
+            "correct": 10,
+            "predicted": 13,
+            "recall": 0.5,
+            "precision": 0.7692307692307693
+          },
+          "KEEP": {
+            "support": 56,
+            "correct": 43,
+            "predicted": 119,
+            "recall": 0.7678571428571429,
+            "precision": 0.36134453781512604
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 127,
+            "RESUME": 8,
+            "KEEP": 9
+          },
+          "KEEP": {
+            "STOP": 1,
+            "DECELERATE": 8,
+            "KEEP": 43,
+            "RESUME": 1,
+            "LANE_CHANGE_LEFT": 3
+          },
+          "RESUME": {
+            "STOP": 16,
+            "RESUME": 20,
+            "LANE_CHANGE_RIGHT": 2,
+            "KEEP": 12,
+            "DECELERATE": 1,
+            "LANE_CHANGE_LEFT": 1
+          },
+          "DECELERATE": {
+            "DECELERATE": 19,
+            "STOP": 19,
+            "RESUME": 5,
+            "KEEP": 37,
+            "LANE_CHANGE_RIGHT": 1
+          },
+          "LANE_CHANGE_LEFT": {
+            "KEEP": 8,
+            "RESUME": 8,
+            "STOP": 2,
+            "DECELERATE": 1,
+            "LANE_CHANGE_LEFT": 8
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 10,
+            "KEEP": 10
+          }
+        },
+        "physical_groups": 37,
+        "quality_guards_passed": false
+      },
+      "independent_reload_mismatches": 0
+    },
+    "4rgb": {
+      "actual_train_per_event": 1024,
+      "primary_actions": {
+        "DECELERATE": 2080,
+        "RESUME": 1680,
+        "STOP": 3422,
+        "LANE_CHANGE_LEFT": 684,
+        "KEEP": 1690,
+        "LANE_CHANGE_RIGHT": 684
+      },
+      "reload_val": {
+        "cases": 320,
+        "per_event": 32,
+        "correct": 214,
+        "exact": 0.66875,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 23,
+            "total": 32
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 20,
+            "total": 32
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 23,
+            "total": 32
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 29,
+            "total": 32
+          },
+          "ONCOMING_INVASION": {
+            "correct": 21,
+            "total": 32
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 32,
+            "total": 32
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 18,
+            "total": 32
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 13,
+            "total": 32
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 16,
+            "total": 32
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 19,
+            "total": 32
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 58,
+            "correct": 3,
+            "predicted": 11,
+            "recall": 0.05172413793103448,
+            "precision": 0.2727272727272727
+          },
+          "STOP": {
+            "support": 153,
+            "correct": 139,
+            "predicted": 157,
+            "recall": 0.9084967320261438,
+            "precision": 0.8853503184713376
+          },
+          "RESUME": {
+            "support": 38,
+            "correct": 18,
+            "predicted": 36,
+            "recall": 0.47368421052631576,
+            "precision": 0.5
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 8,
+            "correct": 3,
+            "predicted": 6,
+            "recall": 0.375,
+            "precision": 0.5
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 14,
+            "correct": 13,
+            "predicted": 18,
+            "recall": 0.9285714285714286,
+            "precision": 0.7222222222222222
+          },
+          "KEEP": {
+            "support": 49,
+            "correct": 38,
+            "predicted": 92,
+            "recall": 0.7755102040816326,
+            "precision": 0.41304347826086957
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 139,
+            "RESUME": 2,
+            "LANE_CHANGE_LEFT": 1,
+            "DECELERATE": 3,
+            "KEEP": 8
+          },
+          "RESUME": {
+            "STOP": 15,
+            "RESUME": 18,
+            "KEEP": 4,
+            "DECELERATE": 1
+          },
+          "DECELERATE": {
+            "DECELERATE": 3,
+            "RESUME": 8,
+            "LANE_CHANGE_LEFT": 2,
+            "KEEP": 41,
+            "STOP": 3,
+            "LANE_CHANGE_RIGHT": 1
+          },
+          "KEEP": {
+            "DECELERATE": 3,
+            "KEEP": 38,
+            "RESUME": 4,
+            "LANE_CHANGE_RIGHT": 4
+          },
+          "LANE_CHANGE_LEFT": {
+            "RESUME": 4,
+            "LANE_CHANGE_LEFT": 3,
+            "KEEP": 1
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 13,
+            "DECELERATE": 1
+          }
+        },
+        "physical_groups": 59,
+        "quality_guards_passed": false
+      },
+      "test": {
+        "cases": 380,
+        "per_event": 38,
+        "correct": 222,
+        "exact": 0.5842105263157895,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 20,
+            "total": 38
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 14,
+            "total": 38
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 28,
+            "total": 38
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 35,
+            "total": 38
+          },
+          "ONCOMING_INVASION": {
+            "correct": 16,
+            "total": 38
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 34,
+            "total": 38
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 25,
+            "total": 38
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 13,
+            "total": 38
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 22,
+            "total": 38
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 15,
+            "total": 38
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 81,
+            "correct": 16,
+            "predicted": 27,
+            "recall": 0.19753086419753085,
+            "precision": 0.5925925925925926
+          },
+          "STOP": {
+            "support": 144,
+            "correct": 129,
+            "predicted": 168,
+            "recall": 0.8958333333333334,
+            "precision": 0.7678571428571429
+          },
+          "RESUME": {
+            "support": 52,
+            "correct": 20,
+            "predicted": 39,
+            "recall": 0.38461538461538464,
+            "precision": 0.5128205128205128
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 27,
+            "correct": 8,
+            "predicted": 17,
+            "recall": 0.2962962962962963,
+            "precision": 0.47058823529411764
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 20,
+            "correct": 10,
+            "predicted": 15,
+            "recall": 0.5,
+            "precision": 0.6666666666666666
+          },
+          "KEEP": {
+            "support": 56,
+            "correct": 39,
+            "predicted": 114,
+            "recall": 0.6964285714285714,
+            "precision": 0.34210526315789475
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 129,
+            "RESUME": 6,
+            "KEEP": 8,
+            "DECELERATE": 1
+          },
+          "KEEP": {
+            "STOP": 1,
+            "DECELERATE": 8,
+            "KEEP": 39,
+            "RESUME": 1,
+            "LANE_CHANGE_RIGHT": 2,
+            "LANE_CHANGE_LEFT": 5
+          },
+          "RESUME": {
+            "STOP": 16,
+            "RESUME": 20,
+            "LANE_CHANGE_RIGHT": 2,
+            "KEEP": 10,
+            "LANE_CHANGE_LEFT": 4
+          },
+          "DECELERATE": {
+            "DECELERATE": 16,
+            "STOP": 19,
+            "RESUME": 5,
+            "KEEP": 40,
+            "LANE_CHANGE_RIGHT": 1
+          },
+          "LANE_CHANGE_LEFT": {
+            "KEEP": 8,
+            "RESUME": 7,
+            "STOP": 3,
+            "DECELERATE": 1,
+            "LANE_CHANGE_LEFT": 8
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 10,
+            "DECELERATE": 1,
+            "KEEP": 9
+          }
+        },
+        "physical_groups": 37,
+        "quality_guards_passed": false
+      },
+      "independent_reload_mismatches": 0
+    }
+  },
+  "paired": {
+    "reload_val": {
+      "cases": 320,
+      "same_question_same_label_rgb_subset": true,
+      "paired_correctness": {
+        "(True, True)": 212,
+        "(False, False)": 103,
+        "(True, False)": 3,
+        "(False, True)": 2
+      },
+      "prediction_disagreements": 9
+    },
+    "test": {
+      "cases": 380,
+      "same_question_same_label_rgb_subset": true,
+      "paired_correctness": {
+        "(True, True)": 216,
+        "(False, False)": 147,
+        "(False, True)": 6,
+        "(True, False)": 11
+      },
+      "prediction_disagreements": 24
+    }
+  },
+  "two_rgb_adapter_reused_unchanged": true,
+  "raw_outputs_reparsed": 2040,
+  "source_index_sha256": "925053e34c47f35dfe4987f14a1be3a8abdc206d75bea31964dc4ca9b8fcee99",
+  "limitations": [
+    "Server evidence verification; original weights/full training index not present locally",
+    "Source-derived supervision consistency, not independent visual-label accuracy",
+    "No new RGB visual inspection; no rule/prompt changes justified by this handoff",
+    "Phase4 UE5 proceed YES and v53 full-pool/joint isolation remain pending"
+  ],
+  "package": {
+    "files": {
+      "source_check.json": "498717dd1795803e4793f89187c891a92afc6b693ae0e7176c25ca2363a07c62",
+      "admission.json": "69aa5d27d8f6af2c17289d40a0ef25b96da4a9e7f6980db7013bf2548462b52e",
+      "budget.json": "fe3881bf2901dc6aaadeaa03b4f8dc691acc40e71ad59e8fe65f425438e108cc",
+      "epoch_result.json": "c49234fddb2d98b22719fe7386376f5b0e8b95e8f65b4d7b58bf9fc8dbf3b0a9",
+      "validation_input_bindings.json": "c5aff85ccf62a2345e44f736fe1cbaa0a895632128844ff6e35dde2c9775366e",
+      "2rgb_short/adapter_bindings.json": "1bbe7e3e90283958c61b2c77b7d5dd597dd7bb08f65f4bd524372419185fa9f2",
+      "2rgb_short/reload_comparison.json": "f537e0abb73de88f4f219d3d7bf24ad6951f46e4d1dd43022f081558cb981f5a",
+      "2rgb_short/train/train_run_manifest.json": "04c7d7e002b4df242ce1ffb88ea35683ad797d379c3a4480b35c190cf442570e",
+      "2rgb_short/train/train_balance.json": "fa1d7326729d6f042924fc7d94da0974ad946ac6db5ba5a69b12917d5f1fe7cc",
+      "2rgb_short/train/final_generation.json": "27701142c255728d05dc4d32d0110b1b43f9338578508acd653a117d55aad60f",
+      "2rgb_short/train/balance/consumed_epoch_0001.json": "e22957f8e65914393452e14c1444aa76f14a8c412a90eca7dcd0e8d56387ee2d",
+      "2rgb_short/train/balance/epoch_0001.json": "1ddc1cc50aa065a908bba9e4517a382478f809620a90cb519c1852359d5d53ff",
+      "2rgb_short/train/final/sft_new_loop_phase3_adapter_config.json": "6db66d361891e761a30ff9071843d1b5aaff76041d639145ba9ef59fb8a41ad0",
+      "2rgb_short/reload_val/metrics.json": "b3f854ba9e4d7c83225b4a88697b07d14a3bdf9ef1c34f8c18b6b626c4adc381",
+      "2rgb_short/reload_val/evaluation_plan.json": "f9f1238159434084c135b91e7a89c3705180a959e503de485f7c33703442e023",
+      "2rgb_short/test/metrics.json": "2dd74324b632df2eab94ade05ccddade8272a9dd4281a97f96bd9f05f03e7187",
+      "2rgb_short/test/evaluation_plan.json": "d49c9d6451a18d97969474a918875edc24a60ecb0e2e8c6798f84c53b311ba58",
+      "2rgb_short/train/final_generation_val_cases.jsonl": "57026ce0ffe8ce215ec1825b724a049c78010c2952aac8fa178e1cb400fa6699",
+      "2rgb_short/reload_val/cases.jsonl": "921378b34b94489fac52acbb006ad79ae11811b9ca2c886c7a8a8bf0dbcd7de7",
+      "2rgb_short/test/cases.jsonl": "65c24387ab5323645c6ee9e870ade0c8c7bbacb95c5e08fbbb122a9e4a588baf",
+      "4rgb/adapter_bindings.json": "0ce43d9e37d847e66ffaab4648e655452e51601c6fe16d914cc78711a4a95acf",
+      "4rgb/reload_comparison.json": "7867f083d209007212b5f6cead307966cad53ac49bf9eba94a8e9a8093572c61",
+      "4rgb/train/train_run_manifest.json": "75578e2b9a9f2c017019723318f691f37ac1ff15dccfbd5d9d54a3fe7a6f15f3",
+      "4rgb/train/train_balance.json": "149cd8dc2cfb08a9f982a458b07d6216a1aab0dd9eb8794edd3a615c8dfe6b4c",
+      "4rgb/train/final_generation.json": "a97e457c7de4420891e61fe8a430f254b13f27ba8b5d98d4dfcbd044acb6019c",
+      "4rgb/train/balance/consumed_epoch_0001.json": "e22957f8e65914393452e14c1444aa76f14a8c412a90eca7dcd0e8d56387ee2d",
+      "4rgb/train/balance/epoch_0001.json": "1ddc1cc50aa065a908bba9e4517a382478f809620a90cb519c1852359d5d53ff",
+      "4rgb/train/final/sft_new_loop_phase3_adapter_config.json": "1dc6a59c2aa45b904809851402a28ad021d39c037de80ae0c45b19eaf93f2881",
+      "4rgb/reload_val/metrics.json": "8c74bc48ae5ce10768a9ab05d0ec542b8a6b2edf0d7accca440a95ba600648c2",
+      "4rgb/reload_val/evaluation_plan.json": "f9f1238159434084c135b91e7a89c3705180a959e503de485f7c33703442e023",
+      "4rgb/test/metrics.json": "aa38f0c9255b0eb5d7378673223a94e33f944baa470d36c80838d4c26ecb7678",
+      "4rgb/test/evaluation_plan.json": "d49c9d6451a18d97969474a918875edc24a60ecb0e2e8c6798f84c53b311ba58",
+      "4rgb/train/final_generation_val_cases.jsonl": "57885b97da17bffdf38f786f7e7006e0e183b5eac415e06c8100c603be3cfc8b",
+      "4rgb/reload_val/cases.jsonl": "4b30d288102bcbc75625517551a752dfd091f9f08dffafa18e06cb369d307e62",
+      "4rgb/test/cases.jsonl": "c05def96aa2226a70fcee9d99785fd24b2963a42c7863f2204fa03ecf9d7b31a",
+      "reuse.json": "cd0ec48808f913bbda941498be39983195219d3c63d2f5363a70db47735ac528",
+      "epoch_log_tail.json": "b382c48fc3762e5697b003800076dae7ef5b5707c0147eabfbfd0971850f9b18",
+      "2rgb_short_reload_val_log_tail.json": "180da082e3b708b93765c58f78b9baa6e2fea39fd6660fa2ea78f4fc0210d783",
+      "2rgb_short_test_log_tail.json": "7f7dd33c56c402dbb24e2499ba137755c18b7ee7427938f8460d4b0634aebef0",
+      "4rgb_train_log_tail.json": "cfcf98421e18dfb249062952fdd3358d8671334e00fe1ef1b83570909a482e8e",
+      "4rgb_reload_val_log_tail.json": "7f02d5f980d2865a5a69c74022e852cf2c2d93e61e566cfd569d00f53cdbced4",
+      "4rgb_test_log_tail.json": "62ce8e8efe418f2157de8b09a48b922cb680c3df1821f134b3bafe48809efa30",
+      "handoff.json": "824237a7a7b5e2a1465b4c1cb9eff97fd08b20e389f35401d8c1c9b62e941afa"
+    },
+    "zip_sha256": "b555c258a4c8f8953ec60b7d54b6932524eedcb94a716bc0205cdd132345b544",
+    "bytes": 843428,
+    "status": "verified"
+  },
+  "full_regression": {
+    "passed": 2419,
+    "elapsed_seconds": 106.86,
+    "exit_code": 0,
+    "log_sha256": "9dffeb39dc8f248c24da5d5c3320e1dab21e401bdc37d4eb6617cb90cf2d6f48"
+  },
+  "regression_scope": "complete Phase3/Phase4/audit_joint CPU suite; 7 added tests",
+  "completed_epoch_native_admission": {
+    "status": "verified",
+    "archive": {
+      "logical_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "resolved_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "sha256": "b555c258a4c8f8953ec60b7d54b6932524eedcb94a716bc0205cdd132345b544"
+    },
+    "scope": "workflow admission only; model quality guards remain unmet; fresh development training"
+  },
+  "new_release": {
+    "name": "release_sources_phase3_multiepoch_20261013.json",
+    "files": 475,
+    "sha256": "025da44b8f3b3cc5d9e97e203661ce0d3029db71fd03731d330f0220a43486de"
+  },
+  "three_epoch_entry": {
+    "from_base": true,
+    "epochs": 3,
+    "presentations_per_event_per_epoch": 1024,
+    "total_presentations_per_mode": 30720,
+    "expected_optimizer_steps_per_mode": 7680,
+    "warmup_steps": 2000,
+    "checkpoints_per_mode": 1,
+    "replay_or_dataset_rebuild": false,
+    "optimizer_resume": false,
+    "automatic_seven_epochs": false,
+    "quality_guards_relaxed": false
+  },
+  "production_labels_changed": false,
+  "prompts_changed": false,
+  "new_rgb_frames_viewed": 0,
+  "remote_training_started_by_this_audit": false,
+  "pushed": false
+}

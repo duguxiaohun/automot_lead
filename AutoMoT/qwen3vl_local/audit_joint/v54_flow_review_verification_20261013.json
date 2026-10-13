@@ -1,0 +1,132 @@
+{
+  "task": "phase4_state_pair_binary_v54_independent_flow_review",
+  "status": "no_new_confirmed_production_defect",
+  "local": {
+    "routes": 12,
+    "frames": 780,
+    "raw_source_files_sha_verified": 2340,
+    "raw_sources_rechecked_after_analysis": true,
+    "rows_each_mode": 244,
+    "events": {
+      "U-E7": 55,
+      "U-E1": 36,
+      "R-E3": 24,
+      "U-E5": 9,
+      "U-E3": 9,
+      "U-E2": 31,
+      "U-E4": 11,
+      "R-E2": 33,
+      "R-E5": 19,
+      "U-E6": 17
+    },
+    "label_basis": {
+      "weak_rule_teacher": 244
+    },
+    "paired_ids_equal": true,
+    "train_only": true,
+    "formal_admission": false,
+    "build_seconds": [
+      49.39381914399564,
+      7.649342947872356
+    ]
+  },
+  "sampling": {
+    "epochs": 3,
+    "per_event_per_epoch": 1024,
+    "world_sizes": [
+      1,
+      4
+    ],
+    "rgb_modes": [
+      2,
+      4
+    ],
+    "orders_equal": true,
+    "actual_model_training": false,
+    "max_question_repeat": 114,
+    "evaluation_algorithm": {
+      "count": 90,
+      "per_event": {
+        "U-E1": 9,
+        "U-E2": 9,
+        "U-E3": 9,
+        "U-E4": 9,
+        "U-E5": 9,
+        "U-E6": 9,
+        "U-E7": 9,
+        "R-E2": 9,
+        "R-E3": 9,
+        "R-E5": 9
+      },
+      "unique": 90,
+      "scope": "selection algorithm on train-only diagnostic pool; NOT held-out evaluation"
+    },
+    "empty_holdout_rejected": "event-equal evaluation missing events: ['U-E1', 'U-E2', 'U-E3', 'U-E4', 'U-E5', 'U-E6', 'U-E7', 'R-E2', 'R-E3', 'R-E5']"
+  },
+  "rgb": {
+    "windows": 10,
+    "distinct_frames_viewed_this_turn": 70,
+    "source_files_for_viewed_frames": 210,
+    "scope": "development train contact sheets; not blind, not 780 visual judgments; no claim of historical novelty",
+    "new_label_changes": 0
+  },
+  "tests": {
+    "passed": 179,
+    "seconds": 39.52,
+    "log_sha256": "0ab247ecf9b836650ec3036e32f09ecf1f0c79a654da73ddee1d966066a8bf25",
+    "full_suite_rerun": false,
+    "prior_full_suite": "2450 passed, log verified not rerun"
+  },
+  "source": {
+    "source_status": "matched",
+    "files": 478,
+    "manifest_sha256": "be17b6197aaf87f8bbdbc73091db4d50be9fadc7e3ec941539dd8f47e12ae286",
+    "previous_evidence_sha_verified": 7,
+    "previous_full_suite": "2450 passed, log verified not rerun",
+    "phase3_completed_admission": {
+      "status": "verified",
+      "archive": {
+        "logical_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+        "resolved_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+        "sha256": "b555c258a4c8f8953ec60b7d54b6932524eedcb94a716bc0205cdd132345b544"
+      },
+      "scope": "workflow admission only; model quality guards remain unmet; fresh development training"
+    }
+  },
+  "remaining": [
+    "UE5 genuine post-intrusion proceed YES",
+    "current v54 formal pool and balanced holdouts",
+    "full Phase3/Action/Phase4 cross-task isolation",
+    "Phase4 two-mode GPU first epoch and reload after admission"
+  ],
+  "production_code_modified": false,
+  "remote_training": false,
+  "pushed": false,
+  "evidence": {
+    "checkpoints/v54_flow_review_20261013/build_local.py": "d821801f8d47c1a1fe011dd4eb1451e0c631e72f3feaf27b38d440c19b74ed11",
+    "checkpoints/v54_flow_review_20261013/build_extra.py": "f17ea04873e3f384bcdc564ba4260f650f7db2461bac040b71faadadfcfea6a7",
+    "checkpoints/v54_flow_review_20261013/audit_local.py": "998d5f539b5243fc93dfcbf543ee47f11a9cd35d8900d9812d36ca9feaf7edbf",
+    "checkpoints/v54_flow_review_20261013/verify_code.py": "a450cd3b43c319cba616367a72e9024677e4f8555111b302f3dcf6343bbbac13",
+    "checkpoints/v54_flow_review_20261013/positive_probe.py": "9090ff2a9323d48e34a1f79bda0ceed3464e5c7a734231927f4c39663bac0222",
+    "checkpoints/v54_flow_review_20261013/tests.log": "0ab247ecf9b836650ec3036e32f09ecf1f0c79a654da73ddee1d966066a8bf25",
+    "checkpoints/v54_flow_review_20261013/selection.json": "6b65c07da831c6ffb6bef3951de672d66444e6bb539fbf60c31b2672a7775308",
+    "checkpoints/v54_flow_review_20261013/selection_extra.json": "4768ab413af85d8bd04fb88b7b63e32aba22b825901309319acc5226560cae54",
+    "checkpoints/v54_flow_review_20261013/native/verification.json": "19706c6775a18ebd57ed02ef2dcea04b26f523c99a5d1252e65920fd1e4e52b6",
+    "checkpoints/v54_flow_review_20261013/native_extra/verification.json": "86d7b1427434792a18297fefe92343df44481181ecc61cf91b8daecb306485d2",
+    "checkpoints/v54_flow_review_20261013/local_audit.json": "2923840e63f58d259c7769f43b6abac9850425aa4cbb225c09bbf0948d556036",
+    "checkpoints/v54_flow_review_20261013/rgb_windows.json": "5978d4043e06432a07ccf6912e3a6f1547e5200aeaec8d062fd876bd33eab2d3",
+    "checkpoints/v54_flow_review_20261013/source_bindings.json": "7a747a638d8c4897280ec3d40b4b950ed3989fc82a62dc78651b639aac177ad7",
+    "checkpoints/v54_flow_review_20261013/code_verification.json": "0641692b3d295814044ca93ed8ccc64e445e5d53cecedc968cb699aa8dd2390b",
+    "checkpoints/v54_flow_review_20261013/positive_probe.json": "ec9ee4ba297850fe0fff9af892178a65798c1698bee989c34b917f03506f4c72",
+    "checkpoints/v54_flow_review_20261013/U-E7.jpg": "9fab14e1596574fc133a5d35021c29728f57de401cedc8a0e14052c41ff49a06",
+    "checkpoints/v54_flow_review_20261013/U-E1.jpg": "292c2e38dbb59a9e94c62bb7f4389eeef708bcd61d8fdb87c1609529f56f481f",
+    "checkpoints/v54_flow_review_20261013/R-E3.jpg": "f0217e2c8dfc7692a68e3781e4348ca0c39c418946dcb7c89f7f925e8d765733",
+    "checkpoints/v54_flow_review_20261013/U-E5.jpg": "6b8d04e7d25fcbb385c6462b2cf673c45d1e54704f2e8106fe0dff61aaf6932c",
+    "checkpoints/v54_flow_review_20261013/U-E3.jpg": "8e5c4c1dfd399991e3e77771689ba3b030148c3edc49ecee6e4b3e7f9851170b",
+    "checkpoints/v54_flow_review_20261013/U-E2.jpg": "6caacb697740f8ed865ec2deeb5ca409740d34695d1598cbaac8be4f043a854d",
+    "checkpoints/v54_flow_review_20261013/U-E4.jpg": "a8248f40394cfae709983b2ef42010f9dd9b5ab2354c1d33b9aaeb3cb9c5fdbe",
+    "checkpoints/v54_flow_review_20261013/R-E2.jpg": "d159c7bdbba71055edcdc322e44c7588073d4eb5e32c5bd725aa010b90b55c2f",
+    "checkpoints/v54_flow_review_20261013/R-E5.jpg": "9a11d9b06086a50fb39c790f16ff7dd83f8e409f74dafd7d8c29585993095daa",
+    "checkpoints/v54_flow_review_20261013/U-E6.jpg": "49eda34bf59d2f385c1914b4889025f2fd9df52a13bfe2a802e88b65115c59e0"
+  }
+}

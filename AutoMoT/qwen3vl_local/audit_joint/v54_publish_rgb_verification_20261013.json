@@ -1,0 +1,37 @@
+{
+  "source_release": {
+    "manifest": "release_sources_v54_admission_20261013.json",
+    "files": 478,
+    "status": "matched",
+    "sha256": "c0f25ef2f0039687579b287aebb392dfcfeb46e215eab0a1d0b12d04d1d31a9e"
+  },
+  "phase3_completed_admission": "verified",
+  "tests": {
+    "passed": 79,
+    "seconds": 4.7,
+    "log_sha256": "faa1a4c88e71a8014c339de92ca5bd73e2acdde4e31a53d073afc041e2509fc6"
+  },
+  "local_rgb": {
+    "routes": 2,
+    "frames": 107,
+    "rows_each_mode": 110,
+    "source_files": 321,
+    "source_sha_rechecked": true,
+    "visual_frames": 14,
+    "visual_source_files": 42,
+    "scope": "revisited development train windows, not blind or historical first exposure",
+    "val_test_empty": true,
+    "formal_admission": false,
+    "build_seconds": 14.463527041953057
+  },
+  "production_modified_this_turn": false,
+  "training": false,
+  "evidence": {
+    "checkpoints/v54_publish_rgb_20261013/build_local.py": "ae2f91d6ec5542600df903ebf857d6a18807c4f0e74e39eda09d8afd6d716b78",
+    "checkpoints/v54_publish_rgb_20261013/rgb.py": "4367ab78576cf5a028ac4e24c753a83390378b38d795dc088cb6409fb6def3b4",
+    "checkpoints/v54_publish_rgb_20261013/tests.log": "faa1a4c88e71a8014c339de92ca5bd73e2acdde4e31a53d073afc041e2509fc6",
+    "checkpoints/v54_publish_rgb_20261013/native/verification.json": "54b3fc4c0aa54df4ec4fc977ec774bb22c02c82603c6e2d44201cdeb82cec789",
+    "checkpoints/v54_publish_rgb_20261013/rgb_windows.json": "a041d33dc641c441b0efd36b6ab3abe0aa045434be4d275c203e22ca05b96ffc",
+    "checkpoints/v54_publish_rgb_20261013/source_bindings.json": "3d60614e83aa566a644adb83ccb19a758f727f4e4f1b2fade1d4cd50b66f8770"
+  }
+}

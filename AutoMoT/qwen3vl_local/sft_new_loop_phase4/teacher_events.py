@@ -576,12 +576,17 @@ def facts(frames,ep,seed):
 def visible_departure(frames,seed,nav):
     """Continuous identity plus a visibly cleared footprint; absence is not exit."""
     from .teacher_rules import actor
+    restriction=seed.get('restriction_frame')
+    if type(restriction) is not int or restriction<0:return False
     if seed['event']=='U-E5':
         nav=instance_navigation(frames[-1],seed)
         if nav is None:return False
     current=actor(frames[-1],seed['actor_id'])
     if current is None or route_intersection(current,nav,margin=PARAMS['separation_m']) is not False:return False
     for frame in frames[-5:-1]:
+        # Approaching from outside the corridor is not a departure. Only
+        # separation observed after this instance's restriction can support exit.
+        if frame['frame_id']<=restriction:continue
         obj=actor(frame,seed['actor_id'])
         # A planner change cannot prove exit from the frozen instance corridor.
         # Reproject in each past frame; current ego coordinates are not reusable.

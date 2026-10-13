@@ -1,0 +1,228 @@
+{
+  "status": "local_dataset_built_positive_gap_remains",
+  "native": {
+    "routes": [
+      "Town12_Rep0_4225_1_route0_01_10_06_40_07",
+      "Town12_Rep0_4591_0_route0_01_08_05_48_25"
+    ],
+    "frames": 193,
+    "counts": {
+      "train": 87
+    },
+    "view_counts": {
+      "train": 87,
+      "val": 0,
+      "test": 0
+    },
+    "raw_training_support": {
+      "status": "missing_raw_support",
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E2/return/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 14,
+          "physical_groups": 2
+        },
+        "U-E6/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E6/proceed/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E7/complete/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E7/complete/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        }
+      },
+      "missing_critical_support": [
+        "U-E2/return/YES",
+        "U-E2/return/NO",
+        "U-E3/proceed/YES",
+        "U-E3/proceed/NO",
+        "U-E5/proceed/YES",
+        "U-E6/proceed/YES",
+        "U-E6/proceed/NO",
+        "U-E7/complete/YES",
+        "U-E7/complete/NO"
+      ],
+      "scope": "necessary raw train/readiness/RGB4 support only; final filtered admission still required"
+    },
+    "elapsed_seconds": 14.62255597510375,
+    "paired_ids_equal": true,
+    "production_index_sha256": "abbfe6c9e40cd6f36f9a3290744a2e969631338910dfb1040843218b18306d02",
+    "scope": "real local two-route diagnostic dataset, no formal holdout or training admission"
+  },
+  "source_scan": {
+    "windows": 109,
+    "counts": {
+      "end/decisive_actor_passed_behind_censors_stale_wait": 78,
+      "native_clearance/None": 43,
+      "native_visible_departure/False": 101,
+      "clearance_without_decisive_actor/None": 41,
+      "native_clearance/True": 56,
+      "clearance_without_decisive_actor/True": 66,
+      "end/observed_resumption_censors_stale_wait": 23,
+      "end/instance_rgb_discontinuity": 8,
+      "native_visible_departure/None": 8,
+      "native_clearance/False": 10,
+      "clearance_without_decisive_actor/False": 2
+    },
+    "errors": [],
+    "unique_source_files": 2289,
+    "unique_rgb_frames": 763,
+    "elapsed_seconds": 10.91869898000732,
+    "input_records_sha256": "1ad6465f78bdaae1e1c7b311b34f952ac21236c434688d22abe222149c193c60",
+    "input_request_sha256": "ff4a28cff0ed4104961611a89a3a80ff3fb6b2a5a08f77f56183caa052b554d7",
+    "scope": "109 training end windows, source bytes reread; native geometry only, no new labels or full route replay"
+  },
+  "actual_rgb_frames_viewed": 35,
+  "original_revisited_within_35": 1,
+  "selected_windows": [
+    {
+      "route": "Town12_Rep0_1811_0_route0_01_09_17_47_53",
+      "frames": [
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58
+      ]
+    },
+    {
+      "route": "Town12_Rep0_4225_1_route0_01_10_06_40_07",
+      "frames": [
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83
+      ]
+    },
+    {
+      "route": "Town12_Rep0_4591_0_route0_01_08_05_48_25",
+      "frames": [
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60
+      ]
+    },
+    {
+      "route": "Town13_Rep0_1159_0_route0_01_08_23_46_18",
+      "frames": [
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50
+      ]
+    },
+    {
+      "route": "Town13_Rep0_1378_0_route0_01_10_03_55_26",
+      "frames": [
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77
+      ]
+    }
+  ],
+  "native_replay_frames": 193,
+  "native_replay_differences": [],
+  "source_bindings_rechecked": true,
+  "partial_visibility_example": {
+    "frame": 57,
+    "actor_present": true,
+    "ego_speed": 8.664144235662208,
+    "position": [
+      0.8169708797026516,
+      -2.730938282310859,
+      -0.03275149256276677
+    ],
+    "visible_pixels": 32315,
+    "visible": null,
+    "camera_possible": true,
+    "projected_crops": [],
+    "intersects_margin075": true,
+    "intersects_margin025": true,
+    "cameras": {
+      "1": {
+        "corners_in_front": 6,
+        "near_depth": 0.0609257653986246,
+        "far_depth": 4.648486060361199
+      },
+      "2": {
+        "corners_in_front": 4,
+        "near_depth": -2.082025140301392,
+        "far_depth": 3.0159668997066955
+      },
+      "3": {
+        "corners_in_front": 0,
+        "near_depth": -4.232150138378222,
+        "far_depth": 0.04836502292756095
+      }
+    }
+  },
+  "production_modified": false,
+  "new_yes_labels": 0,
+  "trained": false,
+  "pushed": false,
+  "limitations": [
+    "35 actual RGB views, not 763 visually inspected frames",
+    "Training windows selected with known outcomes, not G2",
+    "Two events only, empty val/test, not formal event-equal admission",
+    "Visibility projection limitation is not proof of an incorrect YES/NO label"
+  ],
+  "evidence_sha256": {
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/scan.py": "bf241a6ff39c90bd4fd87baea07983fc1a55dcda6a0e15ec802e5eb331c86e01",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/scan.json": "5340c205522d87c215f489d649b86923f8408cc4cdb3ff08f8d089cf0bcc2ab7",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/windows.jsonl": "6ed8d0fff90b6dfe938fa445e01e17097e91e13723a4c8cf0d936dcf3f5bb470",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/selected.json": "9dd29ccc3a905483f8c5062531b2c0cf5c8ffa1c47d6005d1d43e6cae392cfce",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/detail.json": "afcd2d761ba1b02b4c2129123d333d69ec8236972e51168252518eef36ddc8be",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/build_local.py": "de41e429f753acc7228799240b043d38e1804ae22ebae7fa3c21fb897137dd2a",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/build_local.log": "8cbaebd7a6455faedaf95f3c6a64234da7f8a758314a45d11d9e8dc58795f882",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/native/verification.json": "b4a9fc0b44aec992acd7d1343639a8ca348dec962850c235c28cca68499ec793",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/Town12_Rep0_4225_1_route0_01_10_06_40_07_f83.jpg": "f939d833bb1366e6a615e3fd54febbd99958034e9d65323058ba8c99cb0f189c",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/Town13_Rep0_1378_0_route0_01_10_03_55_26_f77.jpg": "446220a3b08b5f62c74ec0c753514db8b5800001c2d360cc23ae11026cfa7034",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/Town13_Rep0_1159_0_route0_01_08_23_46_18_f50.jpg": "8083c4b722b8760103062c4f8b216fdaf5ad9ae6d7a53393ae1e001bf0efcef3",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/Town12_Rep0_1811_0_route0_01_09_17_47_53_f58.jpg": "81c93b8ade0d0667a0851d558d604204edee5cbaec423fc02a6f2ce4103a0779",
+    "AutoMoT/checkpoints/ue5_local_rgb_20261013/Town12_Rep0_4591_0_route0_01_08_05_48_25_f60.jpg": "5bb2f4b2942c629da71adda90c5fe087ff628ad95f17d7b70b712e55bf52abc7",
+    "AutoMoT/qwen3vl_local/audit_joint/UE5_LOCAL_RGB_20261013.md": "9310886b52beb3dc22092c4f062d8304514ef27c7c3e526a3d5fecf35fe11f6f"
+  }
+}

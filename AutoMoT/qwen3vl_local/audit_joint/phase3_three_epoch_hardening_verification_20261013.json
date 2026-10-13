@@ -1,0 +1,159 @@
+{
+  "source_status": "matched",
+  "source_files": 475,
+  "source_manifest": "qwen3vl_local/audit_joint/release_sources_phase3_three_epoch_hardening_20261013.json",
+  "source_manifest_sha256": "81fbd69e2715c8fef99b3be8d9088e020dbc588b4881894924aa4b233faea567",
+  "reviewed_first_epoch_admission": {
+    "status": "verified",
+    "archive": {
+      "logical_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "resolved_path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_epoch_completed_20261013/phase3_epoch_report.zip",
+      "sha256": "b555c258a4c8f8953ec60b7d54b6932524eedcb94a716bc0205cdd132345b544"
+    },
+    "scope": "workflow admission only; model quality guards remain unmet; fresh development training"
+  },
+  "cli_checks": [
+    {
+      "case": "before_start",
+      "exit_code": 2,
+      "bytes": 544,
+      "zip_sha256": "11e1d9fdf85dfa84ac2abc183922353acd7951878022da99885e6efc14f0e6b2",
+      "handoff": {
+        "status": "incomplete",
+        "command_exit_code": 2,
+        "errors": [],
+        "missing_files": [
+          "source_check.json",
+          "admission.json",
+          "budget.json",
+          "epoch_result.json",
+          "validation_input_bindings.json",
+          "2rgb_short/adapter_bindings.json",
+          "2rgb_short/reload_comparison.json",
+          "2rgb_short/train/train_run_manifest.json",
+          "2rgb_short/train/train_balance.json",
+          "2rgb_short/train/final_generation.json",
+          "2rgb_short/train/balance/consumed_epoch_0001.json",
+          "2rgb_short/train/balance/epoch_0001.json",
+          "2rgb_short/train/final/sft_new_loop_phase3_adapter_config.json",
+          "2rgb_short/reload_val/metrics.json",
+          "2rgb_short/reload_val/evaluation_plan.json",
+          "2rgb_short/test/metrics.json",
+          "2rgb_short/test/evaluation_plan.json",
+          "2rgb_short/train/final_generation_val_cases.jsonl",
+          "2rgb_short/reload_val/cases.jsonl",
+          "2rgb_short/test/cases.jsonl",
+          "4rgb/adapter_bindings.json",
+          "4rgb/reload_comparison.json",
+          "4rgb/train/train_run_manifest.json",
+          "4rgb/train/train_balance.json",
+          "4rgb/train/final_generation.json",
+          "4rgb/train/balance/consumed_epoch_0001.json",
+          "4rgb/train/balance/epoch_0001.json",
+          "4rgb/train/final/sft_new_loop_phase3_adapter_config.json",
+          "4rgb/reload_val/metrics.json",
+          "4rgb/reload_val/evaluation_plan.json",
+          "4rgb/test/metrics.json",
+          "4rgb/test/evaluation_plan.json",
+          "4rgb/train/final_generation_val_cases.jsonl",
+          "4rgb/reload_val/cases.jsonl",
+          "4rgb/test/cases.jsonl",
+          "completed_epoch_admission.json",
+          "2rgb_short/train/balance/consumed_epoch_0002.json",
+          "2rgb_short/train/balance/epoch_0002.json",
+          "2rgb_short/train/balance/consumed_epoch_0003.json",
+          "2rgb_short/train/balance/epoch_0003.json",
+          "4rgb/train/balance/consumed_epoch_0002.json",
+          "4rgb/train/balance/epoch_0002.json",
+          "4rgb/train/balance/consumed_epoch_0003.json",
+          "4rgb/train/balance/epoch_0003.json"
+        ],
+        "requested_epochs": 3,
+        "recorded_epochs": null,
+        "num_epochs": 3
+      }
+    },
+    {
+      "case": "corrupt_state",
+      "exit_code": 2,
+      "bytes": 661,
+      "zip_sha256": "ccb6075bd039cfbee65f3332f0727d6ad7a98fc4e7d4fc7625840fc55f0a6e9b",
+      "handoff": {
+        "status": "incomplete",
+        "command_exit_code": 2,
+        "errors": [
+          {
+            "path": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_three_epoch_hardening_20261013/corrupt_state/epoch_result.json",
+            "error": "Expecting value: line 1 column 11 (char 10)"
+          }
+        ],
+        "missing_files": [
+          "source_check.json",
+          "admission.json",
+          "budget.json",
+          "epoch_result.json",
+          "validation_input_bindings.json",
+          "2rgb_short/adapter_bindings.json",
+          "2rgb_short/reload_comparison.json",
+          "2rgb_short/train/train_run_manifest.json",
+          "2rgb_short/train/train_balance.json",
+          "2rgb_short/train/final_generation.json",
+          "2rgb_short/train/balance/consumed_epoch_0001.json",
+          "2rgb_short/train/balance/epoch_0001.json",
+          "2rgb_short/train/final/sft_new_loop_phase3_adapter_config.json",
+          "2rgb_short/reload_val/metrics.json",
+          "2rgb_short/reload_val/evaluation_plan.json",
+          "2rgb_short/test/metrics.json",
+          "2rgb_short/test/evaluation_plan.json",
+          "2rgb_short/train/final_generation_val_cases.jsonl",
+          "2rgb_short/reload_val/cases.jsonl",
+          "2rgb_short/test/cases.jsonl",
+          "4rgb/adapter_bindings.json",
+          "4rgb/reload_comparison.json",
+          "4rgb/train/train_run_manifest.json",
+          "4rgb/train/train_balance.json",
+          "4rgb/train/final_generation.json",
+          "4rgb/train/balance/consumed_epoch_0001.json",
+          "4rgb/train/balance/epoch_0001.json",
+          "4rgb/train/final/sft_new_loop_phase3_adapter_config.json",
+          "4rgb/reload_val/metrics.json",
+          "4rgb/reload_val/evaluation_plan.json",
+          "4rgb/test/metrics.json",
+          "4rgb/test/evaluation_plan.json",
+          "4rgb/train/final_generation_val_cases.jsonl",
+          "4rgb/reload_val/cases.jsonl",
+          "4rgb/test/cases.jsonl",
+          "completed_epoch_admission.json",
+          "2rgb_short/train/balance/consumed_epoch_0002.json",
+          "2rgb_short/train/balance/epoch_0002.json",
+          "2rgb_short/train/balance/consumed_epoch_0003.json",
+          "2rgb_short/train/balance/epoch_0003.json",
+          "4rgb/train/balance/consumed_epoch_0002.json",
+          "4rgb/train/balance/epoch_0002.json",
+          "4rgb/train/balance/consumed_epoch_0003.json",
+          "4rgb/train/balance/epoch_0003.json"
+        ],
+        "requested_epochs": 3,
+        "recorded_epochs": null,
+        "num_epochs": 3
+      }
+    }
+  ],
+  "tests": {
+    "passed": 51,
+    "seconds": 2.07,
+    "log_sha256": "f26e88464bfb9a70c33208d3ebce5d5b6a9f15c1b257f81891adfc594beb456d"
+  },
+  "limitations": [
+    "CPU linear model uses replacement image packing and loss, not Qwen/GPU training",
+    "No new RGB inspection, label replay, full-dataset build or remote training",
+    "Initial default Python lacked torch; rerun used existing pvi environment",
+    "Initial new CPU assertions omitted the independent INVALID=0 counter; fixed test only"
+  ],
+  "evidence": {
+    "verify.py": "7278e1ce5b18856bc4d45396c3b5ef5c8ee05b87d04d6ef56f8ac3fe58f78e13",
+    "tests.log": "419648f5b0d1b58767cbdcb5129dbe283eed0a3985d9e911c6b9001df05bab85",
+    "tests_final.log": "f26e88464bfb9a70c33208d3ebce5d5b6a9f15c1b257f81891adfc594beb456d"
+  },
+  "verification_sha256": "affca512af350e2471ba3297ed0c881ad66873d6d6b2d4600980b86563a83bb4"
+}

@@ -1,0 +1,46 @@
+{
+  "real_checks": [
+    {
+      "name": "native",
+      "counts": {
+        "train": 191,
+        "val": 0,
+        "test": 0
+      },
+      "exit_code": 2,
+      "paired_ids_targets": true,
+      "source_bindings_unchanged": 21,
+      "new_view_bytes": 23839,
+      "report_sha256": "bb8c5f61b839fc85fd9710165453450eddb643dcbf0ff1fdb4315c33edb51eef"
+    },
+    {
+      "name": "native_extra",
+      "counts": {
+        "train": 53,
+        "val": 0,
+        "test": 0
+      },
+      "exit_code": 2,
+      "paired_ids_targets": true,
+      "source_bindings_unchanged": 13,
+      "new_view_bytes": 23904,
+      "report_sha256": "48741674bf66fe641a5850450e30b3fd702113cbb13bb4a9263fbff0bd9c5c9b"
+    }
+  ],
+  "source_labels_replayed": false,
+  "new_rgb_viewed": 0,
+  "test_log_sha256": "a99c39022cd4ebd2ec5f6259ee9c33e197f075e5eb751c99ca63dcfbb9faf47f",
+  "passed": 460,
+  "seconds": 9.11,
+  "source_release": {
+    "file": "release_sources_v54_admission_20261013.json",
+    "status": "matched",
+    "files": 478,
+    "sha256": "c0f25ef2f0039687579b287aebb392dfcfeb46e215eab0a1d0b12d04d1d31a9e"
+  },
+  "phase3_completed_epoch_admission": "verified",
+  "evidence_sha256": {
+    "AutoMoT/checkpoints/v54_admission_diagnostics_20261013/verification.json": "c47371573aadc149f0308fbac71e8a9410c7235776e7c2cc7fe179fc346a1377",
+    "AutoMoT/checkpoints/v54_admission_diagnostics_20261013/verify.py": "12541436f443a5850b1562564a976d9da26c09582c06fe5490822a4821ae216a"
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "task": "phase4_state_pair_binary_v54",
+  "teacher": "ten_event_causal_teacher_v19",
+  "synthetic": {
+    "before": "YES",
+    "after": "UNKNOWN",
+    "restriction_frame": 8,
+    "pre_intrusion_clear_frame": 6,
+    "source_sha256": "a4eacc791c2bbfd27b26ada98e9dd990773c5c5c9b1d9c3ea51046f83955e460",
+    "scope": "synthetic native function counterexample; not a demonstrated real dataset mislabeled YES"
+  },
+  "real": {
+    "frames": 193,
+    "raw_questions_both_rgb_modes": 478,
+    "changed_semantic_frames": 0,
+    "paired_counts": {
+      "train": 87,
+      "val": 0,
+      "test": 0
+    },
+    "window_counts": {
+      "native_visible_departure/False": 101,
+      "native_visible_departure/None": 8
+    },
+    "window_frames": 763,
+    "raw_source_files_verified": 2289,
+    "partial_crop_observations": 153,
+    "edge_case": {
+      "frame_id": 57,
+      "participant_present": true,
+      "scene_quality": {
+        "quality_pass": true,
+        "camera_checks": [
+          true,
+          true,
+          true
+        ],
+        "scope": "RGB brightness/contrast veto only; occupancy checked separately"
+      },
+      "corridor_points": [
+        [
+          -4.918014000538173,
+          -0.5752900359957843
+        ],
+        [
+          -3.919434977822426,
+          -0.5799496439627442
+        ],
+        [
+          -2.917332212474707,
+          -0.592043577832543
+        ],
+        [
+          -1.9153760805341218,
+          -0.6116372005151087
+        ],
+        [
+          -0.9238566126217934,
+          -0.6384303079351733
+        ],
+        [
+          0.07871925124611576,
+          -0.6728050537926679
+        ],
+        [
+          1.0832475142248064,
+          -0.7149937110845711
+        ],
+        [
+          2.073855168163832,
+          -0.7639671074556792
+        ],
+        [
+          3.074407646048333,
+          -0.820890514923358
+        ]
+      ],
+      "position": [
+        0.8169708797026516,
+        -2.730938282310859,
+        -0.03275149256276677
+      ],
+      "extent": [
+        2.5039126873016357,
+        0.9408109784126282,
+        0.7673624753952026
+      ],
+      "yaw": 3.090126266575685,
+      "visible": null,
+      "camera_possible": true,
+      "pixel_quality": {
+        "policy": "projected_rgb_quality_v2_partial_diagnostics",
+        "crops": [],
+        "quality_pass": false,
+        "partial_crops": [
+          {
+            "bounds": [
+              0,
+              245,
+              375,
+              384
+            ],
+            "p95": 168.91359999999997,
+            "contrast": 109.09363999999998,
+            "saturated_fraction": 0.0008249400479616307,
+            "usable": true,
+            "near_plane_clipped": true,
+            "scope": "partial_projection_quality_only_not_full_footprint"
+          }
+        ],
+        "partial_quality_pass": true
+      },
+      "fixed_corridor_intersection": true,
+      "historical_navigation_intersection": null
+    },
+    "visual_frames_reviewed": 21,
+    "visual_scope": "revisited prior three contact sheets, not blind and not 763 visual judgments"
+  },
+  "regression": {
+    "passed": 2450,
+    "seconds": 108.15,
+    "new_tests": 19,
+    "log_sha256": "ee353e40ff218ccd2a2770f8d3c509513846f010630d5d331b627113fcbe0745",
+    "initial_attempt": "pvi environment lacked tokenizers: three collection errors; existing /tmp/automot-qwen35-env used without installation"
+  },
+  "source": {
+    "status": "matched",
+    "files": 478,
+    "manifest": "release_sources_v54_20261013.json",
+    "sha256": "be17b6197aaf87f8bbdbc73091db4d50be9fadc7e3ec941539dd8f47e12ae286"
+  },
+  "phase3_completed_admission": "verified",
+  "reservations_unchanged": true,
+  "approved_teacher_classes": 0,
+  "old_contract_rejected": true,
+  "remote_training": false,
+  "pushed": false,
+  "evidence": {
+    "checkpoints/ue5_visibility_v54_20261013/verify.py": "ec4d9b32b3b80579a62b214925e184ef6ea7efce429f7889df923d49a0d83279",
+    "checkpoints/ue5_visibility_v54_20261013/build_local.py": "6754558318ee12276156c03acf3a65d569816f6b2a3da2beda88c030abe26a64",
+    "checkpoints/ue5_visibility_v54_20261013/compare.py": "6bf0bf37159e4142af9896b38974ac8876af2ad536b58e4070b18bf5501caa1c",
+    "checkpoints/ue5_visibility_v54_20261013/comparison.json": "5e3c4ea48f39250e98da1ee30f74978e4e705b5cc16e12e8072396d190e91019",
+    "checkpoints/ue5_visibility_v54_20261013/native/verification.json": "3b82f12b555be402b4fb8154d644485925dd3ec17a3e27c9878f18dbc4eb4e4b",
+    "checkpoints/ue5_visibility_v54_20261013/full_tests_final.log": "ee353e40ff218ccd2a2770f8d3c509513846f010630d5d331b627113fcbe0745",
+    "checkpoints/ue5_visibility_v54_20261013/full_tests.log": "ad2ff6e62812550948756058df75f7ce753d5e96e3de08c28ba7a1cdf519c890"
+  }
+}

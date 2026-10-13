@@ -1,5 +1,43 @@
 # AGENTS.md
 
+### 2026-10-13 v54白名单发布与U-E7双条件RGB续审
+
+用户授权本轮白名单push。当前478源v54_admission matched、真实P3首轮ZIP原生三轮准入verified，79专项回归4.70秒通过，shell语法通过；只发布源码/测试/轻量文档与回执，checkpoints/RGB/权重及白名单外资料留本机。服务器沿既有sync覆盖同步，按audit_joint/SERVER_V54_RELEASE_RGB_20261013.md运行固定三轮P3，原PREPARED_ROOT及COMPLETED_EPOCH_ROOT不变，交phase3_epoch_report.zip+phase3_epoch_package.json；不重复readiness/建库/首轮。Phase4仍缺UE5真实放行YES、v54正式池与联合隔离，暂不启动旧全库/fit/训练。
+本机当前v54两条U-E7训练路线107帧重建，两模式各110train/空留出，14.46秒；321源SHA前后通过，实际两联系表14不同RGB/42源，属于既有开发窗口复看非盲审。Town12 002113 f43先解除、f48才稳定；Town15 002214 f49先稳定、f52才解除，两条件齐备才complete YES；f47/48无题不补标。未发现新确定标定/提示词缺陷，无生产修改/远程/GPU训练。见发布手册和v54_publish_rgb_verification_20261013.json，完整证据checkpoints/v54_publish_rgb_20261013。
+
+### 2026-10-13 v54自动准入缺项诊断补强
+
+真实小库复现缺自动留出即modes={}、源池诊断丢失；rule_baseline分开处理参考绑定，保留两模式源分布/关键readiness支持，缺项仍blocked。预算缺失/截断/非对象也落阻塞报告。关键支持只计train自动原来源+指定事件边+readiness，人工/其它边/catchup/val不补格；最终选择、等量、输入漂移及预算门仍在。460 audit_joint测试9.11秒通过含12新增。复用两v54父库，新轻量视图23839/23904字节，原生两模式191+53题ID/标签配对，21/13输入绑定不变；两次原生CLI缺参考+坏预算均退出2且完整诊断。短视图冻结准入源码，旧view不改SHA，需新描述文件但无需重放/复制RGB。生产v54/老师v19/标定提示词不变，新478源v54_admission matched、实际P3首轮ZIP三轮准入verified，P3命令不变。未重复2450/readiness/全库/首轮，无新RGB/回放/训练/远程/push。P4仍缺UE5真实YES/正式等量留出/联合隔离；见audit_joint/V54_ADMISSION_DIAGNOSTICS_20261013.md及对应verification，证据checkpoints/v54_admission_diagnostics_20261013。
+
+### 2026-10-13 v54独立十事件自动数据与RGB复审
+
+未发现新的确定生产代码缺陷；v54离场时序与partial诊断隔离通过，478源matched、7既有证据SHA及2450全套日志核验，实跑179相关回归39.52秒通过。已收P3首轮ZIP原生三轮准入仍verified，不重建/readiness/首轮。新建10短路线642帧两模式各191题；旧两条路线对应事件仅人工band支持，另补2规则路线138帧各53题，两个独立池合计780帧/244纯weak_rule_teacher题覆盖十事件。2340原文件SHA前后核验。原生3轮计划各event1024、两模式/world1/4同序，未模型训练；小池单题最多114次，不能用于正式训练。训练池上无放回选题90=9/event仅算法验证非val/test；空留出拒绝。
+实际十联系表70不同RGB帧/210源，开发定向非盲审；UE2 depart与RE2 enter YES额外重载7帧几何，visible-condition提示词边界一致；其余冲突NO未见充分改标依据。UE5原始proceed8NO/3UNKNOWN/0YES，其它边YES不补放行；P4仍需真实正例、当前v54正式池/隔离及首轮重载。无生产/标定/提示词修改、远程/GPU/push。见audit_joint/V54_FLOW_REVIEW_20261013.md及v54_flow_review_verification_20261013.json，原证据checkpoints/v54_flow_review_20261013。
+
+### 2026-10-13 U-E5 v54离场时序与部分投影修复
+
+确认原生合成反例：侵入前可见分离被visible_departure误用，旧facts/answer为YES；限制历史证据严格晚于restriction_frame，缺失/非法时不授权，新结果UNKNOWN。近裁剪增加12边求交，partial_crops独立诊断不进入完整quality_pass/运动匹配/放行。任务v54/老师v19，新同预约plan v34/空registry v29，旧产物合同拒绝，不改提示词/阈值。两真实路线193帧新建，两模式各87train/空留出，478原始题语义差分0；109窗口763帧2289源SHA核验，101离场False/8源不连续，153帧部分投影。实际复看21帧RGB，非盲审；4591/f57可裁剪但固定走廊仍相交，真实UE5 YES仍0。2450完整回归108.15秒通过含19新增；首次pvi缺tokenizers收集失败，用既有完整环境通过。478源v54清单matched，Phase3生产/学生合同不变、已收首轮ZIP三轮准入verified，服务器三轮命令不变；不重复readiness/建库/首轮。见audit_joint/UE5_VISIBILITY_V54_20261013.md及ue5_visibility_v54_verification_20261013.json，原证据checkpoints/ue5_visibility_v54_20261013。P4正式新池/真实正例/联合隔离仍缺，无训练/远程/GPU/push。
+
+### 2026-10-13 U-E5本地小库与35帧RGB定向续审
+
+本机重新读取109截止窗口/763不同帧，2289原RGB/meta/bbox SHA前后通过；实际目视5连续窗口35不同RGB另1原图含在35内，非盲审/全763目视。101可计算窗口visible_departure全False，8源不连续；56截止帧当前可见范围clearance=True不当完整许可。5可见且分离帧全部早于restriction_frame，是驶入前而非离场。确认4591/f57部分红车可见、visible_pixels32315，但投影8角点近裁剪要求使crops空/visible未知；0.25/0.75裕量仍相交，不能因此改YES，只报告投影保守盲区。
+两训练路线193帧原生v53回放→共享RGB4→短2/4各87train加载配对通过，14.62秒；193条U-E5范围记录与既有v53逐行相同。小库仅UE2/5且空留出，UE5 proceed14NO/0YES，非正式训练准入；没有新标定修复或正例。见audit_joint/UE5_LOCAL_RGB_20261013.md及ue5_local_rgb_verification_20261013.json，产物checkpoints/ue5_local_rgb_20261013。生产/阈值/标签/提示词未改，无GPU/远程/训练/push。后续定向可见离场观测，正式v53全池/联合完整索引隔离另验，不重复readiness或全89重放。
+
+### 2026-10-13 Phase3三轮失败诊断与常驻回归
+
+复现截断epoch_result使package直接JSONDecodeError且无ZIP；修复损坏/非对象/非法轮数进入incomplete诊断包，记录errors/missing_files，shell把EPOCHS传入package，启动前阻塞仍保留三轮范围，轮数矛盾拒绝通过。正常训练/标定/提示词/超参未改；临时CPU三轮检查固化常驻回归并补第三轮缺题拒绝。51相关测试2.07秒通过含12新增，原生失败CLI两包544/661字节SHA/CRC通过；新475源three_epoch_hardening清单matched，实际已收首轮ZIP准入仍verified，旧清单/复审证据不改。首次默认Python无torch，改用已有pvi；新测试漏INVALID=0的3断言修正，失败日志保留。未重复完整2419/readiness/建库/首轮，无新RGB/回放/远程/GPU/push。发布同步后顶部固定三轮命令不变，交两个phase3_epoch文件；P4真实UE5正例/v53池/联合隔离仍缺。见audit_joint/PHASE3_THREE_EPOCH_HARDENING_20261013.md及对应verification，原证据checkpoints/phase3_three_epoch_hardening_20261013。
+
+### 2026-10-13 Phase3固定三轮独立复审通过
+
+三轮入口增量复审未发现新的确定阻塞缺陷；475源matched，已收首轮843428字节/43成员SHA/CRC重核及原生三轮准入通过。实跑107相关回归6.26秒；既有2419完整日志SHA核验，未重复全套。另原生CPU线性模型三轮120题、每轮十事件各4全部消费；第二轮首题注入拒绝即停止，只留第一轮完成回执。合成池三轮1024/event、world1/4题序重组通过，非正式池/GPU质量证明。7680步warmup2000=26.04%，固定final/val/test，不新改标签/提示词/采样/超参。可以发布现有三轮入口，不重建/readiness/首轮；旧test已查看，后续重复比较不冒称未曝光最终测试。P4 UE5真实YES、新v53池与联合隔离仍缺；无新RGB/全源回放/生产修改/远程/GPU/push。见AutoMoT/qwen3vl_local/audit_joint/PHASE3_THREE_EPOCH_REVIEW_20261013.md及phase3_three_epoch_review_verification_20261013.json；证据checkpoints/phase3_three_epoch_review_20261013。
+
+### 2026-10-13 Phase3首轮全流程验收与固定三轮开发入口
+
+收到843428字节/43成员phase3_epoch包，外层/成员SHA/CRC及475源与364e1e4b1一致；两模式均first_epoch_verified、退出0。两图旧adapter解析目标/SHA不变，四图新训；原生parser独立复算2040条输出，val/test固定题集及逐动作分数/能力守卫重算一致，短两图是四图[1,3]子集，同题同标签。实际每模式训练十事件各1024、val32/test38，重载各0差异；Phase3独立首轮链路关闭，不重建/重复readiness/首轮。
+两图val215/320=67.1875%、test227/380=59.7368%；四图val214/320=66.875%、test222/380=58.4211%。test减速19/81及16/81、恢复均20/52、左变道均8/27，能力守卫未过，非生产批准。实际每轮DECELERATE2080/RESUME1680/STOP3422/左右各684/KEEP1690，不能认定缺监督。首轮warmup2000/2560=78.125%是预算局限，不证明弱项唯一原因；未新改标定/提示词/采样/阈值，无新RGB目视。
+扩展已有server_phase3_epoch支持EPOCHS=3：仅接受已审完成首轮ZIP SHA b555c258...，绑定同准备/生产合同，拒绝REUSE_EPOCH_ROOT三轮跳训；两模式从基座新训3轮各30720呈现、每轮实际等量检查、final-only、最终val重载/test、≤30MB包带三轮回执，20GiB守护/预算重算，无优化器恢复或自动七轮。成功three_epoch_verified只是开发链路通过。新475源multiepoch清单；旧清单不改。完整2419通过106.86秒（新增7），真实已收ZIP原生准入及新source matched；CPU模拟子进程不冒称GPU三轮。未push/未远程GPU。
+发布同步后按audit_joint/PHASE3_ADMISSION_FIRST_EPOCH_20261013.md顶部新命令，COMPLETED_EPOCH_ROOT=checkpoints/phase3_epoch_recovery_20261013_121248_683529276，复用原PREPARED_ROOT，EPOCHS=3、新OUTPUT，交phase3_epoch_report.zip+phase3_epoch_package.json。按实测两图77分钟/四图130分钟每轮，顺序三轮粗估10–12小时而非保证。原证据checkpoints/phase3_epoch_completed_20261013，轻量回执phase3_epoch_completed_verification_20261013.json；三份指南最新状态同步。P4UE5真实proceed YES、新v53全池及跨任务隔离/联合G0仍未关闭，不要求全量人工审核才能推进P3独立开发实验。
+
 ### 2026-10-13 Phase3两图首轮交接、重载入口修复与只读复用
 
 收到phase3_epoch_report.zip246461字节/17成员，外层/成员SHA/CRC及475源与81a486f28逐项一致。两图已完整训练2560四卡步/10240次，十事件各1024实际消费；原生parser复算320val各事件32题、固定ID集合一致，215正确/67.1875%。减速4/58（38答KEEP）、恢复18/38、左变道3/8；路口32/32参考全STOP，不能以整体分数声称全动作已会。test与四图未运行，无新RGB目视/规则修改。
