@@ -11,9 +11,100 @@ import zipfile
 from .io import digest, file_sha, write_json
 
 ROOT = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_phase3_epoch_20261013.json')
+RELEASE = Path(__file__).with_name('release_sources_phase3_epoch_recovery_20261013.json')
 MODES = ('2rgb_short', '4rgb')
 INDEX_SHA = '925053e34c47f35dfe4987f14a1be3a8abdc206d75bea31964dc4ca9b8fcee99'
+
+
+# This recovery is deliberately bound to the handoff actually reviewed locally.
+REVIEWED_EPOCH_SHA = '5e28b686dedc62b941161fdbcdc9a22b977f1bb2d59122d9156d0a5a1266172d'
+CASE_FIELDS = ('scenario', 'route_id', 'frame_id', 'context_id', 'prompt_spec', 'history_rgb_paths_used',
+               'history_rgb_sha256', 'raw_output', 'parsed', 'gt', 'all_ok', 'format_valid', 'strict_format_valid')
+
+
+def update_state(output, state):
+    """Replace only this run's mutable progress; immutable evidence stays exclusive."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=output,
+                                     prefix='.epoch_state_', delete=False) as stream:
+        tmp = Path(stream.name)
+        try:
+            json.dump(state, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(tmp, output / 'epoch_result.json')
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def report_value(path):
+    if path.suffix == '.jsonl':
+        return [{k: r[k] for k in CASE_FIELDS if k in r}
+                for r in (json.loads(line) for line in path.read_text().splitlines())]
+    return json.loads(path.read_text())
+
+
+def verified_reuse(prior, evidence, accepted):
+    """Reuse the reviewed completed short-RGB epoch, never an unfinished optimizer run."""
+    import hashlib
+    from qwen3vl_local.sft_new_loop_phase4.production_storage import binding, check_binding
+    archive, receipt = prior / 'phase3_epoch_report.zip', prior / 'phase3_epoch_package.json'
+    r = json.loads(receipt.read_text())
+    if file_sha(archive) != REVIEWED_EPOCH_SHA or r['zip_sha256'] != REVIEWED_EPOCH_SHA:
+        raise ValueError('reuse requires the reviewed Phase3 epoch ZIP')
+    if archive.stat().st_size != r['bytes']:
+        raise ValueError('reuse ZIP size mismatch')
+    with zipfile.ZipFile(archive) as z:
+        if (len(z.namelist()) != len(set(z.namelist())) or z.testzip()
+                or sum(i.file_size for i in z.infolist()) > 30_000_000):
+            raise ValueError('invalid reuse package')
+        if {n: hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist()} != r['files']:
+            raise ValueError('reuse member SHA mismatch')
+        members = {n: json.loads(z.read(n)) for n in z.namelist()}
+    admission = members['admission.json']
+    if admission['prepared'] != evidence or admission['sampling']['modes']['choice'] != accepted['modes']['choice']:
+        raise ValueError('reuse preparation or sampling mismatch')
+    # Production code must remain identical to the version that trained this adapter.
+    for record in members['source_check.json']['files']:
+        if record['path'].startswith(('qwen3vl_local/sft_new_loop_phase3/', 'qwen3vl_local/qwen35/')):
+            if file_sha(ROOT / record['path']) != record['actual']:
+                raise ValueError('reuse training/contract source changed: ' + record['path'])
+    checks = [binding(archive), binding(receipt)]
+    for n, value in members.items():
+        if n.startswith('2rgb_short/train/'):
+            path = prior / n
+            if report_value(path) != value:
+                raise ValueError('reuse training report changed: ' + n)
+            checks.append(binding(path))
+    assets = members['2rgb_short/adapter_bindings.json']
+    adapter = prior / '2rgb_short/train/final'
+    if {Path(v['logical_path']) for v in assets} != {p.absolute() for p in adapter.iterdir() if p.is_file()}:
+        raise ValueError('reuse adapter asset set/path mismatch')
+    checks += assets + members['validation_input_bindings.json']
+    for v in checks:
+        check_binding(v)
+    consumption = members['2rgb_short/train/balance/consumed_epoch_0001.json']
+    from qwen3vl_local.sft_new_loop_phase3.train import CONTEXT_IDS
+    if consumption['status'] != 'verified' or any(consumption['actual'].get(k) != 1024 for k in CONTEXT_IDS):
+        raise ValueError('reuse epoch is incomplete')
+    return dict(status='verified', mode='2rgb_short', prior_root=str(prior),
+                train_path=str(prior / '2rgb_short/train'), bindings=checks,
+                scope='completed adapter reuse; no optimizer resume, no repeat two-RGB training')
+
+
+def evaluation_argv(index, data_root, model_dir, adapter, output, split, quota):
+    # LoRA RGB/output/prompt contracts are read from the persisted adapter config.
+    return [sys.executable, '-m', 'qwen3vl_local.sft_new_loop_phase3.eval',
+            '--index', str(index), '--data-root', str(data_root), '--model-dir', str(model_dir),
+            '--adapter-dir', str(adapter), '--output-dir', str(output),
+            '--split', split, '--cases-per-bin', str(quota), '--seed', '20260904',
+            '--max-new-tokens', '64', '--evaluation-distribution', 'equal_events',
+            '--no-merge-lora', '--no-timestamp-output', '--no-save-error-rgb', '--no-save-all-rgb']
 
 
 def verified_preparation(prepared):
@@ -102,7 +193,7 @@ def compare_reload(before, after):
                 scope='unmerged adapter, identical fixed validation questions and parser; not model accuracy approval')
 
 
-def run(prepared, output, data_root, model_dir):
+def run(prepared, output, data_root, model_dir, reuse_epoch=None):
     # This coordinator is not a DDP worker; only train.sh owns rank variables.
     for key in ('RANK', 'LOCAL_RANK', 'WORLD_SIZE', 'MASTER_ADDR', 'MASTER_PORT'):
         os.environ.pop(key, None)
@@ -142,39 +233,48 @@ def run(prepared, output, data_root, model_dir):
         write_json(output / 'budget.json', budget)
         if budget['sufficient'] is not True:
             raise ValueError('first-epoch disk budget does not fit')
+        reuse = verified_reuse(reuse_epoch, evidence, accepted) if reuse_epoch else None
+        if reuse:
+            write_json(output / 'reuse.json', reuse)
         for mode in MODES:
             mode_root = output / mode
             mode_root.mkdir()
-            env = training_env(index, data_root, model_dir, mode_root / 'train', mode)
-            state.update(status='training', active_mode=mode, training_started=True)
-            write_json(output / 'epoch_result.json', state)
-            # Use the existing GPU launcher; preserve its automatic GPU selection.
-            argv = ['bash', str(ROOT / 'qwen3vl_local/sft_new_loop_phase3/train.sh'), 'ddp']
-            with (output / f'{mode}_train.log').open('w') as log:
-                process = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
-                while True:
-                    try:
-                        code = process.wait(timeout=30); break
-                    except subprocess.TimeoutExpired:
-                        print(f'[phase3-epoch] training {mode}; log={output / (mode + "_train.log")}', flush=True)
-            if code:
-                raise RuntimeError(f'{mode} training exited {code}')
+            state.update(active_mode=mode, active_stage='train')
+            if reuse and mode == reuse['mode']:
+                (mode_root / 'train').symlink_to(reuse['train_path'], target_is_directory=True)
+                state['reused_modes'] = [mode]
+            else:
+                env = training_env(index, data_root, model_dir, mode_root / 'train', mode)
+                state.update(status='training', active_mode=mode, training_started=True)
+                update_state(output, state)
+                # Use the existing GPU launcher; preserve its automatic GPU selection.
+                argv = ['bash', str(ROOT / 'qwen3vl_local/sft_new_loop_phase3/train.sh'), 'ddp']
+                with (output / f'{mode}_train.log').open('w') as log:
+                    process = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+                    while True:
+                        try:
+                            code = process.wait(timeout=30); break
+                        except subprocess.TimeoutExpired:
+                            print(f'[phase3-epoch] training {mode}; log={output / (mode + "_train.log")}', flush=True)
+                if code:
+                    raise RuntimeError(f'{mode} training exited {code}')
             consumed = json.loads((mode_root / 'train/balance/consumed_epoch_0001.json').read_text())
             if consumed['status'] != 'verified' or any(consumed['actual'].get(k) != 1024 for k in train.CONTEXT_IDS):
                 raise ValueError('actual training was not one complete equal-event epoch')
             adapter = mode_root / 'train/final'
+            from qwen3vl_local.sft_new_loop_phase3.eval import _validate_action_adapter
+            cfg = _validate_action_adapter(adapter, model_dir, action_output_mode='choice')
+            if cfg['history_rgb_mode'] != mode or cfg.get('prompt_variant') != CANDIDATE_NAME:
+                raise ValueError('saved adapter differs from requested first-epoch contract')
             adapter_bindings = [binding(p) for p in sorted(adapter.iterdir()) if p.is_file()]
             write_json(mode_root / 'adapter_bindings.json', adapter_bindings)
             for split, quota, label in (('val', 32, 'reload_val'), ('test', 0, 'test')):
                 for p in pixels:
                     check_binding(p)
-                execute(output, f'{mode}_{label}', [sys.executable, '-m', 'qwen3vl_local.sft_new_loop_phase3.eval',
-                    '--index', str(index), '--data-root', str(data_root), '--model-dir', str(model_dir),
-                    '--adapter-dir', str(adapter), '--output-dir', str(mode_root / label),
-                    '--split', split, '--cases-per-bin', str(quota), '--seed', '20260904',
-                    '--prompt-variant', CANDIDATE_NAME, '--history-rgb-mode', mode, '--action-output-mode', 'choice',
-                    '--max-new-tokens', '64', '--evaluation-distribution', 'equal_events',
-                    '--no-merge-lora', '--no-timestamp-output', '--no-save-error-rgb', '--no-save-all-rgb'])
+                state.update(status='evaluating', active_stage=label)
+                update_state(output, state)
+                execute(output, f'{mode}_{label}', evaluation_argv(
+                    index, data_root, model_dir, adapter, mode_root / label, split, quota))
                 evaluated = json.loads((mode_root / label / 'evaluation_plan.json').read_text())['plan']
                 expected = accepted['modes']['choice']['val_generation' if split == 'val' else 'test']['plan']
                 if evaluated['selected_ids'] != expected['selected_ids']:
@@ -185,15 +285,16 @@ def run(prepared, output, data_root, model_dir):
                     write_json(mode_root / 'reload_comparison.json', compared)
                     if compared['status'] != 'verified':
                         raise ValueError('save/reload prediction mismatch; inspect comparison')
-            for value in [*evidence['bindings'].values(), *pixels, *adapter_bindings]:
+            for value in [*evidence['bindings'].values(), *pixels, *adapter_bindings,
+                          *(reuse['bindings'] if reuse else [])]:
                 check_binding(value)
             state['completed_modes'].append(mode)
         if source_check(ROOT, RELEASE)['status'] != 'matched':
             raise ValueError('source drift during first epoch')
-        state['status'] = 'first_epoch_verified'
+        state.update(status='first_epoch_verified', active_stage='complete')
     except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
         state.update(status='blocked', error=f'{type(exc).__name__}: {exc}')
-    write_json(output / 'epoch_result.json', state)
+    update_state(output, state)
     return 0 if state['status'] == 'first_epoch_verified' else 2
 
 
@@ -209,19 +310,15 @@ def package(output, exit_code):
             'train/final/sft_new_loop_phase3_adapter_config.json',
             'reload_val/metrics.json', 'reload_val/evaluation_plan.json', 'test/metrics.json', 'test/evaluation_plan.json',
             'train/final_generation_val_cases.jsonl', 'reload_val/cases.jsonl', 'test/cases.jsonl')]
+    if (output / 'reuse.json').is_file():
+        paths.append(output / 'reuse.json')
     for path in paths:
         if not path.is_file():
             continue
         try:
             if path.stat().st_size > 8_000_000:
                 raise ValueError('report exceeds 8MB; retained on server')
-            if path.suffix == '.jsonl':
-                fields = ('scenario', 'route_id', 'frame_id', 'context_id', 'prompt_spec', 'history_rgb_paths_used',
-                          'history_rgb_sha256', 'raw_output', 'parsed', 'gt', 'all_ok', 'format_valid', 'strict_format_valid')
-                value = [{k: r[k] for k in fields if k in r} for r in
-                         (json.loads(line) for line in path.read_text().splitlines())]
-            else:
-                value = json.loads(path.read_text())
+            value = report_value(path)
             members[str(path.relative_to(output))] = value
         except (OSError, ValueError) as exc:
             errors.append(dict(path=str(path), error=str(exc)))
@@ -246,6 +343,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('command', choices=('run', 'package'))
     p.add_argument('--prepared', type=Path)
+    p.add_argument('--reuse-epoch', type=Path)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--data-root', type=Path, default=ROOT / 'lead_data')
     p.add_argument('--model-dir', type=Path, default=ROOT / 'checkpoints/Qwen3.5-4B')
@@ -253,7 +351,8 @@ def main():
     a = p.parse_args()
     if a.command == 'run' and a.prepared is None:
         p.error('--prepared required')
-    return (run(a.prepared.absolute(), a.output.absolute(), a.data_root.absolute(), a.model_dir.absolute())
+    return (run(a.prepared.absolute(), a.output.absolute(), a.data_root.absolute(), a.model_dir.absolute(),
+                a.reuse_epoch.absolute() if a.reuse_epoch else None)
             if a.command == 'run' else package(a.output.absolute(), a.exit_code))
 
 

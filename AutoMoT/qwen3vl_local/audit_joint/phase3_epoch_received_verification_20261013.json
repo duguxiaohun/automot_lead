@@ -1,0 +1,230 @@
+{
+  "audit": {
+    "status": "verified",
+    "package_bytes": 246461,
+    "members": 17,
+    "source_files": 475,
+    "actual_train_per_event": 1024,
+    "val_per_event": 32,
+    "val_fixed_id_set_matches": true,
+    "raw_reparsed_cases": 320,
+    "correct": 215,
+    "exact": 0.671875,
+    "by_event": {
+      "LEAD_BRAKE": {
+        "samples": 32,
+        "correct": 23,
+        "targets": {
+          "STOP": 21,
+          "RESUME": 6,
+          "DECELERATE": 3,
+          "KEEP": 2
+        },
+        "sample_majority_count": 21
+      },
+      "STATIC_BLOCKAGE": {
+        "samples": 32,
+        "correct": 20,
+        "targets": {
+          "STOP": 10,
+          "LANE_CHANGE_LEFT": 6,
+          "LANE_CHANGE_RIGHT": 7,
+          "DECELERATE": 8,
+          "RESUME": 1
+        },
+        "sample_majority_count": 10
+      },
+      "DYNAMIC_CUTIN": {
+        "samples": 32,
+        "correct": 24,
+        "targets": {
+          "STOP": 25,
+          "RESUME": 4,
+          "DECELERATE": 3
+        },
+        "sample_majority_count": 25
+      },
+      "VULNERABLE_CROSSING": {
+        "samples": 32,
+        "correct": 29,
+        "targets": {
+          "STOP": 31,
+          "RESUME": 1
+        },
+        "sample_majority_count": 31
+      },
+      "ONCOMING_INVASION": {
+        "samples": 32,
+        "correct": 21,
+        "targets": {
+          "RESUME": 9,
+          "STOP": 8,
+          "KEEP": 9,
+          "DECELERATE": 6
+        },
+        "sample_majority_count": 9
+      },
+      "JUNCTION_RULE_CONFLICT": {
+        "samples": 32,
+        "correct": 32,
+        "targets": {
+          "STOP": 32
+        },
+        "sample_majority_count": 32
+      },
+      "SIGNAL_FAILURE": {
+        "samples": 32,
+        "correct": 18,
+        "targets": {
+          "DECELERATE": 11,
+          "STOP": 13,
+          "KEEP": 3,
+          "RESUME": 5
+        },
+        "sample_majority_count": 13
+      },
+      "POST_BYPASS_RETURN": {
+        "samples": 32,
+        "correct": 12,
+        "targets": {
+          "RESUME": 3,
+          "KEEP": 9,
+          "LANE_CHANGE_LEFT": 2,
+          "DECELERATE": 9,
+          "STOP": 3,
+          "LANE_CHANGE_RIGHT": 6
+        },
+        "sample_majority_count": 9
+      },
+      "UNSIGNALIZED_PRIORITY": {
+        "samples": 32,
+        "correct": 17,
+        "targets": {
+          "DECELERATE": 9,
+          "STOP": 6,
+          "KEEP": 8,
+          "RESUME": 9
+        },
+        "sample_majority_count": 9
+      },
+      "RAMP_MERGE_EXIT": {
+        "samples": 32,
+        "correct": 19,
+        "targets": {
+          "KEEP": 18,
+          "DECELERATE": 9,
+          "STOP": 4,
+          "LANE_CHANGE_RIGHT": 1
+        },
+        "sample_majority_count": 18
+      }
+    },
+    "confusion": {
+      "STOP": {
+        "STOP": 140,
+        "RESUME": 2,
+        "LANE_CHANGE_LEFT": 1,
+        "DECELERATE": 2,
+        "KEEP": 8
+      },
+      "RESUME": {
+        "STOP": 15,
+        "RESUME": 18,
+        "KEEP": 3,
+        "DECELERATE": 2
+      },
+      "DECELERATE": {
+        "DECELERATE": 4,
+        "RESUME": 8,
+        "LANE_CHANGE_LEFT": 2,
+        "KEEP": 38,
+        "STOP": 4,
+        "LANE_CHANGE_RIGHT": 2
+      },
+      "KEEP": {
+        "DECELERATE": 3,
+        "KEEP": 38,
+        "RESUME": 4,
+        "LANE_CHANGE_RIGHT": 4
+      },
+      "LANE_CHANGE_LEFT": {
+        "RESUME": 4,
+        "LANE_CHANGE_LEFT": 3,
+        "KEEP": 1
+      },
+      "LANE_CHANGE_RIGHT": {
+        "LANE_CHANGE_RIGHT": 12,
+        "DECELERATE": 1,
+        "KEEP": 1
+      }
+    },
+    "native_saved_adapter_cli": "passed_without_model_loading",
+    "sample_majority_diagnostic": 0.553125,
+    "limitations": [
+      "No weights copied or independently reloaded locally",
+      "Reload/test/4RGB absent in server handoff",
+      "No new RGB visual inspection",
+      "Sample-majority diagnostic computed on validation labels, not a deployable trained baseline"
+    ]
+  },
+  "received_package": {
+    "files": {
+      "source_check.json": "2dbf0dc79aba3d2c7dbe99e2a27a6de3d3bcfe620c6dc4bdb5bbd53b176d4292",
+      "admission.json": "69aa5d27d8f6af2c17289d40a0ef25b96da4a9e7f6980db7013bf2548462b52e",
+      "budget.json": "4bf58662582b4777e9390508e379ccfac4aeb2073b99908600ad1f23d05a14c0",
+      "epoch_result.json": "1e2831baf3bcaaa17a07ef3c4d554230d36b10493ba1e91d0cfc8db84929ff8a",
+      "validation_input_bindings.json": "c5aff85ccf62a2345e44f736fe1cbaa0a895632128844ff6e35dde2c9775366e",
+      "2rgb_short/adapter_bindings.json": "597b2c67dda0166957225918b8c0975ec58c696e9a13d474c4a10caf7d15d77b",
+      "2rgb_short/train/train_run_manifest.json": "04c7d7e002b4df242ce1ffb88ea35683ad797d379c3a4480b35c190cf442570e",
+      "2rgb_short/train/train_balance.json": "fa1d7326729d6f042924fc7d94da0974ad946ac6db5ba5a69b12917d5f1fe7cc",
+      "2rgb_short/train/final_generation.json": "27701142c255728d05dc4d32d0110b1b43f9338578508acd653a117d55aad60f",
+      "2rgb_short/train/balance/consumed_epoch_0001.json": "e22957f8e65914393452e14c1444aa76f14a8c412a90eca7dcd0e8d56387ee2d",
+      "2rgb_short/train/balance/epoch_0001.json": "1ddc1cc50aa065a908bba9e4517a382478f809620a90cb519c1852359d5d53ff",
+      "2rgb_short/train/final/sft_new_loop_phase3_adapter_config.json": "6db66d361891e761a30ff9071843d1b5aaff76041d639145ba9ef59fb8a41ad0",
+      "2rgb_short/train/final_generation_val_cases.jsonl": "57026ce0ffe8ce215ec1825b724a049c78010c2952aac8fa178e1cb400fa6699",
+      "epoch_log_tail.json": "8832b753b1711a387427fe4d3cd7a50350ff85691a8458910440cc993352b4ea",
+      "2rgb_short_train_log_tail.json": "f215bb2ee8aec07400f4c0a232fa9e96c3b95f913e0dea7651e992f1b17f6173",
+      "2rgb_short_reload_val_log_tail.json": "61ae698d7b67863b296278e3e565853342c5bca57abec5492ac44bb977e33e22",
+      "handoff.json": "d916dead8f9f3e1fc9fb74537c83d2ce2e3c36fc391de62dd8eb0b10f9b559ca"
+    },
+    "zip_sha256": "5e28b686dedc62b941161fdbcdc9a22b977f1bb2d59122d9156d0a5a1266172d",
+    "bytes": 246461,
+    "status": "verified"
+  },
+  "received_source_commit": "81a486f28d0a9cfac30037393971703b5c9a4b5d",
+  "original_server_result": {
+    "handoff": "incomplete",
+    "exit_code": 1,
+    "two_rgb_epoch_completed": true,
+    "two_rgb_reload": "failed_before_inference",
+    "test": "not_run",
+    "four_rgb": "not_run"
+  },
+  "fixes": [
+    "LoRA eval reads persisted RGB/output/prompt contract",
+    "Atomic mutable progress updates preserve failure status",
+    "SHA-bound reuse of reviewed completed two-RGB adapter, new eval output, four-RGB training only"
+  ],
+  "full_regression": {
+    "passed": 2412,
+    "elapsed_seconds": 106.69,
+    "exit_code": 0,
+    "log_sha256": "24cac1d852d72070e5fd356433c9105d8dff2b94e58eecc27c3d767bdd7d592e"
+  },
+  "focused_tests": 25,
+  "new_tests": 16,
+  "release": {
+    "manifest": "release_sources_phase3_epoch_recovery_20261013.json",
+    "files": 475,
+    "sha256": "bbf2d7a65c4d484b5a43934ba571424e8d9eea44a4a9778d798b35e2a84620bc"
+  },
+  "native_cli": "Actual received adapter metadata parsed by native eval without loading weights; old RGB override rejected in tests",
+  "limitations": [
+    "Synthetic coordinator tests replace subprocess training/evaluation; do not certify GPU reload",
+    "Old run and weights remain on server; reuse checks run on server before inference",
+    "No new RGB visual inspection; production labels, thresholds and prompts unchanged",
+    "Phase4 UE5 support and v53 admission/joint isolation still pending"
+  ],
+  "remote_run": false,
+  "pushed": false
+}

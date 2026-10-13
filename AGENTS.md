@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-13 Phase3两图首轮交接、重载入口修复与只读复用
+
+收到phase3_epoch_report.zip246461字节/17成员，外层/成员SHA/CRC及475源与81a486f28逐项一致。两图已完整训练2560四卡步/10240次，十事件各1024实际消费；原生parser复算320val各事件32题、固定ID集合一致，215正确/67.1875%。减速4/58（38答KEEP）、恢复18/38、左变道3/8；路口32/32参考全STOP，不能以整体分数声称全动作已会。test与四图未运行，无新RGB目视/规则修改。
+修复两确定编排缺陷：LoRA eval禁用history-rgb-mode覆盖却被显式传入；epoch_result使用独占write_json反复写导致FileExistsError掩盖原错误且阻止第二模式。改为读取持久化合同、调用前核对choice/RGB/prompt；仅进度原子替换，不可变证据不动。新增REUSE_EPOCH_ROOT仅接受本次固定ZIP SHA，核验准备/生产源码/报告/六adapter资产/验证RGB，原两图train只读引用，先补重载320+test380再新训四图10240及重载/test，不重训两图、不复制权重，不是优化器恢复。旧目录保留，新输出≤30MB两文件；新475源recovery清单，旧清单不改。用户随后授权push，按白名单发布；未远程GPU。
+25专项含16新增通过；完整2412通过106.69秒。合成编排替代模型子进程，不冒称实测GPU；实际交回adapter元数据原生CLI通过。按audit_joint/PHASE3_ADMISSION_FIRST_EPOCH_20261013.md顶部新命令发布同步后续跑，PREPARED_ROOT=checkpoints/phase3_prepare_20261012_231356_193369568，REUSE_EPOCH_ROOT=checkpoints/phase3_epoch_20261013_100331_732771255，交phase3_epoch_report.zip+phase3_epoch_package.json。证据checkpoints/phase3_epoch_received_20261013，轻量回执phase3_epoch_received_verification_20261013.json。P3正式池不重建/readiness不重复；P4UE5真实YES缺口/v53全池与联合隔离仍未关闭，不声称两阶段全部验收。
+
 ### 2026-10-13 Phase3正式数据通过与实际等量首轮入口
 
 收到phase3_prepare_report.zip163418字节/19成员，外层/成员SHA/CRC、471源与3f9daefe1420e199d0c6772536912b987cda1cec一致；manifest无尾换行原生序列化重现登记SHA，非漂移。服务器CPU正式索引15096行=14124/516/456，3510run/3509物理组，原始速度/动作不一致0、跨split物理重叠0；choice训练1024/event、val16/32/test38，评测各事件至少5物理组，正式建库关闭，不再readiness/重建。只核交接证据，本机未独立重算全库/新RGB。
