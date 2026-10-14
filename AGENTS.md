@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 2026-10-14 Phase3重新训练入口清单修复
+
+用户在白名单发布后询问Phase3能否正常训练并索取命令。实际复现server_phase3_epoch仍绑定v54_existing_data，当前17成员漂移→mismatch，不能照抄旧命令。仅更新其RELEASE及两P4入口指针到新release_sources_v57_phase3_entry_20261014.json（501matched），无P3生产/标定/提示词/参数改动，真实已收首轮ZIP verified_completed_epoch仍verified。基础环境23入口测试通过，14失败/7错误均缺torch未完成，保留失败日志不报全套。用户要新实验可从基座重新训固定三轮，两模式顺序、4卡、1024/event/epoch，val32/test38；旧三轮已验收无需重跑，无优化器断点续训/不支持直接EPOCHS7。命令和反馈见audit_joint/PHASE3_RETRAIN_V57_20261014.md，沿既有PREPARED与COMPLETED首轮目录，交phase3_epoch两个文件。此为此前授权发布后必要入口纠正，无远程/GPU训练，未改.vscode。
+
 ### 2026-10-14 v57白名单发布与后续状态RGB复核
 
 用户授权本轮白名单push。186相关回归通过、1模型依赖meta_profile未选，501源v57_handoff matched、两个P4 shell语法通过。此次发布包含此前v56/57原生STOP接线与失败交接；原生合同不再改。服务器沿sync_automot.sh分发（源duguxiaohun/automot_lead），按audit_joint/SERVER_V57_RELEASE_RGB_20261014.md一次新版正式CPU池，交handoff/fullflow_report.zip+fullflow_package.json，正式等量/关键支持/隔离预算通过后两模式首轮重载test。P3/readiness/旧fit/STOP盘点不重复，无新采集；UE5仅既有开发豁免，YESNO不要求等额。当前未提供GPU新命令以免对未验收目录开训。

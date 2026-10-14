@@ -11,7 +11,7 @@ import zipfile
 from .io import digest, file_sha, write_json
 
 ROOT = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v54_existing_data_20261013.json')
+RELEASE = Path(__file__).with_name('release_sources_v57_phase3_entry_20261014.json')
 MODES = ('2rgb_short', '4rgb')
 INDEX_SHA = '925053e34c47f35dfe4987f14a1be3a8abdc206d75bea31964dc4ca9b8fcee99'
 

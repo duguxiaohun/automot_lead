@@ -1,5 +1,7 @@
 # v57发布：服务器只跑新版正式CPU池
 
+2026-10-14发布接线更新：当前三入口统一核验`release_sources_v57_phase3_entry_20261014.json`。用户如需新的Phase3三轮实验，按[重新训练命令](PHASE3_RETRAIN_V57_20261014.md)；已验收旧实验不要求重跑，Phase4命令不变。
+
 本次按用户白名单发布STOP原生位置绑定、同题横穿检查、失败交接容错及配套测试/文档。当前入口清单是`release_sources_v57_handoff_20261014.json`，501个源码/规则资产逐项核验。服务器仍使用`sync_automot.sh`的clone+覆盖同步，源头为`duguxiaohun/automot_lead`；其旧本地`.git`不是本次分发依据。
 
 ## 服务器步骤
