@@ -107,16 +107,17 @@ def test_unavailable_references_preserve_both_source_support_reports(tmp_path,mo
         assert 'error' in mode and 'schedule' not in mode
 
 
+@pytest.mark.parametrize('event',['U-E5','R-E5'])
 @pytest.mark.parametrize('defect',['manual','hold','catchup','short_manual','holdout'])
-def test_critical_support_requires_native_automatic_readiness_and_exact_edge(defect):
-    row=next(r for r in pool('rule_teacher')['train'] if r['episode']['event']=='U-E5' and r['target']=='YES')
+def test_critical_support_requires_native_automatic_readiness_and_exact_edge(defect,event):
+    row=next(r for r in pool('rule_teacher')['train'] if r['episode']['event']==event and r['target']=='YES')
     if defect=='manual':row['label_basis']='reviewed_transition_band'
     if defect=='hold':row['edge']='hold'
     if defect=='catchup':row['slice']='catchup'
     if defect=='short_manual':row['student_reference']={'original_label_basis':'reviewed_transition_band'}
     if defect=='holdout':row['split']='val'
     result=rb.critical_support([row])
-    assert result['critical_support']['U-E5/proceed/YES']==dict(rows=0,physical_groups=0)
+    assert result['critical_support'][event+'/proceed/YES']==dict(rows=0,physical_groups=0)
 
 
 @pytest.mark.parametrize('content',[None,'{','[]'])

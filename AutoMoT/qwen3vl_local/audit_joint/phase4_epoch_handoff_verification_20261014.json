@@ -1,0 +1,53 @@
+{
+  "scope": "local CPU diagnostics only; no dataset build, new RGB review, model or remote execution",
+  "old_script": {
+    "sha256": "05fc9085c5a9d47c0d19d3a59d2617cfab1e8161a7f105414cb526f25044c621",
+    "exit_code": 1,
+    "error": "JSONDecodeError",
+    "package_created": false
+  },
+  "new_cli": {
+    "exit_code": 2,
+    "output": "/home/codon/automot_lead/AutoMoT/checkpoints/phase4_epoch_handoff_20261014/interrupted/handoff",
+    "bytes": 1643,
+    "status": "incomplete",
+    "missing": 44,
+    "errors": 2,
+    "consumption": {
+      "2": {
+        "status": "incomplete_or_inconsistent",
+        "error": "unreadable or omitted run evidence",
+        "recorded_plan_check": {
+          "status": "incomplete_or_inconsistent",
+          "error": "object of type 'NoneType' has no len()"
+        }
+      },
+      "4": {
+        "status": "incomplete_or_inconsistent",
+        "error": "object of type 'NoneType' has no len()"
+      }
+    }
+  },
+  "package": {
+    "files": {
+      "rgb2/epoch_000_rank0_steps.jsonl": "bd1a4d3ad23990ab8996f247d5b6793940855ef7e1a1a029b5f96e9540bb8f70",
+      "rgb2/log_tail.json": "7c96d1a0044b351f5c3b24d5a74ddcaf35477d37401a423cc049ccf9e99b0e7c",
+      "collection_receipt.json": "fb64b419503ba8a4f1172228e77f78ae201be7528a0ded8a9a7b737919e07b08"
+    },
+    "zip_sha256": "74a43992716289876fba4894aacc74db3c9319f200b135c3eba60031e3682b4f",
+    "bytes": 1643,
+    "status": "verified"
+  },
+  "release": {
+    "path": "qwen3vl_local/audit_joint/release_sources_v54_existing_data_20261013.json",
+    "files": 480,
+    "drift": []
+  },
+  "tests": {
+    "passed": 65,
+    "seconds": 2.18,
+    "scope": "handoff, pilot, existing development admission, rule baseline, native phase3-style sampling"
+  },
+  "production_changed": false,
+  "training_accepted": false
+}

@@ -1,0 +1,737 @@
+{
+  "status": "phase4_existing_cpu_evidence_verified",
+  "package_sha256": "69d2ff8e475808c3d449a5f62e28d8bec13ec561998062e34e61af982aa3a704",
+  "package_bytes": 866063,
+  "members": 12,
+  "source_files": 480,
+  "source_commit": "36449cc6268622ecb10c75eca39fa747662dbbf0",
+  "phase3_package_unchanged": true,
+  "source_pool_rows": 301596,
+  "processed_routes": 8614,
+  "processed_frames": 1062401,
+  "build_elapsed_seconds": 71522.57912206696,
+  "replay_collect_seconds": 27275.2,
+  "other_build_seconds": 44247.37912206697,
+  "server_prepared_root": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_existing_20261013_184628_526027234",
+  "modes": {
+    "2": {
+      "selected_counts": {
+        "train": 301596,
+        "val": 370,
+        "test": 180
+      },
+      "selected_ids_sha256": "1cdedf9a34f6c9b3bdaaeef1150a73c79226786a48d8bf4806947f9cc3f98ea4",
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 2,
+          "physical_groups": 2
+        },
+        "U-E2/return/NO": {
+          "rows": 62,
+          "physical_groups": 17
+        },
+        "U-E3/proceed/YES": {
+          "rows": 325,
+          "physical_groups": 109
+        },
+        "U-E3/proceed/NO": {
+          "rows": 14836,
+          "physical_groups": 689
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 711,
+          "physical_groups": 72
+        },
+        "U-E6/proceed/YES": {
+          "rows": 760,
+          "physical_groups": 108
+        },
+        "U-E6/proceed/NO": {
+          "rows": 1922,
+          "physical_groups": 272
+        },
+        "U-E7/complete/YES": {
+          "rows": 13,
+          "physical_groups": 13
+        },
+        "U-E7/complete/NO": {
+          "rows": 202,
+          "physical_groups": 32
+        }
+      },
+      "train_schedule": {
+        "events": {
+          "U-E1": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 349
+          },
+          "U-E2": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 387
+          },
+          "U-E3": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 272
+          },
+          "U-E4": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 510
+          },
+          "U-E5": {
+            "presentations": 1024,
+            "unique_questions": 820,
+            "physical_groups": 72
+          },
+          "U-E6": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 272
+          },
+          "U-E7": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 96
+          },
+          "R-E2": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 389
+          },
+          "R-E3": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 237
+          },
+          "R-E5": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 255
+          }
+        },
+        "missing_events": [],
+        "equal_presentations": true,
+        "equal_unique_questions": false,
+        "max_equal_eval_questions_per_event_without_replacement": 820,
+        "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee",
+        "epoch": 0,
+        "ordered_ids_sha256": "a1a1aaf21541f5940eeea8078f8d8f5b22ee416cc737234af9b8c362e307f10c",
+        "answers": {
+          "YES": 3972,
+          "NO": 6268
+        },
+        "max_question_repeat": 2,
+        "max_frame_repeat": 8,
+        "event_repetition": {
+          "R-E2": {
+            "pool": 54099,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "R-E3": {
+            "pool": 14949,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "R-E5": {
+            "pool": 40290,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E1": {
+            "pool": 81757,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E2": {
+            "pool": 72951,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E3": {
+            "pool": 19417,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E4": {
+            "pool": 9353,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E5": {
+            "pool": 820,
+            "presentations": 1024,
+            "unique_questions": 820,
+            "max_question_repeat": 2,
+            "repetition_bound": 2
+          },
+          "U-E6": {
+            "pool": 3012,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E7": {
+            "pool": 4948,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          }
+        }
+      },
+      "evaluation_plans": {
+        "val": {
+          "policy": "fixed_ten_event_evaluation_v1",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 37,
+          "available": {
+            "U-E1": 6209,
+            "U-E2": 5882,
+            "U-E3": 2042,
+            "U-E4": 760,
+            "U-E5": 37,
+            "U-E6": 338,
+            "U-E7": 163,
+            "R-E2": 4969,
+            "R-E3": 1149,
+            "R-E5": 2511
+          },
+          "ordered_ids_sha256": "d069a98019ec75760c1f93d52fadbefd7912a82b3ef45cc362f308c1404425e7",
+          "pool_sha256": "f0e6c11ac12ccc4f31e1ccf5d4d7a88a8e36e7323535b2d09178954e59f3c360",
+          "scope": "question equality; not answer balance or independent label certification",
+          "rows_sha256": "bd134fa3dff75ab034f49d5513ca1db310c06aa681aa9d700ca89f8d3065f054"
+        },
+        "test": {
+          "policy": "fixed_ten_event_evaluation_v1",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 18,
+          "available": {
+            "U-E1": 5314,
+            "U-E2": 4976,
+            "U-E3": 1211,
+            "U-E4": 566,
+            "U-E5": 18,
+            "U-E6": 281,
+            "U-E7": 26,
+            "R-E2": 6028,
+            "R-E3": 735,
+            "R-E5": 3373
+          },
+          "ordered_ids_sha256": "33830a1a6b65edce1b57ff61e3af8c2a9877d7a33204bfb2d4ea7cac9fb3ab87",
+          "pool_sha256": "241de12494e9da5e9782eac3ee27975d1f744097a98c3d13db6586221e22f94a",
+          "scope": "question equality; not answer balance or independent label certification",
+          "rows_sha256": "f33c29389c6268d4e31d233c0580716fc8462fc20b24509bd7a5851e5b98ecff"
+        }
+      },
+      "evaluation_event_support": {
+        "val": {
+          "U-E1": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E2": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E3": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E4": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E5": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 3
+          },
+          "U-E6": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 31
+          },
+          "U-E7": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 2
+          },
+          "R-E2": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "R-E3": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 14
+          },
+          "R-E5": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          }
+        },
+        "test": {
+          "U-E1": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E2": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E3": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E4": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E5": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 2
+          },
+          "U-E6": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E7": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 1
+          },
+          "R-E2": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "R-E3": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 17
+          },
+          "R-E5": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          }
+        }
+      }
+    },
+    "4": {
+      "selected_counts": {
+        "train": 301596,
+        "val": 370,
+        "test": 180
+      },
+      "selected_ids_sha256": "1cdedf9a34f6c9b3bdaaeef1150a73c79226786a48d8bf4806947f9cc3f98ea4",
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 2,
+          "physical_groups": 2
+        },
+        "U-E2/return/NO": {
+          "rows": 62,
+          "physical_groups": 17
+        },
+        "U-E3/proceed/YES": {
+          "rows": 325,
+          "physical_groups": 109
+        },
+        "U-E3/proceed/NO": {
+          "rows": 14836,
+          "physical_groups": 689
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 711,
+          "physical_groups": 72
+        },
+        "U-E6/proceed/YES": {
+          "rows": 760,
+          "physical_groups": 108
+        },
+        "U-E6/proceed/NO": {
+          "rows": 1922,
+          "physical_groups": 272
+        },
+        "U-E7/complete/YES": {
+          "rows": 13,
+          "physical_groups": 13
+        },
+        "U-E7/complete/NO": {
+          "rows": 202,
+          "physical_groups": 32
+        }
+      },
+      "train_schedule": {
+        "events": {
+          "U-E1": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 349
+          },
+          "U-E2": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 387
+          },
+          "U-E3": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 272
+          },
+          "U-E4": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 510
+          },
+          "U-E5": {
+            "presentations": 1024,
+            "unique_questions": 820,
+            "physical_groups": 72
+          },
+          "U-E6": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 272
+          },
+          "U-E7": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 96
+          },
+          "R-E2": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 389
+          },
+          "R-E3": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 237
+          },
+          "R-E5": {
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "physical_groups": 255
+          }
+        },
+        "missing_events": [],
+        "equal_presentations": true,
+        "equal_unique_questions": false,
+        "max_equal_eval_questions_per_event_without_replacement": 820,
+        "equal_eval_capacity_scope": "question count only; no class, route-independence or accuracy guarantee",
+        "epoch": 0,
+        "ordered_ids_sha256": "a1a1aaf21541f5940eeea8078f8d8f5b22ee416cc737234af9b8c362e307f10c",
+        "answers": {
+          "YES": 3972,
+          "NO": 6268
+        },
+        "max_question_repeat": 2,
+        "max_frame_repeat": 8,
+        "event_repetition": {
+          "R-E2": {
+            "pool": 54099,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "R-E3": {
+            "pool": 14949,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "R-E5": {
+            "pool": 40290,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E1": {
+            "pool": 81757,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E2": {
+            "pool": 72951,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E3": {
+            "pool": 19417,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E4": {
+            "pool": 9353,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E5": {
+            "pool": 820,
+            "presentations": 1024,
+            "unique_questions": 820,
+            "max_question_repeat": 2,
+            "repetition_bound": 2
+          },
+          "U-E6": {
+            "pool": 3012,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          },
+          "U-E7": {
+            "pool": 4948,
+            "presentations": 1024,
+            "unique_questions": 1024,
+            "max_question_repeat": 1,
+            "repetition_bound": 1
+          }
+        }
+      },
+      "evaluation_plans": {
+        "val": {
+          "policy": "fixed_ten_event_evaluation_v1",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 37,
+          "available": {
+            "U-E1": 6209,
+            "U-E2": 5882,
+            "U-E3": 2042,
+            "U-E4": 760,
+            "U-E5": 37,
+            "U-E6": 338,
+            "U-E7": 163,
+            "R-E2": 4969,
+            "R-E3": 1149,
+            "R-E5": 2511
+          },
+          "ordered_ids_sha256": "d069a98019ec75760c1f93d52fadbefd7912a82b3ef45cc362f308c1404425e7",
+          "pool_sha256": "f0e6c11ac12ccc4f31e1ccf5d4d7a88a8e36e7323535b2d09178954e59f3c360",
+          "scope": "question equality; not answer balance or independent label certification",
+          "rows_sha256": "e3d56fc33f48379b9788f845c6ee4e97eac7f7490a4a150e492d029d6706ca14"
+        },
+        "test": {
+          "policy": "fixed_ten_event_evaluation_v1",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 18,
+          "available": {
+            "U-E1": 5314,
+            "U-E2": 4976,
+            "U-E3": 1211,
+            "U-E4": 566,
+            "U-E5": 18,
+            "U-E6": 281,
+            "U-E7": 26,
+            "R-E2": 6028,
+            "R-E3": 735,
+            "R-E5": 3373
+          },
+          "ordered_ids_sha256": "33830a1a6b65edce1b57ff61e3af8c2a9877d7a33204bfb2d4ea7cac9fb3ab87",
+          "pool_sha256": "241de12494e9da5e9782eac3ee27975d1f744097a98c3d13db6586221e22f94a",
+          "scope": "question equality; not answer balance or independent label certification",
+          "rows_sha256": "871892167b6a55592f5ca0a90b2196477f3600064f6f276ce6ea2012d9f2115f"
+        }
+      },
+      "evaluation_event_support": {
+        "val": {
+          "U-E1": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E2": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E3": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E4": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "U-E5": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 3
+          },
+          "U-E6": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 31
+          },
+          "U-E7": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 2
+          },
+          "R-E2": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          },
+          "R-E3": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 14
+          },
+          "R-E5": {
+            "presentations": 37,
+            "unique_questions": 37,
+            "physical_groups": 37
+          }
+        },
+        "test": {
+          "U-E1": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E2": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E3": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E4": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E5": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 2
+          },
+          "U-E6": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "U-E7": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 1
+          },
+          "R-E2": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          },
+          "R-E3": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 17
+          },
+          "R-E5": {
+            "presentations": 18,
+            "unique_questions": 18,
+            "physical_groups": 18
+          }
+        }
+      }
+    }
+  },
+  "budget": {
+    "checkpoint_count": 2,
+    "known_new_bytes": 6658588672,
+    "required_free_bytes": 28133425152,
+    "sufficient": true
+  },
+  "input_bindings_checked": 8625,
+  "unsupported_capabilities": [
+    "U-E5/proceed/YES"
+  ],
+  "gpu_training_completed": false,
+  "new_rgb_visual_frames": 0,
+  "limitations": [
+    "Evidence consistency and native budget recomputation, not local reload of remote full pool or raw RGB",
+    "Phase4 per-event train counts are verified plans; actual GPU consumption awaits step logs",
+    "Sparse U-E2 return YES and U-E7 complete YES; U-E5 proceed YES absent",
+    "No per-stage timing after replay; cannot identify the exact bottleneck",
+    "Joint cross-task G0 and independent label accuracy not certified"
+  ],
+  "local_tests": {
+    "passed": 84,
+    "failed_due_to_missing_dependencies": 2,
+    "short_rgb_collection": "blocked: tokenizers missing",
+    "initial_runtime": "previous /tmp interpreter no longer exists",
+    "production_code_changed": false,
+    "full_regression_rerun": false,
+    "packaging_fixture": "1294-byte verified package, missing=42; intentionally incomplete, no GPU inference"
+  },
+  "artifacts": {
+    "audit_received.py": "d1d9576f8b93e3fef51702a3ff2b791bac4931ff2da8be874c9d3c7c02d75ef9",
+    "audit_results.json": "cfd27bd3366a1acbb8cb5eec33a0edc39606b8620f01d7579493baef93afae67",
+    "audit_stdout.json": "ef5843f7ded66b0f1651d7a2bb87596875c861835b43315bc94d5dc4f764fb95",
+    "targeted_tests.log": "504b0b84551046c8e12b41a112917753152de1284dc345eccac68b8fc9f0499e",
+    "targeted_tests_pvi.log": "9aabff9525f0105b04da0d09774b2095e1e1889b1c0ddc22d936699be2c77750",
+    "targeted_core_tests.log": "429759bfa0383cab5f65810be5eb5924fa5c8447595bed0867f8fddca4654d38",
+    "pack_epoch.py": "05fc9085c5a9d47c0d19d3a59d2617cfab1e8161a7f105414cb526f25044c621"
+  }
+}

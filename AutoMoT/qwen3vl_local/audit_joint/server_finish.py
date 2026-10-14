@@ -14,9 +14,9 @@ def raw_training_support(index):
     A zero native readiness count cannot become a valid automatic training row.
     """
     from qwen3vl_local.sft_new_loop_phase4.teacher_rules import rule_class
+    from .rule_baseline import CRITICAL_EDGES
     critical = {}
-    for event, edge in (('U-E2', 'return'), ('U-E3', 'proceed'), ('U-E5', 'proceed'),
-                        ('U-E6', 'proceed'), ('U-E7', 'complete')):
+    for event, edge in CRITICAL_EDGES:
         for answer in ('YES', 'NO'):
             key = rule_class(event, edge, 4, 'readiness') + '/' + answer
             receipts = [r for r in index['routes'] if r['split'] == 'train' and r['targets'].get(key, 0) > 0]

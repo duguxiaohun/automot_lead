@@ -1,0 +1,213 @@
+{
+  "schema": "automot_local_rgb_review_v1",
+  "date": "2026-10-14",
+  "status": "no_new_confirmed_training_blocker",
+  "production_modified": false,
+  "remote_run": false,
+  "gpu_train": false,
+  "pushed": false,
+  "source_verification": {
+    "release": "qwen3vl_local/audit_joint/release_sources_v54_existing_data_20261013.json",
+    "release_sha256": "117e6b4f6806744ca5d58c995e11e69fff032ac049c1ed72c99315100248ef53",
+    "files": 480,
+    "mismatch": [],
+    "visual_sources_verified_after_viewing": 210
+  },
+  "native_build": {
+    "routes": 12,
+    "frames": 780,
+    "mode_train_counts": {
+      "2": 244,
+      "4": 244
+    },
+    "event_counts": {
+      "R-E5": 19,
+      "U-E1": 36,
+      "U-E7": 55,
+      "R-E3": 24,
+      "U-E5": 9,
+      "U-E6": 17,
+      "U-E3": 9,
+      "U-E2": 31,
+      "U-E4": 11,
+      "R-E2": 33
+    },
+    "source_files_verified_before_and_after": 2340,
+    "semantic_differences": [],
+    "seconds": 57.231640237999954,
+    "formal_admission": false,
+    "empty_holdouts": true
+  },
+  "sampling": {
+    "2/1": {
+      "events": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "ids_sha256": "6d801163097970e029642b2fe67ac862a986eba17e2e82e1039d2d37b91ccb3f",
+      "max_repeat": 114
+    },
+    "2/4": {
+      "events": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "ids_sha256": "6d801163097970e029642b2fe67ac862a986eba17e2e82e1039d2d37b91ccb3f",
+      "max_repeat": 114
+    },
+    "4/1": {
+      "events": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "ids_sha256": "6d801163097970e029642b2fe67ac862a986eba17e2e82e1039d2d37b91ccb3f",
+      "max_repeat": 114
+    },
+    "4/4": {
+      "events": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "ids_sha256": "6d801163097970e029642b2fe67ac862a986eba17e2e82e1039d2d37b91ccb3f",
+      "max_repeat": 114
+    }
+  },
+  "visual_review": {
+    "actual_viewed_unique_frames": 70,
+    "unique_source_files_verified_after_viewing": 210,
+    "method": "Ten rendered seven-frame RGB panorama contact sheets, shown with native questions and raw Phase3 trajectory evidence; R-E2 sheet re-viewed after geometry probe.",
+    "blind": false,
+    "global_novel_frames_claimed": false,
+    "overlap_with_immediate_prior_ten_windows": 0,
+    "observations": {
+      "U-E1": "11–16 UNKNOWN; 17 RGB discontinuity ends instance without completion. Disappearance does not authorize proceed.",
+      "U-E2": "Right-side white car with open door; visible left bypass. 49/54/55 clearance true, target 3696 outside bounded corridor. Conditional readiness is not raw future steering.",
+      "U-E3": "Vehicle pulls out from right parking; conflict remains visible; proceed NO despite some raw RESUME evidence.",
+      "U-E4": "Cyclist crosses right to left; proceed NO and raw STOP. Fog limits distant observations.",
+      "U-E5": "Oncoming dark vehicle approaches near centerline; proceed NO; no observed post-invasion visible separation.",
+      "U-E6": "Firetruck crosses intersection; proceed NO and raw STOP. Ego signal alone cannot authorize.",
+      "U-E7": "Cross traffic at approaching junction; proceed NO; ego acceleration is not completion evidence.",
+      "R-E2": "Specified LEFT corridor. YES32–34, UNKNOWN35, NO36–38. Right-side black car does not intersect; left blue car becomes partially then fully observed and conflicting.",
+      "R-E3": "Fog/rain and nearby traffic; enter NO; no affirmative evidence to relabel, distant visibility not certified.",
+      "R-E5": "Queue ahead tightens; proceed NO; raw trajectory DECELERATE then STOP does not require zero current speed."
+    },
+    "formal_label_certification": false
+  },
+  "geometry_probe": {
+    "U-E2": [
+      {
+        "frame": 49,
+        "answer": "YES",
+        "clearance": true
+      },
+      {
+        "frame": 54,
+        "answer": "YES",
+        "clearance": true
+      },
+      {
+        "frame": 55,
+        "answer": "YES",
+        "clearance": true
+      }
+    ],
+    "R-E2": [
+      {
+        "frame": 33,
+        "answer": "YES",
+        "clearance": true
+      },
+      {
+        "frame": 34,
+        "answer": "YES",
+        "clearance": true
+      },
+      {
+        "frame": 35,
+        "answer": "UNKNOWN",
+        "clearance": null
+      },
+      {
+        "frame": 36,
+        "answer": "NO",
+        "clearance": false
+      }
+    ]
+  },
+  "tests": {
+    "passed": 45,
+    "seconds": 3.23,
+    "scope": [
+      "audit_joint/tests/test_phase4_epoch_handoff.py",
+      "audit_joint/tests/test_rule_baseline.py",
+      "sft_new_loop_phase4/tests/test_phase3_sampling.py"
+    ],
+    "full_regression_rerun": false
+  },
+  "limitations": [
+    "Existing development routes; not blind review or full-pool visual certification.",
+    "Diagnostic pool has empty holdouts and up to114 repeats per question; not admitted for formal training.",
+    "UE5 real proceed YES remains unsupported in formal existing-data pool.",
+    "Phase4 GPU actual consumption, reload, fixed evaluation and cross-task joint G0 not yet accepted.",
+    "Visible-condition YES does not certify unseen rear/side traffic or authorize full maneuver execution."
+  ],
+  "next_step": "Use admitted server Phase4 prepared pool for two modes one epoch each, reload and fixed test; do not rebuild or repeat accepted Phase3 three epochs.",
+  "evidence": {
+    "checkpoints/local_rgb_review_20261014/build_local.py": "c0e31d23fe01f70494e322eaff708496e8de08e538949bdc4538ff240076e5dc",
+    "checkpoints/local_rgb_review_20261014/build.log": "3919ed68e500cc301555e0dc5e68000a5c478baa8a3fb4bf4519097906d14ebf",
+    "checkpoints/local_rgb_review_20261014/before_bindings.json": "7a747a638d8c4897280ec3d40b4b950ed3989fc82a62dc78651b639aac177ad7",
+    "checkpoints/local_rgb_review_20261014/native/verification.json": "1ee889bdf4c1db43ca9153d97a67a666e824e8499c542e2bf6fa63a53447ec73",
+    "checkpoints/local_rgb_review_20261014/audit_rgb.py": "d0665f33a007dabc3fbba1c97fc9f2c8106ba5eccf535726ec981d952913f575",
+    "checkpoints/local_rgb_review_20261014/audit_results.json": "f35bccb4affcd590fe67fc30b127cf70e58b100ff6c0d5c88e6f1da9fdcd80db",
+    "checkpoints/local_rgb_review_20261014/rgb_windows.json": "bf332a1da2ebf200e48c445b85b30fa0fde8d3a9a5f38375770db154db02e732",
+    "checkpoints/local_rgb_review_20261014/visual_source_bindings.json": "394cc34368856e8a49109f422e9bbe3ee54b5449ae2124844c3f6fd16c739938",
+    "checkpoints/local_rgb_review_20261014/visual_review.json": "50918aad44731a4adfcc2828ad45404017ed2996ca5a9b9f0b72184a22ffda39",
+    "checkpoints/local_rgb_review_20261014/positive_probe.py": "3cc8460a742a7f58d81e7586fb59cf49499d2ce30c72ef91c2867e17b9040b16",
+    "checkpoints/local_rgb_review_20261014/positive_probe.json": "fe5f78ebf2ee34208438641b39b6ceb27593ca325cee13dc45089c25f157899a",
+    "checkpoints/local_rgb_review_20261014/source_verification.json": "4c16380de46f491aa3fe1b1533e954fe302e52a500b0457e6d9c70f594edfedb",
+    "checkpoints/local_rgb_review_20261014/tests.log": "91dc3c5592489a27619c2976a6e87426282a22a805524cdb6e36e2e5258902cd",
+    "checkpoints/local_rgb_review_20261014/U-E1.jpg": "a3a99a4d07eddbb2bf011235362761b753a8816fbcfd07a218a6e6192d44e98f",
+    "checkpoints/local_rgb_review_20261014/U-E2.jpg": "48eec571b081bf463dbdbb79cb5ccd2835be81b2f7054224e47668aae731a506",
+    "checkpoints/local_rgb_review_20261014/U-E3.jpg": "169207614eb4b20c9f242c7596e58cd83b6a45020e695d24b075b005c5609315",
+    "checkpoints/local_rgb_review_20261014/U-E4.jpg": "503c75d468145e6bb53ba86b731cf9a95e30806e074c21b092280fc2cafda6e3",
+    "checkpoints/local_rgb_review_20261014/U-E5.jpg": "6536b73ca9e945d5c2fe54f917ed070c3389df82f1e341472cd150d9a2b89f2b",
+    "checkpoints/local_rgb_review_20261014/U-E6.jpg": "f1a6d66a1b75d97355dcdcff36a2bc11e7144f01dcb77ab5f1d65196fb2533ef",
+    "checkpoints/local_rgb_review_20261014/U-E7.jpg": "2b380cbdf9e886d640da2a459145ccaf775e7e181b40b54103e9b1dd46651fb0",
+    "checkpoints/local_rgb_review_20261014/R-E2.jpg": "7e14b156b991c3ef5d7c16cd829f7f50fd4e35b8340bdf508dd04a33fad21f0a",
+    "checkpoints/local_rgb_review_20261014/R-E3.jpg": "af28be4dc6309ade1ba22f6fd4024f485a63de4146d32a7e1dd606d1d80bffc7",
+    "checkpoints/local_rgb_review_20261014/R-E5.jpg": "e25f226c2e450076fd82dc41f355f25f5a8acc1c239da2160c89e43bd5d2bd27"
+  },
+  "report_sha256": "cac2a647691165bd1b066cb4f13dada29d6313c825400435bcb98690e51fd641"
+}

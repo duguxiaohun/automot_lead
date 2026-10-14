@@ -1,0 +1,167 @@
+{
+  "task": "phase4_state_pair_binary_v55",
+  "teacher": "ten_event_causal_teacher_v20",
+  "real": {
+    "candidate_summary": {
+      "routes": 17,
+      "rgb_frames": 2205,
+      "split_routes": {
+        "train": 17
+      },
+      "discovered_routes": 17,
+      "excluded_routes": 0,
+      "exclusion_reasons": {},
+      "excluded_split_routes": {}
+    },
+    "elapsed_seconds": 156.53425214799972,
+    "counts": {
+      "train": 1381,
+      "val": 0,
+      "test": 0
+    },
+    "event_counts": {
+      "U-E2": 171,
+      "U-E7": 119,
+      "U-E4": 29,
+      "R-E5": 144,
+      "U-E1": 468,
+      "R-E2": 224,
+      "R-E3": 160,
+      "U-E5": 7,
+      "U-E6": 41,
+      "U-E3": 18
+    },
+    "source_files_verified_before_after": 6615,
+    "paired": true,
+    "scope": "diagnostic training routes only; not formal admission",
+    "source_sha256": "e6092085cbaa483bee5ea0fd88bdb2d8cbf630d7e4fa55a74fe19aef39f28cd8"
+  },
+  "confirmed_old_yes_cases": 8,
+  "confirmed_after": "UNKNOWN",
+  "both_mode_semantic_changes": {
+    "YES->UNKNOWN": 52,
+    "NO->ABSENT": 162,
+    "ABSENT->UNKNOWN": 136,
+    "YES->ABSENT": 28,
+    "UNKNOWN->ABSENT": 74,
+    "ABSENT->YES": 32,
+    "ABSENT->NO": 58,
+    "NO->UNKNOWN": 44
+  },
+  "sampling_event_counts": {
+    "(2, 1)": {
+      "R-E2": 1024,
+      "R-E3": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "U-E2": 1024,
+      "U-E3": 1024,
+      "U-E4": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024,
+      "U-E7": 1024
+    },
+    "(2, 4)": {
+      "R-E2": 1024,
+      "R-E3": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "U-E2": 1024,
+      "U-E3": 1024,
+      "U-E4": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024,
+      "U-E7": 1024
+    },
+    "(4, 1)": {
+      "R-E2": 1024,
+      "R-E3": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "U-E2": 1024,
+      "U-E3": 1024,
+      "U-E4": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024,
+      "U-E7": 1024
+    },
+    "(4, 4)": {
+      "R-E2": 1024,
+      "R-E3": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "U-E2": 1024,
+      "U-E3": 1024,
+      "U-E4": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024,
+      "U-E7": 1024
+    }
+  },
+  "paired_modes_world_orders_equal": true,
+  "source_bindings": 6615,
+  "visual_review": {
+    "frames": 14,
+    "source_files": 42,
+    "scope": "Re-viewed two existing STOP contact sheets; not new or blind RGB audit"
+  },
+  "old_view_rejected": "student view source contract mismatch",
+  "reservations_unchanged": true,
+  "tests": {
+    "final_targeted_passed": 69,
+    "new_tests": 25,
+    "broad_base_python": {
+      "passed": 1251,
+      "skipped": 4,
+      "failed_missing_dependencies": 13,
+      "seconds": 134.16
+    },
+    "dependency_retry_pvi": {
+      "passed": 89,
+      "skipped": 1,
+      "failed_missing_dependencies": 4,
+      "seconds": 22.18
+    },
+    "short_diagnostics_and_admission": {
+      "passed": 44,
+      "failed_missing_tokenizers": 7
+    },
+    "full_suite_passed": false
+  },
+  "release": {
+    "path": "qwen3vl_local/audit_joint/release_sources_v55_stop_20261014.json",
+    "files": 487,
+    "status": "matched"
+  },
+  "old_inventory": {
+    "routes_scanned": 17,
+    "frames_scanned": 2205,
+    "frames_with_stop_evidence": 208,
+    "questions_with_stop_evidence": 388,
+    "proceed_yes_after_pending_receipt_disappeared": 8
+  },
+  "new_inventory": {
+    "routes_scanned": 17,
+    "frames_scanned": 2205,
+    "frames_with_stop_evidence": 343,
+    "questions_with_stop_evidence": 591
+  },
+  "limitations": [
+    "17 train routes only; no formal holdouts or server full-pool impact count",
+    "Unfulfilled duties remain UNKNOWN; STOP geometric proxy not recalibrated",
+    "No independent visual label certification; UE5 unsupported capability unchanged"
+  ],
+  "remote_run": false,
+  "training": false,
+  "pushed": false,
+  "evidence": {
+    "checkpoints/stop_v55_20261014/comparison.json": "db1c270410875c74a46296db386f8d8e621701e73b7d30e9f9a17932977a38dd",
+    "checkpoints/stop_v55_20261014/final/build_verification.json": "28e38b237d7a41719efd1e593be6cf9531db98859c3c42b60e45cdb6e31ecea1",
+    "checkpoints/stop_v55_20261014/final_tests.log": "34399dfaa6f951d584d2698c1c056d63bd7eef316f1d769560b3e4b537eecce9",
+    "checkpoints/stop_v55_20261014/tests.log": "ca378234ff09e7ef947d355a728ecb527a2c627f9366a9cdfc42d1e645de5fb7",
+    "checkpoints/stop_v55_20261014/dependency_retry.log": "74c1373bd9e7baa25f8a95a247dd469c5e6f5cc05c9e82250095478132ac0de5",
+    "checkpoints/stop_v55_20261014/additional_tests.log": "4332e706017b583339b0e252dcf5a443839d30cf6df5fdf6c7a8720c60f776aa",
+    "checkpoints/stop_v55_20261014/old_inventory.json": "b448f0f0aaec363d15235515d3f6aeb514fb4b0eef1486e11d80a1236694c29f",
+    "checkpoints/stop_v55_20261014/new_inventory.json": "729dba37848ee279b07965b6111a244e5ed168b00ccf5e9ec21d42ec57c22f27"
+  }
+}

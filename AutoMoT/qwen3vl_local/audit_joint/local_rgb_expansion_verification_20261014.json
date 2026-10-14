@@ -1,0 +1,183 @@
+{
+  "schema": "automot_local_rgb_expansion_v1",
+  "date": "2026-10-14",
+  "status": "confirmed_stop_evidence_chain_findings",
+  "supersedes_no_new_phase4_label_blocker_conclusion": true,
+  "production_modified": false,
+  "labels_modified": false,
+  "remote_run": false,
+  "gpu_train": false,
+  "pushed": false,
+  "source_release": {
+    "path": "qwen3vl_local/audit_joint/release_sources_v54_existing_data_20261013.json",
+    "sha256": "117e6b4f6806744ca5d58c995e11e69fff032ac049c1ed72c99315100248ef53",
+    "files": 480,
+    "matched": true
+  },
+  "native_build": {
+    "candidate_summary": {
+      "routes": 17,
+      "rgb_frames": 2205,
+      "split_routes": {
+        "train": 17
+      },
+      "discovered_routes": 17,
+      "excluded_routes": 0,
+      "exclusion_reasons": {},
+      "excluded_split_routes": {}
+    },
+    "elapsed_seconds": 163.18329590999974,
+    "counts": {
+      "train": 1471,
+      "val": 0,
+      "test": 0
+    },
+    "event_counts": {
+      "U-E2": 192,
+      "U-E7": 119,
+      "U-E4": 29,
+      "R-E5": 204,
+      "U-E1": 495,
+      "R-E2": 206,
+      "R-E3": 160,
+      "U-E5": 7,
+      "U-E6": 41,
+      "U-E3": 18
+    },
+    "source_files_verified_before_after": 6615,
+    "paired": true,
+    "scope": "diagnostic training routes only; not formal admission",
+    "source_sha256": "e6092085cbaa483bee5ea0fd88bdb2d8cbf630d7e4fa55a74fe19aef39f28cd8"
+  },
+  "visual": {
+    "actual_viewed_unique_frames": 148,
+    "contact_sheets": 22,
+    "source_files_verified_after_viewing": 444,
+    "immediate_previous_review_overlap_frames": 0,
+    "blind": false,
+    "global_novel_frames_claimed": false,
+    "method": "Native RGB panoramas viewed in chronological seven-frame contact sheets; STOP follow-up includes overlap, counted once.",
+    "notes": {
+      "R-E2_1": "Lane geometry completes at20 while HOLD remains; no unrestricted-progress claim.",
+      "R-E2_2": "RIGHT target; oncoming participants visible; prediction changes to conflict at61, uncertainty at63.",
+      "R-E3_1": "Dense highway traffic; target right; 41 NO to42 YES corresponds to target segment clearance, not all-lane absence.",
+      "R-E3_2": "Merge approach, target traffic produces YES toNO at42.",
+      "R-E5_1": "STOP stationary sequence;35 UNKNOWN,36 YES despite tracker never satisfied; confirmed evidence-chain defect.",
+      "R-E5_2": "Queue approaches STOP, uncertainty not supervised; no clearance inferred from event ending.",
+      "U-E1_1": "Stable following recovery at219, completion220 while lead still present.",
+      "U-E1_2": "Close queue ahead; NO and UNKNOWN, no clear positive.",
+      "U-E2_1": "Oncoming vehicle near at90; target fixed segment starts10.39m, vehicle center8.45m, outside that segment; visible condition is not full entry sweep safety.",
+      "U-E2_2": "Stationary blue obstacle, distant approaching conflict yields NO at100.",
+      "U-E3_1": "Right parked vehicle pulls into path; active NO begins49.",
+      "U-E3_2": "Left parked vehicle pulls into path; active NO begins104.",
+      "U-E4_1": "Visible pedestrians move away from ego corridor; NO toUNKNOWN toYES, not requiring whole-road crossing.",
+      "U-E4_2": "Pedestrian visibly clears local corridor before68 YES; disappears69, terminated as RGB discontinuity not completed.",
+      "U-E5_1": "Approaching vehicle establishes invasion at48, NO.",
+      "U-E5_2": "Vehicle passes left;54–55 UNKNOWN,56 behind cutoff completedFalse, no synthesized departureYES.",
+      "U-E6_1": "Ambulance crosses intersection right toleft; activeNO33.",
+      "U-E6_2": "Police car crosses right toleft;activeNO69.",
+      "U-E7_1": "Visible crossing clearance31YES;new conflict33 triggersre_yieldYES andnewinstanceNO.",
+      "U-E7_2": "Red crossing vehicle movesright;38YES, laterstable condition separate.",
+      "STOP_1": "First affected route33–39 actually viewed;near stationary frames haveunsatisfied receipt, deletion enablesYES.",
+      "STOP_2": "Second affected route33–39 actually viewed; same receipt deletion andYES behavior."
+    }
+  },
+  "geometry": {
+    "key_times": 23,
+    "source_frames_loaded": 114,
+    "fact_mismatches": [],
+    "note": "Agreement with existing rules is not correctness certification."
+  },
+  "findings": [
+    {
+      "priority": 1,
+      "kind": "unsatisfied_stop_obligation_dropped_and_priority_bypassed",
+      "files": [
+        "qwen3vl_local/sft_new_loop_phase4/teacher_controls.py:20",
+        "qwen3vl_local/sft_new_loop_phase4/teacher_rules.py:311"
+      ],
+      "real_local_routes": 2,
+      "final_train_questions_per_mode": 8,
+      "counterfactual": {
+        "original": "YES",
+        "only_affects_ego_true": "UNKNOWN"
+      },
+      "full_server_prevalence_unknown": true,
+      "behaviorally_incorrect_yes_not_proven": true
+    },
+    {
+      "priority": 2,
+      "kind": "required_duplicate_ego_lane_fields_absent_in_real_source",
+      "file": "qwen3vl_local/sft_new_loop_phase4/teacher_controls.py:29",
+      "isolation_test": {
+        "real_ego_lane_fields": [
+          null,
+          null
+        ],
+        "meta_lane_fields": [
+          225,
+          -1
+        ],
+        "missing_ego_fields_satisfied": false,
+        "matching_copy_satisfied": true,
+        "scope": "Synthetic valid STOP proxy placement on copied real frame isolates duplicate lane field dependency; not a new real RGB label."
+      }
+    }
+  ],
+  "calibration_note": "Real observed standstill has near-face proxy gap about -1.965m; changing lane-field handling alone does not establish this stop. Do not lower thresholds without evidence.",
+  "tests": {
+    "passed": 63,
+    "seconds": 0.36,
+    "scope": [
+      "test_teacher_v29.py",
+      "test_ten_event_teacher.py"
+    ],
+    "full_suite": false,
+    "new_native_counterexamples_passed": true
+  },
+  "evidence": {
+    "checkpoints/local_rgb_expansion_20261014/build.py": "6149005a7288b66a1353226ad22a8350e4b8f99c1f025d844f6b0a433bbbfcbc",
+    "checkpoints/local_rgb_expansion_20261014/build.log": "3adabb20cb3caca00d1401e3371a47264207a02c2c212045e46766ac2e6adc60",
+    "checkpoints/local_rgb_expansion_20261014/build_verification.json": "6f99c53f819137d3b8b301d05f416e3ed742a000bd17179e8ae12fb46162a847",
+    "checkpoints/local_rgb_expansion_20261014/selection.json": "5160b87c322695bf0a8fd28fb2946b3bd4b0e5b6f3c783e9aa79c791cadfe9e8",
+    "checkpoints/local_rgb_expansion_20261014/source_bindings.json": "e6092085cbaa483bee5ea0fd88bdb2d8cbf630d7e4fa55a74fe19aef39f28cd8",
+    "checkpoints/local_rgb_expansion_20261014/render.py": "5f1100e9b62365d03776f73c853900a9359e23881c021d1c6a6b5646518c9f69",
+    "checkpoints/local_rgb_expansion_20261014/rgb_windows.json": "438a533bf45f0faabc318204657f95fb727c9d6b4869c5f3b99f1e0e6797e847",
+    "checkpoints/local_rgb_expansion_20261014/selection_summary.json": "6c97a2aaa3eaeb9a9d27820826ff63ba12b79c4f0c2e292633f69e4fa432a083",
+    "checkpoints/local_rgb_expansion_20261014/visual_source_bindings.json": "15eb0aba4fb33f5bba8c72a2db72ac0dfa4c6612f61d72b6b5863cb80e85c8f1",
+    "checkpoints/local_rgb_expansion_20261014/probe.py": "746c2bd743901ace616f4a3bbcfa5b60da600ac40e044cf280aca8c52a88c8ea",
+    "checkpoints/local_rgb_expansion_20261014/geometry_probe.json": "f487ace555a07baec07806b7294c07d67915c39fbd6e3f2f902577a8432e13cb",
+    "checkpoints/local_rgb_expansion_20261014/probe.log": "cfdcaee28aa676f8473170bc1a33ca997449434fa5d41ea54284ef3214c47e69",
+    "checkpoints/local_rgb_expansion_20261014/stop_counterexample.py": "7b6e563530e7350f1edae9520e634752f01e5833ff218c3d89d0f8d7ca6a912d",
+    "checkpoints/local_rgb_expansion_20261014/stop_counterexample.json": "8d16134d76e487344961f1857eb7595889e89022e1ab4ab3a6c2335a925e5cba",
+    "checkpoints/local_rgb_expansion_20261014/stop_counterexample.log": "c06af57cfb32af471963cb7294885496e6429d31aa6781d1cc6a414be12d2199",
+    "checkpoints/local_rgb_expansion_20261014/render_stop.py": "ebba61170203aebba109d545ebc325b580130b4ba2b34357194325dbaf4424c4",
+    "checkpoints/local_rgb_expansion_20261014/stop_windows.json": "b26851eefe79f78e01a6869a562e48c4288ed773cf83d110179efe85ccdc1046",
+    "checkpoints/local_rgb_expansion_20261014/stop_visual_sources.json": "df3853e9d4d6255128f5bfa44ab7f17ebac3496a7ad2c30d81db9aa0bdb2897a",
+    "checkpoints/local_rgb_expansion_20261014/visual_review.json": "c795127fdf4bead08abacd04b3f5c6a702c99bdb73d53ac8c3ab8c5af9c96db8",
+    "checkpoints/local_rgb_expansion_20261014/tests.log": "17eac8ebcfcb22c54b118cc795f416f7e1a9868ecb16850d62c18997787c59c0",
+    "checkpoints/local_rgb_expansion_20261014/R-E2_1.jpg": "fc638900301a51924e3dc1ddb18311969833a30c98b722f6f7a453a603c87fe0",
+    "checkpoints/local_rgb_expansion_20261014/R-E2_2.jpg": "01b085a504293a8eb0a4c70ad42463a4951eeb1c429155c7576ec83a1215fb4e",
+    "checkpoints/local_rgb_expansion_20261014/R-E3_1.jpg": "330d12d1f056c3cb11ff7c32397b2900674de20823d9c37586c56987834434c8",
+    "checkpoints/local_rgb_expansion_20261014/R-E3_2.jpg": "42af45f90445e0797ad7a9e8272345fe82de274f7cf9d41cd3afaf6107472d54",
+    "checkpoints/local_rgb_expansion_20261014/R-E5_1.jpg": "6f43adcf6afe15a8055017258531daf132f8c610db86530b1b0f204d7fbebc56",
+    "checkpoints/local_rgb_expansion_20261014/R-E5_2.jpg": "8111a1c842c03cda3398ec955754215a7800625eddad639df0098ad51915a9e3",
+    "checkpoints/local_rgb_expansion_20261014/U-E1_1.jpg": "7f02b0a20e69ef1b6c460777338b37dfcce43f5cbef215301267948e23f0adfa",
+    "checkpoints/local_rgb_expansion_20261014/U-E1_2.jpg": "b9a19b46606105bdddcbfc6c6045ff187c45be94d0c1ffc01456c92c63e4bd6b",
+    "checkpoints/local_rgb_expansion_20261014/U-E2_1.jpg": "2a225fb5dcf176d7bebba2788e28a7b537629e670bd4b27aa9c375be1ecf5716",
+    "checkpoints/local_rgb_expansion_20261014/U-E2_2.jpg": "bca06933fb54398dea19c7532a822e8321b5efc766a2f101ff054b0e25befc18",
+    "checkpoints/local_rgb_expansion_20261014/U-E3_1.jpg": "fba0122aa3ff3279c24d3e4c0a56ce2c9b03b6976605483b5e7e73db5b0a597e",
+    "checkpoints/local_rgb_expansion_20261014/U-E3_2.jpg": "08b228e706fc3a1781834dc20f032b878ee779e6ce0392cc7063e0e8742c62c3",
+    "checkpoints/local_rgb_expansion_20261014/U-E4_1.jpg": "85407930bcb837938929244fb372fffd5c11cf79b4982653816e213ef1e54b2a",
+    "checkpoints/local_rgb_expansion_20261014/U-E4_2.jpg": "15f13e000d0ff023ed6adc8b8d5fe29a98175e1e4945f796df943445f3bae118",
+    "checkpoints/local_rgb_expansion_20261014/U-E5_1.jpg": "dd6f4c49811fbc6fe461143554af291e4ff6d2c534bed9d3e0633022a436187a",
+    "checkpoints/local_rgb_expansion_20261014/U-E5_2.jpg": "e9f06864eb65383cdcb97a81df4df12ba1f602e9fe6efcf24c9f23264311b40e",
+    "checkpoints/local_rgb_expansion_20261014/U-E6_1.jpg": "5790a4dfeed920d4c9edf3d88ad0389b7914ffb8db13a9b370dbdf20b2d161e5",
+    "checkpoints/local_rgb_expansion_20261014/U-E6_2.jpg": "e5c87b2d947df3361beba7d3f52c6d41877a171097e9c0febb21a89dc85affb9",
+    "checkpoints/local_rgb_expansion_20261014/U-E7_1.jpg": "9e24da5f41685e6d0330824be59e75bd5c8fb6598a133b17accf8f17575a5ea8",
+    "checkpoints/local_rgb_expansion_20261014/U-E7_2.jpg": "cceeec6c7701f0ec5491efdd05f3b806bbc9766e083b1182c1de79e793f14b75",
+    "checkpoints/local_rgb_expansion_20261014/STOP_1.jpg": "f287748df7a8e72cf60170fe85c52a8c697835f2d9acadba726ef5a6449a9d2b",
+    "checkpoints/local_rgb_expansion_20261014/STOP_2.jpg": "27eae81296a483deaef99793ea7290a20f2d449304b51574b46a17671177af8a"
+  },
+  "report_sha256": "17f1503a078f3eeb6b7bd5d97427695da8a351588f0c5ad2e5556834a8298e95"
+}

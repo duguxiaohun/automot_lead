@@ -36,7 +36,7 @@ def route_records(root, route):
                   questions=[],traces=[],reasons=[],instance_ends=[])
         try:current=g.load_frame(root,route['scenario'],route['route_id'],number)
         except (OSError,ValueError,EOFError,lzma.LZMAError) as ex:
-            controls=StopDutyTracker();navigation_reference=None
+            controls.invalidate();navigation_reference=None
             base['instance_ends']=end_instances(active,'unusable_source');history.clear();active.clear();completed.clear();seen.clear()
             yield dict(base,disposition='abstained',reasons=['unusable_source:'+str(ex)]);continue
         if history and number!=history[-1]['frame_id']+1:

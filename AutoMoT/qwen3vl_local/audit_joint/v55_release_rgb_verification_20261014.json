@@ -1,0 +1,84 @@
+{
+  "scope": "Whitelist release audit; local development RGB review, not whole-pool admission",
+  "release_manifest": "qwen3vl_local/audit_joint/release_sources_v55_re5_admission_20261014.json",
+  "release_sha256": "c066ea5909aade8467470d8f83cc99253bd699c04ffa28fd6ca01bdae4a996df",
+  "sources_matched": 489,
+  "tests_passed": 101,
+  "full_regression": false,
+  "new_rgb_review": {
+    "frames": 21,
+    "sources_checked_after_view": 63,
+    "overlap_with_previous_49": 0,
+    "blind": false,
+    "windows": {
+      "second_stop": {
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+        "frames": [
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166
+        ]
+      },
+      "second_stop_at_line": {
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+        "frames": [
+          253,
+          254,
+          255,
+          256,
+          257,
+          258,
+          259
+        ]
+      },
+      "stop_approach": {
+        "scenario": "ParkedObstacleTwoWays",
+        "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+        "frames": [
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23
+        ]
+      }
+    }
+  },
+  "old_inventory": {
+    "routes_scanned": 17,
+    "frames_scanned": 2205,
+    "frames_with_stop_evidence": 208,
+    "questions_with_stop_evidence": 388,
+    "proceed_yes_after_pending_receipt_disappeared": 8
+  },
+  "new_inventory": {
+    "routes_scanned": 17,
+    "frames_scanned": 2205,
+    "frames_with_stop_evidence": 343,
+    "questions_with_stop_evidence": 591
+  },
+  "production_modified_this_turn": false,
+  "new_labels": false,
+  "trained": false,
+  "artifacts": {
+    "checkpoints/v55_release_rgb_20261014/finalize.py": "ac94b3618d857c6c41d85811673e192c06f40db0b6d1d09fca6c0d2a23e22b14",
+    "checkpoints/v55_release_rgb_20261014/new_inventory.json": "729dba37848ee279b07965b6111a244e5ed168b00ccf5e9ec21d42ec57c22f27",
+    "checkpoints/v55_release_rgb_20261014/old_inventory.json": "b448f0f0aaec363d15235515d3f6aeb514fb4b0eef1486e11d80a1236694c29f",
+    "checkpoints/v55_release_rgb_20261014/review.log": "00425215565ffc0889b50d5e0114196be8ab568e14f2877bdca34f2fd21cfb0e",
+    "checkpoints/v55_release_rgb_20261014/review.py": "c3d5ca25bc4a13ba997024cde26e56afbf1010d4c58c2896d97d5ecb713119c2",
+    "checkpoints/v55_release_rgb_20261014/second_stop.jpg": "08c7d1d155bff9b7d0bda32fdfae9c79b398d22d5b14f0d871d7165df03582b1",
+    "checkpoints/v55_release_rgb_20261014/second_stop_at_line.jpg": "8a755c123fcd012291a7dd5609a0331db363da4e3260300fc1f7e3d7cc18cfc5",
+    "checkpoints/v55_release_rgb_20261014/sources.json": "ca7ef508fa792d50442d92946cfbe9f4c6595f5d914c55051fc5707809436aa0",
+    "checkpoints/v55_release_rgb_20261014/stop_approach.jpg": "bde1bc2902de883f2ca79f4b69685c7c1692f42baa09ed894b2277f8ed34b8fe",
+    "checkpoints/v55_release_rgb_20261014/tests.log": "1a434aa522a6684b6ca589769e3cbf108ac8f9b6dcba719cb0705da03b93db1d",
+    "checkpoints/v55_release_rgb_20261014/windows.json": "67c44bb849bddab1ed16419006f4c9e38170941924446c8cfdf13ef5cfca93f2"
+  }
+}

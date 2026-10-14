@@ -12,7 +12,7 @@ set +e
 import json,os
 from pathlib import Path
 from qwen3vl_local.audit_joint.server_readiness import source_check
-r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v54_existing_data_20261013.json'))
+r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v55_re5_admission_20261014.json'))
 (Path(os.environ['P4_EXISTING_OUT'])/'source_check.json').write_text(json.dumps(r,indent=2)+'\n')
 if r['status']!='matched':raise SystemExit('Source mismatch; synchronize this release before building')
 PY

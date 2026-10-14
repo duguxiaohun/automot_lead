@@ -1,5 +1,56 @@
 # AGENTS.md
 
+### 2026-10-14 v55白名单发布与STOP第二停车点RGB续审
+
+用户授权本轮白名单push。489源v55_re5_admission逐项matched、101专项回归2.74秒通过、两P4 shell语法通过；原生只读inventory复核17路线2205帧，旧8候选/新0、无错误。沿用户sync覆盖同步后按audit_joint/SERVER_V55_RELEASE_RGB_20261014.md先源码SHA校验，再只读盘点既有P4 PREPARED/inputs/production/index.json；交phase4_stop_inventory_v54_20261014.json，已有则直接交、不重跑readiness/20h建库。P3已关闭不重做，P4仍待停车位置校准与当前正式池准入。
+本地实际3连续窗口21不同RGB/63源查看后SHA核验，相对上一轮49帧重叠0，非全历史新见/盲审。HardBreak第二STOP528 f160–166前车后等候gap7.17m，f253–259移至路口停车gap约-1.954至-1.957m、速度绝对值<0.011仍False；后窗口无题，不补标。Parked f17–23接近STOP速度0.104–1.493，NO无充分改标依据。未改生产/标签/阈值/提示词、未全库重放/远程/GPU训练。白名单发布仅源码/测试/轻量文档回执，checkpoints/RGB/权重和用户.vscode不入本次提交。见新发布手册与v55_release_rgb_verification_20261014.json；完整本机证据checkpoints/v55_release_rgb_20261014。
+
+### 2026-10-14 R-E5关键支持硬门与STOP导出代理定位
+
+原始回放及最终过滤准入共用CRITICAL_EDGES，新增R-E5/proceed/readiness正反支持；existing_data_development仍仅豁免UE5 YES。旧1471题删8RE5YES后新报告8题/2组→0并硬阻塞；v55父库复用创建23752字节新view，两模式各1381配对，RE5 0YES/140NO(3组)，旧view拒绝源码合同漂移。不重放/改旧SHA，生产仍v55/teacher20，标签阈值提示词未改。
+本机采集expert.py把STOP导出extent固定为1.5/1.5/0.5，非原trigger尺寸/道路停止线；历史采集源码未认证。两路线32帧96源SHA前后及目视后通过，实际复看14既有RGB/42源非盲审。f30框中心距原点约1.98m，中心距车头-0.46m、前缘-1.96m、后缘+1.04m；不能任选后缘或扩阈值补YES。新增只读stop_proxy明确unproven_stop_line/label_authorization=false，停车位置校准仍未关闭。已有Town12/13 xodr找到约3.09/3.05m外StopLine2候选，最近road不是当前lane直接连接road；地图版本/车道控制归属未认证，map_probe保留线索，不按最近线自动改标。
+117相关回归通过含16新增，另2依赖测试在pvi缺peft/tokenizers未完成，保留失败日志不报全过；新489源v55_re5_admission matched且无额外Python，两个P4launcher接新清单但未push。不要求服务器重复readiness或20h重建；先按STOP_V55_FIX交旧正式回放只读inventory，P3三轮不重做，P4停车代理/当前正式池等量准入仍待完成。见audit_joint/RE5_SUPPORT_PROXY_20261014.md及re5_support_proxy_verification_20261014.json，完整证据checkpoints/re5_support_proxy_20261014。无远程/GPU/训练/新标定，未改用户.vscode。
+
+### 2026-10-14 v55独立复审与R-E5关键覆盖漏检
+
+487发布源SHA matched；本地原生3路线479帧37.41秒，两模式各346train配对、空留出，1437源SHA前后通过。实际7窗口49不同RGB/147源查看后核验，与上一轮148帧重叠6帧，非盲审。独立40 STOP及29采样准入回归共69通过，未跑全套。17路线v55原生两模式/world1/4仍1024/event同序，单题最高147次，仅小池算法验证。
+确定P2：rule_baseline.critical_support漏R-E5/proceed；旧1471题删除全部8个该边YES后关键报告不变，不宣称整个准入误通过。v55同17路线RE5 YES8→0、UE2 depart YES12→3、RE2 enter YES36→29。建议补RE5 readiness正反支持硬门，不能扩大仅UE5允许缺格的开发豁免。STOP生命周期修复未见复发，但实际停车代理负间距未解决；Parked f95–99 gap clear但旧STOP失去身份使priority=None/UNKNOWN，债务持续至末154，HardBreak至末281。不能直接改YES或靠超时/越过/丢演员清债。
+新旧同源v55回放91/479帧非字节相同：8018浮点末位差异最大9.10e-13及派生question_id，1e-12容差下无其它标签/事实/结束语义差异；不伪称ID/SHA跨构建相同、不改旧SHA。692新库提示词SHA通过，无新改提示词依据。仅新增审计文档/回执/本机诊断脚本，未改生产/标定/阈值，未远程/GPU/push，保留用户.vscode。P3已关闭不重复；P4先补守卫和代理验收、按STOP_V55_FIX只读服务器盘点再定正式池更新，不盲重跑20小时或混旧合同。详见audit_joint/V55_INDEPENDENT_REVIEW_20261014.md及v55_independent_review_verification_20261014.json，完整证据checkpoints/v55_independent_review_20261014。
+
+### 2026-10-14 v55 STOP证据链修复与定向重算
+
+修复STOP未履行义务因affects_ego清零消失、ego无road/lane副本无法满足检查；meta合法归属可用，矛盾副本拒绝。local_priority消费保留义务，跳帧/演员丢失/坏几何/不可读源只撤销证据不删除义务；原生读源失败新建tracker路径亦修复。完成后仍检查横穿交通，只有已履行且同物理触发体完整在自车后方才退休；未履行不因越过/起步/车道变化解除。未放宽0–3m代理位置或速度阈值、未改提示词，真实-1.965m偏差仍未校准，保守UNKNOWN可能影响后续阶段。
+任务v55/老师v20、新协议v35/空registry v30、同预约不改旧SHA；新487源清单matched，两个P4建库launcher指向新清单但不要求立即全库重建。17路线2205帧重算156.53秒，两模式各1381train(旧1471)、空留出、十事件齐，6615源SHA前后及与旧一致；已报8条R-E5 YES全UNKNOWN且只恢复flag不翻转。两模式合计52YES→UNKNOWN/44NO→UNKNOWN，其余实例状态结构变化保留差分，非全池数量。两模式/world1/4计划1024/event同序非GPU消费；复看既有14RGB/42源，非盲审。69最终专项通过含25新增；广泛base1251通过4跳过13缺依赖，pvi相关89通过1跳过4缺huggingface_hub/peft/tokenizers，另44通过7缺tokenizers，不宣称完整全过。
+新增只读stop_inventory，旧17路线复现8候选/新0；旧问题无control_evidence不证明无STOP，不授权旧路线复用。发布同步后按audit_joint/STOP_V55_FIX_20261014.md读取服务器既有PREPARED/inputs/production/index.json，交phase4_stop_inventory_v54_20261014.json，再定更新范围与新池准入。P4暂停旧“直接首轮”指示，不盲重跑20小时、不混旧新合同；已跑旧训练只保留不删除不续训。P3已验收无需重做。证据checkpoints/stop_v55_20261014/final及comparison；无远程/GPU/训练/push，未改用户.vscode设置。
+
+### 2026-10-14 扩展本地RGB确认STOP证据链缺陷
+
+撤回上一轮“Phase4没有必修标定问题”结论；CPU构建/等量证据仍有效但不等于标签证据通过。排除上一轮12路线，另17现有train路线2205帧按当前v54完整生成163.18秒，两模式1471题ID/标签配对、6615源SHA前后通过。实际看22联系表去重148RGB/444源，十事件各两窗口加两STOP补查，非盲审/全池认证；相对紧接上一轮70帧无路线/帧重叠，不声称全历史未见。
+确定P1：StopDutyTracker在affects_ego=false时删除未履行义务，local_priority只检查active停止牌，导致2路线f36–39共8条R-E5 proceed YES入库；同RGB/速度/位置/提示词仅把f36标志恢复true，YES变UNKNOWN，单保留旧记录仍YES。P2：tracker强求ego bbox重复road/lane，真实meta225/-1而ego缺字段，合成有效代理位置三帧只补一致副本False变True。真实停车代理gap约-1.965m另需校准，不能只补字段或扩大阈值就放行。画面确有停车，不声称8YES全是行为错误；确定问题是自动证据链绕过自身要求。17路线4路线208条STOP记录全False，未测服务器全池影响数量。
+23关键时刻原生几何事实复算一致不证明规则正确；63已有STOP/十事件回归0.36秒通过，未覆盖新真实形态。其它绕行YES固定目标段解释保留，只可见条件不保证完整扫掠；UE5仍无真实放行YES。生产/标签/阈值/提示词未改，按用户标定先报告要求保留反例，不远程/训练/push。P3验收不重复；P4先修STOP归属及义务生命周期/定向验收，再盘点既有正式回放影响，勿盲重跑20小时/改旧SHA兼容。见audit_joint/LOCAL_RGB_EXPANSION_STOP_FINDING_20261014.md及local_rgb_expansion_verification_20261014.json，原证据checkpoints/local_rgb_expansion_20261014。
+
+### 2026-10-14 本地十事件连续RGB复核与开训收尾
+
+当前480发布源码逐项SHA仍matched，新增交接/规则准入/采样45回归3.23秒通过。已有12训练路线780帧原生重建57.23秒，两模式244题ID/标签一致、十事件齐；2340源SHA生成前后核验、相对既有同路线v54 questions/instance_ends差分0。两模式/world1/4原生计划1024/event同序，小池单题最多114次且空留出，只诊断不正式训练。
+实际查看十段连续窗口70不同RGB、210源SHA查看后核验；相对上一轮对应窗口后移7帧，非盲审/全源认证，不声称此前从未见。UE2 49/54/55及RE2 33–36重读因果7帧几何/提示词：RE2左侧目标，右车不相交，左车177从后侧不可见到局部不确定再可见相交，YES→UNKNOWN→NO一致。YES仅可见条件，不能替代规划器完整机动放行。UE1消失不补YES，UE5未见真实可见离场，其余冲突NO无充分改标依据。
+没有新的确定生产阻塞，未改标定/阈值/提示词、未远程/GPU/push。P3三轮已验收不重复；P4正式CPU池已验收，直接按PHASE4_EXISTING_ACCEPTANCE_20261014.md两模式首轮/重载/test，不再20小时建库。UE5缺格/稀疏组/联合G0边界保留。见audit_joint/LOCAL_RGB_REVIEW_20261014.md及local_rgb_review_verification_20261014.json；完整本机证据checkpoints/local_rgb_review_20261014。未改用户.vscode设置。
+
+### 2026-10-14 Phase4首轮失败交接补强
+
+旧内联收集脚本遇到截断runtime/JSONL复现JSONDecodeError、退出1无ZIP；新增独立audit_joint/phase4_epoch_handoff.py，缺失/损坏/超预算/输入漂移保留不完整诊断，步与逐题记录不使用大列表投影，固定白名单不含权重。核对四rank完成步ID/位置/顺序/epoch/有限loss及采样SHA，事件计数继承原计划，不冒称重新核全池归属、优化器效果或模型质量。合成损坏样例新CLI退出2、1643字节包CRC/SHA通过；65相关回归2.18秒通过含16新测试与原生采样格式验证。既有480发布源码逐项matched，生产/学生合同、标定提示词/正式池均未变，无重建/训练/新RGB目视/远程/push。新工具发布同步后收集两模式首轮，但已有训练命令可以直接开始，不等待新工具；P3三轮不重复、UE5缺格保留为开发限制。见audit_joint/PHASE4_EPOCH_HANDOFF_20261014.md及轻量verification；完整本机证据checkpoints/phase4_epoch_handoff_20261014。未改用户.vscode设置。
+
+### 2026-10-14 Phase4现有数据正式CPU池验收与直接首轮训练
+
+收到fullflow 866063字节/12成员ZIP，SHA69d2ff8e...，外层/成员SHA/CRC与480源逐项匹配36449cc62。finished_cpu/admitted_existing_data_development/退出0，8614路线1062401帧、301596条纯规则train，自动留出28058/26520，实际选定val37/test18每事件，两模式ID摘要/题序和world1/4一致；首轮计划1024/event非GPU实际消费。U-E5池820题最多重复2次；proceed YES仍0、NO711；UE2 return2YES/2组，UE7 complete13YES/13组；UE5 val/test3/2组、UE7 2/1组。只批准已有数据独立开发，不冒充能力完整或联合G0。
+原生预算复算新增6.20GiB+20GiB通过，回执盘约2.54TiB空闲。本次实际资产根/mnt/workspace/cee3sgh/AutoMoT，PREPARED=checkpoints/phase4_existing_20261013_184628_526027234；不要套旧/home/cruser1路径。CPU构建71522.58秒约19h52m，回放收集27275.2秒约7h35m，另12h17m无细分计时，不认定死锁；无需重建补计时。原val/test空但独立references4已被rule_consistency正确接入。两图weak_supervision_rows=0是转换层统计，原来源301596规则，非人工。
+P3 ZIP与已验收三轮同SHA，不重复。无新确定必修生产缺陷/标签提示词改动，新RGB目视0；84相关回归通过、2项本机缺peft/tokenizers失败，短RGB收集亦缺tokenizers，旧/tmp环境不存在，失败日志保留不声称完整通过。独立核验8625绑定记录关联/预算及包，非本机全库重载。按audit_joint/PHASE4_EXISTING_ACCEPTANCE_20261014.md现有已发布入口两模式各一轮→重载→固定test；无需等待push。文档含只读≤30MB反馈命令，交phase4_epoch_report.zip+phase4_epoch_package.json，未完成也保留missing。1294字节合成不完整反馈包CRC/SHA通过，非GPU。证据checkpoints/phase4_existing_received_20261014；phase4_existing_acceptance_verification_20261014.json。仅文档/回执，未push/远程训练，未改用户.vscode设置。
+
+### 2026-10-14 Phase3三轮交回独立验收
+
+收到807215字节/52成员ZIP，SHA566f7cf8...，外层/成员SHA/CRC及478源与71cc49636逐项一致；当前6处后续Phase4发布差异有解释，非服务器混版。两模式three_epoch_verified/退出0、各7680步；六份实际消费回执每轮十事件各1024、三轮各3072，总30720呈现，val32/test38事件等量。原生parser独立重算2040条输出、固定ID/标签/两四图[1,3]子集、评分与能力守卫一致，重载各0差异；同首轮题集/RGB回执一致。
+两图val240/320=75%、test270/380=71.05%；四图val242/320=75.63%、test274/380=72.11%。两模式val减速27/58、25/58未过0.5，test左变道11/27、13/27未过0.5；不批准生产。每轮减速2080监督，三轮6240，不归因为缺题。val路口全STOP/test弱势交通全STOP仍有覆盖局限；不据test调标签/提示词。没有新确定生产缺陷，未改标定/阈值/提示词，新增RGB目视0，未重复2478完整回归。
+Phase3三轮流程关闭，不重建/readiness/重复一轮三轮；保留服务器phase3_three_epochs_20261013_174517_669756526两final。下一步仅现有数据Phase4当前正式CPU包，已跑则直接交fullflow_report.zip+fullflow_package.json；未跑按PHASE4_EXISTING_DATA_20261013.md，不采集。P4现有数据开发模式保留UE5 YES缺口，正式池/联合G0未验收。见audit_joint/PHASE3_THREE_EPOCH_ACCEPTANCE_20261014.md及phase3_three_epoch_acceptance_verification_20261014.json；证据checkpoints/phase3_three_epoch_received_20261014。仅文档/回执更新，未训练/远程/push。
+
 ### 2026-10-13 用户明确不补采：现有数据Phase4开发入口
 
 最新用户纠正：只使用现有数据集，不采集新RGB/CARLA；撤销上一条补采方向，不再索取采集环境路径。本轮新增显式existing_data_development准入，仅容许U-E5/proceed/readiness/YES已知缺格，实际0和unsupported_capabilities保留，成功状态admitted_existing_data_development不冒充能力完整/独立准确率/联合G0。strict默认仍阻断；其它关键格、十事件缺失、原生隔离/等量留出、来源/合同/两模式配对/预算守护继续硬拒绝。生产v54/老师v19/标签/提示词/采样均未改；仅短视图准入源码合同变化，新描述文件不能伪改旧SHA兼容。

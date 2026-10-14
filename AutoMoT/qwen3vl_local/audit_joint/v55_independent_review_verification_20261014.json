@@ -1,0 +1,517 @@
+{
+  "schema": "v55_independent_audit_v1",
+  "release_sources_matched": 487,
+  "release_manifest_sha256": "61788916594b479f3e98303cff420183923079a83e21da077591bc0d2c1465e9",
+  "native_build": {
+    "candidate_summary": {
+      "routes": 3,
+      "rgb_frames": 479,
+      "split_routes": {
+        "train": 3
+      },
+      "discovered_routes": 3,
+      "excluded_routes": 0,
+      "exclusion_reasons": {},
+      "excluded_split_routes": {}
+    },
+    "elapsed_seconds": 37.407637212000736,
+    "counts": {
+      "train": 346,
+      "val": 0,
+      "test": 0
+    },
+    "event_counts": {
+      "U-E7": 54,
+      "R-E5": 136,
+      "U-E1": 116,
+      "U-E2": 40
+    },
+    "source_files_verified_before_after": 1437,
+    "paired": true,
+    "scope": "diagnostic training routes only; not formal admission",
+    "source_sha256": "c23a7f27d1e5686aad47b13a78ac2d910f7ef40b036f80093f7fcb1ed5fc9170"
+  },
+  "visual_review": {
+    "unique_rgb_frames": 49,
+    "source_sha_verified_after_view": 147,
+    "prior_expansion_overlap_frames": 6,
+    "windows": [
+      {
+        "name": "stop_a_before",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+        "frames": [
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "visual_observation": "STOP sign and intersection visible; ego approaches then nearly stops; source gap is negative so no completion evidence. This does not certify stop-line legality."
+      },
+      {
+        "name": "stop_a_later",
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+        "frames": [
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78
+        ],
+        "visual_observation": "Prior junction is behind; ego follows lead and opposing vehicle passes; no R-E5 question here. Empty caption receipt is not absence of tracker debt."
+      },
+      {
+        "name": "stop_b_before",
+        "scenario": "ParkedObstacleTwoWays",
+        "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+        "frames": [
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "visual_observation": "STOP sign and crosswalk visible; ego slows and stops; trigger near-face gap remains negative."
+      },
+      {
+        "name": "stop_b_bypass",
+        "scenario": "ParkedObstacleTwoWays",
+        "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+        "frames": [
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94
+        ],
+        "visual_observation": "Blue parked obstruction ahead; oncoming red vehicle crosses left side. Explicit conflict NO remains; not all NO attributable to STOP."
+      },
+      {
+        "name": "stop_b_changed",
+        "scenario": "ParkedObstacleTwoWays",
+        "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+        "frames": [
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101
+        ],
+        "visual_observation": "Red opposing vehicle leaves near left view; depart UNKNOWN at 95–99 with entry_gap_clear=True and priority=None. Later 100–101 gap becomes False and label NO. Old STOP actor no longer observed."
+      },
+      {
+        "name": "signal_1",
+        "scenario": "CrossJunctionDefectTrafficLight",
+        "route_id": "Town04_Rep0_route_002163_route0_01_11_03_37_58",
+        "frames": [
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40
+        ],
+        "visual_observation": "Intersection motion and oncoming vehicle; local proceed YES at 35/40. STOP 27 is still 59.20/50.51m ahead, not the unresolved passed STOP counterexample."
+      },
+      {
+        "name": "signal_2",
+        "scenario": "CrossJunctionDefectTrafficLight",
+        "route_id": "Town04_Rep0_route_002163_route0_01_11_03_37_58",
+        "frames": [
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23
+        ],
+        "visual_observation": "Wait near foggy signal junction with cross traffic; proceed remains NO."
+      }
+    ],
+    "blind_review": false,
+    "all_pool_certification": false
+  },
+  "prompt_hash_rows_checked": 692,
+  "tests": {
+    "stop": 40,
+    "admission_sampling": 29,
+    "full_suite": false
+  },
+  "critical_guard_counterexample": {
+    "removed_RE5_proceed_yes": 8,
+    "critical_report_before": {
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E2/return/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/NO": {
+          "rows": 16,
+          "physical_groups": 2
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 6,
+          "physical_groups": 1
+        },
+        "U-E6/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E6/proceed/NO": {
+          "rows": 38,
+          "physical_groups": 2
+        },
+        "U-E7/complete/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E7/complete/NO": {
+          "rows": 11,
+          "physical_groups": 1
+        }
+      },
+      "missing_critical_support": [
+        "U-E2/return/YES",
+        "U-E2/return/NO",
+        "U-E3/proceed/YES",
+        "U-E5/proceed/YES",
+        "U-E6/proceed/YES",
+        "U-E7/complete/YES"
+      ]
+    },
+    "critical_report_after": {
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E2/return/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/NO": {
+          "rows": 16,
+          "physical_groups": 2
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 6,
+          "physical_groups": 1
+        },
+        "U-E6/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E6/proceed/NO": {
+          "rows": 38,
+          "physical_groups": 2
+        },
+        "U-E7/complete/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E7/complete/NO": {
+          "rows": 11,
+          "physical_groups": 1
+        }
+      },
+      "missing_critical_support": [
+        "U-E2/return/YES",
+        "U-E2/return/NO",
+        "U-E3/proceed/YES",
+        "U-E5/proceed/YES",
+        "U-E6/proceed/YES",
+        "U-E7/complete/YES"
+      ]
+    },
+    "identical": true,
+    "full_admission_not_claimed": true
+  },
+  "edge_support": {
+    "old": {
+      "U-E2/complete/NO": 3,
+      "U-E2/complete/YES": 1,
+      "U-E2/depart/NO": 94,
+      "U-E2/hold/YES": 9,
+      "U-E2/pass/YES": 2,
+      "U-E2/recover_follow/NO": 9,
+      "U-E2/release/NO": 24,
+      "U-E2/renewed_restriction/YES": 4,
+      "U-E2/stable/NO": 9,
+      "U-E7/complete/NO": 11,
+      "U-E7/hold/NO": 15,
+      "U-E7/hold/YES": 9,
+      "U-E7/proceed/NO": 37,
+      "U-E7/proceed/YES": 4,
+      "U-E7/re_yield/NO": 15,
+      "U-E7/re_yield/YES": 4,
+      "U-E7/recover_follow/NO": 8,
+      "U-E7/renewed_restriction/NO": 4,
+      "U-E7/renewed_restriction/YES": 4,
+      "U-E7/stable/NO": 7,
+      "U-E7/stable/YES": 1,
+      "U-E4/hold/YES": 2,
+      "U-E4/proceed/NO": 16,
+      "U-E4/proceed/YES": 11,
+      "R-E5/complete/NO": 4,
+      "R-E5/hold/NO": 10,
+      "R-E5/hold/YES": 6,
+      "R-E5/proceed/NO": 140,
+      "R-E5/proceed/YES": 8,
+      "R-E5/re_yield/NO": 10,
+      "R-E5/re_yield/YES": 2,
+      "R-E5/recover_follow/NO": 8,
+      "R-E5/renewed_restriction/NO": 8,
+      "R-E5/stable/NO": 6,
+      "R-E5/stable/YES": 2,
+      "U-E1/complete/NO": 8,
+      "U-E1/hold/NO": 15,
+      "U-E1/hold/YES": 9,
+      "U-E1/proceed/NO": 319,
+      "U-E1/re_yield/NO": 15,
+      "U-E1/re_yield/YES": 1,
+      "U-E1/recover_follow/NO": 89,
+      "U-E1/recover_follow/YES": 5,
+      "U-E1/release/YES": 2,
+      "U-E1/renewed_restriction/NO": 15,
+      "U-E1/renewed_restriction/YES": 1,
+      "U-E1/stable/NO": 10,
+      "R-E2/complete/NO": 3,
+      "R-E2/complete/YES": 6,
+      "R-E2/enter/NO": 18,
+      "R-E2/enter/YES": 36,
+      "R-E2/hold/NO": 31,
+      "R-E2/hold/YES": 8,
+      "R-E2/recover_follow/NO": 8,
+      "R-E2/recover_follow/YES": 1,
+      "R-E2/release/NO": 68,
+      "R-E2/release/YES": 9,
+      "R-E2/renewed_restriction/NO": 6,
+      "R-E2/renewed_restriction/YES": 3,
+      "R-E2/stable/NO": 5,
+      "U-E1/complete/YES": 3,
+      "U-E1/release/NO": 3,
+      "R-E3/enter/NO": 85,
+      "R-E3/enter/YES": 43,
+      "R-E3/hold/NO": 29,
+      "R-E3/hold/YES": 3,
+      "U-E2/depart/YES": 12,
+      "U-E2/hold/NO": 8,
+      "U-E5/hold/YES": 1,
+      "U-E5/proceed/NO": 6,
+      "R-E2/stable/YES": 4,
+      "U-E6/hold/YES": 3,
+      "U-E6/proceed/NO": 38,
+      "U-E2/pass/NO": 10,
+      "U-E2/release/YES": 2,
+      "U-E2/renewed_restriction/NO": 5,
+      "U-E3/hold/YES": 2,
+      "U-E3/proceed/NO": 16
+    },
+    "v55": {
+      "U-E2/complete/NO": 3,
+      "U-E2/complete/YES": 1,
+      "U-E2/depart/NO": 94,
+      "U-E2/hold/YES": 9,
+      "U-E2/pass/YES": 2,
+      "U-E2/recover_follow/NO": 9,
+      "U-E2/release/NO": 24,
+      "U-E2/renewed_restriction/YES": 4,
+      "U-E2/stable/NO": 9,
+      "U-E7/complete/NO": 11,
+      "U-E7/hold/NO": 15,
+      "U-E7/hold/YES": 9,
+      "U-E7/proceed/NO": 37,
+      "U-E7/proceed/YES": 4,
+      "U-E7/re_yield/NO": 15,
+      "U-E7/re_yield/YES": 4,
+      "U-E7/recover_follow/NO": 8,
+      "U-E7/renewed_restriction/NO": 4,
+      "U-E7/renewed_restriction/YES": 4,
+      "U-E7/stable/NO": 7,
+      "U-E7/stable/YES": 1,
+      "U-E4/hold/YES": 2,
+      "U-E4/proceed/NO": 16,
+      "U-E4/proceed/YES": 11,
+      "R-E5/hold/YES": 4,
+      "R-E5/proceed/NO": 140,
+      "U-E1/hold/YES": 9,
+      "U-E1/proceed/NO": 326,
+      "R-E2/complete/NO": 3,
+      "R-E2/complete/YES": 20,
+      "R-E2/enter/NO": 18,
+      "R-E2/enter/YES": 29,
+      "R-E2/hold/NO": 24,
+      "R-E2/hold/YES": 8,
+      "R-E2/recover_follow/NO": 22,
+      "R-E2/recover_follow/YES": 1,
+      "R-E2/release/NO": 68,
+      "R-E2/release/YES": 9,
+      "R-E2/renewed_restriction/NO": 4,
+      "R-E2/renewed_restriction/YES": 3,
+      "R-E2/stable/NO": 12,
+      "U-E1/complete/YES": 3,
+      "U-E1/hold/NO": 10,
+      "U-E1/re_yield/NO": 10,
+      "U-E1/recover_follow/NO": 79,
+      "U-E1/recover_follow/YES": 4,
+      "U-E1/release/NO": 3,
+      "U-E1/renewed_restriction/NO": 10,
+      "U-E1/stable/NO": 6,
+      "R-E3/enter/NO": 85,
+      "R-E3/enter/YES": 43,
+      "R-E3/hold/NO": 29,
+      "R-E3/hold/YES": 3,
+      "U-E2/depart/YES": 3,
+      "U-E2/hold/NO": 3,
+      "U-E5/hold/YES": 1,
+      "U-E5/proceed/NO": 6,
+      "R-E2/stable/YES": 3,
+      "U-E1/complete/NO": 7,
+      "U-E1/release/YES": 1,
+      "U-E6/hold/YES": 3,
+      "U-E6/proceed/NO": 38,
+      "U-E2/pass/NO": 10,
+      "U-E3/hold/YES": 2,
+      "U-E3/proceed/NO": 16
+    }
+  },
+  "schedule": {
+    "2/1": {
+      "event_counts": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "order_sha256": "0319b402ff3fa5918ce8b207bb76d2bc05b93441ff7ee8668850bc49984b2f10",
+      "max_repeat": 147
+    },
+    "2/4": {
+      "event_counts": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "order_sha256": "0319b402ff3fa5918ce8b207bb76d2bc05b93441ff7ee8668850bc49984b2f10",
+      "max_repeat": 147
+    },
+    "4/1": {
+      "event_counts": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "order_sha256": "0319b402ff3fa5918ce8b207bb76d2bc05b93441ff7ee8668850bc49984b2f10",
+      "max_repeat": 147
+    },
+    "4/4": {
+      "event_counts": {
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E2": 1024,
+        "U-E3": 1024,
+        "U-E4": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E7": 1024
+      },
+      "order_sha256": "0319b402ff3fa5918ce8b207bb76d2bc05b93441ff7ee8668850bc49984b2f10",
+      "max_repeat": 147
+    }
+  },
+  "repeat_comparison": {
+    "frames": 479,
+    "exact_frame_differences": 91,
+    "small_numeric_differences": 8018,
+    "max_absolute_difference": 9.094947017729282e-13,
+    "semantic_differences_after_tolerance": 0,
+    "question_ids_ignored_for_semantic_comparison": true,
+    "byte_identical": false
+  },
+  "artifacts": {
+    "checkpoints/v55_independent_review_20261014/native/build.py": "f6d577a077f20caee8d48e4f6dc0d21d5e62c2a4ebf64c0aec00f310a0713888",
+    "checkpoints/v55_independent_review_20261014/native/build_verification.json": "3a771677ae17a9876df3dd735051143b81ef70d3405da108492bbcb5bcbcb26c",
+    "checkpoints/v55_independent_review_20261014/native/source_bindings.json": "c23a7f27d1e5686aad47b13a78ac2d910f7ef40b036f80093f7fcb1ed5fc9170",
+    "checkpoints/v55_independent_review_20261014/native/production/index.json": "5efdf428f4318af21b0d1bc1f9d07cef7c31355c0c235faa2dea2999795da062",
+    "checkpoints/v55_independent_review_20261014/native/view/student_view.json": "2e736f8affeb0ceb0e6fae614245a138c808f2b3d9926774002825c1a5e8e91e",
+    "checkpoints/v55_independent_review_20261014/review.py": "d716ae29b73a6a5f332ce1f0b57adf0e6bae7e910faf4d8a272ea56f817d25d8",
+    "checkpoints/v55_independent_review_20261014/review.json": "2a18ef261a37896a703941dee529295c81d9afc856ad28c99145ed26dbb33e62",
+    "checkpoints/v55_independent_review_20261014/rgb_windows.json": "b24fdf62ba6dd55da5463b856a23e90d6e66304c1673a105450195dc16ad0a33",
+    "checkpoints/v55_independent_review_20261014/visual_sources.json": "d8d5133a971a0318ed8264bf759e10d4dff73a65650ba40f727a81298f38f2f1",
+    "checkpoints/v55_independent_review_20261014/visual_review.json": "35d9151b5397e304e8626b0d9edb6d2243e0eafef674f6e0ed73299ea794d470",
+    "checkpoints/v55_independent_review_20261014/probe.py": "83eb3871a690af40f281d48a905d9ed98c65c6b9048ab3f9c2e50b272cd5b9bc",
+    "checkpoints/v55_independent_review_20261014/probe.log": "76d6245fff9956aa2753abd75a55ddf2bcaed0b1e7bf40c9851f14d32059024e",
+    "checkpoints/v55_independent_review_20261014/stop_probe.json": "82c5303e8dcb5b95bcb587be13569005e1bdc6903ce1463f5c5364d33a4911bb",
+    "checkpoints/v55_independent_review_20261014/tests_retry.log": "570c5cac94339acc065d6dee4dba146e02cdc9634a9804511a8ec5769167d607",
+    "checkpoints/v55_independent_review_20261014/admission_sampling_tests.log": "c506394a917da2d3142b11c41ef642e39196645939b77dfe28499cd55fdc84f0",
+    "checkpoints/v55_independent_review_20261014/review.log": "eaca1343b14b6e1f43b8f6d49e3f2173a9155ae9392a5c8976e79aee88d80bf2",
+    "checkpoints/v55_independent_review_20261014/review_retry.log": "5cf31d98ed1ea8bc7cb9612d4791654d22ee3eedc2d35b17b69d0d20acb7f5bf",
+    "checkpoints/v55_independent_review_20261014/review_final.log": "90d2011f9b65d2d8f0d2d648c72915f41a9db9ed6854272a0d03734a329293b2",
+    "checkpoints/v55_independent_review_20261014/stop_a_before.jpg": "6ac28da0bce5d595c4362b2b63884493d6d809eaf709ce772ad02e5881d9b601",
+    "checkpoints/v55_independent_review_20261014/stop_a_later.jpg": "e35eb08500246dbe31bd9bd60f7390531b2e83fb41dc26732ae8fa211229f96a",
+    "checkpoints/v55_independent_review_20261014/stop_b_before.jpg": "add6bdd6d822e8cfbe2863c60f2fdf68899390ae5ee07b87de34c8c70b738e8d",
+    "checkpoints/v55_independent_review_20261014/stop_b_bypass.jpg": "7c90bb37f162becb84544b0791ea15fe2568b3e861b07249b92c5a9c9490e096",
+    "checkpoints/v55_independent_review_20261014/stop_b_changed.jpg": "9c551c010d733ca2fc878b3b7b3cd1e46e1350b5100c72faddb51b68ed264c36",
+    "checkpoints/v55_independent_review_20261014/signal_1.jpg": "6987abd3504e587f8aad84592121fe8020c9fb186958c3814c7abe9ddf2edbbc",
+    "checkpoints/v55_independent_review_20261014/signal_2.jpg": "e3a6c93b6c1181e30d34a9b56ca32e3e4ea2a97eaadec1b081599f6a02bd41f3"
+  },
+  "production_modified": false,
+  "trained": false,
+  "pushed": false
+}

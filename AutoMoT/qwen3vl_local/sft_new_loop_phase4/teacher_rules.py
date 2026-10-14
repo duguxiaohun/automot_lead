@@ -9,7 +9,7 @@ from . import privileged_geometry as g
 from .event_scope import local_navigation
 from .automatic_context import route_intersection
 
-VERSION='ten_event_causal_teacher_v19'
+VERSION='ten_event_causal_teacher_v20'
 PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band_m=.25,
             lead_growth_m=1.,lead_min_gap_m=3.,min_pixel_change=6.,
             stationary_lead_displacement_m=.75,stationary_ego_displacement_m=.25,
@@ -309,16 +309,32 @@ def local_priority(frame,nav):
               and not distant_control(frame,a,nav)]
     if any(type(a.get('affects_ego')) is not bool for a in controls):return None
     active=[a for a in controls if a.get('affects_ego') is True]
+    from .teacher_controls import crossing_clear, same_stop, owned_lane
+    stops={a['id']:a for a in active if a['class']=='stop_sign'}
+    duties=frame.get('stop_duties',{})
+    all_stops={a['id']:a for a in frame['actors'] if a['class']=='stop_sign'}
+    for duty in duties.values():
+        a=all_stops.get(duty['stop_id'])
+        if (duty.get('identity_verified') is not True or a is None
+                or not same_stop(frame,a,duty.get('world'))):return None
+        if duty.get('retired') is True:
+            ego=next(a for a in frame['actors'] if a['class']=='ego_car')
+            if duty.get('satisfied') is not True or g.aabb(a)[1]>=-ego['extent'][0]:return None
+            stops.pop(a['id'],None)
+            active=[c for c in active if c['id']!=a['id'] or c['class']!='stop_sign']
+            continue
+        # A distant stop ahead lies outside this local progress horizon;
+        # once alongside/behind, distance alone cannot erase its obligation.
+        if distant_control(frame,a,nav) and g.aabb(a)[0]>0:continue
+        stops[a['id']]=a
+    if stops:
+        if owned_lane(frame) is None:return None
+        if any(duties.get(str(i),{}).get('satisfied') is not True for i in stops):return None
+        clear=conjunction(*(crossing_clear(frame,a) for a in stops.values()))
+        if clear is not True:return clear
+        active=[a for a in active if a['class']!='stop_sign']
+        if not active:return True
     if active:
-        stops=[a for a in active if a['class']=='stop_sign']
-        if stops:
-            from .teacher_controls import crossing_clear
-            duties=frame.get('stop_duties',{})
-            if any(duties.get(str(a['id']),{}).get('satisfied') is not True for a in stops):return None
-            clear=conjunction(*(crossing_clear(frame,a) for a in stops))
-            if clear is not True:return clear
-            active=[a for a in active if a['class']!='stop_sign']
-            if not active:return True
         if any(str(a.get('state')).lower() in ('red','yellow') for a in active):return False
         if (str(m.get('traffic_light_state')).lower()!='green'
                 or any(str(a.get('state')).lower()!='green' or g.visible(a,frame) is not True for a in active)):return None

@@ -35,12 +35,31 @@ def test_strict_stays_blocked_and_development_keeps_labels_and_explicit_gap(tmp_
             assert all(e['presentations']==1024 for e in m['schedule']['worlds'][world][0]['events'].values())
 
 
-@pytest.mark.parametrize('gap',['U-E2/return/YES','U-E5/proceed/NO','U-E7/complete/YES'])
+@pytest.mark.parametrize('gap',['U-E2/return/YES','U-E5/proceed/NO','U-E7/complete/YES',
+                              'R-E5/proceed/YES','R-E5/proceed/NO'])
 def test_other_capability_gaps_still_block(tmp_path,monkeypatch,gap):
     raw=configured(tmp_path,monkeypatch)
     raw['train'][:]=[r for r in raw['train'] if '/'.join((r['episode']['event'],r['edge'],r['target']))!=gap]
     r=check(tmp_path)
     assert r['status']=='blocked' and any(gap in e for e in r['errors'])
+
+
+@pytest.mark.parametrize('answer',['YES','NO'])
+def test_re5_gap_created_by_final_filter_still_blocks(tmp_path,monkeypatch,answer):
+    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy
+    configured(tmp_path,monkeypatch)
+    def select(data,**kw):
+        data['train']=[r for r in data['train'] if not
+                       (r['episode']['event']=='R-E5' and r['target']==answer)]
+        return data,dict(plans={},exclusions=[])
+    monkeypatch.setattr(evaluation_policy,'prepare',select)
+    r=check(tmp_path)
+    assert r['status']=='blocked'
+    assert r['unsupported_capabilities']==['U-E5/proceed/YES']
+    for mode in r['modes'].values():
+        key='R-E5/proceed/'+answer
+        assert mode['source_automatic_support']['critical_support'][key]['rows']==1
+        assert key in mode['coverage_decision']['blocking_missing_support']
 
 
 @pytest.mark.parametrize('defect',['event_missing','isolation','references','budget','drift','selection'])
@@ -79,7 +98,8 @@ def test_unknown_policy_cannot_opt_out(tmp_path,monkeypatch):
     assert check(tmp_path,'ignore_all')['status']=='blocked'
 
 
-def test_raw_gate_continues_only_for_known_gap(tmp_path,monkeypatch):
+@pytest.mark.parametrize('gap',['U-E5/proceed/YES','R-E5/proceed/YES','R-E5/proceed/NO'])
+def test_raw_gate_continues_only_for_known_gap(tmp_path,monkeypatch,gap):
     from qwen3vl_local.sft_new_loop_phase4 import candidate_pool,teacher_replay,teacher_data
     from qwen3vl_local.audit_joint import first_epoch_budget
     from qwen3vl_local.audit_joint.io import file_sha
@@ -89,13 +109,20 @@ def test_raw_gate_continues_only_for_known_gap(tmp_path,monkeypatch):
     monkeypatch.setattr(candidate_pool,'validate',lambda p:p)
     monkeypatch.setattr(first_epoch_budget,'profile',lambda _:dict(fixture=True))
     monkeypatch.setattr(teacher_replay,'produce',lambda *a,**kw:dict(complete_causal_production=True,index_sha256=file_sha(index)))
-    monkeypatch.setattr(sf,'raw_training_support',lambda _:dict(missing_critical_support=['U-E5/proceed/YES']))
+    monkeypatch.setattr(sf,'raw_training_support',lambda _:dict(missing_critical_support=[gap]))
     def compile(*a,**kw):
         calls.append('compile');raise ValueError('fixture stops before actual build')
     monkeypatch.setattr(teacher_data,'compile_bundle',compile)
     r=sf.build(p,tmp_path,out,tmp_path/'model',coverage_policy='existing_data_development')
-    assert calls==['compile'] and r['status']=='blocked' and r['stage']=='rgb4_rule_dataset'
-    assert r['unsupported_capabilities']==['U-E5/proceed/YES'] and not r['training_started']
+    assert r['status']=='blocked' and not r['training_started']
+    if gap=='U-E5/proceed/YES':
+        assert calls==['compile'] and r['stage']=='rgb4_rule_dataset'
+        assert r['unsupported_capabilities']==[gap]
+    else:
+        assert calls==[] and r['compilation_skipped']
+        assert r['blocking_stage']=='raw_training_support'
+        assert r['stages']['raw_training_support']['blocking_missing_support']==[gap]
+        assert not r['unsupported_capabilities']
 
 
 def test_package_preserves_limited_status_and_original_zero_support(tmp_path):

@@ -1,0 +1,263 @@
+{
+  "old_pool": {
+    "rows": 1471,
+    "source_sha256": "dfc56408384c9fe48c996eca0046e117b6d1f320b76f70fda0960a6ed40a0aac",
+    "removed_positive_rows": 8,
+    "before": {
+      "rows": 8,
+      "physical_groups": 2
+    },
+    "after": {
+      "rows": 0,
+      "physical_groups": 0
+    }
+  },
+  "new_view": {
+    "rows": 1381,
+    "paired": true,
+    "old_view_rejected": "student view source contract mismatch",
+    "producer_task": "phase4_state_pair_binary_v55",
+    "teacher": "ten_event_causal_teacher_v20",
+    "source_coverage": {
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E2/return/NO": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E3/proceed/NO": {
+          "rows": 16,
+          "physical_groups": 2
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 6,
+          "physical_groups": 1
+        },
+        "U-E6/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E6/proceed/NO": {
+          "rows": 38,
+          "physical_groups": 2
+        },
+        "U-E7/complete/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E7/complete/NO": {
+          "rows": 11,
+          "physical_groups": 1
+        },
+        "R-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "R-E5/proceed/NO": {
+          "rows": 140,
+          "physical_groups": 3
+        }
+      },
+      "missing_critical_support": [
+        "U-E2/return/YES",
+        "U-E2/return/NO",
+        "U-E3/proceed/YES",
+        "U-E5/proceed/YES",
+        "U-E6/proceed/YES",
+        "U-E7/complete/YES",
+        "R-E5/proceed/YES"
+      ],
+      "scope": "native loaded automatic training rows; not final evaluation or training admission"
+    },
+    "bytes": 23752
+  },
+  "proxy": {
+    "frames": 32,
+    "source_files": 96,
+    "fixed_shapes": 32,
+    "stationary_examples": [
+      {
+        "scenario": "HardBreakRoute",
+        "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+        "stop_id": 91,
+        "frame_id": 30,
+        "speed_mps": 0.000975404685141479,
+        "calibration_status": "unproven_stop_line",
+        "label_authorization": false,
+        "sources": [
+          {
+            "path": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/metas/0030.pkl",
+            "frame_id": 30,
+            "kind": "metas",
+            "sha256": "1603a17e0805266b6afd150641dfe81553daf17bfaa9325bfdd80b6b0ec90b02"
+          },
+          {
+            "path": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/bboxes/0030.pkl",
+            "frame_id": 30,
+            "kind": "bboxes",
+            "sha256": "6f40fee504225539195e6fe6c380c9cb9c59b14bb759a5f4f54bd1c44340dab6"
+          },
+          {
+            "path": "HardBreakRoute/Town12_Rep0_1902_0_route0_01_09_03_48_13/rgb/0030.jpg",
+            "frame_id": 30,
+            "kind": "rgb",
+            "sha256": "3d40778466d9f78d76f5cb845dfb2a35e3f1df5c80c6cd5474267072733ae233"
+          }
+        ],
+        "status": "geometry_measured",
+        "extent": [
+          1.5,
+          1.5,
+          0.5
+        ],
+        "yaw": 1.5723959545036523,
+        "center_ego": [
+          1.9838058231780735,
+          0.0018970536057426601,
+          0.005435351671026822
+        ],
+        "ego_front_x": 2.44619083404541,
+        "box_aabb": [
+          0.48140830174442084,
+          3.4862033446117264,
+          -1.50050046782791,
+          1.5042945750393955
+        ],
+        "center_to_ego_origin_m": 1.9838058231780735,
+        "center_to_ego_front_m": -0.46238501086733663,
+        "exported_near_face_to_ego_front_m": -1.9647825323009893,
+        "exported_far_face_to_ego_front_m": 1.0400125105663163,
+        "longitudinal_box_half_span_m": 1.5023975214336527,
+        "affects_ego": true,
+        "exported_fixed_1p5_shape": true,
+        "interpretation": "Exported box faces and center are distinct. A negative near-face gap is not proof of crossing a road stop line. Matching a fixed shape does not prove which exporter produced this file."
+      },
+      {
+        "scenario": "ParkedObstacleTwoWays",
+        "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+        "stop_id": 532,
+        "frame_id": 30,
+        "speed_mps": 0.0025021875225265076,
+        "calibration_status": "unproven_stop_line",
+        "label_authorization": false,
+        "sources": [
+          {
+            "path": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/metas/0030.pkl",
+            "frame_id": 30,
+            "kind": "metas",
+            "sha256": "8d0bc873c569c28a8b444eba7eeb0847fa35a5f10e86c0c59d235528886ab207"
+          },
+          {
+            "path": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/bboxes/0030.pkl",
+            "frame_id": 30,
+            "kind": "bboxes",
+            "sha256": "37f91847820def217db3809f01506364eefbf44a0751f9d8c5741680cb36bb38"
+          },
+          {
+            "path": "ParkedObstacleTwoWays/Town13_Rep0_1748_1_route0_01_08_18_54_13/rgb/0030.jpg",
+            "frame_id": 30,
+            "kind": "rgb",
+            "sha256": "c461cc5ff7ee0ca6ab97eb4a6a671f33cec4738a5d77dd0eb898eb14dddb23f4"
+          }
+        ],
+        "status": "geometry_measured",
+        "extent": [
+          1.5,
+          1.5,
+          0.5
+        ],
+        "yaw": 1.571718897811365,
+        "center_ego": [
+          1.9731131682237333,
+          0.0012543377614915308,
+          0.004519056228787122
+        ],
+        "ego_front_x": 2.44619083404541,
+        "box_aabb": [
+          0.47172995024825437,
+          3.4744963861992124,
+          -1.5001288802139874,
+          1.5026375557369704
+        ],
+        "center_to_ego_origin_m": 1.9731131682237333,
+        "center_to_ego_front_m": -0.4730776658216769,
+        "exported_near_face_to_ego_front_m": -1.9744608837971558,
+        "exported_far_face_to_ego_front_m": 1.0283055521538023,
+        "longitudinal_box_half_span_m": 1.501383217975479,
+        "affects_ego": true,
+        "exported_fixed_1p5_shape": true,
+        "interpretation": "Exported box faces and center are distinct. A negative near-face gap is not proof of crossing a road stop line. Matching a fixed shape does not prove which exporter produced this file."
+      }
+    ],
+    "local_exporter_sources": {
+      "../lead/lead/expert/expert.py": "c65a4f8ff10109dc969e613ae35700c5bef51d9515d2698def527e69da6f9875",
+      "../lead/lead/expert/expert_data.py": "000f48ec1638278e0ddc0998cacc3142408fd027a33f8ce476880c68d77368aa"
+    },
+    "conclusion": "Local exporter uses an artificial 1.5m box around trigger center; actual file shape agrees, collector source SHA at capture unverified. Local Town12/Town13 maps contain nearby StopLine2 candidates, but neither capture-map identity nor lane/control association is certified. No alternative distance currently authorizes labels."
+  },
+  "no_new_labels": true,
+  "remote": false,
+  "training": false,
+  "push": false,
+  "tests": {
+    "passed": 117,
+    "new_cases": 16,
+    "dependency_blocked": 2,
+    "dependencies": [
+      "peft",
+      "tokenizers"
+    ],
+    "full_suite_run": false
+  },
+  "rgb_review": {
+    "distinct_frames": 14,
+    "routes": 2,
+    "frames_per_route": [
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30
+    ],
+    "revisited": true,
+    "blind": false,
+    "source_files": 42,
+    "after_view_sha_verified": true
+  },
+  "release": {
+    "manifest": "qwen3vl_local/audit_joint/release_sources_v55_re5_admission_20261014.json",
+    "files": 489,
+    "status": "matched",
+    "published": false
+  },
+  "evidence_files": {
+    "checkpoints/re5_support_proxy_20261014/verify.py": "eb92b238815073303221b0ddd480bb8fdc3fb9cbd0a50273fb1f72c170c4e04e",
+    "checkpoints/re5_support_proxy_20261014/verification.json": "844a49a3b05a4a6125a574033de42d3c41aa006e0366c4fa7d36eda9e7004d21",
+    "checkpoints/re5_support_proxy_20261014/admission.json": "5687668195388cc47c5d9154a90718bb3241daca4ad668e843cec046f4f9864e",
+    "checkpoints/re5_support_proxy_20261014/proxy.json": "5a3bd77a1f819f2c82a4d0f23c39df62e6d8ac9ca9498c228188662ece378d68",
+    "checkpoints/re5_support_proxy_20261014/sources.json": "d99f1a71da836129a21151fb1b36e6794018fae733b41e6723c89d90fb14cb0c",
+    "checkpoints/re5_support_proxy_20261014/tests.log": "1a176c666a68bca6463681039ce554acbbbbf3220fee1b1abd0a2c1e64cd355e",
+    "checkpoints/re5_support_proxy_20261014/optional_dependencies.log": "9dd43ad5090989ec44be40a1d9d4a2c32099a8f3f238c8001f8639a71cf31ff1",
+    "checkpoints/re5_support_proxy_20261014/optional_dependencies_retry.log": "103d825fde085318ce44f2b7b85edbdd921a2208537a04e54191be371a1dc4f3",
+    "checkpoints/re5_support_proxy_20261014/source_check.json": "6d8f80e8e2f08f9c5afb08308c3863c8a593824f19f42b926b9d358573b6e66a"
+  },
+  "map_followup": {
+    "evidence": "checkpoints/re5_support_proxy_20261014/map_probe.json",
+    "sha256": "65781c44b1b8484ff909e86fc53d6797489c89a3946e865f47fa40c1bee6c168",
+    "capture_map_identity_verified": false,
+    "nearest_is_not_lane_association": true
+  }
+}

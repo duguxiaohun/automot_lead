@@ -15,6 +15,8 @@ from .training_budget import plan as disk_plan
 COVERAGE_POLICIES = ('strict', 'existing_data_development')
 DEVELOPMENT_GAPS = frozenset({'U-E5/proceed/YES'})
 ADMITTED = ('admitted_rule_baseline', 'admitted_existing_data_development')
+CRITICAL_EDGES = (('U-E2','return'), ('U-E3','proceed'), ('U-E5','proceed'),
+                  ('U-E6','proceed'), ('U-E7','complete'), ('R-E5','proceed'))
 
 
 def coverage_decision(missing, policy):
@@ -46,10 +48,8 @@ def critical_support(rows):
     """Automatic train/readiness evidence only; other edges cannot fill a cell."""
     from .training_scope import original_basis
     rows=[r for r in rows if r['split']=='train' and original_basis(r) in ('weak_rule_teacher','approved_rule_teacher')]
-    priorities=[('U-E2','return'),('U-E3','proceed'),('U-E5','proceed'),
-                ('U-E6','proceed'),('U-E7','complete')]
     critical={}
-    for event,edge in priorities:
+    for event,edge in CRITICAL_EDGES:
         for answer in ('YES','NO'):
             matches=[r for r in rows if r['episode']['event']==event and r['edge']==edge
                      and r['slice']=='readiness' and r['target']==answer]

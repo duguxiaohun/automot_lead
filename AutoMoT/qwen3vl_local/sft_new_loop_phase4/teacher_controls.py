@@ -9,33 +9,79 @@ from . import privileged_geometry as g
 PARAMS=dict(stop_speed_mps=.1,stop_observations=3,max_front_gap_m=3.,crossing_horizon_s=2.,crossing_radius_m=15.)
 
 
+def owned_lane(frame):
+    """Meta owns the lane; optional bbox copies must not contradict it."""
+    ego=next(a for a in frame['actors'] if a['class']=='ego_car')
+    lane=tuple(frame['meta'].get(k) for k in ('road_id','lane_id'))
+    if any(type(v) is not int for v in lane):return None
+    if any(ego.get(k) is not None and (type(ego[k]) is not int or ego[k]!=v)
+           for k,v in zip(('road_id','lane_id'),lane)):return None
+    return lane
+
+
+def same_stop(frame,actor,world):
+    current=g.world_point(frame,actor)
+    return (current is not None and world is not None
+            and sum((x-y)**2 for x,y in zip(current,world))<=1.)
+
+
 class StopDutyTracker:
     def __init__(self):self.entries={};self.last_frame=None
+    def invalidate(self):
+        """Unusable source revokes completion evidence, never the obligation."""
+        for old in self.entries.values():
+            old.update(observations=[],satisfied=False,identity_verified=False,retired=False)
     def observe(self,frame):
         n=frame['frame_id'];m=frame['meta']
-        if self.last_frame is not None and n!=self.last_frame+1:self.entries.clear()
+        continuous=self.last_frame is None or n==self.last_frame+1
         self.last_frame=n
-        if n<4 or frame.get('source_geometry_issues'):self.entries.clear();return {}
+        valid=n>=4 and not frame.get('source_geometry_issues')
         ego=next(a for a in frame['actors'] if a['class']=='ego_car')
-        active={a['id']:a for a in frame['actors'] if a['class']=='stop_sign' and a.get('affects_ego') is True}
-        self.entries={i:e for i,e in self.entries.items() if i in active}
-        for ident,a in active.items():
-            lane=(m.get('road_id'),m.get('lane_id'));world=g.world_point(frame,a)
-            old=self.entries.get(ident)
-            if (old is None or old['lane']!=lane or world is None or old['world'] is None
-                    or sum((x-y)**2 for x,y in zip(world,old['world']))>1.):
-                old=dict(lane=lane,world=world,observations=[],satisfied=False);self.entries[ident]=old
+        stops={a['id']:a for a in frame['actors'] if a['class']=='stop_sign'}
+        lane=owned_lane(frame)
+        # Cleared flags, missing actors and source gaps cannot discharge debt.
+        for ident,a in stops.items():
+            if n>=4 and a.get('affects_ego') is True and ident not in self.entries:
+                self.entries[ident]=dict(lane=lane,world=g.world_point(frame,a),
+                    observations=[],satisfied=False,established_frame=n)
+        for ident,old in self.entries.items():
+            previously_retired=old.get('retired',False)
+            a=stops.get(ident)
+            identity=valid and a is not None and same_stop(frame,a,old['world'])
+            if not continuous or not valid:
+                old['observations']=[];old['satisfied']=False
+            old['identity_verified']=bool(identity)
+            old['retired']=False
+            if not identity:
+                old['observations']=[];old['satisfied']=False
+                continue
             box=g.aabb(a);gap=box[0]-ego['extent'][0]
-            identified=(None not in lane and tuple(ego.get(k) for k in ('road_id','lane_id'))==lane and world is not None)
+            if previously_retired and box[1]>=-ego['extent'][0]:
+                old['observations']=[];old['satisfied']=False
+            # Only a fulfilled duty can retire after the complete trigger has
+            # passed behind the ego footprint. Crossing cannot forgive debt.
+            if old['satisfied'] and box[1]<-ego['extent'][0]:
+                old['retired']=True
+                continue
+            identified=lane is not None and lane==old['lane']
             before_area=0<=gap<=PARAMS['max_front_gap_m'] and box[2]<=0<=box[3]
-            stopped=identified and before_area and abs(m['speed'])<=PARAMS['stop_speed_mps']
+            stopped=(identified and before_area and g.finite(m.get('speed'))
+                     and abs(m['speed'])<=PARAMS['stop_speed_mps'])
             if not old['satisfied']:
                 if stopped:old['observations'].append(dict(frame_id=n,sources=frame['sources']))
                 else:old['observations']=[]
                 old['observations']=old['observations'][-PARAMS['stop_observations']:]
                 old['satisfied']=len(old['observations'])==PARAMS['stop_observations']
-        return {str(i):dict(stop_id=i,satisfied=e['satisfied'],lane=list(e['lane']),
+        result={str(i):dict(stop_id=i,satisfied=e['satisfied'],
+                lane=list(e['lane']) if e['lane'] is not None else None,
+                world=e['world'],established_frame=e['established_frame'],
+                identity_verified=e['identity_verified'],retired=e['retired'],
                 position_basis='trigger_area_near_face_not_painted_line',observations=list(e['observations'])) for i,e in self.entries.items()}
+        # Do not immediately recreate a still-active, passed control as debt.
+        # Clear it only after geometric retirement AND association withdrawal.
+        self.entries={i:e for i,e in self.entries.items()
+                      if not (e['retired'] and stops[i].get('affects_ego') is False)}
+        return result
 
 
 def crossing_interval(box,region,velocity,horizon_s):

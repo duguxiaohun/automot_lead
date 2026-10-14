@@ -1,0 +1,680 @@
+{
+  "status": "three_epoch_evidence_verified",
+  "source_commit": "71cc49636eb367c1e1c06743953f48e61fd17f4c",
+  "package_bytes": 807215,
+  "package_sha256": "566f7cf85ffe4af0eca5ea99883a25f499f71757924e3cab9b47860d982cb6dc",
+  "members": 52,
+  "source_files": 478,
+  "model_quality_approved": false,
+  "modes": {
+    "2rgb_short": {
+      "actual_train_per_event_per_epoch": 1024,
+      "epochs": 3,
+      "total_train_per_event": 3072,
+      "primary_actions": {
+        "DECELERATE": 2080,
+        "RESUME": 1680,
+        "STOP": 3422,
+        "LANE_CHANGE_LEFT": 684,
+        "KEEP": 1690,
+        "LANE_CHANGE_RIGHT": 684
+      },
+      "reload_val": {
+        "cases": 320,
+        "per_event": 32,
+        "correct": 240,
+        "exact": 0.75,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 27,
+            "total": 32
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 28,
+            "total": 32
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 22,
+            "total": 32
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 29,
+            "total": 32
+          },
+          "ONCOMING_INVASION": {
+            "correct": 23,
+            "total": 32
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 32,
+            "total": 32
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 27,
+            "total": 32
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 15,
+            "total": 32
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 19,
+            "total": 32
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 18,
+            "total": 32
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 58,
+            "correct": 27,
+            "predicted": 40,
+            "recall": 0.46551724137931033,
+            "precision": 0.675
+          },
+          "STOP": {
+            "support": 153,
+            "correct": 139,
+            "predicted": 157,
+            "recall": 0.9084967320261438,
+            "precision": 0.8853503184713376
+          },
+          "RESUME": {
+            "support": 38,
+            "correct": 22,
+            "predicted": 32,
+            "recall": 0.5789473684210527,
+            "precision": 0.6875
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 8,
+            "correct": 6,
+            "predicted": 8,
+            "recall": 0.75,
+            "precision": 0.75
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 14,
+            "correct": 12,
+            "predicted": 23,
+            "recall": 0.8571428571428571,
+            "precision": 0.5217391304347826
+          },
+          "KEEP": {
+            "support": 49,
+            "correct": 34,
+            "predicted": 60,
+            "recall": 0.6938775510204082,
+            "precision": 0.5666666666666667
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 139,
+            "LANE_CHANGE_LEFT": 1,
+            "DECELERATE": 6,
+            "KEEP": 5,
+            "LANE_CHANGE_RIGHT": 1,
+            "RESUME": 1
+          },
+          "RESUME": {
+            "STOP": 10,
+            "RESUME": 22,
+            "KEEP": 5,
+            "LANE_CHANGE_RIGHT": 1
+          },
+          "DECELERATE": {
+            "DECELERATE": 27,
+            "RESUME": 5,
+            "LANE_CHANGE_LEFT": 1,
+            "STOP": 7,
+            "KEEP": 15,
+            "LANE_CHANGE_RIGHT": 3
+          },
+          "KEEP": {
+            "DECELERATE": 5,
+            "KEEP": 34,
+            "RESUME": 3,
+            "STOP": 1,
+            "LANE_CHANGE_RIGHT": 6
+          },
+          "LANE_CHANGE_LEFT": {
+            "LANE_CHANGE_LEFT": 6,
+            "KEEP": 1,
+            "RESUME": 1
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 12,
+            "DECELERATE": 2
+          }
+        },
+        "physical_groups": 59,
+        "quality_guards_passed": false
+      },
+      "test": {
+        "cases": 380,
+        "per_event": 38,
+        "correct": 270,
+        "exact": 0.7105263157894737,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 25,
+            "total": 38
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 23,
+            "total": 38
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 30,
+            "total": 38
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 35,
+            "total": 38
+          },
+          "ONCOMING_INVASION": {
+            "correct": 20,
+            "total": 38
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 34,
+            "total": 38
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 31,
+            "total": 38
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 20,
+            "total": 38
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 29,
+            "total": 38
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 23,
+            "total": 38
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 81,
+            "correct": 42,
+            "predicted": 61,
+            "recall": 0.5185185185185185,
+            "precision": 0.6885245901639344
+          },
+          "STOP": {
+            "support": 144,
+            "correct": 128,
+            "predicted": 159,
+            "recall": 0.8888888888888888,
+            "precision": 0.8050314465408805
+          },
+          "RESUME": {
+            "support": 52,
+            "correct": 29,
+            "predicted": 42,
+            "recall": 0.5576923076923077,
+            "precision": 0.6904761904761905
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 27,
+            "correct": 11,
+            "predicted": 13,
+            "recall": 0.4074074074074074,
+            "precision": 0.8461538461538461
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 20,
+            "correct": 19,
+            "predicted": 24,
+            "recall": 0.95,
+            "precision": 0.7916666666666666
+          },
+          "KEEP": {
+            "support": 56,
+            "correct": 41,
+            "predicted": 81,
+            "recall": 0.7321428571428571,
+            "precision": 0.5061728395061729
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 128,
+            "RESUME": 6,
+            "DECELERATE": 4,
+            "KEEP": 6
+          },
+          "KEEP": {
+            "RESUME": 2,
+            "DECELERATE": 10,
+            "KEEP": 41,
+            "STOP": 1,
+            "LANE_CHANGE_LEFT": 1,
+            "LANE_CHANGE_RIGHT": 1
+          },
+          "RESUME": {
+            "RESUME": 29,
+            "STOP": 9,
+            "LANE_CHANGE_RIGHT": 1,
+            "KEEP": 13
+          },
+          "DECELERATE": {
+            "DECELERATE": 42,
+            "STOP": 17,
+            "KEEP": 17,
+            "RESUME": 2,
+            "LANE_CHANGE_LEFT": 1,
+            "LANE_CHANGE_RIGHT": 2
+          },
+          "LANE_CHANGE_LEFT": {
+            "DECELERATE": 4,
+            "LANE_CHANGE_LEFT": 11,
+            "STOP": 4,
+            "KEEP": 4,
+            "LANE_CHANGE_RIGHT": 1,
+            "RESUME": 3
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 19,
+            "DECELERATE": 1
+          }
+        },
+        "physical_groups": 37,
+        "quality_guards_passed": false
+      },
+      "independent_reload_mismatches": 0
+    },
+    "4rgb": {
+      "actual_train_per_event_per_epoch": 1024,
+      "epochs": 3,
+      "total_train_per_event": 3072,
+      "primary_actions": {
+        "DECELERATE": 2080,
+        "RESUME": 1680,
+        "STOP": 3422,
+        "LANE_CHANGE_LEFT": 684,
+        "KEEP": 1690,
+        "LANE_CHANGE_RIGHT": 684
+      },
+      "reload_val": {
+        "cases": 320,
+        "per_event": 32,
+        "correct": 242,
+        "exact": 0.75625,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 27,
+            "total": 32
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 26,
+            "total": 32
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 22,
+            "total": 32
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 29,
+            "total": 32
+          },
+          "ONCOMING_INVASION": {
+            "correct": 22,
+            "total": 32
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 32,
+            "total": 32
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 29,
+            "total": 32
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 15,
+            "total": 32
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 19,
+            "total": 32
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 21,
+            "total": 32
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 58,
+            "correct": 25,
+            "predicted": 40,
+            "recall": 0.43103448275862066,
+            "precision": 0.625
+          },
+          "STOP": {
+            "support": 153,
+            "correct": 139,
+            "predicted": 157,
+            "recall": 0.9084967320261438,
+            "precision": 0.8853503184713376
+          },
+          "RESUME": {
+            "support": 38,
+            "correct": 23,
+            "predicted": 33,
+            "recall": 0.6052631578947368,
+            "precision": 0.696969696969697
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 8,
+            "correct": 6,
+            "predicted": 9,
+            "recall": 0.75,
+            "precision": 0.6666666666666666
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 14,
+            "correct": 13,
+            "predicted": 19,
+            "recall": 0.9285714285714286,
+            "precision": 0.6842105263157895
+          },
+          "KEEP": {
+            "support": 49,
+            "correct": 36,
+            "predicted": 62,
+            "recall": 0.7346938775510204,
+            "precision": 0.5806451612903226
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 139,
+            "LANE_CHANGE_LEFT": 1,
+            "DECELERATE": 7,
+            "KEEP": 5,
+            "RESUME": 1
+          },
+          "RESUME": {
+            "STOP": 11,
+            "RESUME": 23,
+            "KEEP": 3,
+            "DECELERATE": 1
+          },
+          "DECELERATE": {
+            "DECELERATE": 25,
+            "RESUME": 4,
+            "LANE_CHANGE_LEFT": 2,
+            "KEEP": 17,
+            "STOP": 7,
+            "LANE_CHANGE_RIGHT": 3
+          },
+          "KEEP": {
+            "DECELERATE": 6,
+            "KEEP": 36,
+            "RESUME": 4,
+            "LANE_CHANGE_RIGHT": 3
+          },
+          "LANE_CHANGE_LEFT": {
+            "LANE_CHANGE_LEFT": 6,
+            "KEEP": 1,
+            "RESUME": 1
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 13,
+            "DECELERATE": 1
+          }
+        },
+        "physical_groups": 59,
+        "quality_guards_passed": false
+      },
+      "test": {
+        "cases": 380,
+        "per_event": 38,
+        "correct": 274,
+        "exact": 0.7210526315789474,
+        "by_event": {
+          "LEAD_BRAKE": {
+            "correct": 25,
+            "total": 38
+          },
+          "STATIC_BLOCKAGE": {
+            "correct": 24,
+            "total": 38
+          },
+          "DYNAMIC_CUTIN": {
+            "correct": 31,
+            "total": 38
+          },
+          "VULNERABLE_CROSSING": {
+            "correct": 35,
+            "total": 38
+          },
+          "ONCOMING_INVASION": {
+            "correct": 25,
+            "total": 38
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "correct": 34,
+            "total": 38
+          },
+          "SIGNAL_FAILURE": {
+            "correct": 30,
+            "total": 38
+          },
+          "POST_BYPASS_RETURN": {
+            "correct": 20,
+            "total": 38
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "correct": 29,
+            "total": 38
+          },
+          "RAMP_MERGE_EXIT": {
+            "correct": 21,
+            "total": 38
+          }
+        },
+        "actions": {
+          "DECELERATE": {
+            "support": 81,
+            "correct": 50,
+            "predicted": 76,
+            "recall": 0.6172839506172839,
+            "precision": 0.6578947368421053
+          },
+          "STOP": {
+            "support": 144,
+            "correct": 128,
+            "predicted": 156,
+            "recall": 0.8888888888888888,
+            "precision": 0.8205128205128205
+          },
+          "RESUME": {
+            "support": 52,
+            "correct": 28,
+            "predicted": 40,
+            "recall": 0.5384615384615384,
+            "precision": 0.7
+          },
+          "LANE_CHANGE_LEFT": {
+            "support": 27,
+            "correct": 13,
+            "predicted": 15,
+            "recall": 0.48148148148148145,
+            "precision": 0.8666666666666667
+          },
+          "LANE_CHANGE_RIGHT": {
+            "support": 20,
+            "correct": 17,
+            "predicted": 25,
+            "recall": 0.85,
+            "precision": 0.68
+          },
+          "KEEP": {
+            "support": 56,
+            "correct": 38,
+            "predicted": 68,
+            "recall": 0.6785714285714286,
+            "precision": 0.5588235294117647
+          }
+        },
+        "confusion": {
+          "STOP": {
+            "STOP": 128,
+            "RESUME": 6,
+            "DECELERATE": 6,
+            "KEEP": 4
+          },
+          "KEEP": {
+            "RESUME": 2,
+            "DECELERATE": 12,
+            "KEEP": 38,
+            "LANE_CHANGE_RIGHT": 3,
+            "LANE_CHANGE_LEFT": 1
+          },
+          "RESUME": {
+            "RESUME": 28,
+            "STOP": 9,
+            "LANE_CHANGE_RIGHT": 3,
+            "KEEP": 11,
+            "DECELERATE": 1
+          },
+          "DECELERATE": {
+            "DECELERATE": 50,
+            "STOP": 17,
+            "RESUME": 2,
+            "KEEP": 10,
+            "LANE_CHANGE_LEFT": 1,
+            "LANE_CHANGE_RIGHT": 1
+          },
+          "LANE_CHANGE_LEFT": {
+            "DECELERATE": 5,
+            "LANE_CHANGE_LEFT": 13,
+            "KEEP": 4,
+            "LANE_CHANGE_RIGHT": 1,
+            "STOP": 2,
+            "RESUME": 2
+          },
+          "LANE_CHANGE_RIGHT": {
+            "LANE_CHANGE_RIGHT": 17,
+            "DECELERATE": 2,
+            "KEEP": 1
+          }
+        },
+        "physical_groups": 37,
+        "quality_guards_passed": false
+      },
+      "independent_reload_mismatches": 0
+    }
+  },
+  "paired": {
+    "reload_val": {
+      "cases": 320,
+      "same_question_same_label_rgb_subset": true,
+      "paired_correctness": {
+        "(True, True)": 231,
+        "(False, False)": 69,
+        "(True, False)": 9,
+        "(False, True)": 11
+      },
+      "prediction_disagreements": 26
+    },
+    "test": {
+      "cases": 380,
+      "same_question_same_label_rgb_subset": true,
+      "paired_correctness": {
+        "(True, True)": 261,
+        "(False, False)": 97,
+        "(False, True)": 13,
+        "(True, False)": 9
+      },
+      "prediction_disagreements": 32
+    }
+  },
+  "comparison_with_first_epoch": {
+    "2rgb_short": {
+      "reload_val": {
+        "paired_correctness": {
+          "(True, True)": 206,
+          "(False, False)": 71,
+          "(False, True)": 34,
+          "(True, False)": 9
+        },
+        "old_correct": 215,
+        "new_correct": 240,
+        "same_ids_labels_rgb": true
+      },
+      "test": {
+        "paired_correctness": {
+          "(True, True)": 220,
+          "(False, False)": 103,
+          "(False, True)": 50,
+          "(True, False)": 7
+        },
+        "old_correct": 227,
+        "new_correct": 270,
+        "same_ids_labels_rgb": true
+      }
+    },
+    "4rgb": {
+      "reload_val": {
+        "paired_correctness": {
+          "(True, True)": 208,
+          "(False, False)": 72,
+          "(False, True)": 34,
+          "(True, False)": 6
+        },
+        "old_correct": 214,
+        "new_correct": 242,
+        "same_ids_labels_rgb": true
+      },
+      "test": {
+        "paired_correctness": {
+          "(True, True)": 212,
+          "(False, False)": 96,
+          "(False, True)": 62,
+          "(True, False)": 10
+        },
+        "old_correct": 222,
+        "new_correct": 274,
+        "same_ids_labels_rgb": true
+      }
+    }
+  },
+  "current_local_source_differences": [
+    "qwen3vl_local/audit_joint/rule_baseline.py",
+    "qwen3vl_local/audit_joint/server_finish.py",
+    "qwen3vl_local/audit_joint/server_finish.sh",
+    "qwen3vl_local/audit_joint/server_phase3_epoch.py",
+    "qwen3vl_local/audit_joint/tests/test_rule_baseline.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh"
+  ],
+  "raw_outputs_reparsed": 2040,
+  "source_index_sha256": "925053e34c47f35dfe4987f14a1be3a8abdc206d75bea31964dc4ca9b8fcee99",
+  "new_visual_rgb_frames": 0,
+  "outer_and_all_members_sha_crc_verified": true,
+  "all_three_epoch_plans_equal_across_modes": true,
+  "limitations": [
+    "Server evidence verification; original weights/full training index not present locally",
+    "Source-derived supervision consistency, not independent visual-label accuracy",
+    "No new RGB visual inspection; no rule/prompt changes justified by this handoff",
+    "Phase4 existing-data full-pool admission and joint isolation remain pending; UE5 proceed YES unsupported"
+  ],
+  "audit_artifacts": {
+    "audit_received.py": "22566621b347fde5429b0e55b579109bde7b8ed7ffc60bd815a641981d90c243",
+    "audit_results.json": "6a709df9c7c8d0c6119bf3957192d6769e38a36f9bfddde7dd80dfdbe231bc79",
+    "audit_stdout.json": "3f530a04bb1a377b537cbc312e65399fd846482db1c6e186444be81dcac8b155",
+    "phase3_epoch_package.json": "434b0fe98af30d7b80e3317de5f38d38141d091bb0424712e4b2e330a6c5f56e"
+  },
+  "production_modified": false,
+  "full_regression_rerun": false,
+  "published": false
+}
