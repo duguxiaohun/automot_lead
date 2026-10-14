@@ -10,7 +10,7 @@ export FINISH_OUT PILOT_ROOT
 import json,os
 from pathlib import Path
 from qwen3vl_local.audit_joint.server_readiness import source_check
-r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v55_re5_admission_20261014.json'))
+r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v57_handoff_20261014.json'))
 (Path(os.environ['FINISH_OUT'])/'source_check.json').write_text(json.dumps(r,indent=2)+'\n')
 if r['status']!='matched':raise SystemExit('Source mismatch; inspect source_check.json and synchronize latest files')
 PY

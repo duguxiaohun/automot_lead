@@ -1,0 +1,171 @@
+{
+  "scope": "unapproved fixed-boundary plus relevance-first crossing sensitivity experiment; not a producer contract or training labels",
+  "release_sources_matched": 491,
+  "release_sha256": "13d052eaf8f7e61c8afe48fdcde1db07e7d6e0bcb8e9f30b22a921b2a40b0d6e",
+  "tests_passed": 55,
+  "synthetic_policy_cases_passed": 7,
+  "full_route_frames": 929,
+  "routes": 4,
+  "elapsed_seconds": 55.312159954999515,
+  "sources_verified_after_replay_and_after_view": 2787,
+  "diagnostic_anchors": 8,
+  "paired_rgb2_rgb4_questions": 883,
+  "RE5_proceed": {
+    "production_v55": {
+      "NO": 199,
+      "UNKNOWN": 28
+    },
+    "position_only": {
+      "YES": 0,
+      "NO": 199,
+      "UNKNOWN": 28
+    },
+    "combined_shadow": {
+      "YES": 20,
+      "NO": 199,
+      "UNKNOWN": 4
+    }
+  },
+  "candidate_positive_physical_groups": [
+    "AccidentTwoWays/Town12_26_0",
+    "AccidentTwoWays/Town13_1153_0",
+    "HardBreakRoute/Town12_1902_0",
+    "ParkedObstacleTwoWays/Town13_1748_1"
+  ],
+  "candidate_positive_rows": [
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 35,
+      "group": "HardBreakRoute/Town12_1902_0"
+    },
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 36,
+      "group": "HardBreakRoute/Town12_1902_0"
+    },
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 37,
+      "group": "HardBreakRoute/Town12_1902_0"
+    },
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 38,
+      "group": "HardBreakRoute/Town12_1902_0"
+    },
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 39,
+      "group": "HardBreakRoute/Town12_1902_0"
+    },
+    {
+      "route": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "frame": 35,
+      "group": "ParkedObstacleTwoWays/Town13_1748_1"
+    },
+    {
+      "route": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "frame": 36,
+      "group": "ParkedObstacleTwoWays/Town13_1748_1"
+    },
+    {
+      "route": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "frame": 37,
+      "group": "ParkedObstacleTwoWays/Town13_1748_1"
+    },
+    {
+      "route": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "frame": 38,
+      "group": "ParkedObstacleTwoWays/Town13_1748_1"
+    },
+    {
+      "route": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "frame": 39,
+      "group": "ParkedObstacleTwoWays/Town13_1748_1"
+    },
+    {
+      "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame": 34,
+      "group": "AccidentTwoWays/Town12_26_0"
+    },
+    {
+      "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame": 35,
+      "group": "AccidentTwoWays/Town12_26_0"
+    },
+    {
+      "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame": 36,
+      "group": "AccidentTwoWays/Town12_26_0"
+    },
+    {
+      "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame": 37,
+      "group": "AccidentTwoWays/Town12_26_0"
+    },
+    {
+      "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame": 38,
+      "group": "AccidentTwoWays/Town12_26_0"
+    },
+    {
+      "route": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 37,
+      "group": "AccidentTwoWays/Town13_1153_0"
+    },
+    {
+      "route": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 38,
+      "group": "AccidentTwoWays/Town13_1153_0"
+    },
+    {
+      "route": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 39,
+      "group": "AccidentTwoWays/Town13_1153_0"
+    },
+    {
+      "route": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 40,
+      "group": "AccidentTwoWays/Town13_1153_0"
+    },
+    {
+      "route": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 41,
+      "group": "AccidentTwoWays/Town13_1153_0"
+    }
+  ],
+  "common_key_target_changes": {
+    "UNKNOWN->YES": 29,
+    "UNKNOWN->NO": 4
+  },
+  "visual_frames": 28,
+  "visual_source_files_verified_after_view": 84,
+  "blind_review": false,
+  "production_changed": false,
+  "prompts_changed": false,
+  "labels_approved": false,
+  "formal_pool_built": false,
+  "trained": false,
+  "pushed": false,
+  "native_record_identity_warning": "Shadow monkeypatch outputs retain native identity fields but have no valid production source contract; never use these records to build training data.",
+  "artifacts": {
+    "checkpoints/stop_combined_review_20261014/accident12.jpg": "1192823261dc08cdbfc9cab9dc19c2a252f0c2ce44e3eae78d99a209d570ea1e",
+    "checkpoints/stop_combined_review_20261014/accident13.jpg": "c1521261ab46af8b10d1af3c98c6f0127ccd783ce673e00b8b72505942c90dec",
+    "checkpoints/stop_combined_review_20261014/check_policy.py": "c73388019f2c1b71c54f5dc0ea02b3bee24f73a65929a43d66381c847bda3b23",
+    "checkpoints/stop_combined_review_20261014/finalize.py": "7eaa9a6be3f869543c024db4969ab4511defeaee0fefb2a2eb87dd1d0dc1014d",
+    "checkpoints/stop_combined_review_20261014/geometry_check.json": "10cbb4523d44ed7d28fc2e6dccfd8391f2f892cac532a091a75a50934992afd3",
+    "checkpoints/stop_combined_review_20261014/geometry_check.py": "a1eed2854addb597c78e9dc8bf6d4e244930a24bcff4c265cdc76296bb3e8771",
+    "checkpoints/stop_combined_review_20261014/hardbreak.jpg": "3e0d0769b980f16f6d9543d9e249b6e4e3bb7bba83710bf541e84db1ee9b418b",
+    "checkpoints/stop_combined_review_20261014/parked.jpg": "e1e55b7f4a610e9579137c62085a353861d63a32a2b7f6c9cc8597be1421b321",
+    "checkpoints/stop_combined_review_20261014/policy_checks.json": "2a6f9032a13e360e32dc085fb5b7b3ac769a0a7171c13847ee91e950d37870a4",
+    "checkpoints/stop_combined_review_20261014/shadow.json": "40d6ba5836588b4b4d9c4d20efd52c40ab154eae83d103abf420c05362f24c9b",
+    "checkpoints/stop_combined_review_20261014/shadow.log": "773a52e986f6a10d73d6dd7f5f50e4aed9ee7c82bd5282bdec99c8472950d719",
+    "checkpoints/stop_combined_review_20261014/shadow.py": "fc388f4023164450f8abb7c74ba3db432235c8b95079e98cd0728c7438c8dfc6",
+    "checkpoints/stop_combined_review_20261014/shadow_frames.jsonl": "70c5a824fff3586330bb943232bddf56d41c31ec00a08d0ab1d424c5baafd079",
+    "checkpoints/stop_combined_review_20261014/sources.json": "2a7c65b74fed8acfdfac46d584228d8ec2f65545613f56575e352f2f536efd60",
+    "checkpoints/stop_combined_review_20261014/tests.log": "3301977f967d0152a1ff944e9dff576ef2e320c7ae368c6eff19fac04384713b",
+    "checkpoints/stop_combined_review_20261014/visual.py": "094e2e9a13a4e3856f3a51808b97d1e6c701cea705161d56aaf1e3dcf4afbb06",
+    "checkpoints/stop_combined_review_20261014/visual_sources.json": "8d2f89d3d7a293c6ac0497789ded8058e2a03fcfd06031a2dea7169765a196fc",
+    "checkpoints/stop_combined_review_20261014/windows.json": "71cb23d3691d479379f99e688091d58d943f7f39437a8b68fe9ba1b8125e438e"
+  }
+}

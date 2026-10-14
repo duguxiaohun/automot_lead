@@ -1,0 +1,123 @@
+{
+  "task": "phase4_state_pair_binary_v56",
+  "teacher": "ten_event_causal_teacher_v21",
+  "production_changes": [
+    "question corridor STOP crossing relevance and continuous 2s/4s prediction"
+  ],
+  "diagnostic_changes": [
+    "initial control geometry match",
+    "junction and lane predecessor validation",
+    "frozen control drift validation"
+  ],
+  "parking_location_production_integrated": false,
+  "prompts_changed": false,
+  "stop_speed_or_parking_gap_threshold_changed": false,
+  "native_replay": {
+    "routes": 4,
+    "frames": 929,
+    "elapsed_seconds": 21.466365614996903,
+    "paired_raw_questions": 717,
+    "common_key_target_changes": 0,
+    "structure": {
+      "added": 0,
+      "removed": 0
+    },
+    "re5": {
+      "NO": 199,
+      "UNKNOWN": 28
+    }
+  },
+  "shadow": {
+    "scope": "unapproved parking sensitivity experiment; NEVER training input; native identity fields do not certify monkeypatch",
+    "elapsed_seconds": 50.4669574790023,
+    "anchors": 8,
+    "rejections": [
+      {
+        "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        "frame": 154,
+        "stop_id": 54,
+        "error": "observed control does not match map reconstruction"
+      }
+    ],
+    "paired_raw_questions": 883,
+    "re5": {
+      "NO": 199,
+      "YES": 20,
+      "UNKNOWN": 4
+    },
+    "common_key_changes": {
+      "UNKNOWN->YES": 29,
+      "UNKNOWN->NO": 4
+    },
+    "structural_changes": {
+      "added": 233,
+      "removed": 67
+    },
+    "approved_for_training": false
+  },
+  "native_build": {
+    "elapsed_seconds": 31.90266474800228,
+    "counts": {
+      "train": 586,
+      "val": 0,
+      "test": 0
+    },
+    "event_counts": {
+      "R-E5": 205,
+      "U-E1": 177,
+      "U-E2": 186,
+      "U-E3": 18
+    },
+    "paired": true,
+    "scope": "four train routes only; not formal admission"
+  },
+  "valid_native_bundle": "checkpoints/stop_scope_fix_20261014/native_bundle_final",
+  "earlier_protocol_metadata_bundle_rejected": true,
+  "source_files_verified_after_replay_build_and_view": 2787,
+  "visual_frames": 28,
+  "visual_sources_after_view": 84,
+  "visual_blind": false,
+  "regression": {
+    "unique_passed": 571,
+    "environment_blocked": 1,
+    "blocked_test": "test_rule_reference_short_and_four_views_share_fixed_ids",
+    "base_failure": "torch missing",
+    "pvi_failure": "tokenizers missing",
+    "first_fixture_failures_corrected": true
+  },
+  "release_files_matched": 494,
+  "release_sha256": "defcf7bf6fc6f46414463d73cea0b1cf39384fa810f62071f9549441f7e25959",
+  "old_reservations_unchanged": true,
+  "formal_pool_admitted": false,
+  "gpu_trained": false,
+  "pushed": false,
+  "evidence": {
+    "checkpoints/stop_scope_fix_20261014/accident12.jpg": "1b900ac69b9527cc1eaf62e78102e1f8ac8f792f4692b5d681563f8a6b3f6a8d",
+    "checkpoints/stop_scope_fix_20261014/accident13.jpg": "f99a50ea982a7dd90ec09b07004bdd035cdf2d3db2ef8e11978db5be5d87a6b0",
+    "checkpoints/stop_scope_fix_20261014/build_native.log": "fccc1e4a0c44fbebe1a73bff4f78f97520ae7962b4dc6d7b5d50f7ca5e19f95c",
+    "checkpoints/stop_scope_fix_20261014/build_native.py": "2b4dc0533667bbc2ca4302da83c38854c25d53f6a07125564becd7e717bf5ac5",
+    "checkpoints/stop_scope_fix_20261014/build_native_final.log": "d4e9276dc1dadfc9f39651addf38d38c9b442292c05ef8dc530360357235524c",
+    "checkpoints/stop_scope_fix_20261014/build_native_final.py": "da7cb96a7b5df69ebc3061451f665ca188b91dbe9b83fd17724d71383ddf3381",
+    "checkpoints/stop_scope_fix_20261014/finalize.py": "ede359e38201551cb2122a0618e526f5599c19230bbc319cfcb5c17604bcc929",
+    "checkpoints/stop_scope_fix_20261014/hardbreak.jpg": "f79951b18b45887cf8fe7f6b829b0676fd03390bb22e484c6c3ed1bbc38dd40b",
+    "checkpoints/stop_scope_fix_20261014/native.json": "737b6c03bf1f126646e9dcd137b16518caf51ab411130c2af31811d8cba6afce",
+    "checkpoints/stop_scope_fix_20261014/native.log": "b2af4db752601e03d7c1e1f4792f82f29b3a58cc32f5036d106b8d1734d68443",
+    "checkpoints/stop_scope_fix_20261014/native_frames.jsonl": "fdb46561b59b9de491603db9a163e519a6fa777ff42c930010223bac15609868",
+    "checkpoints/stop_scope_fix_20261014/parked.jpg": "fae5489132dce46287bd3d80c7f381c0d98193ec57abe194e15704173048ba7a",
+    "checkpoints/stop_scope_fix_20261014/run_review.py": "aa8c2a3ed3c7829996407ba9f3dec079259a3f676e655a4f2846bd4f0b1004d1",
+    "checkpoints/stop_scope_fix_20261014/shadow.json": "76b91deaceae2cb46f9f48f4cae372df995f00aedcf06f406475913c5e8d0e71",
+    "checkpoints/stop_scope_fix_20261014/shadow.log": "dfe744efed2daeb2e7fef0eab3231f4a1f1289316061bea1118bed0c6e4a18de",
+    "checkpoints/stop_scope_fix_20261014/shadow_frames.jsonl": "64833ce50cd71982dbafcdc394faeafe18a1be9fc4cc7e5eba8dceff23b2fee8",
+    "checkpoints/stop_scope_fix_20261014/source_check.json": "4a71abab67a724f0780d6a6447de69ea015aa34ce434c23564d42af4f18bea73",
+    "checkpoints/stop_scope_fix_20261014/sources.json": "2a7c65b74fed8acfdfac46d584228d8ec2f65545613f56575e352f2f536efd60",
+    "checkpoints/stop_scope_fix_20261014/tests_broad.log": "6683a1afdbffdee905fb79939b30281378f1d303997bd7495aa290f07b4001cb",
+    "checkpoints/stop_scope_fix_20261014/tests_first.log": "aa17d947fccaaa7cd1eeddae676097d8060f661debf14415488c8aa85732945d",
+    "checkpoints/stop_scope_fix_20261014/tests_integration.log": "b411c023c70b8479e9c4dc98b4a317930ed647ad5f3b6f0ea8bcb3a01496dd08",
+    "checkpoints/stop_scope_fix_20261014/tests_second.log": "360acfc312fee5c3388470370fd02ea630e7811a2d97f02c717ce9dc5feb36c3",
+    "checkpoints/stop_scope_fix_20261014/tests_torch.log": "923f3be6b02492f94b6ebf0ea965c64da46cd5bd3de5efdda5610fa752442418",
+    "checkpoints/stop_scope_fix_20261014/visual.py": "c22bbb7655cebbc064630c4eeece492169fcc8a5662a10d178a38392c0385da4",
+    "checkpoints/stop_scope_fix_20261014/visual_notes.json": "b178947e1364114d447bc5660357325676e2680998ea0efc4ccb9c88295c7eca",
+    "checkpoints/stop_scope_fix_20261014/visual_sources.json": "08366f309c21f3d5d15d4f02b0ed34b46a9468e171010cdaefd8997dfc894d7b",
+    "checkpoints/stop_scope_fix_20261014/windows.json": "570323d8c2dc30432bf94b441ea3e0712bd1f91a3945104fca640150a34ffa4e"
+  }
+}

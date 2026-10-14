@@ -8,8 +8,22 @@ from qwen3vl_local.sft_new_loop_phase4.sampling import plan,CapacityError
 
 
 def controlled_frames(position=5.):
+    # Synthetic motion in an actual catalog coordinate frame. Match the fixed
+    # source geometry; do not grant synthetic controls a legacy proxy fallback.
+    import math
+    from qwen3vl_local.sft_new_loop_phase4.stop_position import catalog
+    reference=catalog().data['records']['Town12/225/-1'];h=reference['heading_rad']
+    x,y=reference['trigger_xy'];position-=4.
     fs=frames('vru',True)
-    for f in fs:f['actors'].append(actor(50,**{'class':'stop_sign'},position=[position,0.,0.],extent=[1.,2.,.5],affects_ego=True))
+    for f in fs:
+        f['route_id']='Town12_Rep0_1_0_route0'
+        f['meta'].update(road_id=225,lane_id=-1,
+            ego_matrix=[[math.cos(h),-math.sin(h),0,x-position*math.cos(h)],
+                        [math.sin(h),math.cos(h),0,y-position*math.sin(h)],
+                        [0,0,1,0],[0,0,0,1]])
+        f['actors'][0].update(road_id=225,lane_id=-1)
+        for s in f['sources']:s['path']=s['path'].replace('Town01_Rep0_1_0_route0',f['route_id'])
+        f['actors'].append(actor(50,**{'class':'stop_sign'},position=[position,0.,0.],extent=[1.5,1.5,.5],affects_ego=True))
     return fs
 
 
@@ -42,11 +56,12 @@ def test_stop_completion_does_not_grant_clearance_to_crossing_vehicle():
     f=controlled_frames()[-1];stop=f['actors'][-1];f['meta']['ego_lane_width']=3.5
     f['actors']=[f['actors'][0],stop,actor(3,position=[8.,4.,0.],ego_velocity=[0.,-3.])]
     f['image_evidence']['3']=dict(quality_pass=True)
-    assert controls.crossing_clear(f,stop) is False
+    nav=dict(points=[[0,0],[18,0]],half_width=1.75)
+    assert controls.crossing_clear(f,stop,nav) is False
     f['image_evidence']['3']['quality_pass']=False
-    assert controls.crossing_clear(f,stop) is None
+    assert controls.crossing_clear(f,stop,nav) is None
     f['actors'].pop()
-    assert controls.crossing_clear(f,stop) is True
+    assert controls.crossing_clear(f,stop,nav) is True
 
 
 def test_first_clear_seed_is_not_an_episode(monkeypatch):
@@ -120,6 +135,6 @@ def test_true_stop_duty_and_red_light_are_independent_constraints():
     fs=controlled_frames();tracker=controls.StopDutyTracker()
     for f in fs:f['stop_duties']=tracker.observe(f)
     f=fs[-1];f['actors']=[a for a in f['actors'] if a['class']!='walker']
-    assert rules.local_priority(f,{'review_horizon_m':18.}) is True
+    assert rules.local_priority(f,rules.local_navigation(f,18.)) is True
     f['meta']['light_hazard']=True
-    assert rules.local_priority(f,{'review_horizon_m':18.}) is False
+    assert rules.local_priority(f,rules.local_navigation(f,18.)) is False

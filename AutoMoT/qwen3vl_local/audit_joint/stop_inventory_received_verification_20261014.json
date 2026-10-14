@@ -1,0 +1,272 @@
+{
+  "received_sha256": "f8a23eac6fdd89e3f86bede9140f92839652d51d15ed142e93fb0b9bdad0b0dd",
+  "received_bytes": 693980,
+  "index_sha256": "a4ec26e7022f4f9beb88ec51cdb9462ead424f2e666c091c26691b342596b0ba",
+  "route_bindings_matched": 1327,
+  "totals": {
+    "routes_scanned": 8614,
+    "frames_scanned": 1062401,
+    "frames_with_stop_evidence": 44073,
+    "questions_with_stop_evidence": 66924,
+    "proceed_yes_after_pending_receipt_disappeared": 1691
+  },
+  "by_split": {
+    "train": {
+      "routes_with_recorded_stop_evidence": 1139,
+      "candidate_routes": 215,
+      "counts": {
+        "frames_with_stop_evidence": 38066,
+        "questions_with_stop_evidence": 57683,
+        "proceed_yes_after_pending_receipt_disappeared": 1455
+      }
+    },
+    "val": {
+      "routes_with_recorded_stop_evidence": 92,
+      "candidate_routes": 19,
+      "counts": {
+        "frames_with_stop_evidence": 2987,
+        "questions_with_stop_evidence": 4507,
+        "proceed_yes_after_pending_receipt_disappeared": 106
+      }
+    },
+    "test": {
+      "routes_with_recorded_stop_evidence": 96,
+      "candidate_routes": 15,
+      "counts": {
+        "frames_with_stop_evidence": 3020,
+        "questions_with_stop_evidence": 4734,
+        "proceed_yes_after_pending_receipt_disappeared": 130
+      }
+    }
+  },
+  "source_replay_locally_available": false,
+  "independently_recounted_full_server_replay": false,
+  "training_approved": false,
+  "release_sources_matched": 489,
+  "new_build": {
+    "candidate_summary": {
+      "routes": 2,
+      "rgb_frames": 492,
+      "split_routes": {
+        "train": 2
+      },
+      "discovered_routes": 2,
+      "excluded_routes": 0,
+      "exclusion_reasons": {},
+      "excluded_split_routes": {}
+    },
+    "elapsed_seconds": 34.086481090000234,
+    "counts": {
+      "train": 294,
+      "val": 0,
+      "test": 0
+    },
+    "event_counts": {
+      "R-E5": 69,
+      "U-E1": 61,
+      "U-E2": 146,
+      "U-E3": 18
+    },
+    "source_files_verified_before_after": 1476,
+    "paired": true,
+    "scope": "diagnostic training routes only; not formal admission",
+    "source_sha256": "6b2bea8f0d3d4fcdd0b951fa1b30bb24096a7a90c7b5529532d519b6945d69cf"
+  },
+  "tests_passed": 30,
+  "visual_review": {
+    "unique_rgb_frames": 28,
+    "sources_checked_after_view": 84,
+    "blind": false,
+    "scope": "Two selected train routes from server examples; not full-pool label certification",
+    "findings": [
+      "Town12 f29–34 stationary near -1.958m exported near-face gap; later movement does not discharge duty.",
+      "Town13 f31–37 stationary near -1.993m exported near-face gap; current STOP identity remains verified.",
+      "Both routes show visible STOP control and stopped ego; cannot infer exact legal stop-line position or unconditional clearance from these views."
+    ]
+  },
+  "example_comparison": [
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        "frame_id": 35,
+        "question_id": "b99c495ed8973760391b65600d392f7ce79b355e5a0ff7d3321f5e27582a64e4",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "414"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        "frame_id": 36,
+        "question_id": "9a50ff3628a9486b1cedc778d7225adb6deb186c85b3e1b5b00e8abb8834a9e6",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "414"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        "frame_id": 37,
+        "question_id": "8f8a1b40e1d480227b2b8035d7adfb3af6520a804aca04bab0b179c962e91c4a",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "414"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        "frame_id": 38,
+        "question_id": "4df9d9ece14a3b62cbc024064a6fc89bda1110e9f15f042ff9f4608c37f45230",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "414"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        "frame_id": 38,
+        "question_id": "8cb4972159b005497801717dd88df50d6f883025d5f1b1350100d12c69434654",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "298"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        "frame_id": 39,
+        "question_id": "dcac2c4cc2817a4b43f520eacd2fa81ec000ae128bda6be4b1fc693c1d9d5f6d",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "298"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        "frame_id": 40,
+        "question_id": "6e2d15e3ff30cda490ff4d965d87b96e21d3bc1e1a0f25c2691eaf945ad487d2",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "298"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    },
+    {
+      "server_old": {
+        "scenario": "AccidentTwoWays",
+        "route_id": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        "frame_id": 41,
+        "question_id": "8e3a80c72ab0b7470647aca5e4318751f69168f8ecaa31091fb4aecf2075d01e",
+        "event": "R-E5",
+        "missing_stop_ids": [
+          "298"
+        ]
+      },
+      "new_target": "UNKNOWN",
+      "new_facts": {
+        "release_ready": true,
+        "corridor_clear": true,
+        "priority_satisfied": null
+      }
+    }
+  ],
+  "previous_v54_selected_counts": {
+    "2": {
+      "train": 301596,
+      "val": 370,
+      "test": 180
+    },
+    "4": {
+      "train": 301596,
+      "val": 370,
+      "test": 180
+    }
+  },
+  "previous_v54_evidence_does_not_admit_v55": true,
+  "artifacts": {
+    "checkpoints/stop_inventory_received_20261014/audit.py": "6b09abfdec04b5185db83ad0acb483f8a2bdbb098e33253d03331d5e99a7b4ba",
+    "checkpoints/stop_inventory_received_20261014/build.log": "ea147fa95275cec5fd63df261c5998ec17c8589411b7b2f32a18a504603e6d7e",
+    "checkpoints/stop_inventory_received_20261014/example_comparison.json": "342fa07f943056dbb48a0f760879c4eb486fcd82899097cbf7a272ebf6989041",
+    "checkpoints/stop_inventory_received_20261014/finalize.py": "4d7f679aaa9a004d14032616fe98c79fcc2acc323cb0a1cf410bf54d74f66abf",
+    "checkpoints/stop_inventory_received_20261014/phase4_stop_inventory_v54_20261014.json": "f8a23eac6fdd89e3f86bede9140f92839652d51d15ed142e93fb0b9bdad0b0dd",
+    "checkpoints/stop_inventory_received_20261014/received_verification.json": "bd543e57c5db9d306131d058a306afed66194d8e2f2ef545d927f200f4761b71",
+    "checkpoints/stop_inventory_received_20261014/rgb.log": "968106fe21ec2f9937983bf13b0393758f14b41c86b3538788fa34dc74fedb01",
+    "checkpoints/stop_inventory_received_20261014/rgb.py": "e5b02c16fdd018d4bd45fd4810137387b55be612cdbfb4befbd070438e581cbe",
+    "checkpoints/stop_inventory_received_20261014/rgb_windows.json": "6019de84a89df55e07ced691c24dc564eed2ba717d7b07f7035332acbcd72505",
+    "checkpoints/stop_inventory_received_20261014/route_0_28.jpg": "a0a95ddb5e068eaef97bd8184ee5a8039b9385920033383d99f39dbe4a23febd",
+    "checkpoints/stop_inventory_received_20261014/route_0_35.jpg": "0058048edfbff0fd7ac249bcb440c8052b0349d84d7c4d778e9e124e890215a2",
+    "checkpoints/stop_inventory_received_20261014/route_1_28.jpg": "9cde28c22f88b0554c409174cc6efd64c032623f57f0a901e7e7d75d15003541",
+    "checkpoints/stop_inventory_received_20261014/route_1_35.jpg": "d0c7ec728b178af71ba6702082fae007af966ba4dcc72d17f83ddf698b6a44bc",
+    "checkpoints/stop_inventory_received_20261014/tests.log": "175e2c7f25a2b6732e49828c2a65ec9075e250319e34201a8ccec41eb57c55d8",
+    "checkpoints/stop_inventory_received_20261014/visual_sources.json": "3da790d48458efa599b6120bd88f2eb7d7d8f416c16c4d08f80bd494f67ccfce"
+  },
+  "native_artifacts": {
+    "checkpoints/stop_inventory_received_20261014/native/build.py": "328f20a1ab75886e9504a470f13204e6984da085e23a677b15b6b830eaf560e8",
+    "checkpoints/stop_inventory_received_20261014/native/build_verification.json": "d75e254ff9c5bf4d479a79c485966f13c29a80f6b19d64762b60ef56a2c67aef",
+    "checkpoints/stop_inventory_received_20261014/native/source_bindings.json": "6b2bea8f0d3d4fcdd0b951fa1b30bb24096a7a90c7b5529532d519b6945d69cf",
+    "checkpoints/stop_inventory_received_20261014/native/production/index.json": "860cedc22bea3b288f14621b9a9010cec7599b5463f5420560e895da5a56b95c",
+    "checkpoints/stop_inventory_received_20261014/native/view/student_view.json": "7d62ecec86f7440e169ebe8400f32af387269f652ebfb7a53500eb873e0776ad"
+  },
+  "production_modified": false,
+  "pushed": false
+}

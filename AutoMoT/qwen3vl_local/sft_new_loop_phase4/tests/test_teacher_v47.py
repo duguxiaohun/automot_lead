@@ -25,11 +25,12 @@ def test_different_axis_occupancy_times_do_not_imply_crossing():
     f=controlled_frames(16.)[-1];stop=f['actors'][-1];f['meta']['ego_lane_width']=3.5
     f['actors']=[f['actors'][0],stop,actor(3,position=[10.,5.2,0.],ego_velocity=[10.,-1.],speed=10.)]
     f['image_evidence']['3']={'quality_pass':True}
-    assert c.crossing_clear(f,stop) is True
+    nav=dict(points=[[10.,0.],[20.,0.]],half_width=2.75)
+    assert c.crossing_clear(f,stop,nav) is True
     f['actors'][-1]['ego_velocity']=[0.,-3.]
-    assert c.crossing_clear(f,stop) is False
+    assert c.crossing_clear(f,stop,nav) is False
     f['image_evidence']['3']['quality_pass']=False
-    assert c.crossing_clear(f,stop) is None
+    assert c.crossing_clear(f,stop,nav) is None
 
 
 @pytest.mark.parametrize('velocity,expected',[([0.,0.],None),([-1.,0.],None),([1.,0.],(1.,2.)),([3.,0.],(1/3,1.))])

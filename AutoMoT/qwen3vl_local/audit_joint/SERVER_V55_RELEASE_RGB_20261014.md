@@ -1,5 +1,7 @@
 # v55 白名单发布、服务器只读盘点与本地 RGB 续审
 
+> **状态更新：服务器STOP盘点已交回核验，下面历史盘点命令不再执行。** Phase3不重做，Phase4目前集中停车位置归属校准。见[盘点验收](STOP_INVENTORY_RECEIVED_20261014.md)和[最新位置诊断](STOP_LINE_CALIBRATION_20261014.md)。
+
 2026-10-14。用户授权本轮白名单提交和 push。发布包含 STOP 义务保留修复、R-E5 放行正反支持硬门、只读 STOP 盘点/代理工具、首轮交接健壮性及相应测试和轻量记录。使用 `release_sources_v55_re5_admission_20261014.json` 的489项清单；生产仍为v55/teacher20。已有 Phase3 三轮结果保留，不重复。
 
 ## 服务器现在执行

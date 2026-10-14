@@ -1,0 +1,144 @@
+{
+  "status": "diagnostic_complete_not_calibrated",
+  "frames": 71,
+  "routes": 4,
+  "controls": 5,
+  "source_files": 213,
+  "source_sha_verified": true,
+  "errors": [
+    {
+      "route_id": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame_id": 41,
+      "errors": [
+        "approach endpoint does not link to a junction"
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "stop_id": 91,
+      "frame": 30,
+      "speed": 0.000975404685141479,
+      "proxy_gap": -1.9647825323009893,
+      "endpoint_gap": 2.5368641345529372,
+      "stop_to_endpoint": 3.000142005018546,
+      "line_gap": 2.6297466881300133,
+      "line_to_endpoint": 0.09288263778816443,
+      "line_directly_connected": false,
+      "crossing_clear": null
+    },
+    {
+      "scenario": "ParkedObstacleTwoWays",
+      "route_id": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "stop_id": 532,
+      "frame": 30,
+      "speed": 0.0025021875225265076,
+      "proxy_gap": -1.9744608837971558,
+      "endpoint_gap": 2.5259006503373973,
+      "stop_to_endpoint": 3.000017524455316,
+      "line_gap": 2.5790134240385774,
+      "line_to_endpoint": 0.05311277422817523,
+      "line_directly_connected": false,
+      "crossing_clear": null
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "stop_id": 414,
+      "frame": 32,
+      "speed": -1.4316236485955157e-05,
+      "proxy_gap": -1.9587783457600256,
+      "endpoint_gap": 2.5418582461355372,
+      "stop_to_endpoint": 3.0007366381529272,
+      "line_gap": 2.549433318520676,
+      "line_to_endpoint": 0.00757507750156737,
+      "line_directly_connected": false,
+      "crossing_clear": null
+    },
+    {
+      "scenario": "AccidentTwoWays",
+      "route_id": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "stop_id": 298,
+      "frame": 32,
+      "speed": 0.002906009791625545,
+      "proxy_gap": -1.9935414313513165,
+      "endpoint_gap": 2.549598329260223,
+      "stop_to_endpoint": 3.0184455488823487,
+      "line_gap": 2.5601757938388294,
+      "line_to_endpoint": 0.010579911369837386,
+      "line_directly_connected": false,
+      "crossing_clear": null
+    },
+    {
+      "scenario": "HardBreakRoute",
+      "route_id": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "stop_id": 528,
+      "frame": 253,
+      "speed": 0.003155847869787885,
+      "proxy_gap": -1.9542144212857098,
+      "endpoint_gap": 2.548366855026905,
+      "stop_to_endpoint": 3.000176743297561,
+      "line_gap": 2.595560344926416,
+      "line_to_endpoint": 0.04719356917604801,
+      "line_directly_connected": false,
+      "crossing_clear": null
+    }
+  ],
+  "visual_review": {
+    "distinct_frames": 21,
+    "contacts": [
+      {
+        "path": "checkpoints/stop_inventory_received_20261014/route_0_28.jpg",
+        "sha256": "a0a95ddb5e068eaef97bd8184ee5a8039b9385920033383d99f39dbe4a23febd"
+      },
+      {
+        "path": "checkpoints/stop_inventory_received_20261014/route_1_28.jpg",
+        "sha256": "9cde28c22f88b0554c409174cc6efd64c032623f57f0a901e7e7d75d15003541"
+      },
+      {
+        "path": "checkpoints/v55_release_rgb_20261014/second_stop_at_line.jpg",
+        "sha256": "8a755c123fcd012291a7dd5609a0331db363da4e3260300fc1f7e3d7cc18cfc5"
+      }
+    ],
+    "revisited": true,
+    "blind": false,
+    "source_sha_verified": true
+  },
+  "tests": {
+    "passed": 68,
+    "new": 17,
+    "full_suite": false
+  },
+  "label_authorization": false,
+  "production_changed": false,
+  "training": false,
+  "push": false,
+  "evidence": {
+    "checkpoints/stop_line_calibration_20261014/cli.log": "9d87ec896a6760bd4edcae687f3d14d62dcad0bacf68fbc91e42d80cadca5ae8",
+    "checkpoints/stop_line_calibration_20261014/finalize.py": "f3fb78f0c8275e946647b6914539068209d565800db2748146155374ceef729a",
+    "checkpoints/stop_line_calibration_20261014/geometry.json": "3e086b56337210fd038d6f457d4d604fb5dd9b374d9596d529d5d01b929a6ad4",
+    "checkpoints/stop_line_calibration_20261014/native_cli.json": "00bbe999f59e3bb53d146e231693d98d9ecfaf7dc75b847572fb6fc922cacfea",
+    "checkpoints/stop_line_calibration_20261014/probe.log": "ab96aa17cfafe177d1095ec44093708b490662b52ed2cb53a75146fb1d743d88",
+    "checkpoints/stop_line_calibration_20261014/run_probe.py": "785ebf20bd28744e746d6913515a249ff4a9a8e2586d154a92fb04ef670f71a3",
+    "checkpoints/stop_line_calibration_20261014/sources.json": "cf88791d8f2fea1417620fad29756d669dbd871dc82143dab436735db25a0bcc",
+    "checkpoints/stop_line_calibration_20261014/summary.json": "e9974199fec3d59b2e2def4048acb499a460b80c08694e3622ce45982735df00",
+    "checkpoints/stop_line_calibration_20261014/tests.log": "42e2c3afa02b7d5d2e9c4cd9da896128d5ebc6156e3d6044e1131e0e9b921de3",
+    "checkpoints/stop_line_calibration_20261014/tests_first.log": "ea1ce9a68348a0a0d3ffe88c0e035ba24ac8666e7b9a7cb809029e57c0b240fa",
+    "checkpoints/stop_line_calibration_20261014/source_check.json": "dc5f6a7e20d236e350e1f9b6496c22f930e43e7a372db236cc05b1a4ea8ed89f"
+  },
+  "limits": [
+    "2-D map geometry only; elevation and actual painted-line extent not certified",
+    "Map SHA records bytes but capture-time map identity is not verified",
+    "Same-junction nearest StopLine is not automatically assigned to the control; all five closest signal road IDs differ from direct incoming connections",
+    "One sample already enters junction; its current lane approach endpoint is rejected instead of reassigning the old STOP",
+    "No teacher replays, new data pools or labels produced"
+  ],
+  "release": {
+    "manifest": "qwen3vl_local/audit_joint/release_sources_v55_stop_line_diagnostic_20261014.json",
+    "files": 491,
+    "status": "matched",
+    "published": false
+  }
+}

@@ -71,7 +71,7 @@ def test_passing_the_entire_trigger_only_retires_fulfilled_duty(fulfilled):
         for f in fs:f['meta']['speed']=1.
     tracker=observe(fs[:3]);f=deepcopy(fs[3])
     # Ego translates 20m; the stop remains at the same world position.
-    f['meta']['ego_matrix'][0][3]+=20
+    for i in range(3):f['meta']['ego_matrix'][i][3]+=20*f['meta']['ego_matrix'][i][0]
     f['actors'][-1]['position'][0]-=20
     f['actors'][-1]['affects_ego']=False
     f['stop_duties']=tracker.observe(f)
@@ -86,7 +86,8 @@ def test_passing_the_entire_trigger_only_retires_fulfilled_duty(fulfilled):
 def test_retired_active_stop_does_not_restart_debt_behind_ego():
     fs=clean(controlled_frames());tracker=observe(fs[:3])
     for f in fs[3:]:
-        f['meta']['ego_matrix'][0][3]+=20;f['actors'][-1]['position'][0]-=20
+        for i in range(3):f['meta']['ego_matrix'][i][3]+=20*f['meta']['ego_matrix'][i][0]
+        f['actors'][-1]['position'][0]-=20
         f['stop_duties']=tracker.observe(f)
         assert f['stop_duties']['50']['retired']
         assert r.local_priority(f,r.local_navigation(f,18.)) is True

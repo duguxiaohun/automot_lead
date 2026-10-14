@@ -146,7 +146,9 @@ def route_records(root, route):
                         ego_motion=rules.motion_stratum(frames),ego_speed=current['meta']['speed'],
                         state_rule_target=answers[edge.key],slice=phase,
                         rule_class=rules.rule_class(ep.event,edge.key,mode,phase),reasons=why,instance=json.loads(json.dumps(seed)),
-                        instance_sources=seed.get('instance_sources',[])+seed.get('negotiated_stop_sources',[])+(prior['sources'] if prior else []),
+                        instance_sources=seed.get('instance_sources',[])+seed.get('negotiated_stop_sources',[])+(prior['sources'] if prior else [])+
+                            [s for duty in current.get('stop_duties',{}).values()
+                             for s in (duty.get('position_binding') or {}).get('sources',[])],
                         visible_condition_scope='visible_maneuver_conditions_v1' if edge.key in ('depart','enter','return') else None,
                         near_transition=last_targets.get((ep.instance_id,mode,edge.key)) not in (None,target))
                     last_targets[(ep.instance_id,mode,edge.key)]=target
@@ -292,7 +294,16 @@ def validate_question(q,*,expected_teacher_sha=None):
         if record['satisfied'] and len(obs)!=controls_params['stop_observations']:raise ValueError('stop duty lacks observations')
         numbers=[x['frame_id'] for x in obs]
         if numbers and (numbers!=list(range(numbers[0],numbers[0]+len(numbers))) or numbers[-1]>f or numbers[0]<0):raise ValueError('future/nonconsecutive stop duty')
-        for observation in obs:
+        from .stop_position import validate_evidence
+        validate_evidence(record,q)
+        binding=record.get('position_binding')
+        establishment=[]
+        if binding is not None:
+            n=binding.get('established_frame')
+            if type(n) is not int or not 4<=n<=f:raise ValueError('invalid STOP binding establishment')
+            if numbers and numbers[0]<n:raise ValueError('STOP observations precede fixed binding')
+            establishment=[dict(frame_id=n,sources=binding.get('sources',[]))]
+        for observation in obs+establishment:
             if [s['kind'] for s in observation['sources']]!=['metas','bboxes','rgb']:raise ValueError('stop duty sources missing')
             for source in observation['sources']:
                 ext='jpg' if source['kind']=='rgb' else 'pkl'

@@ -104,6 +104,8 @@ def teacher_window_check(question,risks):
     observed={s['frame_id'] for s in question['causal_sources']}
     observed.update(s['frame_id'] for s in question.get('instance_sources',[]))
     observed.update(s['frame_id'] for r in question.get('control_evidence',{}).values() for o in r['observations'] for s in o['sources'])
+    observed.update(s['frame_id'] for r in question.get('control_evidence',{}).values()
+                    for s in (r.get('position_binding') or {}).get('sources',[]))
     affected=[]
     for risk in risks:
         window=risk_window(risk['record'])

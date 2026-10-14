@@ -1,0 +1,112 @@
+{
+  "status": "local_fix_verified_formal_pool_pending",
+  "release": "release_sources_v57_handoff_20261014.json",
+  "release_files": 501,
+  "source_check": "matched",
+  "tests": {
+    "passed": 121,
+    "deselected": 1,
+    "reason": "meta profile requires model dependencies; not run"
+  },
+  "rgb": {
+    "frames": [
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        32
+      ],
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        33
+      ],
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        34
+      ],
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        35
+      ],
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        36
+      ],
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        37
+      ],
+      [
+        "AccidentTwoWays",
+        "Town12_Rep0_26_0_route0_01_10_16_02_46",
+        38
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        35
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        36
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        37
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        38
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        39
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        40
+      ],
+      [
+        "AccidentTwoWays",
+        "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+        41
+      ]
+    ],
+    "sha_verified": 42,
+    "actual_rgb_viewed": 14,
+    "scope": "Two existing seven-frame STOP windows revisited; development review, not blind or newly generated data",
+    "observations": [
+      "Town12: lateral grey and blue vehicles remain visible; ego advances across the window. RGB alone does not prove metric clearance or the full stop history.",
+      "Town13: ego approaches the crossing; right-side dark vehicle remains near side approach and a vehicle is visible ahead. No new contradiction sufficient to change the rule or prompt."
+    ]
+  },
+  "stop_reload": {
+    "2": {
+      "rows": 20,
+      "groups": 4
+    },
+    "4": {
+      "rows": 20,
+      "groups": 4
+    }
+  },
+  "training_started": false,
+  "pushed": false,
+  "production_labels_changed": false,
+  "evidence": {
+    "checkpoints/v57_finish_handoff_20261014/tests.log": "169df5bb09d1196bd28bf3616ff1edc55c2609849217dbfea28431b783f46e92",
+    "checkpoints/v57_finish_handoff_20261014/source_check.json": "dddef1b49bfbd49d52f7bef7a776884ae40f6c9c8701259e7efda3edbf6d87d9",
+    "checkpoints/v57_finish_handoff_20261014/visual_sources.json": "8a857e7c45aa1c167e58cfb95b1458acec0e78d7fb67c640f2a117f65b7cc0ec",
+    "checkpoints/v57_finish_handoff_20261014/stop_reload.json": "d006bb3f4c6a2bb9f6ba596585e692f6a17a4480505f79425c28741a62ae480a",
+    "checkpoints/v57_finish_handoff_20261014/example_verification.json": "23c9a3183f28c8c6f2aa2ede42b9d1a95b2a1d982e8a0a58ea87b6be15cf00cb"
+  }
+}

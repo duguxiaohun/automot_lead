@@ -1,5 +1,53 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-14 v57白名单发布与后续状态RGB复核
+
+用户授权本轮白名单push。186相关回归通过、1模型依赖meta_profile未选，501源v57_handoff matched、两个P4 shell语法通过。此次发布包含此前v56/57原生STOP接线与失败交接；原生合同不再改。服务器沿sync_automot.sh分发（源duguxiaohun/automot_lead），按audit_joint/SERVER_V57_RELEASE_RGB_20261014.md一次新版正式CPU池，交handoff/fullflow_report.zip+fullflow_package.json，正式等量/关键支持/隔离预算通过后两模式首轮重载test。P3/readiness/旧fit/STOP盘点不重复，无新采集；UE5仅既有开发豁免，YESNO不要求等额。当前未提供GPU新命令以免对未验收目录开训。
+实际复看HardBreak1902_0与Parked1748_1第40–46帧，共14RGB/42目视源SHA；相对上一轮Accident两窗不重叠，仍是既有train非盲审。两路线f43 stable YES、HardBreak f46/Parked f44 re_yield YES，原生4题7帧因果事实复算一致/54源SHA（和目视有重叠），STOP历史取既有有效回放；不以重新让行推定此前错标，无新改标签提示词依据。无新标定生成/全库/远程/GPU训练；源码测试轻量文档回执发布，checkpoints/RGB/权重和用户.vscode留本机。见v57_release_rgb_verification_20261014.json及checkpoints/v57_release_rgb_20261014。
+
+### 2026-10-14 v57独立复审与正式池收尾
+
+本轮未发现新增确定生产阻塞，v56横穿范围/v57停车位置已接入，不重复旧“未接线”结论。501源matched、117相关回归3.19秒通过及两个P4 shell语法通过；未完整回归，上一轮torch/tokenizers依赖固定ID测试未补跑。另一批既有12train路线780帧原生gzip→共享RGB4→短视图54.54秒，两模式244train空留出十事件齐、2340源SHA前后及目视后通过；对同路线v54问题episode/edge/mode/slice/target/facts及instance_ends零差异，不称字节/全部证据不变。两模式/world1/4四计划同序1024/event、小池最大114次/题，非GPU消费；488提示词SHA和短两图取四图最后两张通过，缺参考预算准入blocked。独立重载上一轮v57原生20RE5YES/4组，不计新生成。
+实际10连续窗口70展示帧去重65RGB/195源，含既有开发窗口非盲审；10所选题另读7帧几何原生facts一致(当前STOP证据来自新回放)。未见新增确定改标/阈值/提示词依据。可以停止扩展本地审计，发布同步v57后一次正式CPU池关键支持/隔离/train-val-test十事件等量→两模式首轮重载，交fullflow_report.zip+fullflow_package.json；本轮未push勿把旧服务器当新版。P3/盘点/readiness不重做，UE5仅已有开发豁免，不补采、不强求YESNO/子场景等量；联合G0仍未认证。无生产修改/训练/远程/push，保留.vscode。见audit_joint/V57_INDEPENDENT_REVIEW_20261014.md和v57_independent_review_verification_20261014.json；本机checkpoints/v57_independent_review_20261014。
+
+### 2026-10-14 v57 STOP停车位置原生接入完成
+
+用户指出本地可生成数据，纠正此前停在诊断未接线。本轮已原生接入stop_position/Catalog→StopDutyTracker，采用匹配驶入车道端点平面（非绘制线认证），保留0–3m/≤0.1m/s/连续3帧及横穿门；不按专家起步补标。已有12地图自动生成1706支持边界、766269字节资产随源码分发，Town15/151/-1不支持几何排除；无需服务器全地图。道路/车道/控制位置/固定导出形状匹配，冻结目录SHA/地图SHA/控制ID/建立帧源，缺控制/漂移/坏几何/断帧/目录变更撤销完成不消债。建立源纳入instance_sources/编译SHA/风险包络，绑定失败无旧近缘回退。task57/teacher22/plan37同预约/空registry32，501发布源matched，P4两入口已指新清单，未push。
+四路线929帧原生回放，最终建库35.62秒，两短/四图各771train空留出、883原始配对；RE5 proceed20YES/199NO/4UNKNOWN，20YES/4物理组全部经过原生编译，停车记录间距2.503–2.744m/最高速度绝对值0.08965，非monkeypatch。对v56共同键29UNKNOWN→YES/4→NO，另233新增67移除。2787源及12地图末次SHA核验，实际4连续28RGB/84源复看非盲审。另17完整train路线2205帧163.33秒，各1457题十事件齐，6615源SHA前后/重载后通过；两模式/world1/4首轮同序1024/event非GPU消费，RE5YES10/2组与四路线重叠不相加。596相关回归通过，1项固定ID测试base缺torch（此前pvi缺tokenizers）未完成，不报全套通过。
+“停车位置未接入”代码阻塞关闭；不冒称历史地图/绘制线/全源标签认证。下一步发布同步后一次v57正式CPU池及train/val/test十事件等量、关键支持和隔离准入→两模式首轮重载。server_phase4_existing.sh新输出，交fullflow_report.zip+fullflow_package.json；当前未push勿跑旧入口。P3/盘点/readiness不重做，不新采集、不旧新拼库、不要求YESNO等量；UE5仍仅既有开发豁免。未改提示词、未远程/GPU/训练/push，保留.vscode。见audit_joint/STOP_POSITION_V57_20261014.md及stop_position_v57_verification_20261014.json；有效本机checkpoints/stop_position_v57_20261014/native_bundle_final和ten_events，中间旧小库不复用。
+
+### 2026-10-14 v56 STOP题目范围修复与固定绑定拒绝
+
+已改生产crossing_clear为同题nav范围、连续2s/静止4s预测，相关性先于可见性，去旧15m筛选；缺速度/相关不可见仍UNKNOWN。local_priority接nav；未改停车速度/0–3m阈值或提示词。诊断FrozenApproach拒绝初始位置错配、非同junction、错前驱车道、导出形状及冻结漂移；float32八ULP/≤1cm仅数值匹配假设非停车授权。任务v56/teacher21，新plan36同预约、空registry31，494源matched，两个P4launcher新清单，未push。
+4完整train路线929帧原生21.47秒，717原始两四图配对，相同语义目标/结构对v55零变化，RE5仍0YES/199NO/28UNKNOWN。固定位置+新横穿隔离50.47秒，8锚点/1初始错配拒绝，20YES/199NO/4UNKNOWN四组，883对；33共同键变化之外新增233/移除67，monkeypatch无有效合同禁止建库训练。原生独立小库最终31.90秒，短两/四图各586train空留出仅4事件，ID/标签配对；有效目录native_bundle_final，初次teacher_scope说明纠正后旧小库合同拒绝未改SHA。2787源末次核验，实际4连续28RGB/84源复看非盲审。571不同回归通过，1配对测试base缺torch/pvi缺tokenizers未完成，失败日志保留，不报全套通过。
+停车位置尚未生产接入，地图语义/身份输入合同和绑定失效撤销完成记录仍需落实，不能只替换before_area或把二维端点当认证绘制线。先关闭这一项→当前正式池train/val/test十事件1:1→两模式首轮重载，不要求YESNO等量，不重复P3/盘点/readiness，不立刻20h重建。无GPU/远程/训练/push，未改用户.vscode。见audit_joint/STOP_SCOPE_V56_20261014.md及stop_scope_v56_verification_20261014.json；完整checkpoints/stop_scope_fix_20261014。
+
+### 2026-10-14 STOP组合隔离验证与28帧RGB复核
+
+当前生产未变。4完整train路线929帧原生隔离组合实验55.31秒，2787源SHA重放及目视后通过；原v55/仅位置两组RE5 proceed均0YES/199NO/28UNKNOWN，位置+相关性优先实验20YES/199NO/4UNKNOWN、4物理组，883两四图原始题配对，33共同键变化(29YES/4NO)不是全部结构差分。8锚点实验1mm筛选不作为生产阈值；monkeypatch记录保留原生身份字段但无有效生产合同，禁止训练建库。实际四段连续28RGB/84源，既有窗口非盲审。四首YES旧横穿区域约[-2,6]m，侧向车辆前11–17m/距控制15.95–20.94m被15m筛选排除，近静止未证实这20题错，但不能仅调顺序即认证完整路口。固定绑定几何/适用条件缺口与停车参照、相关性仍需统一修正；不把合并稀少子场景代替修规则。55现有回归+7隔离合成边界通过，491源码matched；不新改提示词/阈值标签，不正式建库/GPU/push，保留用户.vscode。P3及服务器盘点不重复，不立即20h重建；仅STOP定向验收→新版正式池等量准入→首轮重载。见audit_joint/STOP_COMBINED_REVIEW_20261014.md和stop_combined_review_verification_20261014.json；本机checkpoints/stop_combined_review_20261014。
+
+### 2026-10-14 STOP固定边界独立审计与后方跟车弃权定位
+
+用户提出稀少细分类可合并：同事件同语义子场景合并、不强求子类/YESNO等量，仍保留十事件间1:1；不将其它边YES或UNKNOWN补缺格，未授权改十事件定义。独立491源码matched、61相关回归通过；两个诊断接入缺口复现：初始stop横移100m仍冻结且次帧same_control_verified；connecting road非junction仍套incoming端点上游模型。诊断label_authorization仍false，不冒称已生产错标，接入前需几何匹配与上游适用条件硬拒绝。
+隔离进程只改固定边界停车位置、保留速度3帧/身份/退休/横穿，4完整train路线929帧55.37秒，2787源SHA，8候选锚点(实验≤1mm筛选非标定阈值)，5检查停车点满足；共同题13变化=9UNKNOWN→YES/4→NO均UE2，非全部结构差分。RE5仍0YES/199NO/28UNKNOWN。五真实点crossing_clear因自车后9.92–10.48m不可见跟车UNKNOWN，当前与2秒预测均不相交；副本只移除此车均True，确定相关性筛选过宽，不能忽略所有不可见车或直接删演员。实际14RGB/42源复核，含既有窗口非盲审；无生产源码/标签/阈值提示词修改，无正式库/GPU/push。下一步绑定拒绝与横穿范围修正后当前正式池等量准入，P3及服务器盘点不重跑。见audit_joint/STOP_BINDING_REVIEW_20261014.md与stop_binding_review_verification_20261014.json；原证据checkpoints/stop_binding_review_20261014。
+
+### 2026-10-14 STOP上游偏移来源与signalReference固定位置续审
+
+核对CARLA官方0.9.15 StopSignComponent源码：STOP路口引用适用时先移非路口前驱再后退1.5+1.5m；本机LEAD依赖亦0.9.15，但历史捕获版本未认证。新增诊断沿road/lane→junction laneLink→连接前驱→signalReference有效车道→唯一type206定义，五组signal21636/20072/20397/20232/21633重建真实触发中心误差0.112–0.738mm；70帧唯一关联，1帧进入junction保留拒绝。不是用最近绘制线猜控制，也不是放宽阈值或把3m硬编码为生产修正。
+FrozenApproachProbe只读固定原位置/地图SHA/来源/控制ID，跨road和affects_ego清零不重绑，坏身份/缺演员/跳帧/坏几何/地图漂移拒绝；车头投影考虑当前车辆姿态。两服务器样例各18观察，f41进入路口仍保留旧边界，穿越不等于停车完成。累计4路线81不同帧243源SHA通过；本轮此前21RGB复看，这次继续未新增目视不重复计数。87回归通过含累计36新增。原489生产源码字节仍matched，新491 stop_binding诊断清单matched尚未push，中间stop_line清单保留原SHA不再作为当前发布清单。生产v55/老师20/标签提示词/阈值不变。
+服务器盘点关闭/P3不重做/P4不旧池开训或全库重建。位置定义的道路边界对应、绘制线高程异常/曲线多车道适用边界仍需验收后才接生产停车计数，再当前正式池train/val/test等量及首轮重载。见audit_joint/STOP_CONTROL_BINDING_20261014.md与stop_control_binding_verification_20261014.json；完整证据checkpoints/stop_control_binding_20261014。无远程/GPU/训练/push，未改用户.vscode。
+
+### 2026-10-14 STOP车道端点与地图停止线诊断
+
+服务器STOP盘点已关闭，不再索取重跑。新增只读stop_line_probe：地图逻辑/解析路径+SHA绑定，RHT正负车道选前方端点，解析line/arc与车道宽度并检查junction laneLink；缺归属/未知几何/地图漂移拒绝，始终label_authorization=false。没有改生产老师/标签/提示词/阈值。
+4已有train路线5控制点71帧/213源SHA前后和目视后通过，约3.95秒非全路线回放；5控制中心均在前方车道端点前3.000–3.018m，停车时车头距端点2.526–2.550m、距候选StopLine2约2.549–2.630m，旧前缘gap约-1.95至-1.99m，支持位置参照不合适。最近StopLine离端点0.008–0.093m但road不属于直接连接road，2D/高程/捕获地图身份与控制归属未认证，不按最近线/硬编码3m/扩阈值补YES；5帧原生crossing_clear均UNKNOWN。AccidentTown12 f41当前端点不直连junction明确拒绝，不能重绑旧债务到新车道。
+实际复看两Accident f28–34与HardBreak第二STOP f253–259共21RGB，非盲审/新样本；未看val/test题。68回归通过含17新增，原生正车道CLI诊断通过；491新源码清单matched，原489生产源码字节未改，现有launcher不改，未push。P3不重复，P4先落实位置归属合同后正式池及train/val/test等量再首轮重载，不拼旧新回放、不盲重跑20小时。见audit_joint/STOP_LINE_CALIBRATION_20261014.md与stop_line_calibration_verification_20261014.json，完整证据checkpoints/stop_line_calibration_20261014。无新标定/老师回放/GPU/远程/训练，未改用户.vscode。
+
+### 2026-10-14 正式STOP盘点交回与两条服务器样例本地重建
+
+收到693980字节JSON/SHA f8a23eac...，inventoried_not_relabelled/无错误，8614路线1062401帧；index a4ec26e7与既有正式包一致，1327条报告路线artifact SHA逐项对齐原绑定、各分项加总一致。STOP证据路线train1139/val92/test96；记录消失后proceed YES候选train1455题215路线、val106题19路线、test130题15路线，共1691题249路线。非全错标数/最终库删除数/全RE5；未独立读服务器全回放、无val/test逐题审图，不需再次盘点。无记录7287路线不证明无STOP，不能仅重建249或1327后拼旧合同。
+本地选报告前两AccidentTwoWays train路线原生重建492帧34.09秒，两模式294题配对、1476源SHA前后通过、空留出仅4事件诊断。服务器8条RE5 YES按路线帧事件边对齐均UNKNOWN；未获服务器逐源绑定，不冒称RGB与服务器全SHA核验。实际4连续窗口28RGB/84源查看后核验，Town12停车gap约-1.958m/Town13约-1.993m，义务保留修复有效但停车位置校准仍未关闭，不改YES/阈值/提示词。30专项通过，489发布源matched；未生产修改/远程/GPU/push，保留用户.vscode。下一步集中现有资产停车位置对应，落定后一次当前正式池及train/val/test等量准入，再P4首轮重载；不重复P3三轮、不要求再跑旧20h建库。见audit_joint/STOP_INVENTORY_RECEIVED_20261014.md与stop_inventory_received_verification_20261014.json，本机证据checkpoints/stop_inventory_received_20261014。
+
 ### 2026-10-14 v55白名单发布与STOP第二停车点RGB续审
 
 用户授权本轮白名单push。489源v55_re5_admission逐项matched、101专项回归2.74秒通过、两P4 shell语法通过；原生只读inventory复核17路线2205帧，旧8候选/新0、无错误。沿用户sync覆盖同步后按audit_joint/SERVER_V55_RELEASE_RGB_20261014.md先源码SHA校验，再只读盘点既有P4 PREPARED/inputs/production/index.json；交phase4_stop_inventory_v54_20261014.json，已有则直接交、不重跑readiness/20h建库。P3已关闭不重做，P4仍待停车位置校准与当前正式池准入。

@@ -131,3 +131,72 @@ def test_missing_raw_support_stops_before_compilation_and_still_packages(tmp_pat
     import zipfile
     with zipfile.ZipFile(out/'handoff/fullflow_report.zip') as z:
         assert 'raw_training_support.json' in z.namelist()
+
+
+@pytest.mark.parametrize('name,payload', [
+    ('build_result.json', b'{"status":'),
+    ('automatic_admission.json', b'[]'),
+    ('data4/manifest.json', b'null'),
+    ('references4/references.json', b'\xff'),
+    ('view/student_view.json', b'{'),
+    ('first_epoch_budget.json', b'{}'),
+    ('source_check.json', b' ' * 10_000_001),
+])
+def test_broken_reports_keep_a_bounded_failure_package(tmp_path, name, payload):
+    import zipfile
+    from qwen3vl_local.audit_joint.io import file_sha
+    original = dict(status='admitted_existing_data_development', stage='finished_cpu')
+    (tmp_path/'build_result.json').write_text(json.dumps(original))
+    path = tmp_path/name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    sha = file_sha(path)
+    receipt = finish.package(tmp_path, 0)
+    assert receipt['status'] == 'verified' and receipt['bytes'] < 30_000_000
+    assert file_sha(path) == sha
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        assert z.testzip() is None
+        completion = json.loads(z.read('finish_receipt.json'))
+        assert completion['status'] == 'blocked_or_interrupted'
+        assert completion['diagnostics_complete'] is False
+        errors = json.loads(z.read('collection_errors.json'))['errors']
+        assert any(e.get('sha256') == sha and e['path'] == str(path) for e in errors)
+        import hashlib
+        assert {n:hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist()} == receipt['files']
+
+
+def test_aggregate_diagnostics_budget_keeps_other_evidence(tmp_path):
+    import zipfile
+    for name in ('source_check.json', 'build_result.json', 'automatic_admission.json'):
+        (tmp_path/name).write_text(json.dumps(dict(padding='x' * 7_000_000)))
+    (tmp_path/'build.log').write_text('last stage failed\n')
+    finish.package(tmp_path, 9)
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        assert sum(i.file_size for i in z.infolist()) < 30_000_000
+        assert 'remaining package budget' in z.read('collection_errors.json').decode()
+        assert 'last stage failed' in z.read('log_tail.json').decode()
+
+
+def test_intact_completed_result_keeps_admitted_status(tmp_path):
+    import zipfile
+    result = dict(status='admitted_existing_data_development', stage='finished_cpu',
+                  coverage_policy='existing_data_development', unsupported_capabilities=['U-E5/proceed/YES'])
+    (tmp_path/'build_result.json').write_text(json.dumps(result))
+    finish.package(tmp_path, 0)
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        assert json.loads(z.read('build_result.json')) == result
+        assert json.loads(z.read('finish_receipt.json'))['status'] == result['status']
+        assert 'collection_errors.json' not in z.namelist()
+
+
+def test_completion_fields_cannot_duplicate_unbounded_payload(tmp_path):
+    import zipfile
+    result = dict(status='admitted_existing_data_development', stage='finished_cpu',
+                  unsupported_capabilities=['x' * 20_000])
+    (tmp_path/'build_result.json').write_text(json.dumps(result))
+    finish.package(tmp_path, 0)
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        receipt = json.loads(z.read('finish_receipt.json'))
+        assert receipt['status'] == 'blocked_or_interrupted'
+        assert receipt['unsupported_capabilities']['omitted'] is True
+        assert json.loads(z.read('build_result.json')) == result

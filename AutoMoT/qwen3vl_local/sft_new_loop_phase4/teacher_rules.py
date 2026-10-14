@@ -9,7 +9,7 @@ from . import privileged_geometry as g
 from .event_scope import local_navigation
 from .automatic_context import route_intersection
 
-VERSION='ten_event_causal_teacher_v20'
+VERSION='ten_event_causal_teacher_v22'
 PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band_m=.25,
             lead_growth_m=1.,lead_min_gap_m=3.,min_pixel_change=6.,
             stationary_lead_displacement_m=.75,stationary_ego_displacement_m=.25,
@@ -17,7 +17,7 @@ PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band
             relative_speed_range_mps=1.5,max_closing_speed_mps=.5,max_gap_loss_m=.5,
             receipt_displacement_m=.75,receipt_max_lateral_m=.5,receipt_heading_tolerance=.05,
             lead_min_forward_speed_mps=.5,resumption_observations=5,resumption_distance_m=2.,ordinary_max_closing_mps=2.,ordinary_min_ttc_s=5.)
-SOURCES=('production_storage.py','history_admission.py','evaluation_policy.py','../sft_new_loop_phase3/evaluation_balance.py','../audit_joint/label_quarantine.py','../audit_joint/label_quarantine_20261010.json','teacher_exposure_v42_20261008.json','teacher_exposure_v41_20261008.json','visible_scope.py','teacher_events.py','phase3_sampling.py','data_paths.py','branch_support.py','paired_eval.py','route_quality.py','weighted_sampling.py','teacher_evaluation.py','teacher_controls.py','teacher_rules.py','teacher_replay.py','teacher_approval.py','teacher_data.py','teacher_review.py','teacher_pool.py',
+SOURCES=('stop_position.py','stop_boundary_catalog_v1.json','../audit_joint/build_stop_catalog.py','../audit_joint/stop_line_probe.py','production_storage.py','history_admission.py','evaluation_policy.py','../sft_new_loop_phase3/evaluation_balance.py','../audit_joint/label_quarantine.py','../audit_joint/label_quarantine_20261010.json','teacher_exposure_v42_20261008.json','teacher_exposure_v41_20261008.json','visible_scope.py','teacher_events.py','phase3_sampling.py','data_paths.py','branch_support.py','paired_eval.py','route_quality.py','weighted_sampling.py','teacher_evaluation.py','teacher_controls.py','teacher_rules.py','teacher_replay.py','teacher_approval.py','teacher_data.py','teacher_review.py','teacher_pool.py',
          'privileged_geometry.py','privileged_visibility.py','event_scope.py','automatic_context.py',
          'controller.py','taxonomy.py','route_context.py','route_calibration.py','calibration.py',
          'observation.py','prompts.py','route_prompts.py','risk_review.py',
@@ -330,7 +330,7 @@ def local_priority(frame,nav):
     if stops:
         if owned_lane(frame) is None:return None
         if any(duties.get(str(i),{}).get('satisfied') is not True for i in stops):return None
-        clear=conjunction(*(crossing_clear(frame,a) for a in stops.values()))
+        clear=conjunction(*(crossing_clear(frame,a,nav) for a in stops.values()))
         if clear is not True:return clear
         active=[a for a in active if a['class']!='stop_sign']
         if not active:return True

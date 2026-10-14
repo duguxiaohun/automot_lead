@@ -123,7 +123,51 @@ def package(output, exit_code):
     from .training_budget import plan
     output = Path(output)
     names = ('source_check.json','build_result.json','model_budget_profile.json','raw_training_support.json','first_epoch_budget.json','automatic_admission.json')
-    members = {name:json.loads((output/name).read_text()) for name in names if (output/name).is_file()}
+    members, diagnostics = {}, []
+    # Leave room for diagnostics and the log within the existing 30 MB package.
+    remaining = 20_000_000
+
+    def failure(path, exc):
+        record = dict(path=str(path), error=f'{type(exc).__name__}: {exc}'[:2000])
+        try:
+            record.update(bytes=path.stat().st_size, sha256=file_sha(path))
+            with path.open('rb') as stream:
+                record['preview'] = stream.read(1024).decode(errors='replace')
+        except OSError as read_error:
+            record['read_error'] = str(read_error)[:1000]
+        diagnostics.append(record)
+
+    def add(name, value):
+        nonlocal remaining
+        size = len(json.dumps(value, ensure_ascii=False, indent=2).encode()) + 1
+        if size > remaining:
+            raise ValueError('diagnostic member exceeds remaining package budget')
+        remaining -= size
+        members[name] = value
+
+    def read(path):
+        if not path.exists():
+            return None
+        try:
+            with path.open('rb') as stream:
+                raw = stream.read(10_000_001)
+            if len(raw) > 10_000_000:
+                raise ValueError('report exceeds 10 MB diagnostic input limit')
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError('expected a JSON object')
+            return data
+        except (OSError, ValueError, RecursionError) as exc:
+            failure(path, exc)
+            return None
+
+    for name in names:
+        value = read(output/name)
+        if value is not None:
+            try:
+                add(name, value)
+            except (ValueError, RecursionError) as exc:
+                failure(output/name, exc)
     result = members.get('build_result.json',dict(status='interrupted_before_report'))
     # Keep the original build report byte semantics: a completed admission
     # rejection (exit 2) is not an interrupted build. Record execution outcome
@@ -140,21 +184,39 @@ def package(output, exit_code):
         completion.update(build_status=result.get('status'),build_stage=result.get('stage'),
                           coverage_policy=result.get('coverage_policy','strict'),
                           unsupported_capabilities=result.get('unsupported_capabilities',[]))
-    write_json(output/'finish_receipt.json',completion)
-    members['finish_receipt.json']=completion
+    for key, value in list(completion.items()):
+        if len(json.dumps(value, ensure_ascii=False, indent=2).encode()) > 16_000:
+            completion[key] = dict(omitted=True, canonical_sha256=digest(value))
+            failure(output/'build_result.json', ValueError(f'oversized completion field: {key}'))
     if 'first_epoch_budget.json' in members:
-        members['budget_plan.json'] = plan(members['first_epoch_budget.json'])
+        try:
+            add('budget_plan.json', plan(members['first_epoch_budget.json']))
+        except (ValueError, TypeError, AttributeError, RecursionError) as exc:
+            failure(output/'first_epoch_budget.json', exc)
     for folder, filename in (('data4','manifest.json'),('references4','references.json'),('view','student_view.json')):
         p = output/folder/filename
-        if p.is_file():
-            data = json.loads(p.read_text())
-            members[f'{folder}_summary.json'] = dict(path=str(p),sha256=file_sha(p),
-                declared={k:data[k] for k in ('counts','files','production_reference_sha256','production_index_sha256') if k in data})
+        data = read(p)
+        if data is not None:
+            try:
+                add(f'{folder}_summary.json', dict(path=str(p),sha256=file_sha(p),
+                    declared={k:data[k] for k in ('counts','files','production_reference_sha256','production_index_sha256') if k in data}))
+            except (OSError, ValueError, RecursionError) as exc:
+                failure(p, exc)
     log = output/'build.log'
     if log.exists():
-        with log.open('rb') as stream:
-            stream.seek(max(0,log.stat().st_size-100_000))
-            members['log_tail.json'] = dict(sha256=file_sha(log),tail=stream.read().decode(errors='replace'))
+        try:
+            with log.open('rb') as stream:
+                stream.seek(max(0,log.stat().st_size-100_000))
+                members['log_tail.json'] = dict(sha256=file_sha(log),tail=stream.read().decode(errors='replace'))
+        except OSError as exc:
+            failure(log, exc)
+    if diagnostics:
+        completion.update(status='blocked_or_interrupted', diagnostics_complete=False,
+                          diagnostic_errors=len(diagnostics))
+        members['collection_errors.json'] = dict(errors=diagnostics,
+            scope='Incomplete diagnostics; ZIP integrity does not grant data admission')
+    write_json(output/'finish_receipt.json',completion)
+    members['finish_receipt.json']=completion
     target = output/'handoff';target.mkdir(exist_ok=False)
     receipt=make_package(target,members)
     (target/'pilot_report.zip').rename(target/'fullflow_report.zip')

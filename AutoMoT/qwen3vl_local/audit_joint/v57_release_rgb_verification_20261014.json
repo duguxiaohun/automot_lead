@@ -1,0 +1,22 @@
+{
+  "release": "v57_handoff_20261014",
+  "source_status": "matched",
+  "source_files": 501,
+  "tests_passed": 186,
+  "model_dependency_test_deselected": 1,
+  "actual_rgb_frames": 14,
+  "visual_source_sha_verified": 42,
+  "fact_source_sha_verified": 54,
+  "fact_questions_recomputed": 4,
+  "new_label_generation": false,
+  "production_changed_in_this_publish_turn": false,
+  "scope": "Existing train windows, development review, not blind; no GPU or formal full-pool execution",
+  "evidence": {
+    "checkpoints/v57_release_rgb_20261014/visual_sources.json": "60c1dbf41a1f062aa9fe88dd6f581c42204049e92b1bd21a6c9e4c221b22c7a4",
+    "checkpoints/v57_release_rgb_20261014/facts_sources.json": "ca9867e01bbb486a348d5b699425b58f923d4fe0bffa046b3a7dde98c7449391",
+    "checkpoints/v57_release_rgb_20261014/frame_evidence.json": "5cfdb598241a597cc2da0ee0a42a25564b9d9b61ff81de234ff303fa974bf231",
+    "checkpoints/v57_release_rgb_20261014/facts_recomputed.json": "246ec14682badab919341a606e539e822b211c2bcdb442890ab8ea50cd241930",
+    "checkpoints/v57_release_rgb_20261014/tests.log": "1d43e167e189362eb5809158b0a543c20f661ad89118fa53d32ab56e6e53f558",
+    "checkpoints/v57_release_rgb_20261014/source_check.json": "dddef1b49bfbd49d52f7bef7a776884ae40f6c9c8701259e7efda3edbf6d87d9"
+  }
+}

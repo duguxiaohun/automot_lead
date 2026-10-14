@@ -1,0 +1,240 @@
+{
+  "release_sources_matched": 491,
+  "release_sha256": "13d052eaf8f7e61c8afe48fdcde1db07e7d6e0bcb8e9f30b22a921b2a40b0d6e",
+  "tests_passed": 61,
+  "shadow_scope": "unapproved position-only sensitivity experiment; not training labels",
+  "full_route_frames": 929,
+  "routes": 4,
+  "elapsed_seconds": 55.366627935,
+  "sources_verified": 2787,
+  "anchors": 8,
+  "changes": {
+    "UNKNOWN->YES": 9,
+    "UNKNOWN->NO": 4
+  },
+  "RE5_proceed_yes": 0,
+  "visual_frames": 14,
+  "visual_sources_verified_after_view": 42,
+  "blind_review": false,
+  "diagnostic_binding_gaps": {
+    "wrong_initial_control": {
+      "residual": 100.0,
+      "observation": {
+        "label_authorization": false,
+        "anchor": {
+          "established_frame": 8,
+          "source_road": 10,
+          "source_lane": -1,
+          "signal_id": "900",
+          "map_sha256": "f079f78ddc03652cc00d8782fa0249baf8b4d3ba31f074d75f2492ed1493eeb0",
+          "endpoint": {
+            "s": 20.0,
+            "xy": [
+              20.0,
+              1.5
+            ],
+            "heading_rad": -0.0,
+            "ego_forward_m": 5.0,
+            "front_gap_m": 3.0,
+            "lateral_m": 0.0,
+            "distance_to_stop_center_m": 100.04498987955368
+          },
+          "reference": {
+            "status": "unique_lane_stop_reference",
+            "references": [
+              {
+                "signal_id": "900",
+                "defining_road": "21",
+                "signal": {
+                  "id": "900",
+                  "type": "206",
+                  "name": "Sign_Stop"
+                },
+                "connecting_road": "21",
+                "target_lane": -1,
+                "reference": {
+                  "id": "900",
+                  "s": "0",
+                  "orientation": "-"
+                },
+                "validities": [
+                  {
+                    "fromLane": "-1",
+                    "toLane": "-1"
+                  }
+                ]
+              }
+            ],
+            "unique_signal_ids": [
+              "900"
+            ],
+            "errors": [],
+            "label_authorization": false,
+            "capture_implementation_verified": false,
+            "upstream_model": "CARLA 0.9.15 StopSignComponent InitializeSign",
+            "upstream_source": "https://github.com/carla-simulator/carla/blob/0.9.15/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Traffic/StopSignComponent.cpp",
+            "signal_id": "900",
+            "upstream_predicted_trigger": {
+              "s": 17.0,
+              "xy": [
+                17.0,
+                1.5
+              ],
+              "heading_rad": -0.0,
+              "observed_xy": [
+                17.0,
+                101.5
+              ],
+              "residual_m": 100.0,
+              "longitudinal_residual_m": 0.0,
+              "lateral_residual_m": 100.0
+            }
+          },
+          "sources": []
+        },
+        "errors": [],
+        "frame_id": 9,
+        "sources": [],
+        "fixed_approach_front_gap_m": 3.0,
+        "same_control_verified": true,
+        "current_road": 10,
+        "current_lane": -1,
+        "upstream_trigger_residual_m": 100.0
+      },
+      "conclusion": "Unique lane reference is accepted as fixed anchor even with 100m mismatched observed control. Diagnostic only, not production YES."
+    },
+    "upstream_precondition_not_checked": {
+      "reference": {
+        "status": "unique_lane_stop_reference",
+        "references": [
+          {
+            "signal_id": "900",
+            "defining_road": "21",
+            "signal": {
+              "id": "900",
+              "type": "206",
+              "name": "Sign_Stop"
+            },
+            "connecting_road": "21",
+            "target_lane": -1,
+            "reference": {
+              "id": "900",
+              "s": "10",
+              "orientation": "-"
+            },
+            "validities": [
+              {
+                "fromLane": "-1",
+                "toLane": "-1"
+              }
+            ]
+          }
+        ],
+        "unique_signal_ids": [
+          "900"
+        ],
+        "errors": [],
+        "label_authorization": false,
+        "capture_implementation_verified": false,
+        "upstream_model": "CARLA 0.9.15 StopSignComponent InitializeSign",
+        "upstream_source": "https://github.com/carla-simulator/carla/blob/0.9.15/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Traffic/StopSignComponent.cpp",
+        "signal_id": "900",
+        "upstream_predicted_trigger": {
+          "s": 17.0,
+          "xy": [
+            17.0,
+            1.5
+          ],
+          "heading_rad": -0.0,
+          "observed_xy": [
+            17.0,
+            1.5
+          ],
+          "residual_m": 0.0,
+          "longitudinal_residual_m": 0.0,
+          "lateral_residual_m": 0.0
+        }
+      },
+      "expected_official_model_s": 7,
+      "expected_official_road": "21",
+      "diagnostic_road": "10",
+      "conclusion": "Nonjunction referenced road is accepted yet upstream branch would retain its reference s before backshift, not relocate to incoming endpoint."
+    }
+  },
+  "rear_actor_counterexamples": [
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 32,
+      "removed_actor_ids": [
+        3733
+      ],
+      "before": null,
+      "after": true,
+      "scope": "Controlled diagnostic removes only nonintersecting rear actor; not permission to remove data or certify complete junction clearance."
+    },
+    {
+      "route": "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      "frame": 32,
+      "removed_actor_ids": [
+        4747
+      ],
+      "before": null,
+      "after": true,
+      "scope": "Controlled diagnostic removes only nonintersecting rear actor; not permission to remove data or certify complete junction clearance."
+    },
+    {
+      "route": "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      "frame": 32,
+      "removed_actor_ids": [
+        3737
+      ],
+      "before": null,
+      "after": true,
+      "scope": "Controlled diagnostic removes only nonintersecting rear actor; not permission to remove data or certify complete junction clearance."
+    },
+    {
+      "route": "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      "frame": 34,
+      "removed_actor_ids": [
+        4749
+      ],
+      "before": null,
+      "after": true,
+      "scope": "Controlled diagnostic removes only nonintersecting rear actor; not permission to remove data or certify complete junction clearance."
+    },
+    {
+      "route": "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      "frame": 255,
+      "removed_actor_ids": [
+        3749
+      ],
+      "before": null,
+      "after": true,
+      "scope": "Controlled diagnostic removes only nonintersecting rear actor; not permission to remove data or certify complete junction clearance."
+    }
+  ],
+  "artifacts": {
+    "checkpoints/stop_binding_review_20261014/accident_after_stop.jpg": "947bf3e4f87f9f876031a7a6fbdeffcfae171cad015fd10c6e352c5028a25ff9",
+    "checkpoints/stop_binding_review_20261014/counterexamples.json": "2feec277e39a7624c21d7a26beec830102af0753e66e9f9d025e5d8aa6f6f76b",
+    "checkpoints/stop_binding_review_20261014/counterexamples.py": "6c03591730bfae9bcd8486a47fa25c8a19444e2dc260966ad1b221580184e979",
+    "checkpoints/stop_binding_review_20261014/crossing_probe.json": "98e5f3c55e2acfdabe6085c716cab18c46d6613d58b7dcf4cf8cd6c50c3820e1",
+    "checkpoints/stop_binding_review_20261014/finalize.py": "fc2918f91d38e3b87c6ad0854e48c9067635dc682c10be951d0698aa296e6710",
+    "checkpoints/stop_binding_review_20261014/hardbreak_stop.jpg": "20f7c8490d8bb257fd45fb02dab358abb2d92d170059dbfd09e908df8d227ac8",
+    "checkpoints/stop_binding_review_20261014/rear_counterexample.py": "3655e66fc7cb5c3bfe87088d85932b21b79923507561ee04b238fb228582e91e",
+    "checkpoints/stop_binding_review_20261014/rear_counterexamples.json": "2607fce4980d1ccbab2d8111dce2aea92ac35aa9603129f9a35e11a3316bf323",
+    "checkpoints/stop_binding_review_20261014/shadow.json": "0211a32277a7d83a88e5bb3a7ec3a87116d6801604a63a8979211687f25239fc",
+    "checkpoints/stop_binding_review_20261014/shadow.log": "437cd36c358c5983196d1517bcabcfb24c57337a7f6d0d50579126ec75bd4748",
+    "checkpoints/stop_binding_review_20261014/shadow.py": "661e0107e7afdf3b8e34defdf937d11c3fc59419293c5592700836ba4615f8ef",
+    "checkpoints/stop_binding_review_20261014/shadow_frames.jsonl": "539f20c4bdbb7fd797c6213bd45cae3bd83bd6834d0660afefb1729120048b82",
+    "checkpoints/stop_binding_review_20261014/sources.json": "2a7c65b74fed8acfdfac46d584228d8ec2f65545613f56575e352f2f536efd60",
+    "checkpoints/stop_binding_review_20261014/tests.log": "5b94aa6ace8212dd20d8ca81085456a6ba6277f4c898f2637146eb49ab59995c",
+    "checkpoints/stop_binding_review_20261014/visual.log": "947df16266e8e16707c8dcd82bbad7e1d39da62438ebbf633669247362cdcd1d",
+    "checkpoints/stop_binding_review_20261014/visual.py": "cc4aeb6fa3a8db90aede8f1e5c9134b1b745dc09532f0876fec5cf32ef3427c4",
+    "checkpoints/stop_binding_review_20261014/visual_sources.json": "52d247e0d3099e19b5f21f7a6d061e52787e4cd064334ae535d633a3f05c78f3",
+    "checkpoints/stop_binding_review_20261014/windows.json": "7b6ec9590ba09c2027d65d846dca62647860e1d8c0f8bb295c355b079982d5fb"
+  },
+  "production_changed": false,
+  "labels_approved": false,
+  "trained": false,
+  "pushed": false
+}

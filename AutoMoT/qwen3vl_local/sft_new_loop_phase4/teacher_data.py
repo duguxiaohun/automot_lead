@@ -43,6 +43,8 @@ def validate_annotation(ann,approval,root,mode):
             or ann.get('transition_band') is not None):raise ValueError('teacher annotation detached from approved question')
     root=Path(root).resolve()
     control_sources=[s for r in q.get('control_evidence',{}).values() for o in r['observations'] for s in o['sources']]
+    control_sources += [s for r in q.get('control_evidence',{}).values()
+                       for s in (r.get('position_binding') or {}).get('sources',[])]
     for source in q['causal_sources']+control_sources+q.get('instance_sources',[]):
         path=data_path(root, source['path'])
         if file_sha(path)!=source['sha256']:raise ValueError('teacher causal source changed: '+source['path'])

@@ -30,6 +30,7 @@ def test_positive_support_counts_routes_not_repeated_rows():
 
 def test_export_box_size_changes_proxy_gap_not_center_or_label_authorization():
     frame=controlled_frames(position=2.)[0]
+    frame['actors'][-1]['extent']=[1.,2.,.5]
     before=deepcopy(frame);first=measure(frame,50)
     assert frame==before
     frame['actors'][-1]['extent']=[1.5,1.5,.5]

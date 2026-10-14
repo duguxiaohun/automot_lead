@@ -1,8 +1,8 @@
 """Causal stop-area duty evidence. Trigger boxes are not painted stop lines.
 
 Development observation rules only: stationary motion alone never discharges a
-stop obligation. The trigger's near face is an explicit geometric proxy. Real
-RGB learnability and the proxy error require independent measurement.
+stop obligation. A matched incoming-road boundary supplies a fixed position;
+the exported trigger is used for identity, never as a painted stopping line.
 """
 from . import privileged_geometry as g
 
@@ -26,7 +26,11 @@ def same_stop(frame,actor,world):
 
 
 class StopDutyTracker:
-    def __init__(self):self.entries={};self.last_frame=None
+    def __init__(self):
+        from .stop_position import catalog
+        self.entries={};self.last_frame=None
+        try:self.catalog=catalog();self.catalog_error=None
+        except (OSError,ValueError) as exc:self.catalog=None;self.catalog_error=str(exc)
     def invalidate(self):
         """Unusable source revokes completion evidence, never the obligation."""
         for old in self.entries.values():
@@ -43,7 +47,8 @@ class StopDutyTracker:
         for ident,a in stops.items():
             if n>=4 and a.get('affects_ego') is True and ident not in self.entries:
                 self.entries[ident]=dict(lane=lane,world=g.world_point(frame,a),
-                    observations=[],satisfied=False,established_frame=n)
+                    observations=[],satisfied=False,established_frame=n,position_binding=None,
+                    position_error=None,front_gap_m=None)
         for ident,old in self.entries.items():
             previously_retired=old.get('retired',False)
             a=stops.get(ident)
@@ -53,9 +58,25 @@ class StopDutyTracker:
             old['identity_verified']=bool(identity)
             old['retired']=False
             if not identity:
-                old['observations']=[];old['satisfied']=False
+                old.update(observations=[],satisfied=False,front_gap_m=None,
+                           position_error='same physical STOP or source geometry unverified')
                 continue
-            box=g.aabb(a);gap=box[0]-ego['extent'][0]
+            box=g.aabb(a)
+            try:
+                if self.catalog is None:raise ValueError(self.catalog_error or 'STOP catalog unavailable')
+                if old['position_binding'] is None:
+                    if a.get('affects_ego') is not True or lane!=old['lane']:
+                        raise ValueError('cannot bind STOP after association or approach changed')
+                    binding=self.catalog.match(frame,a)
+                    # Binding may become reliable later; its establishment is
+                    # explicit and never backfills earlier stationary frames.
+                    old['position_binding']=binding;old['established_frame']=n;old['world']=binding['world']
+                gap=self.catalog.position(frame,a,old['position_binding'])
+                old['front_gap_m']=gap;old['position_error']=None
+            except (OSError,ValueError,KeyError,TypeError) as exc:
+                old.update(observations=[],satisfied=False,identity_verified=False,
+                           position_error=str(exc),front_gap_m=None)
+                continue
             if previously_retired and box[1]>=-ego['extent'][0]:
                 old['observations']=[];old['satisfied']=False
             # Only a fulfilled duty can retire after the complete trigger has
@@ -68,7 +89,8 @@ class StopDutyTracker:
             stopped=(identified and before_area and g.finite(m.get('speed'))
                      and abs(m['speed'])<=PARAMS['stop_speed_mps'])
             if not old['satisfied']:
-                if stopped:old['observations'].append(dict(frame_id=n,sources=frame['sources']))
+                if stopped:old['observations'].append(dict(frame_id=n,sources=frame['sources'],
+                    front_gap_m=gap,speed_mps=m['speed'],catalog_sha256=self.catalog.sha))
                 else:old['observations']=[]
                 old['observations']=old['observations'][-PARAMS['stop_observations']:]
                 old['satisfied']=len(old['observations'])==PARAMS['stop_observations']
@@ -76,7 +98,9 @@ class StopDutyTracker:
                 lane=list(e['lane']) if e['lane'] is not None else None,
                 world=e['world'],established_frame=e['established_frame'],
                 identity_verified=e['identity_verified'],retired=e['retired'],
-                position_basis='trigger_area_near_face_not_painted_line',observations=list(e['observations'])) for i,e in self.entries.items()}
+                position_basis='incoming_lane_end_plane_not_painted_stop_line',
+                position_binding=e['position_binding'],position_error=e['position_error'],front_gap_m=e['front_gap_m'],
+                observations=list(e['observations'])) for i,e in self.entries.items()}
         # Do not immediately recreate a still-active, passed control as debt.
         # Clear it only after geometric retirement AND association withdrawal.
         self.entries={i:e for i,e in self.entries.items()
@@ -104,19 +128,39 @@ def crossing_interval(box,region,velocity,horizon_s):
     return low,high
 
 
-def crossing_clear(frame,stop):
-    """Visible local crossing traffic, using current velocities, never saved futures."""
-    x,y,_=stop['position'];width=frame['meta'].get('ego_lane_width')
-    if not g.finite(width) or width<=0:return None
-    region=[x-4.,x+4.,-width/2-1.,width/2+1.];unknown=False
+def crossing_clear(frame,stop,nav=None):
+    """Check the question's whole local corridor, without a stop-centre radius.
+
+    Current occupancy and continuous motion determine relevance *before*
+    visibility. Unknown motion cannot establish irrelevance. This is local
+    route clearance, never permission for an entire junction maneuver.
+    """
+    from .automatic_context import route_intersection
+    from .teacher_events import linear_intersection, PARAMS as events
+    if nav is None:return None
+    points=nav.get('points');width=nav.get('half_width')
+    if (not isinstance(points,list) or len(points)<2 or
+            any(not g.vector(p,2) for p in points) or
+            not g.finite(width) or width<=0 or
+            not any(a!=b for a,b in zip(points,points[1:]))):return None
+    speed=frame['meta'].get('speed')
+    if not g.finite(speed) or frame.get('source_geometry_issues'):return None
+    horizon=(events['junction_start_prediction_s'] if abs(speed)<events['junction_start_speed_mps']
+             else events['prediction_s'])
+    unknown=False
     for a in frame['actors']:
         if not g.physical_actor(a):continue
-        if (a['position'][0]-x)**2+(a['position'][1]-y)**2>PARAMS['crossing_radius_m']**2:continue
-        if g.visible(a,frame) is not True:unknown=True;continue
-        box=g.aabb(a)
-        if g.intersects(box,region):return False
+        current=route_intersection(a,nav,margin=.25)
+        if current is None:unknown=True;continue
+        if current:
+            if g.visible(a,frame) is True:return False
+            unknown=True;continue
         if g.obstacle(a):continue
         velocity=a.get('ego_velocity')
         if not g.vector(velocity,2):unknown=True;continue
-        if crossing_interval(box,region,velocity,PARAMS['crossing_horizon_s']) is not None:return False
+        hit=linear_intersection(a,nav,velocity,horizon)
+        if hit is None:unknown=True;continue
+        if hit:
+            if g.visible(a,frame) is True:return False
+            unknown=True
     return None if unknown else True

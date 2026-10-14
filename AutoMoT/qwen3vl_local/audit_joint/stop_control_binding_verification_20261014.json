@@ -1,0 +1,83 @@
+{
+  "status": "control_reference_diagnosed_not_production_calibrated",
+  "frames": 81,
+  "source_files": 243,
+  "source_sha_verified": true,
+  "map_window_frames": 71,
+  "unique_reference_frames": 70,
+  "frozen_observations": 36,
+  "upstream_trigger_max_residual_m": 0.0007370642182442755,
+  "controls": [
+    [
+      "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      91,
+      "21636"
+    ],
+    [
+      "Town12_Rep0_1902_0_route0_01_09_03_48_13",
+      528,
+      "21633"
+    ],
+    [
+      "Town12_Rep0_26_0_route0_01_10_16_02_46",
+      414,
+      "20397"
+    ],
+    [
+      "Town13_Rep0_1153_0_route0_01_10_10_03_19",
+      298,
+      "20232"
+    ],
+    [
+      "Town13_Rep0_1748_1_route0_01_08_18_54_13",
+      532,
+      "20072"
+    ]
+  ],
+  "source_model": {
+    "url": "https://raw.githubusercontent.com/carla-simulator/carla/0.9.15/Unreal/CarlaUE4/Plugins/Carla/Source/Carla/Traffic/StopSignComponent.cpp",
+    "sha256": "efe7b0b4ed5265d8c34498d64c2387c4cd9f437f2c446cb2e424876c1c4907af",
+    "historical_capture_version_verified": false
+  },
+  "local_environment_declarations": {
+    "../lead/pyproject.toml": "0420f108d59573cdc10aae8c211f390640c4d9da937e986ff2cc4478fcea51b1",
+    "../lead/requirements.txt": "53d6d7e17fac00ee2b91b1a952738caf5ddd1d84cbcbc26e1efba625a5b201f2"
+  },
+  "tests": {
+    "passed": 87,
+    "new_cases_this_task": 36,
+    "full_suite": false
+  },
+  "visual_review": {
+    "distinct_frames": 21,
+    "revisited": true,
+    "blind": false,
+    "record": "stop_line_calibration_verification_20261014.json",
+    "additional_after_continuation": 0
+  },
+  "release": {
+    "manifest": "qwen3vl_local/audit_joint/release_sources_v55_stop_binding_diagnostic_20261014.json",
+    "files": 491,
+    "status": "matched",
+    "published": false
+  },
+  "production_changed": false,
+  "label_authorization": false,
+  "training": false,
+  "push": false,
+  "evidence": {
+    "checkpoints/stop_control_binding_20261014/StopSignComponent_0.9.15.cpp": "efe7b0b4ed5265d8c34498d64c2387c4cd9f437f2c446cb2e424876c1c4907af",
+    "checkpoints/stop_control_binding_20261014/frozen.log": "c07b66e2e28390cb05f039ac7dc15cf343ef3693cc573b20556b3285e72e4b89",
+    "checkpoints/stop_control_binding_20261014/frozen.py": "c6d831d04fafb304eb5ac1e49df8adabba9238b35b5eb08ad171178ad498eec4",
+    "checkpoints/stop_control_binding_20261014/frozen_geometry.json": "9c375e529f69285d9e6c1b0792e5d7bb39365b6c15000738d65e525c4ca0046b",
+    "checkpoints/stop_control_binding_20261014/frozen_sources.json": "6a2c759b3cb93a7c3abc0efde783bf96e7c5f98bad5f35f7a81ad819f53934da",
+    "checkpoints/stop_control_binding_20261014/geometry.json": "5d87875651349dc48a73c80e0d6d746a72f800b84d641dff60a9efdadbf96c1a",
+    "checkpoints/stop_control_binding_20261014/probe.log": "84ad519c0ab72cf5d51f3c791191e7a43dba445357ce60734a71f8e26e56aa20",
+    "checkpoints/stop_control_binding_20261014/run_probe.py": "28941b49c97264198e47da906e608e87986e3528aa67c36d36c663e4fe928eea",
+    "checkpoints/stop_control_binding_20261014/source_check.json": "4b36d7b3ba60ba319d5d7db1e3bfe3df6836de818a4f503b7adf252847f37a76",
+    "checkpoints/stop_control_binding_20261014/sources.json": "cf88791d8f2fea1417620fad29756d669dbd871dc82143dab436735db25a0bcc",
+    "checkpoints/stop_control_binding_20261014/summary.json": "e9974199fec3d59b2e2def4048acb499a460b80c08694e3622ce45982735df00",
+    "checkpoints/stop_control_binding_20261014/tests.log": "02dcf38905413628f5aefd198b8486772221570031ce0427ca05553dac92c31f",
+    "checkpoints/stop_control_binding_20261014/upstream_source.json": "05f0d54998604fdb30d1ca741d516f75926c16222ba6975cb0ea11dd06e7ebcf"
+  }
+}
