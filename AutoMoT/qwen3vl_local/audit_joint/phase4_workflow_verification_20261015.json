@@ -1,0 +1,21 @@
+{
+  "status": "cpu_workflow_verified_not_gpu_training",
+  "source_count": 523,
+  "release": "release_sources_v59_phase4_workflow_20261015.json",
+  "student_contract_unchanged_since_previous_patch": false,
+  "tests_log": "209 passed in 12.29s",
+  "cli": {
+    "exit_code": 2,
+    "stage": "preflight",
+    "error": "ValueError: required input missing: /home/codon/automot_lead/AutoMoT/checkpoints/phase4_workflow_20261015/absent_server_inputs/data4/manifest.json",
+    "training_stages_launched": 0,
+    "zip_bytes": 30050,
+    "zip_sha256": "6167553a29b129c0f7502c41b091b9719b6a89cc9217be63297bdfe42b549c3d",
+    "members": 3
+  },
+  "gpu_run": false,
+  "new_teacher_replay": false,
+  "new_rgb_visual_review": false,
+  "pushed": false,
+  "concurrent_changes": "Preserved parallel benchmark/profile changes and tested integration. run_automatic SHA changed: create current view after final synchronization."
+}

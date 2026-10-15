@@ -63,7 +63,7 @@ def warmup_schedule(updates, records, rounds):
 
 
 def execute(model, optimizer, params, updates, *, rank, world, batch, prepare, loss_for,
-            device, timing, synchronize, barrier, emit, memory=None):
+            device, timing, synchronize, barrier, emit, memory=None, inputs_on_device=False):
     """Common measured loop; CPU/Gloo tests exercise actual DDP synchronization."""
     import torch
     totals=Counter();presentations=0
@@ -81,8 +81,9 @@ def execute(model, optimizer, params, updates, *, rank, world, batch, prepare, l
                 stages[name]=time.perf_counter()-before
                 return value
             before=time.perf_counter()
-            inputs,meta=stage('prepare_cpu',lambda:prepare(indices))
-            inputs=stage('host_to_device',lambda:{k:v.to(device) for k,v in inputs.items()})
+            inputs,meta=stage('encode_batch_device' if inputs_on_device else 'prepare_cpu',lambda:prepare(indices))
+            if not inputs_on_device:
+                inputs=stage('host_to_device',lambda:{k:v.to(device) for k,v in inputs.items()})
             update=micro_index+1==len(micros)
             with (model.no_sync() if world>1 and not update else nullcontext()):
                 loss=stage('forward_loss',lambda:loss_for(model,inputs,indices))
@@ -140,11 +141,15 @@ def callbacks(a,bundle,items,mode,manifest):
     import torch
     from types import SimpleNamespace
     from qwen3vl_local.sequence_batch import collate
-    # Existing encoders produce CPU tensors. Transfer the collated batch once.
-    # P4's normal encoder uses bundle.device; this proxy keeps its exact checks.
+    # Phase3 prepares on CPU and transfers after collation, like its trainer.
+    # Phase4 must use the actual trainer's per-example transfer + collation path.
     cpu=SimpleNamespace(**vars(bundle));cpu.device=torch.device('cpu')
-    if a.phase=='4':cpu.observation_contract=manifest['observation_contract']
+    if a.phase=='4':bundle.observation_contract=manifest['observation_contract']
     def prepare(indices):
+        if a.phase=='4':
+            from qwen3vl_local.sft_new_loop_phase4.rgb_short.model import encode_batch
+            inputs=encode_batch(bundle,[items[i] for i in indices],a.data_root,max_length=a.max_length)
+            return inputs,dict(padded_tokens=inputs['input_ids'].numel(),max_tokens=inputs['input_ids'].shape[1])
         cache={};rows=[]
         for i in indices:
             if a.phase=='3':
@@ -156,9 +161,6 @@ def callbacks(a,bundle,items,mode,manifest):
                 if packed is None:raise ValueError('sample exceeds token limit; no truncation')
                 row={k:packed[k].unsqueeze(0) for k in ('input_ids','attention_mask','labels','loss_weights','component_ids')}
                 row.update(packed['vision']);rows.append(row)
-            else:
-                from qwen3vl_local.sft_new_loop_phase4.rgb_short.model import encode
-                rows.append(encode(cpu,items[i],a.data_root,max_length=a.max_length,image_cache=cache))
         inputs=collate(rows,bundle.tokenizer.pad_token_id)
         return inputs,dict(tokens=int(inputs['attention_mask'].sum()),padded_tokens=inputs['input_ids'].numel(),
                            max_tokens=inputs['input_ids'].shape[1],unique_decoded_images=len(cache))
@@ -209,7 +211,7 @@ def worker(a):
     warm_blocks=warmup_schedule(updates,records,a.warmup_updates)
     warmup=execute(bundle.model,optimizer,params,warm_blocks,
         rank=rank,world=world,batch=batch,prepare=prepare,loss_for=loss_for,device=device,
-        timing=a.timing,synchronize=sync,barrier=barrier,emit=lambda r:None)
+        timing=a.timing,synchronize=sync,barrier=barrier,emit=lambda r:None,inputs_on_device=a.phase=='4')
     warmup['global_event_counts']=dict(Counter(records[i]['event'] for block in warm_blocks for i in block))
     log=a.output/f'rank{rank}_steps.jsonl'
     def emit(record):
@@ -219,7 +221,8 @@ def worker(a):
         if rank==0 and record['optimizer_update']:
             print(f"[rank0] completed measured update {record['update']+1}/{len(updates)} loss={record['loss']:.5f}",flush=True)
     measured=execute(bundle.model,optimizer,params,updates,rank=rank,world=world,batch=batch,
-        prepare=prepare,loss_for=loss_for,device=device,timing=a.timing,synchronize=sync,barrier=barrier,emit=emit,memory=memory)
+        prepare=prepare,loss_for=loss_for,device=device,timing=a.timing,synchronize=sync,barrier=barrier,emit=emit,memory=memory,
+        inputs_on_device=a.phase=='4')
     peak_a=torch.cuda.max_memory_allocated();peak_r=torch.cuda.max_memory_reserved();other=max(0,total-free-baseline)
     import importlib.metadata
     raw=bundle.model.module if world>1 else bundle.model
@@ -237,7 +240,8 @@ def worker(a):
         other_process_bytes_at_start=other,fits_with_headroom=peak_r+other<=total*(1-a.headroom_fraction),
         configuration=dict(seed=a.seed,gradient_checkpointing=a.gradient_checkpointing,
             lora_rank=a.lora_rank,lora_alpha=a.lora_alpha,vision_scope=a.vision_scope,
-            max_length=a.max_length,prompt_variant=a.prompt_variant,warmup_updates=a.warmup_updates),
+            max_length=a.max_length,prompt_variant=a.prompt_variant,warmup_updates=a.warmup_updates,
+            input_pipeline='phase4_encode_batch_device' if a.phase=='4' else 'phase3_cpu_collate_transfer'),
         scope='fixed training examples, fixed samples/update; synchronized timings include launch/wait overhead; DDP backward includes communication; no checkpoints saved')
     write(a.output/f'rank{rank}.json',result)
     if world>1:dist.destroy_process_group()

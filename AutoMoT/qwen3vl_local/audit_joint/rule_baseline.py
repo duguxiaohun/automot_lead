@@ -64,9 +64,11 @@ def measure(data, evaluation, *, batch_size=None, anchor_stride=2):
         schedule=phase4_schedule(data['train'],1)
     else:
         from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import plan
+        from qwen3vl_local.sft_new_loop_phase4.taxonomy import EVENTS
         worlds={}
         for world in (1,4):
-            indices,audit=plan(data['train'],epoch=0,world_size=world,batch_size=batch_size,anchor_stride=anchor_stride)
+            indices,audit=plan(data['train'],epoch=0,world_size=world,batch_size=batch_size,
+                               anchor_stride=anchor_stride,expected_events=EVENTS)
             audit.pop('next_history')
             audit['events']={e:dict(presentations=n) for e,n in audit['event_counts'].items()}
             worlds[str(world)]=[audit]

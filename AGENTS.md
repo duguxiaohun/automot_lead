@@ -1,5 +1,26 @@
 # AGENTS.md
 
+### 2026-10-15 Phase4首轮工作流与batch配置授权发布
+
+用户明确授权本轮白名单push。当前统一release_sources_v60_batch_profiles_20261015.json，523源SHA全部匹配，发布前相关回归209项通过（13.49秒），含自动准入/失败交接/真实CPU进程清理/连续batch与性能配置。提交源码、测试、轻量报告与操作文档，不提交checkpoints、RGB、权重、压缩包、paper或用户.vscode。Phase4沿已有sync_automot.sh同步后使用audit_joint.phase4_first_epoch，复用v57原生库生成当前视图并完成两模式各一轮/重载/test/交接；GPU结果未验收，UE5能力缺格仍保留。性能profile与工作流变更已合并检查，最终同步后再生成学生视图。
+
+### 2026-10-15 Phase3四卡B2实测入口与Phase4固定更新量衔接
+
+用户交回Phase3四H20 end_to_end八trial，均measured/headroom通过；同160呈现／每更新16，两图B2吞吐较B1+9.53%、四图+8.60%，最大reserved29.47／40.55GiB。仅依据交回摘要，未独立接收rank文件，不推断质量。新增audit_joint/train_phase3_batch.sh，B2／累积2／checkpointing，RGB2[-2,0]步长2、RGB4[-3,-2,-1,0]步长1；四卡固定，旧环境冲突拒绝，新run子目录防覆盖。warmup500更新、eval1000微步按旧默认呈现数换算，显式预算覆盖仍需核对。旧通用train.sh默认未偷偷改，不再要求Phase3重复probe。
+Phase4 benchmark改用正式encode_batch设备路径，分段明确encode_batch_device；新增benchmark_phase4_batch.sh默认B1／B2、32/event、有效更新32、累积8／4、end_to_end。正式run_automatic以UPDATE_SAMPLES=32计算累积，冲突在输出前拒绝；尚无Phase4四卡性能结论，不沿用P3速度选型。run_automatic属学生合同，需最终同步后从已完成v57 data4生成一次当前view，不重做20h建库／老师。
+100相关回归+16工作流回归通过，五shell语法通过；既有17路线1457train小库新view两模式ID／目标配对、四组320呈现计划同成员／更新组，旧view拒绝、原生producer与成员SHA不变，空留出仅CPU接线验证。新v60_batch_profiles清单523源，承接并保留既有P4验收／首轮工作流改动，三个发布指针一致；未push／远程／GPU，未改用户.vscode。命令见audit_joint/BATCH_TRAINING_20261015.md，轻量batch_profiles_verification_20261015.json；本机checkpoints/batch_profiles_20261015。
+
+### 2026-10-15 Phase4单命令首轮编排与失败自动交接
+
+新增audit_joint.phase4_first_epoch：从指定已完成v57 data4新建当前学生view，或显式复用同父库有效view；来源与预算先查，顺序两模式run_automatic准入/单轮/重载/test，共同RUN_TAG与输出，最终自动30MB内交接。默认自动选空闲四卡，GPU_IDS显式pin，B默认1；失败停后续，已有目录拒绝覆盖。每阶段日志/耗时/workflow.json；SIGINT/TERM通知本次进程组，等待内层guard清理独立worker组，不碰其它任务。交接器新增可选workflow/source_check/launch_budget及view_build日志尾，失败状态不可被完整采样记录掩盖，旧交接兼容。
+并行修改整合后209相关回归12.29秒通过，含真实CPU子进程+guard信号清理；实CLI缺资产退出2、无GPU阶段、30050字节3成员ZIP/CRC/SHA通过。新523源v59_phase4_workflow matched，两CPU指针更新。只增编排与交接，本入口不改学生合同，但并行run_automatic固定32样本/update修改改变SHA，最终同步后生成学生view，原生/标定/提示词未改，无新回放/RGB/GPU/push。命令见audit_joint/PHASE4_V57_ACCEPTANCE_20261015.md，一条python -m qwen3vl_local.audit_joint.phase4_first_epoch，交phase4_epoch两文件；有效当前view无需再次生成。UE5缺格/联合G0边界不变。轻量phase4_workflow_verification_20261015.json，证据checkpoints/phase4_workflow_20261015；保留用户.vscode。
+
+### 2026-10-15 Phase4 v57正式CPU包交回与当前视图准入收尾
+
+Downloads/fullflow_report.zip 867630字节/12成员CRC与SHA通过，501源与原v57_handoff清单一致；8614路线1062401帧、298787规则train，旧视图train1024/event、val37/test18无放回，RE5 proceed760YES/182组。总20h30m25、回放7h16m43；CPU finished/exit0、未GPU。UE5 proceedYES仍0，仅existing_data_development豁免；UE2 return2YES/2组、UE7 complete13YES/13组稀少，不声称全能力/独立准确率/联合G0。
+当前批采样measure仅约束已有事件，补expected_events十类硬拒绝；原生prepare/训练已有十类门，不声称正式训练曾漏检。修正旧测试patch错评测模块与错误原因被掩盖，156相关回归8.24秒通过。新增518源v59_phase4_admission清单matched，补旧清单遗漏的VISUAL_REVIEW_RUBRIC_V25.md，两CPU shell指新清单。原生生产合同未改；rule_baseline属学生视图绑定，补丁后需新学生视图，勿改旧SHA。以既有17路线v57小库仅重建视图，两模式1457train ID/标签配对、空留出，world1/4 B1各1024/event非GPU消费。未新老师回放/RGB目视/改阈值提示词，不再要求服务器P3/readiness/20h全库。
+下一步同步本补丁→复用checkpoints/phase4_v57_20261014_232157_762998141/data4生成[-2,0]/[-3,-2,-1,0]学生视图→run_automatic检查正式当前池后两模式首轮/重载/固定test。实际命令及共同OUTPUT_DIR/RUN_TAG=first_epoch交接在audit_joint/PHASE4_V57_ACCEPTANCE_20261015.md；交phase4_epoch_report.zip+phase4_epoch_package.json。轻量phase4_v57_received_verification_20261015.json、全证据checkpoints/phase4_v57_received_20261015。本轮未push/远程/GPU，未改用户.vscode。
+
 ### 2026-10-15 固定样本四卡性能对照工具与授权发布
 
 收到Phase3 H20探测：checkpointing开后两图B8预留66.31GiB满足15%余量，四图B8预留89.33GiB不满足；旧probe各B样本成员/数量不同，不作严格速度排名。按用户要求新增audit_joint/batch_benchmark.py及专项测试，支持P3/P4、同时torchrun四卡、固定十事件样本/每update16样本，B1/2/4相应累积4/2/1。预热每event1update与计时每event16呈现都等量，分开统计；默认两重复正反B顺序，逐rank成员/顺序/更新完成与余量全部通过才报最快中位候选。分段CPU准备/H2D/forward-loss/backward含DDP/clip-AdamW及显存快照，end_to_end不把异步提交耗时说成GPU耗时；失败/超时保留诊断并终止本组worker，无权重保存。P4工具为分段在CPU组批后传输，正式encoder传输未改，部署吞吐需确认该差异。

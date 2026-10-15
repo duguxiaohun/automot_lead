@@ -1,0 +1,186 @@
+{
+  "status": "v57_native_pool_admitted_current_student_view_required",
+  "package_bytes": 867630,
+  "package_sha256": "b5d54761918ccbf53a00cb998ef250dd28a727754807feca485b24a8898c9b6f",
+  "members": 12,
+  "source_files": 501,
+  "release": "release_sources_v57_handoff_20261014.json",
+  "current_source_differences": [
+    "qwen3vl_local/audit_joint/phase4_epoch_handoff.py",
+    "qwen3vl_local/audit_joint/rule_baseline.py",
+    "qwen3vl_local/audit_joint/server_finish.py",
+    "qwen3vl_local/audit_joint/server_finish.sh",
+    "qwen3vl_local/audit_joint/server_phase3_epoch.py",
+    "qwen3vl_local/audit_joint/server_phase4_existing.sh",
+    "qwen3vl_local/audit_joint/tests/test_existing_data_development.py",
+    "qwen3vl_local/audit_joint/tests/test_rule_baseline.py",
+    "qwen3vl_local/audit_joint/tests/test_server_finish.py",
+    "qwen3vl_local/audit_joint/training_scope.py",
+    "qwen3vl_local/sft_new_loop_phase3/eval.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_fixed_evaluation.py",
+    "qwen3vl_local/sft_new_loop_phase3/test_validation_balance.py",
+    "qwen3vl_local/sft_new_loop_phase3/train.py",
+    "qwen3vl_local/sft_new_loop_phase3/train.sh",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/build.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/contract.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/data.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/diagnostics.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/evaluate.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/model.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/reload_check.py",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/run.sh",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/train.py",
+    "qwen3vl_local/sft_new_loop_phase4/tests/test_production_selection_v50.py",
+    "qwen3vl_local/sft_new_loop_phase4/tests/test_short_rgb.py"
+  ],
+  "producer_release_members_current": true,
+  "producer_files_checked": 126,
+  "producer_assets_not_in_source_release": [
+    "qwen3vl_local/sft_new_loop_phase4/VISUAL_REVIEW_RUBRIC_V25.md"
+  ],
+  "dataset_bindings": 8625,
+  "routes": 8614,
+  "frames": 1062401,
+  "counts": {
+    "train": 298787,
+    "val": 370,
+    "test": 180
+  },
+  "critical_support": {
+    "U-E2/return/YES": {
+      "rows": 2,
+      "physical_groups": 2
+    },
+    "U-E2/return/NO": {
+      "rows": 62,
+      "physical_groups": 17
+    },
+    "U-E3/proceed/YES": {
+      "rows": 277,
+      "physical_groups": 95
+    },
+    "U-E3/proceed/NO": {
+      "rows": 14703,
+      "physical_groups": 685
+    },
+    "U-E5/proceed/YES": {
+      "rows": 0,
+      "physical_groups": 0
+    },
+    "U-E5/proceed/NO": {
+      "rows": 711,
+      "physical_groups": 72
+    },
+    "U-E6/proceed/YES": {
+      "rows": 708,
+      "physical_groups": 97
+    },
+    "U-E6/proceed/NO": {
+      "rows": 1903,
+      "physical_groups": 269
+    },
+    "U-E7/complete/YES": {
+      "rows": 13,
+      "physical_groups": 13
+    },
+    "U-E7/complete/NO": {
+      "rows": 201,
+      "physical_groups": 31
+    },
+    "R-E5/proceed/YES": {
+      "rows": 760,
+      "physical_groups": 182
+    },
+    "R-E5/proceed/NO": {
+      "rows": 32451,
+      "physical_groups": 1124
+    }
+  },
+  "train_presentations_per_event": 1024,
+  "val_per_event": 37,
+  "test_per_event": 18,
+  "total_seconds": 73824.55561558716,
+  "replay_seconds": 26203.1,
+  "budget_new_gib": 6.2012939453125,
+  "reserve_gib": 20.0,
+  "free_gib": 2594.9921875,
+  "training_started": false,
+  "limits": [
+    "U-E5/proceed/YES absent",
+    "U-E2 return only two positive physical groups",
+    "U-E7 complete thirteen positive physical groups",
+    "old student view/old sampling is not current sequence-batch admission",
+    "not full-source RGB or independent label accuracy certification"
+  ],
+  "current_local_view": {
+    "status": "current_native_and_student_contract_loaded",
+    "view": "checkpoints/phase4_v57_received_20261015/current_view/view",
+    "parent": "/home/codon/automot_lead/AutoMoT/checkpoints/stop_position_v57_20261014/ten_events/data4",
+    "producer_contract_sha": "22384ab5adbc988009f9087e161a74d7f96823ac78fca8fec30ec7b0ef4ea34b",
+    "student_contract_sha": "248b3c991d7d5a32b40930fc37c512ac75cc204877e60f658ae1fd4be0c8320d",
+    "modes": {
+      "2": {
+        "train": 1457,
+        "holdout": 0,
+        "worlds": [
+          1,
+          4
+        ],
+        "per_event": 1024,
+        "ids_sha": "1efe1005e4bb0ed63c559e3c296c0e6dd87e2d2fb9e059202cb80b810510ddf7",
+        "observation": {
+          "version": "phase4_unified_rgb2_rgb4_student_v2",
+          "rgb_mode": 2,
+          "frame_offsets": [
+            -2,
+            0
+          ],
+          "frame_rate_hz": 4,
+          "min_frame": 4,
+          "order": "oldest_to_current"
+        }
+      },
+      "4": {
+        "train": 1457,
+        "holdout": 0,
+        "worlds": [
+          1,
+          4
+        ],
+        "per_event": 1024,
+        "ids_sha": "1efe1005e4bb0ed63c559e3c296c0e6dd87e2d2fb9e059202cb80b810510ddf7",
+        "observation": {
+          "version": "phase4_unified_rgb2_rgb4_student_v2",
+          "rgb_mode": 4,
+          "frame_offsets": [
+            -3,
+            -2,
+            -1,
+            0
+          ],
+          "frame_rate_hz": 4,
+          "min_frame": 4,
+          "order": "oldest_to_current"
+        }
+      }
+    },
+    "scope": "existing local train diagnostic pool only; server full current view admission pending; no GPU"
+  },
+  "validation": {
+    "tests_passed": 156,
+    "seconds": 8.24,
+    "complete_suite": false,
+    "target_gpu_run": false,
+    "new_rgb_visual_review": false,
+    "current_release": "release_sources_v59_phase4_admission_20261015.json",
+    "current_release_files": 518,
+    "current_release_status": "matched"
+  },
+  "changes": [
+    "Require all ten EVENTS in batch admission measurement",
+    "Retarget development coverage tests to current RGB evaluation module and check rejection reason",
+    "Add omitted production rubric to new release source coverage"
+  ],
+  "published": false
+}

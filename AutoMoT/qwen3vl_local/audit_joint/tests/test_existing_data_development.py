@@ -9,7 +9,7 @@ from qwen3vl_local.audit_joint.tests.test_rule_baseline import budget, diagnosti
 
 
 def configured(tmp_path, monkeypatch):
-    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import evaluation_policy
     raw=diagnostic_pool(tmp_path,monkeypatch)
     monkeypatch.setattr(evaluation_policy,'pack_binding',lambda _:dict(references='fixture'))
     monkeypatch.setattr(evaluation_policy,'prepare',lambda data,**kw:(data,dict(plans={},exclusions=[])))
@@ -46,7 +46,7 @@ def test_other_capability_gaps_still_block(tmp_path,monkeypatch,gap):
 
 @pytest.mark.parametrize('answer',['YES','NO'])
 def test_re5_gap_created_by_final_filter_still_blocks(tmp_path,monkeypatch,answer):
-    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import evaluation_policy
     configured(tmp_path,monkeypatch)
     def select(data,**kw):
         data['train']=[r for r in data['train'] if not
@@ -64,7 +64,8 @@ def test_re5_gap_created_by_final_filter_still_blocks(tmp_path,monkeypatch,answe
 
 @pytest.mark.parametrize('defect',['event_missing','isolation','references','budget','drift','selection'])
 def test_development_preserves_other_admission_failures(tmp_path,monkeypatch,defect):
-    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy,full_sampling
+    from qwen3vl_local.sft_new_loop_phase4 import full_sampling
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import evaluation_policy
     raw=configured(tmp_path,monkeypatch)
     def reject(*a,**kw):raise ValueError('fixture invalid input')
     if defect=='event_missing':raw['train'][:]=[r for r in raw['train'] if r['episode']['event']!='U-E1']
@@ -74,11 +75,14 @@ def test_development_preserves_other_admission_failures(tmp_path,monkeypatch,def
     if defect=='drift':
         seq=iter([{'sha':'a'},{'sha':'b'}]);monkeypatch.setattr(rb,'dataset_bindings',lambda _:next(seq))
     if defect=='selection':monkeypatch.setattr(evaluation_policy,'prepare',reject)
-    assert check(tmp_path)['status']=='blocked'
+    report=check(tmp_path)
+    assert report['status']=='blocked'
+    if defect in ('isolation','references','selection'):
+        assert any('fixture invalid input' in error for error in report['errors'])
 
 
 def test_final_filtered_gap_is_reported_even_when_raw_pool_had_support(tmp_path,monkeypatch):
-    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import evaluation_policy
     from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool
     raw=configured(tmp_path,monkeypatch)
     raw['train'].append(next(r for r in pool('rule_teacher')['train']

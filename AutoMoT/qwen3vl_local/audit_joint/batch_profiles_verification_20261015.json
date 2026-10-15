@@ -1,0 +1,88 @@
+{
+  "status": "implemented_cpu_verified_gpu_phase4_pending",
+  "server_evidence": {
+    "source": "user supplied eight Phase3 end_to_end trial summaries; rank files not independently received",
+    "folder": "checkpoints/p3_batch_e2e_20261015_204857",
+    "all_trials_report_measured_and_headroom": true,
+    "results": [
+      {
+        "rgb_mode": 2,
+        "b1_seconds": [
+          87.04329448752105,
+          87.64821382239461
+        ],
+        "b2_seconds": [
+          79.9519374743104,
+          79.54215911962092
+        ],
+        "b1_median_samples_per_second": 1.8318225094400513,
+        "b2_median_samples_per_second": 2.006357095110164,
+        "throughput_gain_percent": 9.527920132582302,
+        "b2_max_reserved_gib": 29.46875
+      },
+      {
+        "rgb_mode": 4,
+        "b1_seconds": [
+          129.40782300941646,
+          129.57042276859283
+        ],
+        "b2_seconds": [
+          118.0272011179477,
+          120.47418952547014
+        ],
+        "b1_median_samples_per_second": 1.2356255066202024,
+        "b2_median_samples_per_second": 1.341852503784145,
+        "throughput_gain_percent": 8.59702204226136,
+        "b2_max_reserved_gib": 40.552734375
+      }
+    ]
+  },
+  "phase3_profile": {
+    "batch_size": 2,
+    "world_size": 4,
+    "accumulation": 2,
+    "gradient_checkpointing": true,
+    "warmup_optimizer_updates": 500,
+    "eval_microbatches": 1000
+  },
+  "phase4_profile": {
+    "update_samples": 32,
+    "benchmark_batches": [
+      1,
+      2
+    ],
+    "accumulation": [
+      8,
+      4
+    ],
+    "input_pipeline": "formal encode_batch on original bundle device",
+    "gpu_measured": false
+  },
+  "tests": {
+    "regression_passed": 100,
+    "workflow_passed": 16,
+    "shell_syntax_passed": 5,
+    "logs": {
+      "regression.log": "461e30919e0cd43fd8f325a394e655a950e13c4dccec797c470576ae9e215ce9",
+      "workflow_regression.log": "927f1dfd21e4cca1060758b461c8a4e27ae7ebe22859fb57735c3a40713ed23d"
+    }
+  },
+  "real_view": {
+    "training_pool": 1457,
+    "modes_paired": true,
+    "plans": 4,
+    "update_membership_equal": true,
+    "old_student_contract_rejected": true,
+    "native_producer_unchanged": true,
+    "holdouts_empty": true
+  },
+  "release": "release_sources_v60_batch_profiles_20261015.json",
+  "published": false,
+  "local_evidence": "checkpoints/batch_profiles_20261015",
+  "source_check": {
+    "status": "matched",
+    "files": 523,
+    "unexpected_python_files": [],
+    "manifest_sha256": "7bedf03bebfd7a0c191c57dd6e5b356205364b9b0083f1b7c37c9c08caa22ce5"
+  }
+}

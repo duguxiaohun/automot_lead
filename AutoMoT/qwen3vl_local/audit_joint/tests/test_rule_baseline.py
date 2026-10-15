@@ -156,3 +156,11 @@ def test_complete_support_and_selection_can_still_be_admitted(tmp_path,monkeypat
     assert report['status']=='admitted_rule_baseline' and report['errors']==[]
     assert all(not m['missing_critical_support'] for m in report['modes'].values())
     assert all(m['schedule']['worlds']['4'][0]['event_counts']==dict.fromkeys(EVENTS,1024) for m in report['modes'].values())
+
+
+@pytest.mark.parametrize('event', EVENTS)
+def test_current_batch_measure_rejects_any_missing_event(event):
+    data=pool('rule_teacher')
+    data['train']=[r for r in data['train'] if r['episode']['event']!=event]
+    with pytest.raises(ValueError,match='event pool mismatch'):
+        rb.measure(data,dict(plans={},exclusions=[]),batch_size=1)

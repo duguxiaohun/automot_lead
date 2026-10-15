@@ -161,6 +161,17 @@ def collect(root, output=None):
             error(dict(path=relative, error=f'{type(exc).__name__}: {exc}'))
             return None
 
+    # Optional for historical runs; current orchestration failures must travel
+    # with the package even if no view or training run could be created.
+    for name in ('source_check.json', 'launch_budget.json', 'workflow.json'):
+        if (root / name).exists():
+            value = read(root / name, name, metadata=True)
+            if name == 'workflow.json' and value is not None:
+                if (value.get('status') != 'completed_execution_not_audited' or
+                        value.get('command_exit_code') != 0):
+                    error(dict(path=name, error='workflow did not complete successfully'))
+    if (root / 'view_build.log').exists():
+        read(root / 'view_build.log', 'view_build_log_tail.json', tail=True)
     for mode in (2, 4):
         run = root / f'run_first_epoch_rgb{mode}'
         start_errors = error_count

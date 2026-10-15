@@ -96,6 +96,35 @@ def training_fixture():
     return model,prepare,loss
 
 
+def test_phase4_uses_training_encoder_on_original_device(monkeypatch):
+    import torch
+    from types import SimpleNamespace
+    bundle=SimpleNamespace(device='cuda:3',tokenizer=SimpleNamespace(pad_token_id=0))
+    calls=[]
+    def encode_batch(actual,rows,root,**kwargs):
+        calls.append((actual,rows,root,kwargs))
+        return dict(input_ids=torch.ones((2,3),dtype=torch.long))
+    monkeypatch.setitem(sys.modules,'qwen3vl_local.sft_new_loop_phase4.rgb_short.model',
+                        SimpleNamespace(encode_batch=encode_batch))
+    args=SimpleNamespace(phase='4',data_root=Path('data'),max_length=99)
+    prepare,_=b.callbacks(args,bundle,['a','b','c'],4,{'observation_contract':'current'})
+    inputs,meta=prepare([2,0])
+    assert calls==[(bundle,['c','a'],Path('data'),{'max_length':99})]
+    assert bundle.device=='cuda:3' and bundle.observation_contract=='current'
+    assert inputs['input_ids'].shape==(2,3) and meta['padded_tokens']==6
+
+
+def test_execute_device_encoder_has_no_second_transfer_or_cpu_label():
+    import torch
+    model,prepare,loss=training_fixture();rows=[]
+    result=b.execute(model,torch.optim.AdamW(model.parameters()),list(model.parameters()),[list(range(16))],
+        rank=0,world=1,batch=2,prepare=prepare,loss_for=loss,device='invalid-device',
+        timing='detailed',synchronize=lambda:None,barrier=lambda:None,emit=rows.append,inputs_on_device=True)
+    assert result['optimizer_updates']==1 and result['presentations']==16
+    assert 'encode_batch_device' in result['stage_seconds']
+    assert 'prepare_cpu' not in result['stage_seconds'] and 'host_to_device' not in result['stage_seconds']
+
+
 def test_execute_fixed_effective_batch_matches_optimizer_result():
     import torch
     states=[]
@@ -162,7 +191,7 @@ def test_parent_uses_simultaneous_torchrun_and_alternates_order(tmp_path,monkeyp
 
 
 @pytest.mark.parametrize('phase',['3','4'])
-def test_cpu_batch_preparation_preserves_encoder_and_loss(tmp_path,monkeypatch,phase):
+def test_batch_preparation_preserves_encoder_device_and_loss(tmp_path,monkeypatch,phase):
     import torch
     from types import SimpleNamespace
     from qwen3vl_local.sft_new_loop_phase3 import train as t
@@ -189,8 +218,8 @@ def test_cpu_batch_preparation_preserves_encoder_and_loss(tmp_path,monkeypatch,p
         monkeypatch.setattr(t,'build_action_target',lambda _: '')
         monkeypatch.setattr(t,'_build_inputs',lambda *a,**kw:next(counter))
     else:
-        def encoder(cpu,row,*a,**kw):
-            assert str(cpu.device)=='cpu'
+        def encoder(actual,row,*a,**kw):
+            assert actual is bundle and str(actual.device)=='cuda:99'
             value=packed[items.index(row)]
             return {k:value[k].unsqueeze(0) for k in ('input_ids','attention_mask','labels')}
         # Distinct metadata avoids equality collapsing the two mock rows.
@@ -199,7 +228,8 @@ def test_cpu_batch_preparation_preserves_encoder_and_loss(tmp_path,monkeypatch,p
     prepare,loss=b.callbacks(args,bundle,items,2,{'observation_contract':{}})
     inputs,meta=prepare([0,1])
     assert all(v.device.type=='cpu' for v in inputs.values())
-    assert meta['tokens']==7 and meta['padded_tokens']==8
+    assert meta['padded_tokens']==8
+    if phase=='3':assert meta['tokens']==7
     actual=loss(model,inputs,[0,1]);actual.backward();grad=model.emb.weight.grad.clone();model.zero_grad()
     if phase=='3':
         cpu=SimpleNamespace(model=model,device='cpu',tokenizer=bundle.tokenizer)

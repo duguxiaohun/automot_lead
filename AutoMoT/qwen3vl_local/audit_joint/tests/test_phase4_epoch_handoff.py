@@ -165,3 +165,20 @@ def test_complete_synthetic_evidence_never_claims_training_acceptance(tmp_path, 
     assert not data['collection_receipt.json']['training_accepted']
     assert data['admission_2.json']['unsupported_capabilities']
     assert result['consumption']['4']['status'] == 'matched_recorded_plan'
+
+
+@pytest.mark.parametrize('status,code', [('failed',17), ('interrupted',143), ('running',0)])
+def test_workflow_failure_cannot_be_masked_by_complete_plan(tmp_path,plan,status,code):
+    samples,audit,steps=plan
+    for mode in (2,4):
+        for name in (*tool.NAMES,*tool.METADATA):
+            path=tmp_path/f'run_first_epoch_rgb{mode}'/name;path.parent.mkdir(parents=True,exist_ok=True)
+            value=(samples if name=='epoch_000_samples.jsonl' else
+                   steps[int(name.split('rank')[1][0])] if '_steps' in name else
+                   audit if name=='epoch_000_sampling.json' else [] if name.endswith('.jsonl') else {})
+            path.write_text(''.join(json.dumps(r)+'\n' for r in value) if name.endswith('.jsonl') else json.dumps(value))
+        (tmp_path/f'rgb{mode}.log').write_text('fixture')
+    (tmp_path/'admission_2.json').write_text('{}')
+    (tmp_path/'workflow.json').write_text(json.dumps(dict(status=status,command_exit_code=code)))
+    assert tool.collect(tmp_path)['status']=='incomplete'
+    assert any('workflow' in r['error'] for r in unpack(tmp_path/'handoff')['collection_receipt.json']['errors'])

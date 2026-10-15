@@ -1,0 +1,17 @@
+{
+  "release": "v60_batch_profiles_20261015",
+  "manifest_sha256": "7bedf03bebfd7a0c191c57dd6e5b356205364b9b0083f1b7c37c9c08caa22ce5",
+  "source_files": 523,
+  "source_status": "matched",
+  "regression": "209 passed in 13.49s",
+  "scope": "related CPU regression; no new server/GPU run",
+  "push_authorized": true,
+  "excluded": [
+    "checkpoints",
+    "RGB",
+    "weights",
+    "archives",
+    "paper",
+    ".vscode"
+  ]
+}
