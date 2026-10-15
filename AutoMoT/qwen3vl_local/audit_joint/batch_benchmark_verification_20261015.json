@@ -1,0 +1,39 @@
+{
+  "status": "local_verified_gpu_benchmark_pending",
+  "tests_passed": 31,
+  "tests_scope": "12 benchmark tests including real two-rank CPU/Gloo; 19 existing sequence batch tests",
+  "tests_log_sha256": "c7394c1745560448f8f46473993d3fbc33fa4ad77bbe684b750461bb8bcfb152",
+  "real_v57_pool": {
+    "train_questions": 1457,
+    "views": [
+      2,
+      4
+    ],
+    "batches": [
+      1,
+      2,
+      4
+    ],
+    "world": 4,
+    "presentations": 160,
+    "unique_questions": 151,
+    "optimizer_updates": 10,
+    "accumulation_by_batch": {
+      "1": 4,
+      "2": 2,
+      "4": 1
+    },
+    "same_sample_and_update_membership": true,
+    "existing_student_view_loaded_without_rebuild": true
+  },
+  "source_manifest": "release_sources_v59_fixed_batch_benchmark_20261015.json",
+  "source_files": 517,
+  "gpu_measured": false,
+  "pushed": false,
+  "contract_changes": {
+    "producer": false,
+    "student": false,
+    "trainer": false
+  },
+  "limitation": "P4 benchmark groups tensors on CPU before transfer to separate timing; production encoder transfer interleaving remains unchanged. No GPU speedup claim."
+}

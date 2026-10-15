@@ -111,3 +111,36 @@ v58清单515源SHA matched，所声明Python包无额外文件，五个改动she
 服务器报 `PosixPath('.') has an empty name` 已用 `check_index(Path(""))` 原生复现：空INDEX被Path转换为当前目录，在寻找同目录manifest时失败，尚未模型前向，不能据此判断显存。旧版本先在当前shell设置INDEX、DATA_ROOT、MODEL_DIR、PROMPT_VARIANT，再运行；推荐命令参数使用 `${INDEX:?请先设置INDEX}` 等shell非空守卫。已有正式索引为 `checkpoints/phase3_prepare_20261012_231356_193369568/data/frame_index.jsonl`；路径必须以服务器实际存在为准，不重建或猜选其它索引。
 
 本地补丁在任何worker启动前拒绝空路径、目录型索引、缺manifest/model config/数据根，以及空prompt variant；6项probe专项通过（13项无关测试未重复）。新清单release_sources_v58_probe_inputs_20261015.json保留旧清单；不改训练器/学生视图合同，不要求重建既有v58新视图。该修正已获用户明确授权按白名单发布；服务器同步新版即可获得启动前诊断，旧版本也可直接通过正确设置变量恢复探测。
+
+## 固定样本四卡性能对照（2026-10-15，新增入口）
+
+容量探测结果已收到：Phase3开启checkpointing后GPU0两图B8预留66.31GiB满足15%余量，四图B8预留89.33GiB不满足；两图B2约2.04s/片段、B8约2.29s，四图B2约3.21s、B8约3.36s。但旧probe各B的样本数量/成员不同，不作为严格性能排名。停止盲目扩大B，改用 `audit_joint.batch_benchmark` 固定样本及有效更新批量比较。
+
+新入口同时启动指定的四卡DDP，默认B1/2/4，每event正式计时16次呈现（全局160），每次optimizer更新固定16样本（共10更新），因此四卡累积步数分别4/2/1。两图/四图及各B共享题目成员、每次更新成员，按各自步长在更新组内重排；这份固定对照计划与正式epoch预算不同，不冒充正式训练。每event另预热1次更新（全局160呈现）且不计入吞吐分母，显存峰值包含预热/优化器状态。预热和正式计时都保持十事件1:1，稀少池重复情况明确报告。
+
+默认两个独立进程组重复，顺序B1→2→4再B4→2→1，报告中位数及范围。样本哈希/更新组哈希、每rank完整成员与顺序、更新次数、所有rank完成且满足显存余量均通过，才给最快已测候选；不会只按容量最大选batch。固定训练例/dropout seed/更新批量控制了主要比较条件，不承诺不同batch的浮点/dropout路径逐位相同，也不据短测预测收敛。
+
+在AutoMoT和训练环境中，先同步本轮代码，再运行：
+
+```bash
+python -m qwen3vl_local.audit_joint.batch_benchmark \
+  --phase 3 \
+  --index checkpoints/phase3_prepare_20261012_231356_193369568/data/frame_index.jsonl \
+  --data-root lead_data --model-dir checkpoints/Qwen3.5-4B \
+  --prompt-variant v23_rgb_stage_candidate_20261006 \
+  --gradient-checkpointing --gpus 0,1,2,3 \
+  --modes 2 4 --batches 1 2 4 \
+  --samples-per-event 16 --update-samples 16 --warmup-updates 1 --repeats 2 \
+  --timing detailed \
+  --output "checkpoints/p3_batch_benchmark_$(date +%Y%m%d_%H%M%S_%N)"
+```
+
+分段包括CPU图片读取/校验/解码/processor/组批、整批CPU→GPU传输、forward+loss+训练统计、backward（同步步包括DDP通信）、clip+AdamW。分段显存为阶段结束当前占用及从预热开始的累计峰值，不伪称瞬间数值是该阶段独立峰值。逐阶段CUDA同步会改变调度，故该模式用于定位，不能把它当无插桩吞吐；每个trial的worker.log能看到更新进度。
+
+定位后同一命令改 `--timing end_to_end`、使用新输出目录验证实际吞吐。该模式仅在每microbatch尾同步，与当前训练器一致，阶段字段明确为host_submission_seconds，不冒称GPU完成耗时。总吞吐取最慢rank墙钟，包含读图/组批/计算/更新/记录及末尾等待，不包含模型加载和预热。初始和后续试验的OS缓存/共享负载可能不同，重复范围保留；没有清空系统缓存或设置硬件时钟。
+
+Phase4已接同一工具：用 `--phase 4 --dataset "${DATASET:?请设置当前v58学生view}"` 代替phase3/index/prompt参数，其余保持。新工具只读train池，不能代替正式数据/参考准入；已有有效v58新视图可直接复用，不重放老师或重建视图。为分开测量prepare与H2D，Phase4探测沿原生encoder在CPU组好batch后统一传输；这是工具内路径，尚未修改正式P4训练encoder的传输实现，最终部署吞吐需对该差异单独确认。
+
+每个输出目录交回 `summary.json` 和 `request.json`。如有失败，另附相应trial的 `worker.log` 和 `rank*.json`；逐步JSONL保留本机供抽查。超时或rank异常会保留已有记录，torchrun终止其它worker；不会保存权重/优化器，也不占用其它GPU。默认单trial上限1800秒、DDP collective上限180秒，可显式调整；超时绝不计作完成。
+
+本轮仅新增独立性能工具/测试、更新发布清单及说明；当前训练器、采样、输入时间间隔、学生视图/生产/老师合同未改。实际2进程CPU/Gloo梯度累积与整批更新一致，测试覆盖样本/顺序篡改、缺rank、超时终止及两阶段编码loss/梯度一致；真实v57小池1457题生成六组对照，均160呈现/151唯一题、10更新，成员哈希一致。目标H20四卡性能和真正耗时瓶颈仍待上述服务器实测，不宣称已加速。用户已明确授权本轮按白名单发布，服务器同步后运行上述命令。

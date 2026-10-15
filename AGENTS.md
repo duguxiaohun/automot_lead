@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 2026-10-15 固定样本四卡性能对照工具与授权发布
+
+收到Phase3 H20探测：checkpointing开后两图B8预留66.31GiB满足15%余量，四图B8预留89.33GiB不满足；旧probe各B样本成员/数量不同，不作严格速度排名。按用户要求新增audit_joint/batch_benchmark.py及专项测试，支持P3/P4、同时torchrun四卡、固定十事件样本/每update16样本，B1/2/4相应累积4/2/1。预热每event1update与计时每event16呈现都等量，分开统计；默认两重复正反B顺序，逐rank成员/顺序/更新完成与余量全部通过才报最快中位候选。分段CPU准备/H2D/forward-loss/backward含DDP/clip-AdamW及显存快照，end_to_end不把异步提交耗时说成GPU耗时；失败/超时保留诊断并终止本组worker，无权重保存。P4工具为分段在CPU组批后传输，正式encoder传输未改，部署吞吐需确认该差异。
+31相关回归通过，含真实两进程CPU/Gloo累积与整批更新一致、两阶段loss/梯度对照、缺rank/篡改/超时；真实v57既有1457train两模式六组计划同160呈现/151唯一/10更新及成员SHA，无GPU验收。生产/学生/训练器合同保持、有效v58视图无需重建；新release_sources_v59_fixed_batch_benchmark_20261015.json 517源，两P4 CPU shell指新清单。命令见audit_joint/SEQUENCE_BATCH_20261015.md固定样本段、轻量batch_benchmark_verification_20261015.json，本机checkpoints/batch_benchmark_20261015。用户随后明确授权本轮白名单push；未远程/GPU、未改.vscode。
+
 ### 2026-10-15 显存probe空变量错误修正与授权发布
 
 服务器8trial均报PosixPath('.') has an empty name；本机check_index(Path(""))原生复现，INDEX空或为.在with_name定位manifest前失败，非OOM/模型前向。补probe argparse非空路径与启动前文件/目录检查，6专项通过，旧代码可先正确设置现有正式索引及data/model/prompt变量直接恢复，无需建库。新release_sources_v58_probe_inputs_20261015.json共515源，两个P4 CPU launcher指新清单；原v58清单、训练器/学生视图合同不改。用户随后明确授权本补丁按白名单commit/push，无GPU远程。详见audit_joint/SEQUENCE_BATCH_20261015.md空变量修正段。
