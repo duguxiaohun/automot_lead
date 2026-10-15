@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 2026-10-15 显存probe空变量错误修正与授权发布
+
+服务器8trial均报PosixPath('.') has an empty name；本机check_index(Path(""))原生复现，INDEX空或为.在with_name定位manifest前失败，非OOM/模型前向。补probe argparse非空路径与启动前文件/目录检查，6专项通过，旧代码可先正确设置现有正式索引及data/model/prompt变量直接恢复，无需建库。新release_sources_v58_probe_inputs_20261015.json共515源，两个P4 CPU launcher指新清单；原v58清单、训练器/学生视图合同不改。用户随后明确授权本补丁按白名单commit/push，无GPU远程。详见audit_joint/SEQUENCE_BATCH_20261015.md空变量修正段。
+
 ### 2026-10-15 v58白名单发布
 
 用户明确授权push本轮Phase3／4连续batch改动。精确发布源码、测试、操作文档和轻量回执；新增共享模块 `AutoMoT/qwen3vl_local/sequence_batch.py` 与专项 `AutoMoT/qwen3vl_local/tests/test_sequence_batch.py` 同步登记文件白名单。225相关回归已通过，515源SHA再次matched；目标4B显存仍待服务器probe，不因发布宣称GPU验收。用户既有.vscode修改、checkpoints/RGB/权重及其它未跟踪参考文件保留本机。当前入口与历史实验边界见audit_joint/SEQUENCE_BATCH_20261015.md。

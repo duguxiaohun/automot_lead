@@ -105,3 +105,9 @@ bash qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh
 v58清单515源SHA matched，所声明Python包无额外文件，五个改动shell入口语法通过。既有v57十事件train小池生成最终新视图，两模式各1457题、ID/标签配对、原生数据文件SHA未变；不是重新标定。4卡B=2的首轮CPU计划每event1024；另用16/event/epoch做五轮覆盖检查，累计未重复题数151→278→383→479→575，两模式相同。十事件池大小不同，因此小事件覆盖完后会重复，大事件继续优先未见；不能承诺各event同时完整覆盖。该小池val/test为空，仅用于本地诊断。
 
 完整本机日志和视图：`checkpoints/sequence_batch_20261015/`，当前有效视图为 `real_view_final/view`。轻量回执：`sequence_batch_verification_20261015.json`。目标4B模型权重本机缺失，未提供任何虚构显存数字；实际容量以服务器探测输出为准。
+
+## 空变量报错修正（2026-10-15）
+
+服务器报 `PosixPath('.') has an empty name` 已用 `check_index(Path(""))` 原生复现：空INDEX被Path转换为当前目录，在寻找同目录manifest时失败，尚未模型前向，不能据此判断显存。旧版本先在当前shell设置INDEX、DATA_ROOT、MODEL_DIR、PROMPT_VARIANT，再运行；推荐命令参数使用 `${INDEX:?请先设置INDEX}` 等shell非空守卫。已有正式索引为 `checkpoints/phase3_prepare_20261012_231356_193369568/data/frame_index.jsonl`；路径必须以服务器实际存在为准，不重建或猜选其它索引。
+
+本地补丁在任何worker启动前拒绝空路径、目录型索引、缺manifest/model config/数据根，以及空prompt variant；6项probe专项通过（13项无关测试未重复）。新清单release_sources_v58_probe_inputs_20261015.json保留旧清单；不改训练器/学生视图合同，不要求重建既有v58新视图。该修正已获用户明确授权按白名单发布；服务器同步新版即可获得启动前诊断，旧版本也可直接通过正确设置变量恢复探测。

@@ -13,14 +13,39 @@ import sys
 import time
 
 
+def nonempty_path(value):
+    if not value.strip():
+        raise argparse.ArgumentTypeError('path is empty; set the shell variable before invoking the probe')
+    return Path(value)
+
+
+def validate_paths(a):
+    """Reject common shell/path errors once, before starting any GPU worker."""
+    for option in ('data_root', 'model_dir'):
+        path=getattr(a,option)
+        if not path.is_dir():
+            raise ValueError(f'--{option.replace("_", "-")} directory does not exist: {path}')
+    if not (a.model_dir/'config.json').is_file():
+        raise ValueError(f'--model-dir lacks config.json: {a.model_dir}')
+    if a.phase=='3':
+        if a.index is None or not a.index.is_file():
+            raise ValueError(f'--index must be an existing index file, not an empty variable/directory: {a.index}')
+        if not a.index.with_name('manifest.json').is_file():
+            raise ValueError(f'--index lacks adjacent manifest.json: {a.index}')
+        if not a.prompt_variant.strip():
+            raise ValueError('--prompt-variant is empty; set PROMPT_VARIANT')
+    elif a.dataset is None or not (a.dataset/'student_view.json').is_file():
+        raise ValueError(f'--dataset must contain student_view.json: {a.dataset}')
+
+
 def parser():
     p=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     p.add_argument('--phase',choices=('3','4'),required=True)
-    p.add_argument('--index',type=Path)
-    p.add_argument('--dataset',type=Path)
-    p.add_argument('--data-root',type=Path,required=True)
-    p.add_argument('--model-dir',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--index',type=nonempty_path)
+    p.add_argument('--dataset',type=nonempty_path)
+    p.add_argument('--data-root',type=nonempty_path,required=True)
+    p.add_argument('--model-dir',type=nonempty_path,required=True)
+    p.add_argument('--output',type=nonempty_path,required=True)
     p.add_argument('--gpus',default='0',help='Visible physical GPU IDs, tested sequentially')
     p.add_argument('--batches',type=int,nargs='+',default=list(range(1,9)))
     p.add_argument('--modes',type=int,nargs='+',choices=(2,4),default=[2,4])
@@ -117,7 +142,10 @@ def worker(a):
 
 
 def main():
-    a=parser().parse_args()
+    p=parser()
+    a=p.parse_args()
+    try:validate_paths(a)
+    except ValueError as exc:p.error(str(exc))
     if a.gradient_checkpointing is None:a.gradient_checkpointing=a.phase=='4'
     if (min(a.batches+[a.steps_per_event,a.max_length])<1 or not 0<a.headroom_fraction<1
             or (a.phase=='3' and a.index is None) or (a.phase=='4' and a.dataset is None)):

@@ -169,6 +169,11 @@ def test_probe_isolates_trials_and_retains_errors(tmp_path,monkeypatch):
         from pathlib import Path
         Path(output).write_text(json.dumps(dict(status='measured' if batch==1 else 'oom',fits_with_headroom=batch==1)))
         return 0
+    (tmp_path/'index').write_text('{}')
+    (tmp_path/'manifest.json').write_text('{}')
+    (tmp_path/'rgb').mkdir();(tmp_path/'model').mkdir()
+    (tmp_path/'model/config.json').write_text('{}')
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(batch_probe.subprocess,'call',child)
     monkeypatch.setattr(sys,'argv',['probe','--phase','3','--index','index','--data-root','rgb','--model-dir','model',
         '--gpus','0,1','--batches','1','2','4','--output',str(tmp_path/'probe')])
@@ -230,3 +235,31 @@ def test_phase4_actual_training_loop_consumes_batches_and_persists_exposure(tmp_
     assert state['sampling_history']['next_epoch']==2
     assert sum(state['sampling_history']['counts'].values())==80
     assert all(n>0 for n in state['sampling_history']['counts'].values())
+
+
+@pytest.mark.parametrize('option', ['--index','--data-root','--model-dir','--output'])
+def test_probe_empty_shell_variable_rejected_before_workers(tmp_path, monkeypatch, capsys, option):
+    import sys
+    from qwen3vl_local.audit_joint import batch_probe
+    argv=['probe','--phase','3','--index','index','--data-root','rgb',
+          '--model-dir','model','--output',str(tmp_path/'out')]
+    argv[argv.index(option)+1]=''
+    monkeypatch.setattr(sys,'argv',argv)
+    monkeypatch.setattr(batch_probe.subprocess,'call',lambda *a,**kw:pytest.fail('worker launched'))
+    with pytest.raises(SystemExit) as exc:batch_probe.main()
+    assert exc.value.code==2
+    assert option in capsys.readouterr().err
+    assert not (tmp_path/'out').exists()
+
+
+def test_probe_directory_index_rejected_before_workers(tmp_path,monkeypatch,capsys):
+    import sys
+    from qwen3vl_local.audit_joint import batch_probe
+    (tmp_path/'config.json').write_text('{}')
+    monkeypatch.setattr(sys,'argv',['probe','--phase','3','--index','.',
+        '--data-root',str(tmp_path),'--model-dir',str(tmp_path),'--output',str(tmp_path/'out')])
+    monkeypatch.setattr(batch_probe.subprocess,'call',lambda *a,**kw:pytest.fail('worker launched'))
+    with pytest.raises(SystemExit) as exc:batch_probe.main()
+    assert exc.value.code==2
+    assert '--index must be an existing index file' in capsys.readouterr().err
+    assert not (tmp_path/'out').exists()
