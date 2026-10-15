@@ -1,5 +1,7 @@
 # Phase3／4 连续片段 batch 实验
 
+> 最新四项复审及v2同锚点补偿见 [修正记录](BATCH_AUDIT_FIXES_20261015.md)。probe容量上限不是正式入口推荐值，应读取training_compatible_candidates及排除原因；Phase4固定1024/event不接受仅改B为3／5／6／7。
+
 > 发布更新：本轮已获用户授权按白名单发布，统一 v60_batch_profiles_20261015（523源），发布前209项相关回归通过。同步最终发布源码后执行本文入口；历史段落中的“未push”描述保留当时状态。
 
 > Phase3 四卡端到端实测已完成，当前优化入口采用 B2／累积2／checkpointing；Phase4 独立对照和固定更新量衔接见 [实测配置与命令](BATCH_TRAINING_20261015.md)。下文旧容量探测步骤保留供追溯，无需再跑 Phase3 探测。
@@ -50,11 +52,11 @@ python -m qwen3vl_local.audit_joint.batch_probe \
 
 可以用 `--batches 1 2 4` 先粗测，也可用 `--modes 2` 单独测试。默认每个配置覆盖十事件各2个实际batch，包括前向、反向、梯度裁剪、AdamW状态初始化及后续更新。没有保存模型权重或优化器文件。Phase3默认不开gradient checkpointing，Phase4默认开启，与当前训练默认一致；若显式更改探测的 `--gradient-checkpointing`，训练也必须同步设置。
 
-交回两个探测目录的 `summary.json` 即可；每个trial另有完整JSON及日志。结果包括每卡 allocated/reserved 峰值、事件题目ID、token长度、耗时和配置。推荐值取所有被测卡均能容纳且预留15%显存的最大**已测试**batch，不宣称绝对最大容量，也不把单卡测试说成四卡DDP验收。八片段/四卡的batch size是每卡2，不是梯度累积2。
+交回两个探测目录的 `summary.json` 即可；每个trial另有完整JSON及日志。结果包括每卡 allocated/reserved 峰值、事件题目ID、token长度、耗时和配置。容量字段取所有被测卡均实际测过且预留15%显存的最大batch；正式训练还需满足training_compatible_candidates的配额和更新量条件。两者均不宣称绝对最大容量或四卡DDP验收。八片段/四卡的batch size是每卡2，不是梯度累积2。
 
 ## 实测后使用真实 batch
 
-两种模式可以使用不同BATCH_SIZE。每个event的预算必须整除 `卡数 × BATCH_SIZE`；默认1024/event支持4卡B=1/2/4/8。B=3时可明确使用1032/event（Phase4总预算10320）；代码拒绝不能整除的预算，不暗中丢尾部或用重复padding冒充等量。
+两种模式可以使用不同BATCH_SIZE。每个event的预算必须整除 `卡数 × BATCH_SIZE`；默认1024/event支持4卡B=1/2/4/8。自定义训练器实验可单独设1032/event等其它预算，但Phase4正式自动入口仍固定1024/event，不能仅改B=3就衔接。还必须满足有效更新量整除全局batch；代码拒绝不整除的预算，不暗中丢尾部或重复padding。
 
 Phase3当前实测配置：
 

@@ -65,6 +65,35 @@ def test_transition_overlapping_history_is_allowed_and_actions_compensate():
     assert len(plan(rows+other,per_event=16)[0])==32
 
 
+@pytest.mark.parametrize('stride',[1,2])
+def test_same_anchor_alternatives_compensate_without_changing_continuity(stride):
+    rows=pool(events=1,n=16)
+    for r in rows:
+        r['frame']*=stride;r['action']='proceed/NO'
+    # ID order deliberately favors proceed. Rare alternatives are only at the
+    # first two anchors; postponing selection would lose both opportunities.
+    rows += [dict(r,id='zz/'+r['id'],action='hold/YES') for r in rows[:2]]
+    order,a=plan(rows,per_event=16,world_size=4,batch_size=2,stride=stride)
+    assert a['action_balance']['0']['target']=={'hold/YES':2,'proceed/NO':14}
+    assert a['action_balance']['0']['actual']==a['action_balance']['0']['target']
+    assert len(set(rows[i]['frame'] for i in order))==16
+    assert a['new_questions']==16 and a['max_question_repeat']==1
+    assert all(s['length']==8 and s['last_frame']-s['first_frame']==7*stride for s in a['segments']['0'])
+    reverse=list(reversed(rows))
+    reverse_order,_=plan(reverse,per_event=16,world_size=4,batch_size=2,stride=stride)
+    assert [rows[i]['id'] for i in order]==[reverse[i]['id'] for i in reverse_order]
+    next_order,b=plan(rows,per_event=16,epoch=1,world_size=4,batch_size=2,stride=stride,history=a['next_history'])
+    assert b['new_questions']==2 and len(set(next_order[:2])-set(order))==2
+
+
+def test_previous_sampler_history_is_rejected():
+    rows=pool(events=1,n=16)
+    _,a=plan(rows,per_event=8)
+    a['next_history']['policy']='event_equal_contiguous_unseen_first_v1'
+    with pytest.raises(ValueError,match='history'):
+        plan(rows,per_event=8,epoch=1,history=a['next_history'])
+
+
 def test_collation_padding_and_visual_order():
     import torch
     a=dict(input_ids=torch.tensor([[1,2,3]]),attention_mask=torch.ones(1,3,dtype=torch.long),

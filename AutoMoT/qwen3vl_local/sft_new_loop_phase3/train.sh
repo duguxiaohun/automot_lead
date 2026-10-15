@@ -191,7 +191,7 @@ COMMON_ARGS=(
   --batch-size "${BATCH_SIZE:-1}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --weight-decay "${WEIGHT_DECAY:-0.0}"
-  --warmup-steps "${WARMUP_STEPS:-2000}"
+  --warmup-ratio "${WARMUP_RATIO:-0.1}"
   --lora-rank "${LORA_RANK:-16}"
   --lora-alpha "${LORA_ALPHA:-32}"
   --lora-dropout "${LORA_DROPOUT:-0.05}"
@@ -201,6 +201,7 @@ COMMON_ARGS=(
   --seed "${SEED:-20260904}"
   "${EXTRA_ARGS[@]}"
 )
+if [[ -n "${WARMUP_STEPS:-}" ]]; then COMMON_ARGS+=(--warmup-steps "$WARMUP_STEPS"); fi
 if [[ "${GRADIENT_CHECKPOINTING:-0}" == "1" ]]; then COMMON_ARGS+=(--gradient-checkpointing); fi
 if [[ -n "${ANCHOR_STRIDE:-}" ]]; then COMMON_ARGS+=(--anchor-stride "$ANCHOR_STRIDE"); fi
 # 验证预算不足时按覆盖规划增容；严格配对实验可关闭并显式指定预算。

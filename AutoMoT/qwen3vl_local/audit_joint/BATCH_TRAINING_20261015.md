@@ -1,5 +1,7 @@
 # Phase3 实测配置与 Phase4 独立对照
 
+> 最新复审修正见 [连续batch复审](BATCH_AUDIT_FIXES_20261015.md)：通用Phase3入口默认按实际更新数预热10%，本页B2专用入口仍显式500步；同锚点action补偿升级v2，probe区分容量与可启动候选。最终同步后生成新学生view。
+
 > 发布更新：本轮已获用户授权按白名单发布，统一 v60_batch_profiles_20261015（523源），发布前209项相关回归通过。同步最终发布源码后执行本文入口；历史段落中的“未push”描述保留当时状态。
 
 Phase3 采用四卡、每卡 B2、gradient checkpointing 开、累积 2 次。一次前向全局 8 片段，每次更新 16 片段。新增 `train_phase3_batch.sh` 作为该配置的明确入口；直接使用旧 `train.sh` 不会自动切换配置。两图 `[t-2,t]`／步长 2，四图 `[t-3,t-2,t-1,t]`／步长 1。
@@ -38,6 +40,8 @@ warmup 默认 500 次 optimizer 更新，保留旧四卡 B1／累积1 默认的 
 
 ## Phase4 固定更新批量对照
 
+从现有data4生成视图、源码检查和四卡实测的完整可执行命令见 [Phase4实测](PHASE4_BENCHMARK_20261015.md)。当前默认独立比较B1／B2／B4。
+
 复用已完成的 `checkpoints/phase4_v57_20261014_232157_762998141/data4`。先按 [正式包验收说明](PHASE4_V57_ACCEPTANCE_20261015.md) 在最终同步后的源码上生成当前学生视图。此轮 `run_automatic.sh` 变更属于学生合同，已用此前源码生成的 view 需重新生成；原生生产库无需重放或重建。
 
 ```bash
@@ -47,7 +51,7 @@ OUTPUT_DIR="checkpoints/p4_batch_e2e_$(date +%Y%m%d_%H%M%S_%N)" \
 bash qwen3vl_local/audit_joint/benchmark_phase4_batch.sh
 ```
 
-默认两／四图、B1／B2、两个重复、end_to_end；每 event 32 个计时呈现，320 个全局呈现、10 次更新；每 event 另预热一次更新。有效更新量固定 32，与 Phase4 四卡 B1／累积8一致，因此 B2 累积4。入口末尾可加工具参数进行明确的独立对照。
+默认两／四图、B1／B2／B4、两个重复、end_to_end；每 event 32 个计时呈现，320 个全局呈现、10 次更新；每 event 另预热一次更新。有效更新量固定 32，与 Phase4 四卡 B1／累积8一致，因此 B2 累积4、B4累积2。入口末尾可加工具参数进行明确的独立对照。
 
 Phase4 benchmark 现在直接调用正式训练的 `encode_batch`：逐样本传输后在设备上组批。此前工具的 CPU 组批后统一传输路径不再用于 Phase4。detailed 模式把该整段记为 `encode_batch_device`，不误标为纯 CPU；end_to_end 的异步阶段耗时仍仅叫 host_submission_seconds。Phase3 编码路径保持原样。benchmark 不保存 checkpoint，不替代正式准入，不证明收敛。
 

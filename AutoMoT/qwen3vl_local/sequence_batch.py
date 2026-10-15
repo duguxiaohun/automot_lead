@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 import hashlib
 import json
 
-POLICY = 'event_equal_contiguous_unseen_first_v1'
+POLICY = 'event_equal_contiguous_unseen_first_v2'
 
 
 def digest(value):
@@ -80,39 +80,60 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
                     groups[(r['sequence'], r['frame'] % stride)][r['frame']].append(i)
             pieces = []
             for key, frames in sorted(groups.items()):
-                # Multiple transition questions at an anchor remain distinct; each
-                # lane supplies at most one question per anchor to a temporal run.
-                lanes = 1  # other questions at the same anchor return after this anchor tier
-                for lane in range(lanes):
-                    run = []
-                    for frame in sorted(frames):
-                        values = sorted(frames[frame], key=lambda i:ids[i])
-                        if lane >= len(values):
-                            continue
-                        i = values[lane]
-                        if run and records[run[-1]]['frame'] + stride != frame:
-                            pieces.extend(run[k:k+block] for k in range(0,len(run),block)); run=[]
-                        run.append(i)
-                    pieces.extend(run[k:k+block] for k in range(0,len(run),block))
+                # Preserve alternatives until consumption. All candidates here
+                # share the same question/anchor exposure tier. Choosing another
+                # question at this anchor cannot shorten the temporal window.
+                run = []
+                for frame in sorted(frames):
+                    values = sorted(frames[frame], key=lambda i:ids[i])
+                    if run and records[run[-1][0]]['frame'] + stride != frame:
+                        pieces.extend(run[k:k+block] for k in range(0,len(run),block)); run=[]
+                    run.append(values)
+                pieces.extend(run[k:k+block] for k in range(0,len(run),block))
             # Stable seeded ties, independent of input list order and RGB mode.
-            pieces.sort(key=lambda p:digest([seed, epoch, ids[p[0]]]))
+            pieces.sort(key=lambda p:digest([seed, epoch, ids[p[0][0]]]))
             by_length = defaultdict(list)
             for piece in pieces:
                 by_length[len(piece)].append(piece)
+            opportunities = Counter(action for piece in pieces for alternatives in piece
+                for action in {records[i]['action'] for i in alternatives})
             while by_length and len(selected) < targets[event]:
                 remaining = min(block-len(selected)%block, targets[event]-len(selected))
                 length = max(by_length)
                 candidates = by_length[length]
                 # Within equally continuous choices, compensate action deficit.
-                def score(piece):
-                    take = piece[:remaining]
-                    return sum(max(0, desired[a]-actual[a]) / max(1, desired[a])
-                               for a in (records[i]['action'] for i in take))
-                best = max(range(len(candidates)), key=lambda j:score(candidates[j]))
+                def resolve(piece):
+                    provisional = actual.copy()
+                    available = opportunities.copy()
+                    take, score = [], 0.
+                    def deficit(i):
+                        action = records[i]['action']
+                        return max(0, desired[action]-provisional[action]) / max(1, desired[action])
+                    for alternatives in piece[:remaining]:
+                        # Account for scarce remaining opportunities: consuming
+                        # an anchor can discard its only rare-action alternative.
+                        def urgency(i):
+                            action = records[i]['action']
+                            return (max(0, desired[action]-provisional[action]) / max(1, available[action]), deficit(i))
+                        i = max(alternatives, key=urgency)
+                        # Keep the existing between-piece score; only selection
+                        # within an anchor uses the running provisional deficit.
+                        action = records[i]['action']
+                        score += max(0, desired[action]-actual[action]) / max(1, desired[action])
+                        take.append(i)
+                        provisional[records[i]['action']] += 1
+                        for action in {records[j]['action'] for j in alternatives}:
+                            available[action] -= 1
+                    return take, score
+                choices = [resolve(piece) for piece in candidates]
+                best = max(range(len(candidates)), key=lambda j:choices[j][1])
                 piece = candidates.pop(best)
                 if not candidates:
                     del by_length[length]
-                take, rest = piece[:remaining], piece[remaining:]
+                take, rest = choices[best][0], piece[remaining:]
+                for alternatives in piece[:remaining]:
+                    for action in {records[i]['action'] for i in alternatives}:
+                        opportunities[action] -= 1
                 if rest:
                     by_length[len(rest)].append(rest)
                 segments.append(dict(offset=len(selected), length=len(take), sequence=records[take[0]]['sequence'],

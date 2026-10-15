@@ -1,5 +1,15 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-15 v61复审补丁与Phase4实测授权发布
+
+用户明确要求完善代码push并给出Phase4实测完整命令。本轮发布此前v61四项修正（通用P3 warmup比例、v2同锚点action选择、probe配置可用性交集、旧回执测试），另将Phase4 benchmark默认扩为两／四图B1／2／4两重复共12trial，有效更新32、累积8／4／2、正式encode_batch路径。完整命令在audit_joint/PHASE4_BENCHMARK_20261015.md：现有v57 data4→新学生view→四卡实测，包含来源校验／磁盘guard／失败停止／日志与交回文件，不启动正式整轮、不重放老师。未收到Phase4 GPU实测结果，不能用Phase3结果替代。
+发布前224相关回归18.68秒通过，六shell及完整命令语法／内联Python编译通过，v61清单525源matched；三个发布指针一致。源码测试轻量文档／回执白名单发布，checkpoints、RGB、权重、paper、用户.vscode留本机。同步最终源码后生成view；待用户执行服务器实测并交summary.json与request.json。无远程／GPU执行。
+
+### 2026-10-15 连续batch四项复审修正
+
+对v60复核：P4 benchmark已用正式encode_batch，保留并回归；P3 B2专用入口已有warmup500，通用入口仍固定2000，现默认按实际optimizer总更新10%预热，显式步数必须小于总更新、模型加载前拒绝错误，运行清单及adapter记录计划；B2专用500保留。共享采样升event_equal_contiguous_unseen_first_v2，保留同锚点全部合格候选，曝光层级／最长段优先后按action欠额与剩余机会选题，旧v1 history拒绝。probe用各卡实际安全batch交集，分别报告容量及training_compatible_candidates／排除原因，检查四卡1024/event和有效更新量；不把B3／5／6／7容量当正式入口推荐。修复旧short_diagnostics对train.encode和单id字段引用。
+224相关回归15.77秒通过，更新发布指针后16子集再通过（不另计），六shell语法及P3直接脚本help通过。既有1457train小池新view，两模式U-E3首轮16proceed/NO→14proceed/NO+2hold/YES，同锚点／段成员长度，2RGB中间两段顺序交换；五轮累计151／278／383／479／575保持。两模式1024/event计划覆盖全部1457题，空留出仅CPU非GPU消费；原生producer及题目成员SHA不变，旧学生合同拒绝。新release_sources_v61_batch_audit_20261015.json共525源matched无额外Python，三个入口指针更新。共享采样改变学生合同，最终同步后从有效v57 data4新建view，不重放老师／20h建库，不改旧SHA续训。详见audit_joint/BATCH_AUDIT_FIXES_20261015.md和batch_audit_fixes_verification_20261015.json；本机checkpoints/batch_audit_fixes_20261015。未push／远程／GPU／改标定提示词，保留用户.vscode。
+
 ### 2026-10-15 Phase4首轮工作流与batch配置授权发布
 
 用户明确授权本轮白名单push。当前统一release_sources_v60_batch_profiles_20261015.json，523源SHA全部匹配，发布前相关回归209项通过（13.49秒），含自动准入/失败交接/真实CPU进程清理/连续batch与性能配置。提交源码、测试、轻量报告与操作文档，不提交checkpoints、RGB、权重、压缩包、paper或用户.vscode。Phase4沿已有sync_automot.sh同步后使用audit_joint.phase4_first_epoch，复用v57原生库生成当前视图并完成两模式各一轮/重载/test/交接；GPU结果未验收，UE5能力缺格仍保留。性能profile与工作流变更已合并检查，最终同步后再生成学生视图。

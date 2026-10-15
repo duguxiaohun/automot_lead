@@ -65,6 +65,14 @@ def test_phase3_profile_refuses_existing_run(tmp_path):
     assert result.returncode!=0 and 'Refusing existing run' in result.stderr and calls==[]
 
 
+def test_generic_phase3_launcher_defaults_to_ratio_not_fixed_steps(tmp_path):
+    result,calls=launch(tmp_path,'sft_new_loop_phase3/train.sh',{'INDEX':'index.jsonl'},['sampling'])
+    assert result.returncode==0,result.stderr
+    args=calls[-1]
+    assert '--warmup-steps' not in args
+    assert args[args.index('--warmup-ratio')+1]=='0.1'
+
+
 def test_phase4_profile_preserves_formal_update_budget(tmp_path):
     result,calls=launch(tmp_path,'benchmark_phase4_batch.sh',{'DATASET':'current view','OUTPUT_DIR':'new result','GPU_IDS':'0,1,2,3'})
     assert result.returncode==0,result.stderr
@@ -73,7 +81,7 @@ def test_phase4_profile_preserves_formal_update_budget(tmp_path):
                        '--samples-per-event':'32','--timing':'end_to_end','--seed':'20260929',
                        '--output':'new result'}.items():
         assert args[args.index(flag)+1]==value
-    assert args[args.index('--batches')+1:args.index('--samples-per-event')]==['1','2']
+    assert args[args.index('--batches')+1:args.index('--samples-per-event')]==['1','2','4']
     assert '--gradient-checkpointing' in args
 
 

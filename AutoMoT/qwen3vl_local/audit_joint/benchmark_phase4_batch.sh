@@ -15,6 +15,6 @@ exec "${PYTHON:-python}" -m qwen3vl_local.audit_joint.batch_benchmark \
   --phase 4 --dataset "$DATASET" --data-root "${DATA_ROOT:-lead_data}" \
   --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" \
   --gradient-checkpointing --gpus "$GPU_IDS" \
-  --modes 2 4 --batches 1 2 --samples-per-event 32 --update-samples 32 \
+  --modes 2 4 --batches 1 2 4 --samples-per-event 32 --update-samples 32 \
   --seed 20260929 --repeats 2 --timing end_to_end \
   --output "${OUTPUT_DIR:-checkpoints/p4_batch_e2e_$(date +%Y%m%d_%H%M%S_%N)}" "$@"

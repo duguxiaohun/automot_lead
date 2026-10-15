@@ -1,0 +1,128 @@
+{
+  "status": "implemented_cpu_verified",
+  "release": "release_sources_v61_batch_audit_20261015.json",
+  "source_check": {
+    "status": "matched",
+    "files": 525,
+    "manifest_sha256": "c6a07ab72feae557b19a6db89b12aa99bf57c0de44972cf71492a7c21c9490ef",
+    "unexpected_python_files": []
+  },
+  "fixes": {
+    "phase3_generic_warmup": "default ratio 0.1 of actual optimizer updates; explicit steps validated before model loading; B2 profile retains 500",
+    "same_anchor_actions": "exposure tier and continuity retained; defer question choice and use action deficit with remaining anchor opportunities",
+    "phase4_benchmark": "already uses formal encode_batch since v60; retained and regression verified",
+    "probe": "intersection of actual safe measured batches across GPUs; separate training compatibility and exclusion reasons",
+    "stale_test": "patch encode_batch and assert batch ids instead of removed encode/scalar id"
+  },
+  "tests": {
+    "unique_related_passed": 224,
+    "regression_log": "224 passed in 15.77s",
+    "release_pointer_recheck": "16 passed in 1.21s (subset, not additional unique tests)",
+    "shell_syntax_passed": 6,
+    "phase3_direct_script_help": true
+  },
+  "real_data": {
+    "pool": 1457,
+    "policy": "event_equal_contiguous_unseen_first_v2",
+    "modes": [
+      {
+        "mode": 2,
+        "before_ue3": {
+          "proceed/NO": 16
+        },
+        "after_ue3": {
+          "hold/YES": 2,
+          "proceed/NO": 14
+        },
+        "same_anchor_and_segment_membership": true,
+        "coverage": [
+          151,
+          278,
+          383,
+          479,
+          575
+        ],
+        "full_budget": {
+          "U-E2": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E3": 1024
+        },
+        "full_unique": 1457
+      },
+      {
+        "mode": 4,
+        "before_ue3": {
+          "proceed/NO": 16
+        },
+        "after_ue3": {
+          "hold/YES": 2,
+          "proceed/NO": 14
+        },
+        "same_anchor_and_segment_membership": true,
+        "coverage": [
+          151,
+          278,
+          383,
+          479,
+          575
+        ],
+        "full_budget": {
+          "U-E2": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E3": 1024
+        },
+        "full_unique": 1457
+      }
+    ],
+    "old_student_rejected": true,
+    "native_producer_unchanged": true,
+    "selected_ids_unchanged": true,
+    "scope": "Existing 1457-question train pool, empty holdouts; CPU plans only, not GPU consumption",
+    "two_rgb_segment_order": "middle two U-E3 segments swapped; members and lengths unchanged"
+  },
+  "evidence_sha256": {
+    "regression.log": "64cd5111a2fac02fc950180aa93f14647e51d1ac3ed6184e6aa035ec5368deeb",
+    "workflow_final.log": "bed977af493238c93af025062bc9f822221e9b9a2e6b437668db045df18cb29c",
+    "real_verification.json": "b7867857bdad64a28e62bb85bc0087bc63ff4b539ec68fa0f9b01f0ca3499fc4",
+    "source_check.json": "84a20d7a76abad84fdee5c276dda559334aca1795d122816d674498bd0c6ba77"
+  },
+  "limitations": [
+    "No target 4B GPU or remote training",
+    "Soft action targets are not guaranteed for every event",
+    "New sampler requires new student view from existing native v57 data4; old history/checkpoints not silently migrated",
+    "Old throughput results do not certify new sampler performance"
+  ],
+  "published": false,
+  "release_validation": {
+    "tests": "224 passed in 18.68s",
+    "log_sha256": "8ce5765b899548a708616fa8cefde7014c3e18aebb1388f6d6f2b04af122fb65",
+    "phase4_benchmark_batches": [
+      1,
+      2,
+      4
+    ],
+    "phase4_accumulation": [
+      8,
+      4,
+      2
+    ],
+    "phase4_trials": 12,
+    "command_shell_syntax": true,
+    "inline_precheck_compiles": true,
+    "push_authorized": true
+  }
+}

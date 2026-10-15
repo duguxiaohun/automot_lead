@@ -57,6 +57,9 @@ def parser():
     p.add_argument('--gradient-checkpointing',action=argparse.BooleanOptionalAction,default=None)
     p.add_argument('--prompt-variant',default='baseline')
     p.add_argument('--headroom-fraction',type=float,default=.15)
+    p.add_argument('--training-world-size',type=int,default=4,help='Target training world, independent of sequential probe GPU count')
+    p.add_argument('--training-per-event',type=int,default=1024,help='Intended training event quota; Phase4 automatic entry requires 1024')
+    p.add_argument('--training-update-samples',type=int,default=None,help='Target effective update batch; default Phase3=16, Phase4=32')
     p.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     return p
 
@@ -141,12 +144,44 @@ def worker(a):
         scope='single-GPU real train steps including AdamW; sampled train inputs only; DDP/full-pool peak not certified')
 
 
+def capacity_summary(results, *, gpus, modes, phase, world=4, per_event=1024, update_samples=None):
+    """Separate measured capacity from usable launch candidates; never extrapolate."""
+    update_samples = update_samples if update_samples is not None else (16 if phase=='3' else 32)
+    if min(world,per_event,update_samples)<1:
+        raise ValueError('training world, quota and update samples must be positive')
+    capacity, compatible, excluded = {}, {}, {}
+    for mode in modes:
+        sets=[{r['batch_size'] for r in results if r['gpu']==gpu and r['rgb_mode']==mode
+               and r['status']=='measured' and r.get('fits_with_headroom') is True} for gpu in gpus]
+        common=set.intersection(*sets) if sets else set()
+        capacity[str(mode)]=max(common,default=0)
+        candidates=[];reasons={}
+        for batch in sorted(common):
+            why=[]
+            if per_event%(world*batch):why.append('event quota not divisible by world * batch')
+            if update_samples%(world*batch):why.append('update samples not divisible by world * batch')
+            if phase=='4' and (world!=4 or per_event!=1024):why.append('Phase4 automatic entry fixes four GPUs and 1024/event')
+            if why:reasons[str(batch)]=why
+            else:candidates.append(dict(batch_size=batch,accumulation=update_samples//(world*batch)))
+        compatible[str(mode)]=candidates;excluded[str(mode)]=reasons
+    return dict(conservative_measured_candidates=capacity,
+        training_compatible_candidates=compatible,training_exclusions=excluded,
+        training_configuration=dict(world_size=world,per_event=per_event,update_samples=update_samples),
+        note='Capacity is the largest batch actually measured with headroom on EVERY tested GPU. '
+             'Training candidates additionally satisfy quota/update divisibility; not speed rankings or DDP certification. '
+             'Phase3 measured-profile launcher remains fixed at B2; use the generic trainer for other candidates.')
+
+
 def main():
     p=parser()
     a=p.parse_args()
     try:validate_paths(a)
     except ValueError as exc:p.error(str(exc))
     if a.gradient_checkpointing is None:a.gradient_checkpointing=a.phase=='4'
+    try:
+        capacity_summary([],gpus=[],modes=a.modes,phase=a.phase,world=a.training_world_size,
+                         per_event=a.training_per_event,update_samples=a.training_update_samples)
+    except ValueError as exc:p.error(str(exc))
     if (min(a.batches+[a.steps_per_event,a.max_length])<1 or not 0<a.headroom_fraction<1
             or (a.phase=='3' and a.index is None) or (a.phase=='4' and a.dataset is None)):
         raise ValueError('invalid probe inputs')
@@ -188,12 +223,10 @@ def main():
                 (a.output/'summary.json').write_text(json.dumps(dict(trials=results),indent=2)+'\n')
                 print(json.dumps({k:v for k,v in result.items() if k not in ('records',)}),flush=True)
                 if result['status'] in ('oom','error'):break
-    recommended={str(mode):min((max((r['batch_size'] for r in results if r['gpu']==gpu and r['rgb_mode']==mode
-        and r['status']=='measured' and r['fits_with_headroom']),default=0) for gpu in a.gpus.split(',')),default=0)
-        for mode in a.modes}
+    summary=capacity_summary(results,gpus=gpu_ids,modes=a.modes,phase=a.phase,world=a.training_world_size,
+                             per_event=a.training_per_event,update_samples=a.training_update_samples)
     (a.output/'summary.json').write_text(json.dumps(dict(trials=results,
-        conservative_measured_candidates= recommended,
-        note='Candidate is the largest TESTED batch fitting on EVERY tested GPU with headroom, not maximum capacity. Confirm with DDP before full training.'),indent=2)+'\n')
+        **summary),indent=2)+'\n')
     if any(r['status']=='error' for r in results):raise SystemExit(2)
 
 if __name__=='__main__':main()

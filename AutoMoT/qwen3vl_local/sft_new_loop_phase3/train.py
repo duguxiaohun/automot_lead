@@ -116,6 +116,8 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # 
 
 
 from qwen3vl_local.sft_new_loop_phase3.source_mapping import mapping_contract_hash
+from qwen3vl_local.sequence_batch import POLICY as SEQUENCE_POLICY
+from qwen3vl_local.sft_new_loop_phase3.training_schedule import resolve_warmup
 
 FORMAT_COMPONENT_ID = -1
 BALANCE_CLASSES: Tuple[str, ...] = (*CONTEXT_IDS, "INVALID")
@@ -1263,7 +1265,8 @@ def _save_adapter(
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
-        "sampling_policy": "event_equal_contiguous_unseen_first_v1",
+        "sampling_policy": SEQUENCE_POLICY,
+        "learning_rate_schedule": getattr(args, "learning_rate_schedule", {}),
         "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
         "training_index_sha256": getattr(args, "training_index_sha256", None),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -1417,7 +1420,8 @@ def _write_run_metadata(
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
-        "sampling_policy": "event_equal_contiguous_unseen_first_v1",
+        "sampling_policy": SEQUENCE_POLICY,
+        "learning_rate_schedule": getattr(args, "learning_rate_schedule", {}),
         "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
         "training_index_sha256": getattr(args, "training_index_sha256", None),
     }
@@ -1653,6 +1657,15 @@ def train(args: argparse.Namespace) -> None:
     if world_size > 1:
         ddp_barrier(local_rank)
 
+    steps_per_epoch = len(full_work) // (world_size * args.batch_size)
+    total_steps = int(args.max_steps) if int(args.max_steps) > 0 else max(1, steps_per_epoch * max(1, int(args.num_epochs)))
+    total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
+    args.learning_rate_schedule = resolve_warmup(total_optimizer_steps,
+        steps=args.warmup_steps, ratio=args.warmup_ratio)
+    args.warmup_steps = args.learning_rate_schedule['warmup_updates']
+    if rank == 0:
+        print(f"[schedule] {args.learning_rate_schedule}", flush=True)
+
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -1671,13 +1684,6 @@ def train(args: argparse.Namespace) -> None:
     optimizer = torch.optim.AdamW(
         params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay), betas=(0.9, 0.95)
     )
-    steps_per_epoch = len(full_work) // (world_size * args.batch_size)
-    total_steps = (
-        int(args.max_steps)
-        if int(args.max_steps) > 0
-        else max(1, steps_per_epoch * max(1, int(args.num_epochs)))
-    )
-    total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
     scheduler = make_scheduler(optimizer, total_steps=total_optimizer_steps, warmup_steps=int(args.warmup_steps))
     writer = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE and not bool(args.no_tb) else None
     if rank == 0:
@@ -2202,7 +2208,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--anchor-stride",type=int,default=None)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--weight-decay", type=float, default=0.0)
-    p.add_argument("--warmup-steps", type=int, default=2_000)
+    p.add_argument("--warmup-steps", type=int, default=None, help="Explicit optimizer updates; overrides warmup ratio, must be less than total updates")
+    p.add_argument("--warmup-ratio", type=float, default=0.1, help="Fraction of actual optimizer updates when warmup steps are not supplied")
     p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--lora-alpha", type=int, default=32)
     p.add_argument("--lora-dropout", type=float, default=0.05)
@@ -2214,6 +2221,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260904)
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
+    if not 0 <= args.warmup_ratio < 1 or (args.warmup_steps is not None and args.warmup_steps < 0):
+        p.error("warmup ratio must be in [0,1); warmup steps must be nonnegative")
     if args.anchor_stride is None:args.anchor_stride=1 if args.history_rgb_mode=="4rgb" else 2
     args.action_output_mode = validate_action_output_mode(args.action_output_mode)
     if min(args.batch_size,args.anchor_stride,args.grad_accum)<1:

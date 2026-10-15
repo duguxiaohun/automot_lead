@@ -76,7 +76,7 @@ def test_cpu_training_writes_actual_steps_order_runtime_and_checkpoint(tmp_path,
             (folder/'processor_config.json').write_text('{}')
     monkeypatch.setattr(torch.cuda,'is_available',lambda:False)
     monkeypatch.setattr(train,'load_bundle',lambda *a,**kw:SimpleNamespace(model=Model(),processor=Processor()))
-    monkeypatch.setattr(train,'encode',lambda *a,**kw:{'input_ids':torch.ones(1,3,dtype=torch.long)})
+    monkeypatch.setattr(train,'encode_batch',lambda bundle,rows,*a,**kw:{'input_ids':torch.ones(len(rows),3,dtype=torch.long)})
     monkeypatch.setattr(train,'evaluate_rows',lambda bundle,rows,*a,**kw:({'selection_agreement':.5},as_cases(rows,.5)))
     def save(model, folder):
         folder.mkdir()
@@ -90,7 +90,7 @@ def test_cpu_training_writes_actual_steps_order_runtime_and_checkpoint(tmp_path,
         '--epochs','1','--accumulation','2','--sampling-policy','legacy_ring'])
     train.main()
     steps=[json.loads(s) for s in (output/'epoch_000_rank0_steps.jsonl').read_text().splitlines()]
-    assert [r['id'] for r in steps]==['first','second','first']
+    assert [r['ids'] for r in steps]==[['first'],['second'],['first']]
     assert [r['optimizer_steps'] for r in steps]==[0,1,2]
     assert steps[-1]['loss'] < steps[0]['loss']
     runtime=json.loads((output/'epoch_000_runtime.json').read_text())
