@@ -95,6 +95,7 @@ def dataset_bindings(dataset):
     parent = dataset
     if (dataset / 'student_view.json').is_file():
         descriptor = json.loads((dataset / 'student_view.json').read_text())
+        if descriptor.get('rgb_identities_sha256'):paths.add(dataset/'rgb_identities.json')
         parent = Path(descriptor['parent']['logical_path'])
     paths.add(parent / 'manifest.json')
     manifest = json.loads((parent / 'manifest.json').read_text())

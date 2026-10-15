@@ -13,11 +13,12 @@ from ..controller import Episode
 from ..identity import digest, file_sha
 from ..input_identity import model_input_key
 from ..route_prompts import prompt
+from ..observation import observation_contract as producer_observation, validate_observation as validate_producer
 from .contract import POLICY, contract, observation_contract, validate_observation
 
 
 def short_row(original):
-    validate_observation(observation_contract(4), original['observation'], len(original['images']))
+    validate_producer(producer_observation(4), original['observation'], len(original['images']))
     row = deepcopy(original)
     row['observation']['history_frames'] = original['observation']['history_frames'][2:]
     for field in ('images', 'image_sha256', 'image_rgb_sha256'):
@@ -54,7 +55,7 @@ def exposure_inventory():
     return groups, files
 
 
-def paired_view(data, mode, exposed):
+def legacy_paired_view(data, mode, exposed):
     """Apply one exclusion set to both modes; never move an old split's rows."""
     transformed, targets = {}, defaultdict(set)
     for split, rows in data.items():
@@ -81,6 +82,70 @@ def paired_view(data, mode, exposed):
     return result, exclusions
 
 
+def image_identities(data, data_root):
+    """Bind new RGB4 pixels from existing files once, never fabricate frames."""
+    from PIL import Image
+    from ..data_paths import data_path
+    from ..input_identity import rgb_content_sha
+    identities={}
+    for rows in data.values():
+        for row in rows:
+            last=Path(row['images'][-1]);frame=row['observation']['frame_id']
+            for offset in (-3,-2,-1,0):
+                rel=last.with_name(f'{frame+offset:04d}'+last.suffix).as_posix()
+                if rel in identities:continue
+                path=data_path(Path(data_root).resolve(),rel)
+                before=file_sha(path)
+                with Image.open(path) as image:rgb=rgb_content_sha(image.convert('RGB'))
+                if before!=file_sha(path):raise ValueError('RGB changed while binding view')
+                identities[rel]=dict(sha256=before,rgb_sha256=rgb)
+    return identities
+
+
+def four_row(original, identities):
+    """Transfer old sparse-RGB4 target to new consecutive RGB4, explicitly."""
+    row=short_row(original)  # strips old visibility/teacher approval, retaining provenance
+    frame=original['observation']['frame_id'];last=Path(original['images'][-1])
+    row['observation']['history_frames']=[frame+i for i in (-3,-2,-1,0)]
+    row['images']=[last.with_name(f'{f:04d}'+last.suffix).as_posix() for f in row['observation']['history_frames']]
+    row['image_sha256']=[identities[p]['sha256'] for p in row['images']]
+    row['image_rgb_sha256']=[identities[p]['rgb_sha256'] for p in row['images']]
+    # Existing matching frames must agree with the native source identity.
+    known=dict(zip(original['images'],original['image_sha256']))
+    if any(known[p]!=h for p,h in zip(row['images'],row['image_sha256']) if p in known):
+        raise ValueError('new view disagrees with original RGB source SHA')
+    row['student_reference']['input_change']='sparse_four_to_consecutive_four'
+    row['prompt_sha256']=digest(prompt(Episode(**row['episode']),row['edge'],row['observation']))
+    row['model_input_sha256']=model_input_key(row)
+    validate_observation(observation_contract(4),row['observation'],4)
+    return row
+
+
+def paired_view(data, mode, exposed, *, identities=None, data_root=None):
+    """One exclusion set for both modes, including new-input target conflicts."""
+    if identities is None:
+        if data_root is None:return legacy_paired_view(data,mode,exposed)
+        identities=image_identities(data,data_root)
+    transformed={};targets=defaultdict(set)
+    for split,rows in data.items():
+        for row in rows:
+            if row['id'] in transformed:raise ValueError('duplicate source row ID')
+            pair={2:short_row(row),4:four_row(row,identities)}
+            transformed[row['id']]=pair
+            for m,r in pair.items():targets[(split,m,r['model_input_sha256'])].add(r['target'])
+    result={};exclusions=[]
+    for split,rows in data.items():
+        result[split]=[]
+        for row in rows:
+            pair=transformed[row['id']];reasons=[]
+            if split!='train' and row['physical_group'] in exposed:reasons.append('registered_development_exposure')
+            for m,r in pair.items():
+                if len(targets[(split,m,r['model_input_sha256'])])>1:reasons.append(f'conflicting_targets_for_rgb{m}_input')
+            if reasons:exclusions.append(dict(id=row['id'],split=split,physical_group=row['physical_group'],reasons=reasons))
+            else:result[split].append(pair[mode])
+    return result,exclusions
+
+
 def parent_binding(parent, manifest):
     names = {'manifest.json', 'review_queue.jsonl', *manifest['files']}
     for key, name in [('candidate_pool_sha256', 'candidate_pool.json'),
@@ -93,7 +158,7 @@ def parent_binding(parent, manifest):
             for name in sorted(names)}
 
 
-def create(parent, output):
+def create(parent, output, *, data_root=None):
     parent, output = Path(parent).absolute(), Path(output).absolute()
     if output.resolve().is_relative_to(parent.resolve()):
         raise ValueError('view output must be outside the original dataset')
@@ -103,7 +168,9 @@ def create(parent, output):
     if manifest['rgb_mode'] != 4:
         raise ValueError('short input must derive from native RGB4, not old RGB2')
     exposed, files = exposure_inventory()
-    selected, exclusions = paired_view(data, 2, exposed)
+    data_root=Path(data_root or native.ROOT.parents[1]/'lead_data')
+    identities=image_identities(data,data_root)
+    selected, exclusions = paired_view(data, 2, exposed, identities=identities)
     descriptor = dict(schema=POLICY, source=contract(), parent=dict(logical_path=str(parent),
         resolved_path=str(parent.resolve()), files=parent_binding(parent, manifest)),
         exposure_files=files, counts={s: len(rows) for s, rows in selected.items()}, exclusions=exclusions,
@@ -115,6 +182,9 @@ def create(parent, output):
         raise ValueError('parent dataset changed during view preparation')
     output.mkdir(parents=True, exist_ok=False)
     from qwen3vl_local.audit_joint.io import write_json
+    # Sidecar is an immutable input binding, not another copy of the RGB corpus.
+    write_json(output/'rgb_identities.json',identities)
+    descriptor['rgb_identities_sha256']=file_sha(output/'rgb_identities.json')
     write_json(output / 'student_view.json', descriptor)
     return descriptor
 
@@ -140,7 +210,11 @@ def load_dataset(path, *, rgb_mode=2, require_trainable=False, require_complete_
     exposed, files = exposure_inventory()
     if files != descriptor['exposure_files']:
         raise ValueError('exposure inventory changed; prepare a new view')
-    data, exclusions = paired_view(data, rgb_mode, exposed)
+    identity_path=Path(path)/'rgb_identities.json'
+    if file_sha(identity_path)!=descriptor.get('rgb_identities_sha256'):
+        raise ValueError('student RGB identity sidecar changed')
+    identities=json.loads(identity_path.read_text())
+    data, exclusions = paired_view(data, rgb_mode, exposed, identities=identities)
     if (exclusions != descriptor['exclusions'] or
             {s: len(rows) for s, rows in data.items()} != descriptor['counts'] or
             {s: digest([row['id'] for row in rows]) for s, rows in data.items()} != descriptor['selected_ids']):
@@ -148,7 +222,7 @@ def load_dataset(path, *, rgb_mode=2, require_trainable=False, require_complete_
     coverage = native.coverage_report(sum(data.values(), []))
     admission = native.training_report(data, coverage)
     admission['evaluation_scope'] = 'development reference agreement; short-input visibility and joint independence unverified'
-    admission['transferred_supervision_rows'] = len(data['train']) if rgb_mode == 2 else 0
+    admission['transferred_supervision_rows'] = len(data['train'])
     from collections import Counter
     admission['original_label_basis_counts'] = dict(Counter(
         row.get('student_reference', {}).get('original_label_basis', row['label_basis'])

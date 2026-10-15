@@ -3,7 +3,7 @@ from collections import Counter
 import pytest
 from qwen3vl_local.sft_new_loop_phase3.test_validation_balance import candidate_rows
 from qwen3vl_local.sft_new_loop_phase3 import train
-from qwen3vl_local.sft_new_loop_phase3.evaluation_balance import select_work
+from qwen3vl_local.sft_new_loop_phase3.sequence_evaluation import select_work
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
 
 

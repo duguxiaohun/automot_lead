@@ -250,6 +250,7 @@ def test_interruption_resume_matches_uninterrupted(tmp_path, monkeypatch, failur
     def run(out, resume=""):
         argv = [
             "train",
+            "--evaluation-distribution", "natural",  # toy fixture has no event taxonomy
             "--data-dir",
             str(dataset),
             "--output-dir",

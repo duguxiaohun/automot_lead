@@ -17,8 +17,8 @@ from ..dataset import dump_rows
 from .evaluate import evaluate_rows
 from ..identity import ROOT,digest,file_sha,write_json
 from .contract import contract
-from .model import load_bundle,encode
-from ..sampling import plan
+from .model import load_bundle,encode_batch
+from .batch_sampling import plan
 
 
 def accumulation_size(index,total,accumulation):
@@ -71,6 +71,8 @@ def main():
     p.add_argument('--resume',type=Path)
     p.add_argument('--epochs',type=int,default=7)
     p.add_argument('--lr',type=float,default=2e-5)
+    p.add_argument('--batch-size',type=int,default=1)
+    p.add_argument('--anchor-stride',type=int,default=None)
     p.add_argument('--accumulation',type=int,default=8)
     p.add_argument('--cap',type=int,default=8)
     p.add_argument('--epoch-samples',type=int)
@@ -80,25 +82,26 @@ def main():
     p.add_argument('--lora-alpha',type=int,default=32)
     p.add_argument('--vision-scope',choices=('off','merger','last4','all'),default='off')
     p.add_argument('--sampling-only',action='store_true')
-    p.add_argument('--sampling-policy',choices=('phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'),default='phase3_balanced')
+    p.add_argument('--sampling-policy',choices=('contiguous_event_equal','phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'),default='contiguous_event_equal')
     p.add_argument('--max-question-repeat',type=int,default=4)
     p.add_argument('--require-complete-coverage',action='store_true',
                    help='Optional exhaustive coverage acceptance, not needed to start training')
     p.add_argument('--selection-mode', choices=('reviewed','rule_consistency'), default='reviewed')
     p.add_argument('--teacher-references', type=Path)
     a=p.parse_args()
-    if min(a.epochs,a.accumulation,a.cap,a.lora_rank,a.lora_alpha,a.max_length)<1 or a.lr<=0:
+    if a.anchor_stride is None:a.anchor_stride=2 if a.rgb_mode==2 else 1
+    if min(a.batch_size,a.anchor_stride,a.epochs,a.accumulation,a.cap,a.lora_rank,a.lora_alpha,a.max_length)<1 or a.lr<=0:
         p.error('invalid training parameters')
     data,manifest=load_dataset(a.dataset,rgb_mode=a.rgb_mode,require_trainable=False,
                                require_complete_coverage=a.require_complete_coverage)
     admission=manifest['training_admission']
-    if a.sampling_policy in ('phase3_balanced','full_event_equal'):
+    if a.sampling_policy in ('contiguous_event_equal','phase3_balanced','full_event_equal'):
         from ..full_sampling import validate_dataset_scope
         validate_dataset_scope(manifest)
-    from ..evaluation_policy import prepare as prepare_evaluation, score_cases
+    from .evaluation_policy import prepare as prepare_evaluation, score_cases
     from ..taxonomy import EVENTS
     data,evaluation=prepare_evaluation(data,mode=a.selection_mode,references=a.teacher_references,
-        rgb_mode=a.rgb_mode,short=True,seed=a.seed)
+        rgb_mode=a.rgb_mode,short=True,seed=a.seed,data_root=a.data_root)
     admission=evaluation['training_admission']
     rank=int(os.environ.get('RANK','0'))
     world=int(os.environ.get('WORLD_SIZE','1'))
@@ -106,13 +109,13 @@ def main():
     if a.sampling_only:
         sampling_history=None
         for epoch in range(a.epochs):
-            _,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
+            _,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat,batch_size=a.batch_size,anchor_stride=a.anchor_stride)
             sampling_history=audit.pop('next_history',None)
             if rank==0:
                 print(json.dumps(audit),flush=True)
         return
     # Capacity is independent of learned weights; reject before CUDA/model/output creation.
-    plan(data['train'],expected_events=EVENTS,epoch=0,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,max_question_repeat=a.max_question_repeat)
+    plan(data['train'],expected_events=EVENTS,epoch=0,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,max_question_repeat=a.max_question_repeat,batch_size=a.batch_size,anchor_stride=a.anchor_stride)
     coverage=manifest['coverage']
     import torch
     import torch.distributed as dist
@@ -125,7 +128,7 @@ def main():
         dist.init_process_group('nccl' if device.type=='cuda' else 'gloo')
     random.seed(a.seed)
     torch.manual_seed(a.seed)
-    config={k:getattr(a,k) for k in ('lr','accumulation','cap','epoch_samples','seed','max_length','lora_rank','lora_alpha','vision_scope','require_complete_coverage','sampling_policy','max_question_repeat')}
+    config={k:getattr(a,k) for k in ('batch_size','anchor_stride','lr','accumulation','cap','epoch_samples','seed','max_length','lora_rank','lora_alpha','vision_scope','require_complete_coverage','sampling_policy','max_question_repeat')}
     config['paired_training']=dict(policy='same_student_view_membership',
                                   selected_ids=manifest['student_view']['selected_ids'])
     config['evaluation']=evaluation
@@ -153,7 +156,7 @@ def main():
         state=torch.load(a.resume/'training_state.pt',map_location=device,weights_only=True)
         first,best,best_epoch,best_path=restore_best(a.resume,state,run_contract)
         sampling_history=state.get('sampling_history')
-        if a.sampling_policy in ('phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted') and sampling_history is None:
+        if a.sampling_policy in ('contiguous_event_equal','phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted') and sampling_history is None:
             raise ValueError('resume lacks actual sampling exposure history')
         validate_adapter(best_path,bundle.model)
         if first>=a.epochs:
@@ -172,17 +175,21 @@ def main():
         # Epoch seed makes epoch-boundary recovery independent of prior validation RNG use.
         torch.manual_seed(a.seed+epoch*world+rank)
         random.seed(a.seed+epoch*world+rank)
-        indices,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat)
+        indices,audit=plan(data['train'],expected_events=EVENTS,epoch=epoch,seed=a.seed,cap=a.cap,budget=a.epoch_samples,world_size=world,policy=a.sampling_policy,history=sampling_history,max_question_repeat=a.max_question_repeat,batch_size=a.batch_size,anchor_stride=a.anchor_stride)
         next_sampling_history=audit.pop('next_history',None)
-        local_indices=indices[rank::world]
-        records=sample_records(data['train'],indices,world)
+        audit['batch_size']=a.batch_size
+        audit['accumulation']=a.accumulation
+        from qwen3vl_local.sequence_batch import rank_batches
+        batches=rank_batches(indices,rank=rank,world_size=world,batch_size=a.batch_size)
+        local_indices=[i for batch in batches for i in batch]
+        records=sample_records(data['train'],indices,world,a.batch_size)
         audit['ordered_samples']=sample_binding(records,world)
         if rank==0:
             dump_rows(a.output_dir/f'epoch_{epoch:03d}_samples.jsonl',records)
             write_json(a.output_dir/f'epoch_{epoch:03d}_sampling.json',audit)
             print(f"[sampling] epoch={epoch} policy={a.sampling_policy} pool={len(data['train'])} "
                   f"presentations={len(indices)} unique={audit.get('unique_questions',len(set(indices)))} "
-                  f"microbatches_per_rank={len(local_indices)} optimizer_steps={math.ceil(len(local_indices)/a.accumulation)} "
+                  f"microbatches_per_rank={len(batches)} optimizer_steps={math.ceil(len(batches)/a.accumulation)} "
                   f"max_question_repeat={audit.get('max_question_repeat','see sampling report')}",flush=True)
         bundle.model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -192,11 +199,11 @@ def main():
             torch.cuda.reset_peak_memory_stats(device)
         epoch_start=time.perf_counter()
         optimizer_steps=0
-        for j,index in enumerate(local_indices):
+        for j,batch in enumerate(batches):
             step_start=time.perf_counter()
-            inputs=encode(bundle,data['train'][index],a.data_root,max_length=a.max_length)
-            size=accumulation_size(j,len(local_indices),a.accumulation)
-            update=(j+1)%a.accumulation==0 or j+1==len(local_indices)
+            inputs=encode_batch(bundle,[data['train'][i] for i in batch],a.data_root,max_length=a.max_length)
+            size=accumulation_size(j,len(batches),a.accumulation)
+            update=(j+1)%a.accumulation==0 or j+1==len(batches)
             cm=bundle.model.no_sync() if world>1 and not update else nullcontext()
             with cm:
                 loss=bundle.model(**inputs,use_cache=False).loss
@@ -212,13 +219,15 @@ def main():
             if device.type=='cuda':
                 torch.cuda.synchronize(device)
             append_step(a.output_dir/f'epoch_{epoch:03d}_rank{rank}_steps.jsonl',dict(
-                epoch=epoch,rank=rank,local_index=j,position=j*world+rank,id=data['train'][index]['id'],
+                epoch=epoch,rank=rank,local_index=j,batch_size=len(batch),
+                positions=[j*world*a.batch_size+rank*a.batch_size+k for k in range(len(batch))],
+                ids=[data['train'][i]['id'] for i in batch],
                 loss=float(loss.detach()),optimizer_update=update,optimizer_steps=optimizer_steps,
                 elapsed_seconds=time.perf_counter()-step_start,tokens=int(inputs['input_ids'].shape[1])))
             if rank==0 and j%20==0:
-                print(f'[train] epoch={epoch} row={j+1}/{len(local_indices)} loss={float(loss):.5f}',flush=True)
-        runtime=dict(rank=rank,microbatches=len(local_indices),optimizer_steps=optimizer_steps,
-            mean_loss=total_loss/len(local_indices),train_seconds=time.perf_counter()-epoch_start,
+                print(f'[train] epoch={epoch} row={j+1}/{len(batches)} loss={float(loss):.5f}',flush=True)
+        runtime=dict(rank=rank,batch_size=a.batch_size,presentations=len(local_indices),microbatches=len(batches),optimizer_steps=optimizer_steps,
+            mean_loss=total_loss/len(batches),train_seconds=time.perf_counter()-epoch_start,
             device=str(device),gpu_name=torch.cuda.get_device_name(device) if device.type=='cuda' else None,
             peak_allocated_bytes=torch.cuda.max_memory_allocated(device) if device.type=='cuda' else None,
             peak_reserved_bytes=torch.cuda.max_memory_reserved(device) if device.type=='cuda' else None)
@@ -244,7 +253,7 @@ def main():
             report.update(epoch=epoch,macro_score=score,split='val',dataset=digest(manifest),
                           coverage_complete=coverage['ready'],
                           evaluation_scope=admission['evaluation_scope'],
-                          expected_count=len(data['val']),train_loss_rank0=total_loss/len(local_indices))
+                          expected_count=len(data['val']),train_loss_rank0=total_loss/len(batches))
             write_json(a.output_dir/f'epoch_{epoch:03d}_validation.json',report)
             dump_rows(a.output_dir/f'epoch_{epoch:03d}_cases.jsonl',cases)
             folder=a.output_dir/f'epoch_{epoch:03d}'

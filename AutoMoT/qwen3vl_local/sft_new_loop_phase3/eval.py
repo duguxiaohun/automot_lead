@@ -139,7 +139,9 @@ def _maybe_set_idle_gpu_mask() -> None:
             print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}")
 
 
-_maybe_set_idle_gpu_mask()
+# Importing CPU sampling helpers must not select GPUs or wait for torchrun peers.
+if __name__ == "__main__":
+    _maybe_set_idle_gpu_mask()
 
 import torch
 import torch.distributed as dist
@@ -967,8 +969,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     )
     evaluation_plan = None
     if args.evaluation_distribution == "equal_events":
-        from qwen3vl_local.sft_new_loop_phase3.evaluation_balance import select_work
-        cases, evaluation_plan = select_work(cases, seed=int(args.seed), limit=int(args.cases_per_bin))
+        from qwen3vl_local.sft_new_loop_phase3.sequence_evaluation import select_work
+        cases, evaluation_plan = select_work(cases, seed=int(args.seed), limit=int(args.cases_per_bin),stride=1 if history_rgb_mode=="4rgb" else 2)
     if rank == 0:
         (output_dir / "evaluation_plan.json").write_text(json.dumps(
             dict(distribution=args.evaluation_distribution, plan=evaluation_plan), ensure_ascii=False, indent=2))

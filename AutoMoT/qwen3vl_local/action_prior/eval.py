@@ -38,6 +38,7 @@ def main():
     p.add_argument("--max-samples", type=int, default=0)
     p.add_argument("--dump-cases", action="store_true")
     p.add_argument("--raw", action="store_true", help="默认使用 EMA")
+    p.add_argument("--evaluation-distribution",choices=("equal_events","natural"),default="equal_events")
     cli = p.parse_args()
     progress_out = Path(cli.output_dir or str(Path(cli.checkpoint).parent / f"eval_{cli.split}"))
     current().configure(progress_out, "eval")
@@ -71,6 +72,7 @@ def main():
             "requires action_prior v4 joint-trajectory Flow-Matching checkpoint; old independent/regression checkpoints are incompatible"
         )
     args = argparse.Namespace(**state["args"])
+    args.evaluation_distribution=cli.evaluation_distribution
     # 权重已由 checkpoint 固定；不依赖训练前选择清单的旧物理路径。
     args.selection_manifest = ""
     args.selection_output = ""

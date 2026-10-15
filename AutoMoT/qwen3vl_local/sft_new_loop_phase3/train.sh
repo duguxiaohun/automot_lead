@@ -188,6 +188,7 @@ COMMON_ARGS=(
   --save-steps "${SAVE_STEPS:-20000}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
+  --batch-size "${BATCH_SIZE:-1}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --weight-decay "${WEIGHT_DECAY:-0.0}"
   --warmup-steps "${WARMUP_STEPS:-2000}"
@@ -200,6 +201,8 @@ COMMON_ARGS=(
   --seed "${SEED:-20260904}"
   "${EXTRA_ARGS[@]}"
 )
+if [[ "${GRADIENT_CHECKPOINTING:-0}" == "1" ]]; then COMMON_ARGS+=(--gradient-checkpointing); fi
+if [[ -n "${ANCHOR_STRIDE:-}" ]]; then COMMON_ARGS+=(--anchor-stride "$ANCHOR_STRIDE"); fi
 # 验证预算不足时按覆盖规划增容；严格配对实验可关闭并显式指定预算。
 if [[ "${AUTO_EVAL_BALANCE_COUNT:-1}" == "0" ]]; then
   COMMON_ARGS+=(--no-auto-eval-balance-count)

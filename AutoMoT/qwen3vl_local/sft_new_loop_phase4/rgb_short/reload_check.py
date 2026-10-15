@@ -62,8 +62,8 @@ def run_check(a, output, report, stage):
     if digest(manifest) != run['dataset']:
         raise ValueError('reload dataset differs')
     if 'evaluation' in run['training']:
-        from ..evaluation_policy import restore
-        data = restore(data, run, short=True)
+        from .evaluation_policy import restore
+        data = restore(data, run, short=True,data_root=a.data_root)
     stage('expected_cases')
     expected_path = a.run / f'epoch_{epoch:03d}_cases.jsonl'
     expected, _ = load(expected_path)
@@ -83,7 +83,7 @@ def run_check(a, output, report, stage):
     stage('validation')
     metrics, cases = evaluate_rows(bundle, data['val'], a.data_root, run['training']['max_length'])
     if 'evaluation' in run['training']:
-        from ..evaluation_policy import score_cases
+        from .evaluation_policy import score_cases
         metrics.update(score_cases(cases, run['training']['evaluation']['mode'], run['training']['evaluation']['plans']['val']['selected_ids']))
     stage('comparison')
     dump_rows(output / 'cases.jsonl', cases)

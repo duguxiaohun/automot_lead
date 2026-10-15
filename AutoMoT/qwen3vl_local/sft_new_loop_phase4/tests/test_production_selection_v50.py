@@ -10,7 +10,7 @@ from qwen3vl_local.sft_new_loop_phase4.tests.test_teacher import question, seal
 
 def pool(kind='reviewed_rgb'):
     return {split: [dict(id=f'{split}/{e}/{i}', split=split, physical_group=f'{split}/{e}',
-        episode=dict(event=e, state='YIELD', longitudinal='HOLD'), edge='proceed', slice='readiness',
+        episode=dict(event=e,instance_id=f'{split}/{e}', state='YIELD', longitudinal='HOLD'), edge='proceed', slice='readiness',
         target='YES' if i%2 else 'NO', reference_kind=kind,
         label_basis='weak_rule_teacher' if kind=='rule_teacher' else 'reviewed_transition_band',
         scenario='S',route_id=f'{split}{e}', observation={'frame_id':i})
@@ -126,7 +126,7 @@ def test_actual_training_entry_cpu_plan_uses_rule_selection(tmp_path,monkeypatch
     # This entry test uses native four-image references; short conversion is covered separately.
     if short:
         from qwen3vl_local.sft_new_loop_phase4.rgb_short import data as sd
-        monkeypatch.setattr(sd,'paired_view',lambda d,mode,exposed:(d,[]))
+        monkeypatch.setattr(sd,'paired_view',lambda d,mode,exposed,**kw:(d,[]))
         monkeypatch.setattr(sd,'exposure_inventory',lambda:(set(),{}))
     out=tmp_path/'no_run'
     monkeypatch.setattr(sys,'argv',['train','--dataset','unused','--output-dir',str(out),

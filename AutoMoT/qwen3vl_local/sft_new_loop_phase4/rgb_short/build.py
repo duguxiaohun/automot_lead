@@ -57,7 +57,7 @@ def main():
         if a.output.resolve().is_relative_to(a.dataset4.resolve()):
             raise ValueError('output must be outside original dataset')
         a.output.mkdir(parents=True, exist_ok=False)
-    report = create(a.dataset4, a.output / 'view')
+    report = create(a.dataset4, a.output / 'view',data_root=a.data_root)
     print(json.dumps(dict(view=str(a.output / 'view'), counts=report['counts'],
                          exclusions=len(report['exclusions']), production_copied_for_view=False,
                          observation_contracts=report['observation_contracts']), ensure_ascii=False))

@@ -8,6 +8,7 @@ import pytest
 from qwen3vl_local.audit_joint import rule_baseline as rb
 from qwen3vl_local.audit_joint.training_budget import COMPONENTS
 from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool
+from qwen3vl_local.sft_new_loop_phase4.taxonomy import EVENTS
 
 
 def test_first_epoch_measure_uses_actual_balanced_plans_and_reports_both_answers():
@@ -145,7 +146,7 @@ def test_source_drift_still_blocks_with_missing_references(tmp_path,monkeypatch)
 
 
 def test_complete_support_and_selection_can_still_be_admitted(tmp_path,monkeypatch):
-    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import evaluation_policy
     raw=diagnostic_pool(tmp_path,monkeypatch)
     raw['train'].append(next(r for r in pool('rule_teacher')['train']
                             if r['episode']['event']=='U-E5' and r['target']=='YES'))
@@ -154,4 +155,4 @@ def test_complete_support_and_selection_can_still_be_admitted(tmp_path,monkeypat
     report=rb.check(tmp_path,tmp_path/'refs',budget=budget(),space_path=tmp_path)
     assert report['status']=='admitted_rule_baseline' and report['errors']==[]
     assert all(not m['missing_critical_support'] for m in report['modes'].values())
-    assert all(m['schedule']['world1_world4_order_equal'] for m in report['modes'].values())
+    assert all(m['schedule']['worlds']['4'][0]['event_counts']==dict.fromkeys(EVENTS,1024) for m in report['modes'].values())

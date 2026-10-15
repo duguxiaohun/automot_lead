@@ -33,8 +33,9 @@ def diagnostic_report(cases):
         scope='diagnostics only; does not change checkpoint selection or certify reference accuracy')
 
 
-def sample_records(rows, indices, world):
-    return [dict(position=position, rank=position % world, local_index=position // world,
+def sample_records(rows, indices, world, batch_size=1):
+    return [dict(position=position, rank=(position // batch_size) % world,
+                 local_index=position // (world * batch_size), batch_slot=position % batch_size,
                  id=rows[index]['id'], target=rows[index]['target'],
                  original_label_basis=rows[index].get('student_reference', {}).get(
                      'original_label_basis', rows[index]['label_basis']))

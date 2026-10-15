@@ -99,7 +99,7 @@ def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'
         refs = teacher_evaluation.export(pool,pilot/'production/index.json',root,output/'references4',rgb_mode=4)
         result['stages']['automatic_holdout'] = refs['files']
         stage('student_view')
-        view = create(output/'data4',output/'view')
+        view = create(output/'data4',output/'view',data_root=root)
         result['stages']['student_view'] = dict(counts=view['counts'],observations=view['observation_contracts'])
         stage('first_epoch_budget')
         stored = {name:file_sha(output/name) for name in ('data4/manifest.json','references4/references.json','view/student_view.json')}
@@ -107,7 +107,7 @@ def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'
         write_json(output/'first_epoch_budget.json',budget)
         stage('automatic_admission')
         admission = check(output/'view',output/'references4',budget=budget,space_path=output,
-                          coverage_policy=coverage_policy)
+                          coverage_policy=coverage_policy,data_root=root)
         write_json(output/'automatic_admission.json',admission)
         result.update(status=admission['status'],stage='finished_cpu',errors=admission['errors'],
                       unsupported_capabilities=admission['unsupported_capabilities'])

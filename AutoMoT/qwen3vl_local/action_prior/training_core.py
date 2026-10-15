@@ -222,12 +222,12 @@ def sampled_trajectory_score(metrics, args):
 
 
 def best_selection_score(metrics, args):
-    """按配置选择 natural 或固定 1:…:1:2 事件均衡验证分数。"""
+    """按配置的评估范围选择总体或事件均衡验证分数。"""
     if getattr(args, "best_selection_metric", "natural_ade") == "event_balanced_ade":
         if not int(metrics.get("event_balance_bucket_coverage_complete", 0)):
             raise ValueError(
                 "event-balanced best selection requires validation coverage of "
-                "UE1-7, RE2/3/5 and confirmed regular background; missing="
+                "all buckets in the configured evaluation distribution; missing="
                 f"{metrics.get('event_balance_bucket_coverage_missing', '')}"
             )
         required = ("event_balanced_route_ade_m", "event_balanced_waypoint_ade_m")
@@ -362,9 +362,14 @@ def evaluate(
         make_evaluation_flow,
     )
 
-    selected = list(rows)
-    if max_samples > 0 and len(selected) > max_samples:
-        selected = random.Random(args.seed + 71).sample(selected, max_samples)
+    evaluation_plan=None
+    if getattr(args,'evaluation_distribution','natural')=='equal_events':
+        from qwen3vl_local.action_prior.event_balance import equal_event_evaluation
+        selected,evaluation_plan=equal_event_evaluation(rows,seed=args.seed+71,max_samples=max_samples)
+    else:
+        selected = list(rows)
+        if max_samples > 0 and len(selected) > max_samples:
+            selected = random.Random(args.seed + 71).sample(selected, max_samples)
     eval_started = time.monotonic()
     progress = current()
     report("validation/start", announce=True, evaluation_samples=len(selected),
@@ -468,6 +473,10 @@ def evaluate(
             progress.detail = False
     report("validation/rank_merge", announce=True, rank_evaluated=int(totals["samples"]))
     metrics = hooks.summarize(merge_counts(totals, world))
+    if evaluation_plan is not None:
+        metrics['evaluation_event_equal_per_event']=evaluation_plan['per_event']
+        if dump_dir is not None and rank==0:
+            write_json(Path(dump_dir)/'evaluation_plan.json',evaluation_plan)
     report("validation/done", announce=True, evaluation_elapsed_s=round(time.monotonic() - eval_started, 1),
            evaluation_samples=metrics["samples"], validation_loss=metrics["loss"],
            route_ade_m=metrics.get("route_ade_m"), waypoint_ade_m=metrics.get("waypoint_ade_m"))

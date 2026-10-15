@@ -56,8 +56,8 @@ def main():
     record = json.loads((a.adapter / 'phase4_contract.json').read_text())
     if record['dataset'] != digest(manifest) or record['observation_contract'] != manifest['observation_contract']:
         raise ValueError('adapter dataset/input mismatch')
-    from ..evaluation_policy import restore, score_cases
-    data = restore(data, record, short=True, natural=a.evaluation_distribution=='natural')
+    from .evaluation_policy import restore, score_cases
+    data = restore(data, record, short=True, natural=a.evaluation_distribution=='natural',data_root=a.data_root)
     if a.output_dir.exists():
         raise FileExistsError(a.output_dir)
     device = a.device

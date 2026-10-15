@@ -45,22 +45,39 @@ def check_consumption(samples, sampling, ranks):
             raise ValueError('expected the fixed ten-event 10240-presentation plan')
         if sampling['ordered_samples'] != sample_binding(samples, 4):
             raise ValueError('ordered sample hashes differ from the plan')
-        for position, sample in enumerate(samples):
-            if any(type(sample[k]) is not int or sample[k] != v for k, v in
-                   dict(position=position, rank=position % 4, local_index=position // 4).items()):
+        batch_size=sampling.get('batch_size',1)
+        if type(batch_size) is not int or batch_size<1 or len(samples)%(4*batch_size):
+            raise ValueError('invalid per-rank batch size')
+        for position,sample in enumerate(samples):
+            expected_position=dict(position=position,rank=(position//batch_size)%4,
+                                   local_index=position//(4*batch_size))
+            if any(type(sample[k]) is not int or sample[k]!=v for k,v in expected_position.items()):
                 raise ValueError('invalid ordered sample position/rank/local_index')
-        if len(ranks) != 4:
-            raise ValueError('expected all four rank logs')
-        for rank, steps in enumerate(ranks):
-            expected = samples[rank::4]
-            if len(steps) != len(expected):
+            if 'batch_slot' in sample and sample['batch_slot']!=position%batch_size:
+                raise ValueError('invalid batch slot')
+        if len(ranks)!=4:raise ValueError('expected all four rank logs')
+        for rank,steps in enumerate(ranks):
+            expected=[r for r in samples if r['rank']==rank]
+            if len(steps)*batch_size!=len(expected):
                 raise ValueError(f'rank {rank}: missing or extra completed microbatches')
-            for step, sample in zip(steps, expected):
-                if type(step['epoch']) is not int or step['epoch'] != 0 or any(
-                    step[k] != sample[k] for k in ('id', 'position', 'rank', 'local_index')
-                ):
-                    raise ValueError(f'rank {rank}: step ID/order/epoch differs from sampled plan')
-                if type(step['loss']) not in (int, float) or not math.isfinite(step['loss']):
+            for j,step in enumerate(steps):
+                batch=expected[j*batch_size:(j+1)*batch_size]
+                if type(step['epoch']) is not int or step['epoch']!=0:
+                    raise ValueError('invalid completed epoch')
+                if 'ids' in step:
+                    if (step.get('ids')!=[r['id'] for r in batch] or
+                        step.get('positions')!=[r['position'] for r in batch] or
+                        step.get('batch_size')!=batch_size or step.get('rank')!=rank or step.get('local_index')!=j):
+                        raise ValueError(f'rank {rank}: batch ID/order differs from sampled plan')
+                    accumulation=sampling.get('accumulation')
+                    if type(accumulation) is not int or accumulation<1:
+                        raise ValueError('missing accumulation contract for batched receipt')
+                    update=(j+1)%accumulation==0 or j+1==len(steps)
+                    if step.get('optimizer_update')!=update or step.get('optimizer_steps')!=((j+1)//accumulation+(int(j+1==len(steps) and (j+1)%accumulation!=0))):
+                        raise ValueError('optimizer update count differs from batch plan')
+                elif batch_size!=1 or any(step[k]!=batch[0][k] for k in ('id','position','rank','local_index')):
+                    raise ValueError(f'rank {rank}: step ID/order differs from sampled plan')
+                if type(step['loss']) not in (int,float) or not math.isfinite(step['loss']):
                     raise ValueError(f'rank {rank}: nonfinite completed loss')
         return dict(status='matched_recorded_plan', presentations=len(samples),
                     event_counts_from_recorded_plan=sampling['event_counts'],

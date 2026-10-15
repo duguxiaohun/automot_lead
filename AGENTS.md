@@ -1,5 +1,15 @@
 # AGENTS.md
 
+### 2026-10-15 v58白名单发布
+
+用户明确授权push本轮Phase3／4连续batch改动。精确发布源码、测试、操作文档和轻量回执；新增共享模块 `AutoMoT/qwen3vl_local/sequence_batch.py` 与专项 `AutoMoT/qwen3vl_local/tests/test_sequence_batch.py` 同步登记文件白名单。225相关回归已通过，515源SHA再次matched；目标4B显存仍待服务器probe，不因发布宣称GPU验收。用户既有.vscode修改、checkpoints/RGB/权重及其它未跟踪参考文件保留本机。当前入口与历史实验边界见audit_joint/SEQUENCE_BATCH_20261015.md。
+
+### 2026-10-15 Phase3／4真实batch、连续锚点与等量评估
+
+最终用户明确确认：两图[t-2,t]、锚点推进2；四图[t-3,t-2,t-1,t]、锚点推进1，覆盖此前中间四图[-6,-4,-2,0]提议。Phase3 train及Phase4 rgb_short.train（两四图共用）已接真实每卡batch单次前向，梯度累积另计；事件严格等量，少见题/锚点优先、连续段优先、action软补偿，同event短段拼接独立样本，transition历史可重叠但不跨split/路线造历史。跨epoch曝光落盘；P4 epoch边界resume绑定history，P3仅同次多epoch延续不声称优化器恢复。val/test新固定十事件等量无放回；Action prior/两类消融共享评估默认十事件等量，背景不入第11事件，联合分配不重复计总体分母。
+原生P4 producer/teacher22/v57合同及旧legacy trainer保持，不为新学生输入重放老师；从有效v57 data4新建视图及RGB身份sidecar，四图标签标记transferred_reference，未人工认证新可见性。P4当前入口rgb_short两模式；旧server_phase3_epoch固定旧采样验收不可用于本新实验，按audit_joint/SEQUENCE_BATCH_20261015.md直接新训练和显存probe。两个P4 CPU shell指新release_sources_v58_sequence_batch_20261015.json，515SHA matched无额外Python，五shell语法通过，未push。
+最终225相关回归通过含tiny实际Qwen CPU两/四图logits/loss/梯度与真实P4训练循环mock模型两epoch；前扩展两Action消融合同检查缺mot_lead_offline_runner.py未完成，不报全套。真实v57既有1457train两模式ID/标签一致，原父库SHA不变；4卡B2计划1024/event，另16/event五轮累计覆盖151/278/383/479/575，非GPU实际消费、空留出小池非正式准入。当前有效本机checkpoints/sequence_batch_20261015/real_view_final/view及verification。目标4B权重本机缺失，新增batch_probe逐GPU/2与4RGB/B1..8真实前反向AdamW显存命令，但未实测容量/四卡DDP；无新采集、远程训练、生产改标、push，未改用户.vscode。
+
 ### 2026-10-14 Phase3重新训练入口清单修复
 
 用户在白名单发布后询问Phase3能否正常训练并索取命令。实际复现server_phase3_epoch仍绑定v54_existing_data，当前17成员漂移→mismatch，不能照抄旧命令。仅更新其RELEASE及两P4入口指针到新release_sources_v57_phase3_entry_20261014.json（501matched），无P3生产/标定/提示词/参数改动，真实已收首轮ZIP verified_completed_epoch仍verified。基础环境23入口测试通过，14失败/7错误均缺torch未完成，保留失败日志不报全套。用户要新实验可从基座重新训固定三轮，两模式顺序、4卡、1024/event/epoch，val32/test38；旧三轮已验收无需重跑，无优化器断点续训/不支持直接EPOCHS7。命令和反馈见audit_joint/PHASE3_RETRAIN_V57_20261014.md，沿既有PREPARED与COMPLETED首轮目录，交phase3_epoch两个文件。此为此前授权发布后必要入口纠正，无远程/GPU训练，未改.vscode。
@@ -1681,6 +1691,8 @@ LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANAL
 
 未经用户明确同意，只允许修改：
 
+- `AutoMoT/qwen3vl_local/sequence_batch.py`（本轮授权的Phase3／4共享连续batch采样与组批源码）
+- `AutoMoT/qwen3vl_local/tests/test_sequence_batch.py`（上述源码专项回归；不包含测试缓存/产物）
 - `.vscode/settings.json`（用户授权：排除大数据/产物目录的文件监视；保留源码监视，不隐藏或删除文件）。
 - `AGENTS.md`
 - `CLAUDE.md`

@@ -1,0 +1,281 @@
+{
+  "status": "local_implementation_verified_gpu_capacity_pending",
+  "release_manifest": "release_sources_v58_sequence_batch_20261015.json",
+  "release_files": 515,
+  "source_check": "matched",
+  "tests": {
+    "final_related_passed": 225,
+    "final_related_seconds": 9.77,
+    "earlier_extended_environment_failures": 2,
+    "missing_external_asset": "leaderboard/team_code/mot_lead_offline_runner.py",
+    "full_suite_claimed": false
+  },
+  "real_pool": {
+    "scope": "existing v57 train-only diagnostic pool; no heldout admission or GPU consumption",
+    "modes": {
+      "2": {
+        "train": 1457,
+        "offsets": [
+          -2,
+          0
+        ],
+        "small_budget_epochs": [
+          {
+            "epoch": 0,
+            "new_questions": 151,
+            "cumulative_unique_questions": 151,
+            "cumulative_missing_questions": 1306,
+            "unique_anchors": 150,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 1,
+            "new_questions": 127,
+            "cumulative_unique_questions": 278,
+            "cumulative_missing_questions": 1179,
+            "unique_anchors": 150,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 2,
+            "new_questions": 105,
+            "cumulative_unique_questions": 383,
+            "cumulative_missing_questions": 1074,
+            "unique_anchors": 148,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 3,
+            "new_questions": 96,
+            "cumulative_unique_questions": 479,
+            "cumulative_missing_questions": 978,
+            "unique_anchors": 146,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 4,
+            "new_questions": 96,
+            "cumulative_unique_questions": 575,
+            "cumulative_missing_questions": 882,
+            "unique_anchors": 145,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          }
+        ],
+        "full_epoch_seconds": 0.052,
+        "full_epoch_counts": {
+          "U-E2": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E3": 1024
+        },
+        "full_epoch_unique": 1457
+      },
+      "4": {
+        "train": 1457,
+        "offsets": [
+          -3,
+          -2,
+          -1,
+          0
+        ],
+        "small_budget_epochs": [
+          {
+            "epoch": 0,
+            "new_questions": 151,
+            "cumulative_unique_questions": 151,
+            "cumulative_missing_questions": 1306,
+            "unique_anchors": 150,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 1,
+            "new_questions": 127,
+            "cumulative_unique_questions": 278,
+            "cumulative_missing_questions": 1179,
+            "unique_anchors": 149,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 2,
+            "new_questions": 105,
+            "cumulative_unique_questions": 383,
+            "cumulative_missing_questions": 1074,
+            "unique_anchors": 148,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 3,
+            "new_questions": 96,
+            "cumulative_unique_questions": 479,
+            "cumulative_missing_questions": 978,
+            "unique_anchors": 146,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          },
+          {
+            "epoch": 4,
+            "new_questions": 96,
+            "cumulative_unique_questions": 575,
+            "cumulative_missing_questions": 882,
+            "unique_anchors": 147,
+            "event_counts": {
+              "U-E2": 16,
+              "U-E7": 16,
+              "U-E4": 16,
+              "R-E5": 16,
+              "U-E1": 16,
+              "R-E2": 16,
+              "R-E3": 16,
+              "U-E5": 16,
+              "U-E6": 16,
+              "U-E3": 16
+            }
+          }
+        ],
+        "full_epoch_seconds": 0.048,
+        "full_epoch_counts": {
+          "U-E2": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E3": 1024
+        },
+        "full_epoch_unique": 1457
+      }
+    },
+    "paired_ids_targets_equal": true,
+    "native_parent_bytes_unchanged": true,
+    "parent_files": {
+      "teacher_registry.json": "6b4a6e3189b43e4efc44c64cb086e6393e47778af638f619663c925aab86f590",
+      "val.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidate_pool.json": "e2f9cfe7a70b1be6a66f196a62c941e2ccdf6e2903af36da5b69d2a252d5ff49",
+      "train.jsonl": "5d1123804cbdc99a0e46f5ba227e1baa24c61926d23ef0929c94483f71dcd49e",
+      "production_reference.json": "dd4aa3093d36603900ed7c8eb7cb63395d73ed942148f2d02f968c99e27425de",
+      "test.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "review_queue.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "manifest.json": "0d3e56098341dfcbc810e7111c65d0cfac9a2073843f088b20f8eb2d033da687"
+    }
+  },
+  "model_validation": "tiny actual Qwen multimodal CPU batch logits/loss/gradients; actual trainer loop with mocked CPU bundle",
+  "gpu_capacity": {
+    "measured": false,
+    "reason": "target Qwen3.5-4B weights absent locally; no remote execution"
+  },
+  "artifacts": {
+    "regression_closeout_fixed.log": "8d77422cef092c36f6cf98bc0b283d94dab00b064c969126460b3a9904084c7b",
+    "regression_final.log": "373d9d7fa8871001297d895b6649f634209c7747787b088670eddfbe0c3320fd",
+    "source_check.json": "71ee7dbc74f0a95bb838dcdd8b0f3b97a28be614d1fbe03a69f8a31ecd654c7d",
+    "real_pool_verification.json": "d755943a36d39adb4e3c1c1bcda20b70336cd0bc00318ecc0aa8bda26a304592"
+  },
+  "production_teacher_changed": false,
+  "pushed": false
+}

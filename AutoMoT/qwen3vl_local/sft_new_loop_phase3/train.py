@@ -25,6 +25,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
 from types import SimpleNamespace
@@ -139,7 +140,7 @@ def _git_metadata() -> Dict[str, Any]:
     status = run(["status", "--short"]) or ""
     return {
         "source_sha256": {str(path.relative_to(_AUTOMOT_ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-                          for path in sorted(_THIS.parent.glob("*.py"))},
+                          for path in sorted([*_THIS.parent.glob("*.py"),_THIS.parents[1]/"sequence_batch.py"])},
         "root": str(_PROJECT_ROOT),
         "branch": run(["rev-parse", "--abbrev-ref", "HEAD"]),
         "commit": run(["rev-parse", "HEAD"]),
@@ -506,16 +507,16 @@ def _validation_work(
     rows: Sequence[FrameRow], *, target_per_bin: int, seed: int,
     auto_increase: bool = True, route_diverse: bool = False,
     require_invalid_coverage: bool = True, action_output_mode: str = "binary",
-    equal_events: bool = False,
+    equal_events: bool = False, history_rgb_mode="4rgb",
 ) -> Tuple[List[WorkItem], Dict[str, Any]]:
     """仅对明确的 INVALID 预算不足增容，维持十类与 INVALID 的 10:2 比例。"""
 
     if equal_events:
         from qwen3vl_local.sft_new_loop_phase3.eval import _balanced_cases
-        from qwen3vl_local.sft_new_loop_phase3.evaluation_balance import select_work
+        from qwen3vl_local.sft_new_loop_phase3.sequence_evaluation import select_work
         all_cases = _balanced_cases(rows, cases_per_bin=0, seed=seed,
             action_output_mode=action_output_mode, require_invalid_coverage=require_invalid_coverage)
-        work, audit = select_work(all_cases, seed=seed, limit=target_per_bin)
+        work, audit = select_work(all_cases, seed=seed, limit=target_per_bin,stride=1 if history_rgb_mode=="4rgb" else 2)
         audit.update(requested=target_per_bin, effective=audit['per_event'],
                      sampled_cases=len(work), unique_cases=len(work))
         return work, audit
@@ -572,10 +573,14 @@ def _effective_class_target(rows: Sequence[FrameRow], requested: int, *, action_
     return min(int(class_counts[key]) for key in BALANCE_CLASSES)
 
 
-def _load_images(paths: Sequence[str]) -> List[Image.Image]:
-    """读取当前 RGB-history 合同选择出的图片。"""
-
-    return [Image.open(path).convert("RGB") for path in paths]
+def _load_images(paths: Sequence[str], cache=None) -> List[Image.Image]:
+    cache={} if cache is None else cache
+    images=[]
+    for path in paths:
+        if path not in cache:
+            with Image.open(path) as image:cache[path]=image.convert('RGB')
+        images.append(cache[path])
+    return images
 
 
 def _line_value_span(text: str, key: str) -> Tuple[int, int]:
@@ -688,20 +693,8 @@ def _build_inputs(
     }
 
 
-def _loss_one(bundle: Any, packed: Mapping[str, Any], spec: PromptSpec) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """计算一个样本的 weighted CE。"""
-
-    kwargs: Dict[str, Any] = {
-        "input_ids": packed["input_ids"].unsqueeze(0).to(bundle.device),
-        "attention_mask": packed["attention_mask"].unsqueeze(0).to(bundle.device),
-    }
-    labels = packed["labels"].unsqueeze(0).to(bundle.device)
-    weights = packed["loss_weights"].unsqueeze(0).to(bundle.device)
-    comp = packed["component_ids"].unsqueeze(0).to(bundle.device)
-    for key, value in packed["vision"].items():
-        kwargs[key] = value.to(bundle.device) if isinstance(value, torch.Tensor) else value
-    out = bundle.model(**kwargs, use_cache=False, return_dict=True)
-    logits = out.logits[:, :-1, :].contiguous()
+def _loss_from_logits(logits, labels, weights, comp, spec):
+    logits = logits[:, :-1, :]
     shift_labels = labels[:, 1:].contiguous()
     shift_weights = weights[:, 1:].contiguous()
     shift_comp = comp[:, 1:].contiguous()
@@ -734,6 +727,56 @@ def _loss_one(bundle: Any, packed: Mapping[str, Any], spec: PromptSpec) -> Tuple
         choice_ok = float(stats.get(f"answer/{spec.target_output_keys[0].lower()}_ok", 0.0))
         stats["choice_action_exact"] = choice_ok
     return loss, stats
+
+
+def _loss_batch(bundle, packed_items, specs):
+    """One forward for independent examples; average per-example weighted CE."""
+    from qwen3vl_local.sequence_batch import collate
+    rows=[]
+    for packed in packed_items:
+        row={key:packed[key].unsqueeze(0) for key in
+             ('input_ids','attention_mask','labels','loss_weights','component_ids')}
+        row.update(packed['vision'])
+        rows.append(row)
+    batch=collate(rows,bundle.tokenizer.pad_token_id)
+    batch={k:v.to(bundle.device) for k,v in batch.items()}
+    labels=batch.pop('labels'); weights=batch.pop('loss_weights'); comp=batch.pop('component_ids')
+    out=bundle.model(**batch,use_cache=False,return_dict=True)
+    results=[_loss_from_logits(out.logits[i:i+1],labels[i:i+1],weights[i:i+1],comp[i:i+1],spec)
+             for i,spec in enumerate(specs)]
+    return torch.stack([loss for loss,_ in results]).mean(), [stats for _,stats in results]
+
+
+def _loss_one(bundle, packed, spec):
+    loss,stats=_loss_batch(bundle,[packed],[spec])
+    return loss,stats[0]
+
+
+def _contiguous_work(rows, args, *, epoch, world_size, history=None):
+    from qwen3vl_local.sequence_batch import plan, digest
+    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
+    eligible=[]
+    for row in rows:
+        item=_make_item(row,seed=int(args.seed),action_output_mode=args.action_output_mode)
+        if args.action_output_mode=='choice' and choice_rejection_reason(item.spec) is not None:
+            continue
+        eligible.append(item)
+    eligible=unique_cases(eligible)
+    records=[dict(id=digest(case_identity(item)),event=_balance_class(item.row),
+        sequence=json.dumps([item.row.scenario,item.row.route_id,item.row.context_id,item.row.invalid_reason]),
+        frame=item.row.frame_id,action=(item.row.invalid_source or "INVALID") if _balance_class(item.row)=="INVALID" else sampling_action(item.row.answers,item.row.context_id),
+        split=item.row.split,group=physical_group_for_item(item)) for item in eligible]
+    expected=set(CONTEXT_IDS) | ({'INVALID'} if args.action_output_mode!='choice' else set())
+    if {r['event'] for r in records} != expected:
+        raise ValueError('contiguous training requires every event (and INVALID in binary mode)')
+    target=_effective_class_target(rows,int(args.focus_balance_count),action_output_mode=args.action_output_mode)
+    targets=dict.fromkeys(expected,target)
+    if 'INVALID' in targets:
+        targets['INVALID']=max(1,round(target*args.invalid_focus_multiplier))
+    indices,audit=plan(records,per_event=targets,epoch=epoch,seed=int(args.seed),world_size=world_size,
+        batch_size=args.batch_size,stride=args.anchor_stride,history=history)
+    audit['ordered_ids']=[records[i]['id'] for i in indices]
+    return [eligible[i] for i in indices],audit
 
 
 def _ddp_sync_zero_loss(bundle: Any, images: Sequence[Image.Image]) -> torch.Tensor:
@@ -1220,7 +1263,8 @@ def _save_adapter(
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
-        "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "sampling_policy": "event_equal_contiguous_unseen_first_v1",
+        "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
         "training_index_sha256": getattr(args, "training_index_sha256", None),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
@@ -1373,7 +1417,8 @@ def _write_run_metadata(
         ),
         "action_output_mode": str(args.action_output_mode),
         "mapping_contract_hash": mapping_contract_hash(),
-        "sampling_policy": SUPPORT_BALANCE_VERSION,
+        "sampling_policy": "event_equal_contiguous_unseen_first_v1",
+        "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
         "training_index_sha256": getattr(args, "training_index_sha256", None),
     }
     (output_dir / "train_run_manifest.json").write_text(
@@ -1444,15 +1489,8 @@ def train(args: argparse.Namespace) -> None:
     effective_target = _effective_class_target(
         rows, int(args.focus_balance_count), action_output_mode=args.action_output_mode
     )
-    full_work = _balanced_work(
-        rows,
-        target_per_bin=int(args.focus_balance_count),
-        seed=int(args.seed),
-        invalid_multiplier=float(args.invalid_focus_multiplier),
-        route_diverse=bool(args.train_route_diverse),
-        require_invalid_coverage=bool(args.require_invalid_coverage),
-        action_output_mode=args.action_output_mode,
-    )
+    full_work, sampling_audit = _contiguous_work(rows,args,epoch=0,world_size=world_size)
+    sampling_history = None
     if not full_work:
         raise ValueError("balanced work list is empty")
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
@@ -1473,7 +1511,7 @@ def train(args: argparse.Namespace) -> None:
                 data_root=pathlib.Path(args.data_root),
             )
             full_eval_work, loss_audit = _validation_work(
-                eval_rows, equal_events=True,
+                eval_rows, equal_events=True, history_rgb_mode=args.history_rgb_mode,
                 target_per_bin=int(args.eval_balance_count),
                 seed=int(args.seed) + 1009,
                 auto_increase=bool(args.auto_eval_balance_count),
@@ -1486,7 +1524,7 @@ def train(args: argparse.Namespace) -> None:
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
                 stage = "generation"
                 full_generation_eval_work, generation_audit = _validation_work(
-                    eval_rows, equal_events=True,
+                    eval_rows, equal_events=True, history_rgb_mode=args.history_rgb_mode,
                     target_per_bin=int(args.generation_eval_balance_count),
                     seed=int(args.generation_eval_sampling_seed),
                     auto_increase=bool(args.auto_eval_balance_count),
@@ -1570,7 +1608,7 @@ def train(args: argparse.Namespace) -> None:
                         "resample_each_epoch": True,
                         "snapshot_epoch": 1,
                         "epoch_seed_formula": "seed + epoch * 1000003",
-                        "steps_per_epoch_global": int(math.ceil(len(full_work) / max(1, int(world_size)))),
+                        "steps_per_epoch_global": len(full_work)//(world_size*args.batch_size),
                         "raw_available": raw_focus_counts,
                         "global_sampled": dict(Counter(item.balance_key for item in full_work)),
                         "action_signature_counts": dict(
@@ -1633,7 +1671,7 @@ def train(args: argparse.Namespace) -> None:
     optimizer = torch.optim.AdamW(
         params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay), betas=(0.9, 0.95)
     )
-    steps_per_epoch = max(1, math.ceil(len(full_work) / max(1, int(world_size))))
+    steps_per_epoch = len(full_work) // (world_size * args.batch_size)
     total_steps = (
         int(args.max_steps)
         if int(args.max_steps) > 0
@@ -1677,17 +1715,11 @@ def train(args: argparse.Namespace) -> None:
     epoch = 0
     while global_step < total_steps:
         if epoch > 0:
-            full_work = _balanced_work(
-                rows,
-                target_per_bin=int(args.focus_balance_count),
-                seed=int(args.seed) + epoch * 1_000_003,
-                invalid_multiplier=float(args.invalid_focus_multiplier),
-                route_diverse=bool(args.train_route_diverse),
-                require_invalid_coverage=bool(args.require_invalid_coverage),
-                action_output_mode=args.action_output_mode,
-            )
-        random.Random(int(args.seed) + epoch * 1_000_003).shuffle(full_work)
-        work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
+            full_work, sampling_audit = _contiguous_work(rows,args,epoch=epoch,
+                world_size=world_size,history=sampling_history)
+        from qwen3vl_local.sequence_batch import rank_batches
+        batches=rank_batches(list(range(len(full_work))),rank=rank,world_size=world_size,batch_size=args.batch_size)
+        work=[full_work[i] for batch in batches for i in batch]
         if rank == 0:
             epoch_invalid_report = (
                 {"not_applicable": "choice excludes invalid; includes KEEP and projected compound actions"}
@@ -1695,6 +1727,8 @@ def train(args: argparse.Namespace) -> None:
             )
             epoch_balance_dir = output_dir / "balance"
             epoch_balance_dir.mkdir(parents=True, exist_ok=True)
+            (epoch_balance_dir / f'plan_epoch_{epoch+1:04d}.json').write_text(
+                json.dumps({k:v for k,v in sampling_audit.items() if k!='next_history'},indent=2)+'\n')
             (epoch_balance_dir / f"epoch_{epoch + 1:04d}.json").write_text(
                 json.dumps(
                     {
@@ -1731,47 +1765,45 @@ def train(args: argparse.Namespace) -> None:
         for step_in_epoch in range(steps_per_epoch):
             if global_step >= total_steps:
                 break
-            global_item_index = step_in_epoch * max(1, int(world_size)) + int(rank)
-            padded_step = global_item_index >= len(full_work)
-            item = full_work[global_item_index % len(full_work)]
-            row = item.row
-            spec = item.spec
-            images = _load_images(select_history_rgb_paths(row.history_rgb_paths, args.history_rgb_mode))
-            packed = _build_inputs(
-                bundle,
-                images=images,
-                history_rgb_mode=args.history_rgb_mode,
-                prompt_variant=getattr(args, "prompt_variant", "baseline"),
-                target=build_action_target(spec),
-                spec=spec,
-                max_length=int(args.max_length),
-                format_loss_weight=float(args.format_loss_weight),
-            )
-            if int(args.max_steps) == 0:
-                require_packed_on_all_ranks(packed, padded=padded_step, device=device, world_size=world_size)
-            if packed is None:
-                skipped += 1
-                loss = _ddp_sync_zero_loss(bundle, images)
-                stats = {"denom": 0.0, "token_acc": 0.0, "value_token_acc": 0.0, "format_token_acc": 0.0}
-            else:
-                loss, stats = _loss_one(bundle, packed, spec)
-            if padded_step:
-                loss = loss * 0
-            elif packed is not None:
-                consumed[_balance_class(row)] += 1
-            loss_value = float(loss.detach().item())
-            if packed is not None and not padded_step:
-                window_loss_sum += loss_value
-                window_samples += 1
-                for key, value in stats.items():
-                    window_stats[key] += float(value)
-                if spec.action_output_mode != "choice":
-                    for output_key, metric_key, _ in spec_metric_items(spec):
-                        stat_key = f"answer/{output_key.lower()}_ok"
-                        if stat_key in stats:
-                            window_metric_ok[metric_key] += float(stats[stat_key])
-                            window_metric_count[metric_key] += 1
-            (loss / grad_accum).backward()
+            items=[full_work[i] for i in batches[step_in_epoch]]
+            packed_items=[]
+            image_cache={}
+            for item in items:
+                images=_load_images(select_history_rgb_paths(item.row.history_rgb_paths,args.history_rgb_mode),cache=image_cache)
+                packed_items.append(_build_inputs(bundle,images=images,history_rgb_mode=args.history_rgb_mode,
+                    prompt_variant=getattr(args,'prompt_variant','baseline'),target=build_action_target(item.spec),
+                    spec=item.spec,max_length=int(args.max_length),format_loss_weight=float(args.format_loss_weight)))
+            # Every rank participates in the rejection collective before any forward.
+            require_packed_on_all_ranks(None if any(p is None for p in packed_items) else packed_items,
+                padded=False,device=device,world_size=world_size)
+            sync_context=(bundle.model.no_sync() if world_size>1 and accum_steps+1<grad_accum
+                          and global_step+1<total_steps else nullcontext())
+            with sync_context:
+                loss, batch_stats=_loss_batch(bundle,packed_items,[item.spec for item in items])
+                if not bool(torch.isfinite(loss)):
+                    raise FloatingPointError('nonfinite batch training loss')
+                stats={key:sum(row.get(key,0.) for row in batch_stats)/len(batch_stats)
+                       for key in set().union(*(row.keys() for row in batch_stats))}
+                padded_step=False
+                loss_value=float(loss.detach())
+                window_loss_sum+=loss_value*len(items)
+                window_samples+=len(items)
+                for item,one_stats in zip(items,batch_stats):
+                    consumed[_balance_class(item.row)]+=1
+                    for key,value in one_stats.items():
+                        window_stats[key]+=float(value)
+                    if item.spec.action_output_mode!='choice':
+                        for output_key,metric_key,_ in spec_metric_items(item.spec):
+                            stat_key=f'answer/{output_key.lower()}_ok'
+                            if stat_key in one_stats:
+                                window_metric_ok[metric_key]+=float(one_stats[stat_key])
+                                window_metric_count[metric_key]+=1
+                # A short final accumulation group has its own denominator.
+                accumulation_total=min(grad_accum,total_steps-(global_step//grad_accum)*grad_accum)
+                (loss/accumulation_total).backward()
+            _append_jsonl(output_dir / f'epoch_{epoch+1:04d}_rank{rank}_batches.jsonl',dict(
+                epoch=epoch,step=step_in_epoch,batch_size=len(items),
+                positions=batches[step_in_epoch],ids=[sampling_audit['ordered_ids'][i] for i in batches[step_in_epoch]],loss=loss_value))
             accum_steps += 1
             optimizer_stepped = False
             if accum_steps >= grad_accum:
@@ -2027,6 +2059,10 @@ def train(args: argparse.Namespace) -> None:
             if rank == 0:
                 (output_dir / 'balance' / f'consumed_epoch_{epoch + 1:04d}.json').write_text(
                     json.dumps(consumption, indent=2) + '\n')
+        sampling_history=sampling_audit['next_history']
+        if rank==0 and global_step-epoch_start_step==steps_per_epoch:
+            (output_dir/'balance'/f'exposure_epoch_{epoch+1:04d}.json').write_text(
+                json.dumps(sampling_history,sort_keys=True)+'\n')
         epoch += 1
 
     if accum_steps > 0:
@@ -2162,6 +2198,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-final", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--max-length", type=int, default=8192)
     p.add_argument("--learning-rate", type=float, default=1e-5)
+    p.add_argument("--batch-size",type=int,default=1)
+    p.add_argument("--anchor-stride",type=int,default=None)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--warmup-steps", type=int, default=2_000)
@@ -2176,7 +2214,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=20260904)
     p.add_argument("--no-tb", action="store_true")
     args = p.parse_args()
+    if args.anchor_stride is None:args.anchor_stride=1 if args.history_rgb_mode=="4rgb" else 2
     args.action_output_mode = validate_action_output_mode(args.action_output_mode)
+    if min(args.batch_size,args.anchor_stride,args.grad_accum)<1:
+        p.error("batch size, anchor stride and grad accumulation must be positive")
     if args.ddp_timeout_seconds <= 0 or args.generation_eval_log_every <= 0:
         p.error("--ddp-timeout-seconds and --generation-eval-log-every must be positive")
     if int(args.generation_eval_steps) > 0 and int(args.eval_steps) > 0:

@@ -80,6 +80,7 @@ DEFAULTS = dict(
     # 保留独立的116256/cap11预算要求；旧配置缺字段仍按历史8恢复。
     event_balance_max_frame_repeats=11,
     best_selection_metric="natural_ade",
+    evaluation_distribution="equal_events",
     # 内部保存字段，不再暴露 CLI；新训练按 dataset/action/noise 自动推导。
     event_balanced_scene_priors=False,
     phase1_training_index="",
@@ -642,8 +643,10 @@ def training_plan(args, rows, world):
         from qwen3vl_local.action_prior.action_balance import action_balance_plan
         sampling["action_balance"] = action_balance_plan(rows["train"], usable, repeat_cap=args.event_balance_max_frame_repeats)
     val_available = available_counts(rows["val"], for_evaluation=True)
+    validation_buckets = (SPECIAL_BUCKETS if getattr(args, "evaluation_distribution", "natural") == "equal_events"
+                          else (*SPECIAL_BUCKETS, REGULAR_BACKGROUND))
     val_missing = [
-        key for key in (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+        key for key in validation_buckets
         if int(val_available.get(key, 0)) <= 0
     ]
     sampling["validation_available"] = val_available

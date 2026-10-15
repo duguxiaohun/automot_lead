@@ -58,15 +58,19 @@ def test_real_short_encoder_masks_only_answer_eos_and_has_two_images(tmp_path, p
     assert inference['image_grid_thw'].shape[0] == 2
 
 
-def test_four_image_encoding_is_tensor_identical_to_native(tmp_path, processor):
-    from qwen3vl_local.sft_new_loop_phase4.model import encode
-    row = source_row(tmp_path)
-    bundle = SimpleNamespace(processor=processor, tokenizer=processor.tokenizer, device=torch.device('cpu'),
-                             observation_contract=contract.observation_contract(4))
-    old = encode(bundle, row, tmp_path, max_length=20000)
-    new = student_model.encode(bundle, row, tmp_path, max_length=20000)
-    assert old.keys() == new.keys()
-    assert all(torch.equal(old[key], new[key]) for key in old)
+def test_four_image_encoding_uses_consecutive_frames_and_rejects_old_contract(tmp_path,processor):
+    row=source_row(tmp_path)
+    last=Path(row['images'][-1])
+    for frame in (7,9):Image.new('RGB',(64,64),(frame,0,0)).save(tmp_path/last.with_name(f'{frame:04d}'+last.suffix))
+    identities=data.image_identities({'train':[row]},tmp_path)
+    new=data.four_row(row,identities)
+    assert new['observation']['history_frames']==[7,8,9,10]
+    assert new['target']==row['target'] and not new['student_reference']['actual_input_human_reviewed']
+    bundle=SimpleNamespace(processor=processor,tokenizer=processor.tokenizer,device=torch.device('cpu'),
+                           observation_contract=contract.observation_contract(4))
+    encoded=student_model.encode(bundle,new,tmp_path,max_length=20000)
+    assert len(encoded['image_grid_thw'])==4
+    with pytest.raises(ValueError,match='history mismatch'):student_model.encode(bundle,row,tmp_path)
 
 
 def test_short_model_rejects_legacy_two_frame_offsets(tmp_path, processor):
@@ -148,11 +152,11 @@ def test_real_native_build_view_roundtrip_read_only_and_no_production_copy(nativ
     for split in two:
         assert [row['id'] for row in two[split]] == [row['id'] for row in four[split]]
         for small, full in zip(two[split], four[split]):
-            assert small['images'] == full['images'][2:]
+            assert small['images'] == full['images'][1::2]
             assert small['target'] == full['target']
     assert m2['observation_contract']['frame_offsets'] == [-2, 0]
-    assert m4['observation_contract']['frame_offsets'] == [-6, -4, -2, 0]
-    assert list(output.iterdir()) == [output / 'student_view.json']
+    assert m4['observation_contract']['frame_offsets'] == [-3, -2, -1, 0]
+    assert set(output.iterdir()) == {output/'student_view.json',output/'rgb_identities.json'}
     assert descriptor['production_copied'] is False
     assert before == {str(p.relative_to(parent)): file_sha(p) for p in parent.rglob('*') if p.is_file()}
 
@@ -245,7 +249,7 @@ def test_build_uses_existing_replay_only_compiles_four_and_preserves_source(tmp_
     monkeypatch.setattr(recovery, 'check_recovery', lambda *args, **kwargs: report)
     calls = []
     monkeypatch.setattr(build.subprocess, 'run', lambda argv, **kw: calls.append(argv))
-    monkeypatch.setattr(build, 'create', lambda parent, output: dict(counts={}, exclusions=[], observation_contracts={}))
+    monkeypatch.setattr(build, 'create', lambda parent, output, **kw: dict(counts={}, exclusions=[], observation_contracts={}))
     monkeypatch.setattr('shutil.disk_usage', lambda _: SimpleNamespace(free=100 * 1024 ** 3))
     monkeypatch.setattr(sys, 'argv', ['build', '--phase4-base', str(base), '--output', str(tmp_path / 'new')])
     build.main()
@@ -281,8 +285,8 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     adapter.mkdir()
     manifest = {'observation_contract': contract.observation_contract(2)}
     from qwen3vl_local.sft_new_loop_phase4.tests.test_production_selection_v50 import pool, as_cases
-    from qwen3vl_local.sft_new_loop_phase4.evaluation_policy import prepare
-    fixture=pool();_,selection=prepare(fixture,short=True,rgb_mode=2)
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.evaluation_policy import prepare
+    fixture=pool();_,selection=prepare(fixture,short=True,rgb_mode=2,data_root=tmp_path)
     (adapter / 'phase4_contract.json').write_text(json.dumps(dict(dataset=digest(manifest),
         training={'evaluation':selection},observation_contract=manifest['observation_contract'])))
     monkeypatch.setattr(evaluate, 'load_dataset', lambda *args, **kwargs: (fixture, manifest))
@@ -352,7 +356,7 @@ else:
     assert call['argv'] == ['-m', 'torch.distributed.run', '--standalone', '--nproc_per_node=4',
         '-m', 'qwen3vl_local.sft_new_loop_phase4.rgb_short.train', '--dataset', '/data/view',
         '--data-root', '/rgb', '--model-dir', '/model', '--output-dir', str(output / 'run_smoke_rgb2'),
-        '--rgb-mode', '2', '--epochs', '1', '--epoch-samples', '40']
+        '--rgb-mode', '2', '--batch-size', '1', '--epochs', '1', '--epoch-samples', '40']
     assert (output / 'latest').is_symlink()
     assert os.readlink(output / 'latest') == ('run_smoke_rgb2' if exit_code == 0 and reload_exit == 0 else 'previous_success')
     assert (tmp_path / 'reload.json').exists() == (exit_code == 0)

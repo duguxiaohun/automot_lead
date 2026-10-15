@@ -57,15 +57,26 @@ def critical_support(rows):
     return dict(critical_support=critical,missing_critical_support=[k for k,v in critical.items() if not v['rows']])
 
 
-def measure(data, evaluation):
+def measure(data, evaluation, *, batch_size=None, anchor_stride=2):
     support=phase4_support(data)
     critical=critical_support(data['train'])
-    schedule=phase4_schedule(data['train'],1)
-    ids={s:[r['id'] for r in data[s]] for s in ('train','val','test')}
+    if batch_size is None:
+        schedule=phase4_schedule(data['train'],1)
+    else:
+        from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import plan
+        worlds={}
+        for world in (1,4):
+            indices,audit=plan(data['train'],epoch=0,world_size=world,batch_size=batch_size,anchor_stride=anchor_stride)
+            audit.pop('next_history')
+            audit['events']={e:dict(presentations=n) for e,n in audit['event_counts'].items()}
+            worlds[str(world)]=[audit]
+        schedule=dict(worlds=worlds,world1_world4_order_equal=worlds['1'][0]['ordered_ids_sha256']==worlds['4'][0]['ordered_ids_sha256'],
+            policy='contiguous global batches; membership/event quotas fixed, rank layout may change order')
+    ids={s:sorted(r['id'] for r in data[s]) for s in ('train','val','test')}
     for world in ('1','4'):
         if any(v['presentations']!=1024 for v in schedule['worlds'][world][0]['events'].values()):
             raise ValueError('first epoch requires 1024 presentations per event')
-    if not schedule['world1_world4_order_equal']:
+    if batch_size is None and not schedule['world1_world4_order_equal']:
         raise ValueError('world1/world4 sampling order differs')
     compact_evaluation={k:v for k,v in evaluation.items() if k not in ('train_ids','plans','exclusions')}
     compact_evaluation['exclusion_count']=len(evaluation['exclusions'])
@@ -76,10 +87,10 @@ def measure(data, evaluation):
                 selected_ids_sha256=digest(ids),evaluation=compact_evaluation)
 
 
-def check(dataset, references, *, budget=None, space_path=None, coverage_policy='strict'):
+def check(dataset, references, *, budget=None, space_path=None, coverage_policy='strict', data_root=None, batch_size=1):
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.data import load_dataset
     from qwen3vl_local.sft_new_loop_phase4.full_sampling import validate_dataset_scope
-    from qwen3vl_local.sft_new_loop_phase4.evaluation_policy import prepare,pack_binding
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.evaluation_policy import prepare,pack_binding
     report=dict(status='blocked',selection_mode='rule_consistency',epochs=1,modes={},errors=[],
                 coverage_policy=coverage_policy,unsupported_capabilities=[],
                 independent_accuracy_certified=False,joint_g0_certified=False,
@@ -113,8 +124,8 @@ def check(dataset, references, *, budget=None, space_path=None, coverage_policy=
                     report['modes'][str(mode)]['error']='automatic reference inputs unavailable; selection not run'
                     continue
                 data,evaluation=prepare(raw,mode='rule_consistency',references=references,
-                                        rgb_mode=mode,short=True,seed=20260929)
-                result=measure(data,evaluation)
+                                        rgb_mode=mode,short=True,seed=20260929,data_root=data_root or Path(__file__).resolve().parents[2]/'lead_data')
+                result=measure(data,evaluation,batch_size=batch_size,anchor_stride=2 if mode==2 else 1)
                 report['modes'][str(mode)].update(result)
                 decision=coverage_decision(result['missing_critical_support'],coverage_policy)
                 report['modes'][str(mode)]['coverage_decision']=decision
@@ -127,10 +138,8 @@ def check(dataset, references, *, budget=None, space_path=None, coverage_policy=
                 report['errors'].append(f'RGB{mode}: {type(ex).__name__}: {ex}')
         if all('selected_ids_sha256' in report['modes'][str(mode)] for mode in (2,4)):
             two,four=report['modes']['2'],report['modes']['4']
-            if two['selected_ids_sha256']!=four['selected_ids_sha256'] or (
-                two['schedule']['worlds']['1'][0]['ordered_ids_sha256'] !=
-                four['schedule']['worlds']['1'][0]['ordered_ids_sha256']):
-                raise ValueError('RGB2/RGB4 selected membership or sampling order differs')
+            if two['selected_ids_sha256']!=four['selected_ids_sha256']:
+                raise ValueError('RGB2/RGB4 selected membership differs')
         if before!=dataset_bindings(dataset) or (ref_before is not None and ref_before!=pack_binding(references)):
             raise ValueError('baseline inputs changed during admission')
         report['input_bindings']=dict(dataset=before,references=ref_before)
@@ -155,6 +164,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__,allow_abbrev=False)
     p.add_argument('--dataset',type=Path,required=True)
     p.add_argument('--teacher-references',type=Path,required=True)
+    p.add_argument('--data-root',type=Path)
+    p.add_argument('--batch-size',type=int,default=1)
     p.add_argument('--budget',type=Path)
     p.add_argument('--space-path',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
@@ -172,7 +183,7 @@ def main():
                 raise ValueError('budget request must be an object')
         except (OSError,ValueError) as ex:
             budget=None;budget_error=f'budget input {a.budget}: {type(ex).__name__}: {ex}'
-    report=check(a.dataset,a.teacher_references,budget=budget,space_path=a.space_path,coverage_policy=a.coverage_policy)
+    report=check(a.dataset,a.teacher_references,budget=budget,space_path=a.space_path,coverage_policy=a.coverage_policy,data_root=a.data_root,batch_size=a.batch_size)
     if budget_error:
         report['errors'].append(budget_error)
     write_json(a.output,report)

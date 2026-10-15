@@ -49,7 +49,8 @@ def test_missing_model_retains_stage_and_never_starts_replay(tmp_path,monkeypatc
 
 def test_baseline_keeps_both_mode_diagnostics(tmp_path,monkeypatch):
     from qwen3vl_local.sft_new_loop_phase4.rgb_short import data
-    from qwen3vl_local.sft_new_loop_phase4 import evaluation_policy,full_sampling
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import evaluation_policy
+    from qwen3vl_local.sft_new_loop_phase4 import full_sampling
     monkeypatch.setattr(rb,'dataset_bindings',lambda _: {})
     monkeypatch.setattr(evaluation_policy,'pack_binding',lambda _: {})
     monkeypatch.setattr(data,'load_dataset',lambda *a,**kw: ({'train':[],'val':[],'test':[]},{}))

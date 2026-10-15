@@ -11,11 +11,12 @@ from ..identity import file_sha, digest
 from .contract import check_observation_contract,validate_observation
 
 
-def load_images(row,data_root):
+def load_images(row,data_root,cache=None):
     from PIL import Image
     if 'condition_provenance' in row:
         from ..condition_builder import validate_row
         validate_row(row,data_root)
+    cache={} if cache is None else cache
     root = Path(data_root).resolve()
     images = []
     pixel_hashes = row.get('image_rgb_sha256')
@@ -27,6 +28,9 @@ def load_images(row,data_root):
         path = data_path(root, rel)
         if path.stem != f"{row['observation']['history_frames'][index]:04d}":
             raise ValueError('image timestamp does not match causal history')
+        key=(str(path),expected,pixel_hashes[index] if pixel_hashes is not None else None)
+        if key in cache:
+            images.append(cache[key]);continue
         if file_sha(path) != expected:
             raise ValueError('RGB source mismatch')
         with Image.open(path) as source:
@@ -35,6 +39,7 @@ def load_images(row,data_root):
                 from ..input_identity import rgb_content_sha
                 if rgb_content_sha(rgb)!=pixel_hashes[index]:
                     raise ValueError('decoded RGB content mismatch')
+            cache[key]=rgb
             images.append(rgb)
     return images
 
@@ -46,7 +51,7 @@ def load_bundle(model_dir,device,*,rank=16,alpha=32,dropout=.05,vision_scope='of
         gradient_checkpointing=checkpointing)
 
 
-def encode(bundle,row,data_root,*,supervise=True,max_length=8192):
+def encode(bundle,row,data_root,*,supervise=True,max_length=8192,image_cache=None):
     import torch
     from qwen3vl_local.sft_v2.train import _find_subsequence, _assert_inside_assistant_turn
     from qwen3vl_local.qwen35.backend import assistant_header_text
@@ -55,7 +60,7 @@ def encode(bundle,row,data_root,*,supervise=True,max_length=8192):
     ep = Episode(**row['episode'])
     if digest(prompt(ep,row['edge'],row['observation'])) != row['prompt_sha256']:
         raise ValueError('prompt identity mismatch')
-    images = load_images(row,data_root)
+    images = load_images(row,data_root,cache=image_cache)
     msgs = messages(ep,row['edge'],row['observation'],images,row['target'] if supervise else None)
     text = bundle.processor.apply_chat_template(msgs,tokenize=False,add_generation_prompt=not supervise)
     inputs = bundle.processor(text=[text],images=images,return_tensors='pt',padding=True)
@@ -108,3 +113,10 @@ def load_for_inference(model_dir,adapter_dir,device):
     model = LocalPeftModel.from_pretrained(base,adapter_dir).eval()
     processor = AutoProcessor.from_pretrained(str(model_dir),local_files_only=True,trust_remote_code=False)
     return SimpleNamespace(model=model,processor=processor,tokenizer=processor.tokenizer,device=device,observation_contract=observation)
+
+
+def encode_batch(bundle, rows, data_root, *, max_length=8192):
+    from qwen3vl_local.sequence_batch import collate
+    cache={}
+    return collate([encode(bundle, row, data_root, max_length=max_length,image_cache=cache) for row in rows],
+                   bundle.tokenizer.pad_token_id)

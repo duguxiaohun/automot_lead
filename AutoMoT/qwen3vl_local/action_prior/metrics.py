@@ -73,7 +73,9 @@ def event_sample_groups(sample):
     # 仅在显式接入全帧 event map 时存在。它是离线审计标签，不是模型预测事件，
     # 也不参与总样本分母。评测必须使用 all_special_buckets：被 Phase3 动作问答
     # 过滤的特殊帧仍是特殊驾驶情境，不能因此掉进“普通”或完全不统计。
-    if sample.get("event_balance_bucket"):
+    if sample.get("_evaluation_event"):
+        groups.extend(("evaluation_equal_events", f"event_balance/{sample['_evaluation_event']}"))
+    elif sample.get("event_balance_bucket"):
         groups.append(f"event_balance/{sample['event_balance_bucket']}")
     elif "event_balance_status" in sample:
         status = str(sample.get("event_balance_status") or "unconfirmed")
@@ -117,15 +119,16 @@ def metrics_from_counts(counts):
                 value if metric == "samples" else value / counts[prefix + "/samples"]
             )
     result["samples"] = n
-    # 自然分布分数仍用于可比的总体报告；事件均衡分数则严格按 1:…:1:2
-    # 聚合每个真实全帧桶。缺桶显式标为不完整，不能悄悄以总体 ADE 代替。
+    # 十事件等量评估只聚合十事件；自然分布审计保持含背景的 1:…:1:2。
+    # 缺桶显式标为不完整，不能悄悄以总体 ADE 代替。
     from qwen3vl_local.action_prior.event_balance import (
         EVENT_BALANCE_WEIGHTS,
         REGULAR_BACKGROUND,
         SPECIAL_BUCKETS,
     )
 
-    event_keys = (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
+    equal_events = counts["group/evaluation_equal_events/samples"] == n
+    event_keys = SPECIAL_BUCKETS if equal_events else (*SPECIAL_BUCKETS, REGULAR_BACKGROUND)
     has_event_map = any(key.startswith("group/event_balance/") for key in counts)
     missing = [
         key for key in event_keys

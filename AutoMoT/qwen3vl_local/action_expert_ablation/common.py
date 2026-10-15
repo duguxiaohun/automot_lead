@@ -924,6 +924,7 @@ def eval_main(variant: str) -> None:
     p.add_argument("--max-samples", type=int, default=0)
     p.add_argument("--dump-cases", action="store_true")
     p.add_argument("--raw", action="store_true", help="use raw decoder instead of EMA")
+    p.add_argument("--evaluation-distribution",choices=("equal_events","natural"),default="equal_events")
     cli = p.parse_args()
     from qwen3vl_local.action_prior.launch import ensure_gpu
 
@@ -941,6 +942,7 @@ def eval_main(variant: str) -> None:
     if state.get("ablation_variant") != variant:
         raise ValueError(f"checkpoint variant {state.get('ablation_variant')} != requested {variant}")
     args = argparse.Namespace(**state["args"])
+    args.evaluation_distribution=cli.evaluation_distribution
     for key in ("data_root", "data_dir", "model_dir", "lead_bev_ckpt", "event_balance_index"):
         if getattr(cli, key):
             setattr(args, key, getattr(cli, key))

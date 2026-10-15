@@ -516,6 +516,8 @@ def build_event_balanced_epoch(rows: Sequence[Mapping[str, Any]], *, total: int,
 
 
 def validate_sampling_args(args):
+    if getattr(args,"evaluation_distribution","natural") not in ("equal_events","natural"):
+        raise ValueError("evaluation_distribution must be equal_events/natural")
     """主线与消融共用采样配置校验；场景先验的输入权限由各自入口校验。"""
     if args.sampling_mode not in SAMPLING_MODES:
         raise ValueError(f"sampling_mode must be one of {SAMPLING_MODES}")
@@ -587,3 +589,45 @@ def add_sampling_aliases(parser):
     parser.add_argument("--action-balanced", dest="sampling_mode", action="store_const",
                         const=SAMPLING_MODE_ACTION_BALANCED, default=argparse.SUPPRESS,
                         help="事件内按主要动作容量回流，事件等配额；不自动开启 token")
+
+
+def equal_event_evaluation(rows, *, seed, max_samples=0):
+    """Fixed ten-event evaluation without replacement, including shared-event rows.
+
+    One physical anchor is assigned to one reporting event by a joint capacity
+    allocation. Original semantic membership stays intact for model conditioning.
+    Background is excluded from this ten-event metric, never relabelled as an event.
+    """
+    from hashlib import sha256
+    groups={e:[] for e in SPECIAL_BUCKETS}
+    unique={}
+    for row in rows:
+        ident=_identity(row)
+        if ident in unique:raise ValueError('duplicate evaluation anchor')
+        unique[ident]=row
+        for e in row.get('event_balance_all_special_buckets',()):
+            if e in groups:groups[e].append(row)
+    missing=[e for e,v in groups.items() if not v]
+    if missing:raise ValueError(f'ten-event evaluation missing events: {missing}')
+    limit=min(map(len,groups.values()))
+    if max_samples:
+        if max_samples<10:raise ValueError('ten-event evaluation needs at least ten samples')
+        limit=min(limit,max_samples//10)
+    lo,hi=0,limit
+    while lo<hi:
+        mid=(lo+hi+1)//2
+        feasible=_joint_allocation(rows,dict.fromkeys(groups,mid),repeat_cap=1,seed=seed,groups=groups)
+        if feasible is None:hi=mid-1
+        else:lo=mid
+    if not lo:raise ValueError('shared-anchor capacity cannot support all ten evaluation events')
+    _,frame_rows,assigned,_=_joint_allocation(rows,dict.fromkeys(groups,lo),repeat_cap=1,seed=seed,groups=groups)
+    selected=[]
+    for event,counts in assigned.items():
+        for ident,n in sorted(counts.items()):
+            if n!=1:raise AssertionError('evaluation repeated an anchor')
+            selected.append(dict(frame_rows[ident],_evaluation_event=event))
+    identities=[(r['_evaluation_event'],_identity(r)) for r in selected]
+    return selected,dict(policy='ten_event_unique_joint_allocation_v1',per_event=lo,
+        event_counts=dict.fromkeys(groups,lo),available={e:len(v) for e,v in groups.items()},
+        selected_sha256=sha256(json.dumps(identities,sort_keys=True).encode()).hexdigest(),
+        selected=identities,background_policy='excluded_from_ten_event_score',seed=seed)
