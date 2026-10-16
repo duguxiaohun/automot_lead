@@ -7,20 +7,44 @@ from collections import Counter, defaultdict
 import hashlib
 import json
 
-POLICY = 'event_equal_contiguous_unseen_first_v2'
+POLICY = 'event_equal_contiguous_unseen_first_v3'
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def tail_piece_length(by_length, remaining):
+    """Exact tail packing with whole pieces; minimize joins, then prefer long pieces.
+
+    Counts are bounded by availability. If no complete packing exists, preserve
+    the original longest-piece choice rather than create extra tiny fragments.
+    This only sees pieces in the current question/anchor exposure tier.
+    """
+    best = {0: ()}
+    for length in sorted(by_length, reverse=True):
+        if length > remaining:
+            continue
+        count = min(len(by_length[length]), remaining // length)
+        for _ in range(count):
+            for size, combo in sorted(list(best.items()), reverse=True):
+                total = size + length
+                if total > remaining:
+                    continue
+                candidate = tuple(sorted((*combo, length), reverse=True))
+                previous = best.get(total)
+                if previous is None or (len(candidate), tuple(-n for n in candidate)) < (len(previous), tuple(-n for n in previous)):
+                    best[total] = candidate
+    return best[remaining][0] if remaining in best else max(by_length)
+
+
 def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
          stride=2, history=None):
     """Records contain id/event/sequence/frame/action/split/group, no model tensors.
 
-    Equal events are hard. Exposure is lexicographically first, then the longest
-    available contiguous piece, then capacity-return action deficit. Short pieces
-    join another sequence at a batch boundary WITHOUT constructing fake history.
+    Equal events are hard. Exposure is lexicographically first, then longest
+    pieces at batch starts and complete-piece packing for batch tails, then soft
+    action deficit. Short pieces join independent sequences WITHOUT fake history.
     Both parity streams are eligible when stride=2, so odd frames are not lost.
     """
     if not records or any(type(n) is not int or n < 1 for n in (world_size, batch_size, stride)):
@@ -62,9 +86,10 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
     frame_keys=[(r['event'],r['sequence'],r['frame']) for r in records]
     frame_counts=Counter()
     for i,ident in enumerate(ids):frame_counts[frame_keys[i]]+=counts[ident]
-    queues, pieces_report, action_report = {}, {}, {}
+    queues, pieces_report, action_report, packing_report = {}, {}, {}, {}
     for event, pool in sorted(pools.items()):
         selected, segments = [], []
+        packing = Counter()
         actions = Counter(records[i]['action'] for i in pool)
         # Soft action targets; no label editing or rare-action repetition before coverage.
         from qwen3vl_local.sft_new_loop_phase3.sampling import support_aware_quota
@@ -99,7 +124,10 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
                 for action in {records[i]['action'] for i in alternatives})
             while by_length and len(selected) < targets[event]:
                 remaining = min(block-len(selected)%block, targets[event]-len(selected))
-                length = max(by_length)
+                longest = max(by_length)
+                length = tail_piece_length(by_length, remaining) if remaining < block else longest
+                if length != longest:
+                    packing['whole_piece_tail_choices'] += 1
                 candidates = by_length[length]
                 # Within equally continuous choices, compensate action deficit.
                 def resolve(piece):
@@ -135,6 +163,7 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
                     for action in {records[i]['action'] for i in alternatives}:
                         opportunities[action] -= 1
                 if rest:
+                    packing['truncated_pieces'] += 1
                     by_length[len(rest)].append(rest)
                 segments.append(dict(offset=len(selected), length=len(take), sequence=records[take[0]]['sequence'],
                                      first_frame=records[take[0]]['frame'], last_frame=records[take[-1]]['frame']))
@@ -146,6 +175,8 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
         queues[event] = selected
         pieces_report[event] = segments
         action_report[event] = dict(target=desired, actual=dict(actual))
+        packing_report[event] = dict(whole_piece_tail_choices=packing['whole_piece_tail_choices'],
+                                     truncated_pieces=packing['truncated_pieces'])
     # Contiguous global blocks; contiguous per-rank chunks within each block.
     result=[]
     events=sorted(queues, key=lambda e:digest([seed,epoch,e]))
@@ -161,8 +192,8 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
         cumulative_unique_questions=sum(n>0 for n in counts.values()),
         cumulative_missing_questions=sum(n==0 for n in counts.values()),
         event_coverage={e:dict(pool=len(v),seen=sum(counts[ids[i]]>0 for i in v)) for e,v in pools.items()},
-        segments=pieces_report, action_balance=action_report,
-        priority='least question exposure, least anchor exposure, longest contiguous piece, soft action deficit',
+        segments=pieces_report, action_balance=action_report, tail_packing=packing_report,
+        priority='least question exposure, least anchor exposure, longest piece at batch start; whole-piece exact tail packing; soft action deficit',
         unique_anchors=len({frame_keys[i] for i in repeats}),
         overlap='real causal histories may overlap within split; no synthetic cross-route windows',
         ordered_ids_sha256=digest([ids[i] for i in result]),

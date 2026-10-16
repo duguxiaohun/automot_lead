@@ -292,7 +292,7 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     monkeypatch.setattr(evaluate, 'load_dataset', lambda *args, **kwargs: (fixture, manifest))
     calls = []
     def select(n):
-        assert n == 1 and 'CUDA_VISIBLE_DEVICES' not in os.environ
+        assert n == 1 and os.environ['CUDA_VISIBLE_DEVICES'] == 'old_mask'
         assert os.environ['GPU_IDS'] == '2'
         return '2'
     monkeypatch.setenv('GPU_IDS', '2')
@@ -326,7 +326,7 @@ exec "$@"
     python = tmp_path / 'fake_python'
     python.write_text(f'#!{sys.executable}\n' + '''import json, os, pathlib, sys
 if sys.argv[1] == '-c':
-    assert 'CUDA_VISIBLE_DEVICES' not in os.environ
+    assert os.environ['CUDA_VISIBLE_DEVICES'] == 'inherited_mask'
     assert os.environ['GPU_IDS'] == '1,3,5,7'
     print('1,3,5,7')
 elif 'qwen3vl_local.sft_new_loop_phase4.rgb_short.reload_check' in sys.argv:

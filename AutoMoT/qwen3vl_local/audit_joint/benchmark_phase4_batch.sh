@@ -5,12 +5,10 @@ set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
 : "${DATASET:?Set DATASET to the current Phase4 student/view directory}"
 if [[ -z "${GPU_IDS:-}" ]]; then
-  GPU_IDS="$(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits \
-    | awk -F, '{gsub(/ /,"",$0); print $2, $3, $1}' | sort -n -k1,1 -k2,2 \
-    | head -n 4 | awk '{print $3}' | paste -sd, -)"
+  GPU_IDS="$("${PYTHON:-python}" -c 'from qwen3vl_local.sft_new_loop_phase4.devices import select_gpus; print(select_gpus(4))')"
 fi
 IFS=, read -r -a P4_BATCH_GPUS <<< "$GPU_IDS"
-[[ ${#P4_BATCH_GPUS[@]} == 4 ]] || { echo 'This comparison profile requires four GPUs' >&2; exit 2; }
+[[ ${#P4_BATCH_GPUS[@]} == 4 ]] || { echo 'This comparison profile requires four idle visible GPUs, or four explicit GPU_IDS' >&2; exit 2; }
 exec "${PYTHON:-python}" -m qwen3vl_local.audit_joint.batch_benchmark \
   --phase 4 --dataset "$DATASET" --data-root "${DATA_ROOT:-lead_data}" \
   --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" \

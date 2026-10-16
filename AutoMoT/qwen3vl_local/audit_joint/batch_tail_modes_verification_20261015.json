@@ -1,0 +1,217 @@
+{
+  "status": "implemented_cpu_verified",
+  "release": "release_sources_v62_batch_tail_modes_20261015.json",
+  "source_check": {
+    "status": "matched",
+    "files": 526,
+    "manifest_sha256": "173da4775d7f7441c3fe88547127c13932dcf9a513ac6a7d352658c0b71bd642",
+    "unexpected_python_files": []
+  },
+  "tests": {
+    "related_passed": 261,
+    "log": "261 passed in 17.01s",
+    "shell_syntax_passed": 7,
+    "document_command_syntax": true,
+    "cli_help": true,
+    "coverage": [
+      "exhaustive bounded tail combinations",
+      "6/6/2/2 and 6/6/1/1/1/1 intact pieces",
+      "actual launchers and GPU selector with simulated nvidia-smi",
+      "mixed RGB2/RGB4 batch stage environment and diagnostic handoff",
+      "old v1/v2 histories rejected",
+      "CPU Gloo accumulation and tiny Qwen numerics"
+    ]
+  },
+  "real_sampling": [
+    {
+      "rgb_mode": 2,
+      "pool": 1457,
+      "avoidable_cut_choices_before": 156,
+      "avoidable_cut_choices_after": 0,
+      "segments_before": 4214,
+      "segments_after": 4004,
+      "unique_at_1024_per_event": 1457,
+      "coverage": [
+        151,
+        278,
+        383,
+        479,
+        575
+      ],
+      "ue3_first_epoch": {
+        "target": {
+          "hold/YES": 2,
+          "proceed/NO": 14
+        },
+        "actual": {
+          "hold/YES": 2,
+          "proceed/NO": 14
+        }
+      },
+      "tail_packing": {
+        "R-E2": {
+          "whole_piece_tail_choices": 57,
+          "truncated_pieces": 3
+        },
+        "R-E3": {
+          "whole_piece_tail_choices": 12,
+          "truncated_pieces": 5
+        },
+        "R-E5": {
+          "whole_piece_tail_choices": 18,
+          "truncated_pieces": 3
+        },
+        "U-E1": {
+          "whole_piece_tail_choices": 9,
+          "truncated_pieces": 0
+        },
+        "U-E2": {
+          "whole_piece_tail_choices": 30,
+          "truncated_pieces": 0
+        },
+        "U-E3": {
+          "whole_piece_tail_choices": 28,
+          "truncated_pieces": 42
+        },
+        "U-E4": {
+          "whole_piece_tail_choices": 35,
+          "truncated_pieces": 35
+        },
+        "U-E5": {
+          "whole_piece_tail_choices": 19,
+          "truncated_pieces": 37
+        },
+        "U-E6": {
+          "whole_piece_tail_choices": 21,
+          "truncated_pieces": 79
+        },
+        "U-E7": {
+          "whole_piece_tail_choices": 44,
+          "truncated_pieces": 27
+        }
+      }
+    },
+    {
+      "rgb_mode": 4,
+      "pool": 1457,
+      "avoidable_cut_choices_before": 83,
+      "avoidable_cut_choices_after": 0,
+      "segments_before": 3497,
+      "segments_after": 3266,
+      "unique_at_1024_per_event": 1457,
+      "coverage": [
+        151,
+        278,
+        383,
+        479,
+        575
+      ],
+      "ue3_first_epoch": {
+        "target": {
+          "hold/YES": 2,
+          "proceed/NO": 14
+        },
+        "actual": {
+          "hold/YES": 2,
+          "proceed/NO": 14
+        }
+      },
+      "tail_packing": {
+        "R-E2": {
+          "whole_piece_tail_choices": 43,
+          "truncated_pieces": 9
+        },
+        "R-E3": {
+          "whole_piece_tail_choices": 18,
+          "truncated_pieces": 5
+        },
+        "R-E5": {
+          "whole_piece_tail_choices": 9,
+          "truncated_pieces": 24
+        },
+        "U-E1": {
+          "whole_piece_tail_choices": 8,
+          "truncated_pieces": 1
+        },
+        "U-E2": {
+          "whole_piece_tail_choices": 34,
+          "truncated_pieces": 0
+        },
+        "U-E3": {
+          "whole_piece_tail_choices": 0,
+          "truncated_pieces": 84
+        },
+        "U-E4": {
+          "whole_piece_tail_choices": 70,
+          "truncated_pieces": 18
+        },
+        "U-E5": {
+          "whole_piece_tail_choices": 0,
+          "truncated_pieces": 74
+        },
+        "U-E6": {
+          "whole_piece_tail_choices": 15,
+          "truncated_pieces": 25
+        },
+        "U-E7": {
+          "whole_piece_tail_choices": 40,
+          "truncated_pieces": 26
+        }
+      }
+    }
+  ],
+  "native_producer_unchanged": true,
+  "selected_ids_unchanged": true,
+  "old_student_rejected": true,
+  "gpu_selection": {
+    "memory_used_mib_less_than": 4096,
+    "utilization_percent_less_than": 20,
+    "respects_visible_mask": true,
+    "requires_four_idle_visible": true,
+    "explicit_gpu_ids_overrides": true
+  },
+  "mode_parameters": [
+    "--batch-size-rgb2",
+    "--batch-size-rgb4"
+  ],
+  "fallback_parameter": "--batch-size",
+  "update_samples": 32,
+  "local_evidence": "checkpoints/batch_tail_modes_20261015",
+  "evidence_sha256": {
+    "regression_final.log": "3be4d8d675437c5a36e6d27acc01c760c7e2ad495a031023f34cd376c371f636",
+    "real_verification.json": "82ce5b61877b6775ae9fa5ce7904ca70aaa2694618abc43deac5e49683d2db38",
+    "source_check.json": "8e2fa04019e7484597370280accd933d956f2d37ed3c428bb70b4bd4f470ce6e"
+  },
+  "scope": "CPU tests and existing train-only small pool; no remote or target 4B GPU training; no claim of globally optimal packing or GPU availability reservation",
+  "published": false,
+  "followup_review": {
+    "source": "user_provided_read_only_audit_summary",
+    "raw_logs_received": false,
+    "independently_rerun_this_turn": false,
+    "reported_tests_passed": 205,
+    "reported_random_pools": 150,
+    "reported_epochs_per_pool": 4,
+    "previous_three_issues": "closed",
+    "new_confirmed_code_defects": 0,
+    "runtime_source_changes": false,
+    "documentation_changes": [
+      "correct stale sampling v2 text to v3",
+      "complete separate-mode first-epoch command reusing measured view"
+    ],
+    "pending": [
+      "publish and synchronize v62",
+      "Phase4 target 4B four-GPU memory and throughput measurements",
+      "mode-specific batch selection from Phase4 measurements",
+      "formal first epoch, reload and test"
+    ],
+    "current_checks": {
+      "source_status": "matched",
+      "source_count": 526,
+      "documented_shell_commands_syntax_passed": 3,
+      "inline_python_syntax_passed": true,
+      "prior_local_evidence_hashes_matched": true,
+      "diff_check_passed": true,
+      "gpu_executed": false
+    }
+  }
+}

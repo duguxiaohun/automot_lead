@@ -64,7 +64,6 @@ def main():
     if device == 'cuda':
         import os
         from ..devices import select_gpus
-        os.environ.pop('CUDA_VISIBLE_DEVICES', None)
         os.environ['CUDA_VISIBLE_DEVICES'] = select_gpus(1)
         device = 'cuda:0'
     bundle = load_for_inference(a.model_dir, a.adapter, device)

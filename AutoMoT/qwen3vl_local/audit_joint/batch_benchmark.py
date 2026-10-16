@@ -14,6 +14,7 @@ import time
 import traceback
 
 from .batch_probe import nonempty_path, validate_paths
+from .benchmark_runtime import progress, trace_waits, run_owned, prepare_phase4, read_prepared
 from qwen3vl_local.sequence_batch import digest, plan, phase4_records
 
 
@@ -175,6 +176,7 @@ def callbacks(a,bundle,items,mode,manifest):
 
 
 def worker(a):
+    progress('worker imports START')
     import torch
     import torch.distributed as dist
     from torch.nn.parallel import DistributedDataParallel
@@ -183,18 +185,27 @@ def worker(a):
     if world!=len(a.gpus.split(',')):raise ValueError('worker world does not match requested GPU list')
     if not torch.cuda.is_available():raise RuntimeError('real CUDA devices required; CPU is not a capacity measurement')
     device=torch.device('cuda',local);torch.cuda.set_device(device)
+    progress('distributed_init START')
     if world>1:dist.init_process_group('nccl',timeout=timedelta(seconds=a.ddp_timeout))
     random.seed(a.seed);torch.manual_seed(a.seed);torch.cuda.manual_seed_all(a.seed)
     mode=a.modes[0];batch=a.batches[0]
-    items,records,manifest=load_pool(a,mode)
-    updates,selection=schedule(records,per_event=a.samples_per_event,update_samples=a.update_samples,
-        world=world,batch=batch,mode=mode,seed=a.seed)
+    progress('data_selection START')
+    if a.phase=='4':
+        if not a.prepared_samples:raise ValueError('Phase4 workers require parent-validated prepared samples')
+        items,records,manifest,updates,selection=read_prepared(a)
+    else:
+        items,records,manifest=load_pool(a,mode)
+        updates,selection=schedule(records,per_event=a.samples_per_event,update_samples=a.update_samples,
+            world=world,batch=batch,mode=mode,seed=a.seed)
+    progress(f'data_selection DONE rows={len(items)}')
     if world>1:
         selections=[None]*world;dist.all_gather_object(selections,selection)
         if any(s!=selection for s in selections):raise ValueError('rank selection mismatch')
+    progress('model_load START')
     bundle=load_model_with_lora(a.model_dir,device=device,lora_rank=a.lora_rank,lora_alpha=a.lora_alpha,
         lora_dropout=.05,lora_vision_scope=a.vision_scope,strict_vision_scope=True,
         gradient_checkpointing=a.gradient_checkpointing)
+    progress('model_load DONE; DDP_setup START')
     params=[p for p in bundle.model.parameters() if p.requires_grad]
     if world>1:bundle.model=DistributedDataParallel(bundle.model,device_ids=[local],find_unused_parameters=False)
     optimizer=torch.optim.AdamW(params,lr=1e-5 if a.phase=='3' else 2e-5,
@@ -209,10 +220,12 @@ def worker(a):
                        cumulative_peak_allocated=torch.cuda.max_memory_allocated(device),
                        cumulative_peak_reserved=torch.cuda.max_memory_reserved(device))
     warm_blocks=warmup_schedule(updates,records,a.warmup_updates)
+    progress('warmup START')
     warmup=execute(bundle.model,optimizer,params,warm_blocks,
         rank=rank,world=world,batch=batch,prepare=prepare,loss_for=loss_for,device=device,
-        timing=a.timing,synchronize=sync,barrier=barrier,emit=lambda r:None,inputs_on_device=a.phase=='4')
+        timing=a.timing,synchronize=sync,barrier=barrier,emit=lambda r:progress(f'warmup update {r["update"]+1}/{len(warm_blocks)}') if rank==0 and r['optimizer_update'] else None,inputs_on_device=a.phase=='4')
     warmup['global_event_counts']=dict(Counter(records[i]['event'] for block in warm_blocks for i in block))
+    progress('warmup DONE; measurement START')
     log=a.output/f'rank{rank}_steps.jsonl'
     def emit(record):
         record['ids']=[records[i]['id'] for i in record['indices']]
@@ -334,6 +347,12 @@ def parser():
     p.add_argument('--repeats',type=int,default=2)
     p.add_argument('--seed',type=int,default=20260904)
     p.add_argument('--timing',choices=('detailed','end_to_end'),default='detailed')
+    p.add_argument('--prepare-timeout',type=int,default=120,help='CPU preparation limit per RGB mode in seconds')
+    p.add_argument('--prepare-only',action='store_true',help='Phase4 bounded CPU diagnosis; never starts CUDA workers')
+    p.add_argument('--prepare-worker',action='store_true',help=argparse.SUPPRESS)
+    p.add_argument('--prepared-samples',type=Path,help=argparse.SUPPRESS)
+    p.add_argument('--prepared-sha256',help=argparse.SUPPRESS)
+    p.add_argument('--continue-on-error',action='store_true',help='Explicitly continue trial matrix after failures; default stops immediately')
     p.add_argument('--ddp-timeout',type=int,default=180)
     p.add_argument('--trial-timeout',type=int,default=1800)
     return p
@@ -350,11 +369,15 @@ def main():
         if any(not g.isdigit() for g in gpu_ids) or len(set(gpu_ids))!=len(gpu_ids):raise ValueError('GPU IDs must be distinct numbers')
         a.gpus=','.join(gpu_ids)
         if (min(a.samples_per_event,a.update_samples,a.repeats,a.warmup_updates,a.ddp_timeout,a.trial_timeout,
-                a.max_length,a.lora_rank,a.lora_alpha,*a.batches)<1 or not 0<a.headroom_fraction<1
+                a.max_length,a.lora_rank,a.lora_alpha,a.prepare_timeout,*a.batches)<1 or not 0<a.headroom_fraction<1
                 or a.samples_per_event%a.update_samples or any(a.update_samples%(len(gpu_ids)*b) for b in a.batches)):
             raise ValueError('invalid budget: samples-per-event divisible by update-samples; update-samples divisible by GPU count * every batch')
     except ValueError as exc:p.error(str(exc))
+    if (a.prepare_only or a.prepare_worker) and a.phase!='4':p.error('CPU preparation is Phase4 only')
+    if a.prepare_worker:
+        trace_waits();prepare_phase4(a);return
     if a.worker:
+        trace_waits()
         rank=int(os.environ.get('RANK',0))
         try:worker(a)
         except Exception as exc:
@@ -364,11 +387,33 @@ def main():
     a.output.mkdir(parents=True,exist_ok=False);trials=[]
     import hashlib
     request={k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()}
-    paths=[Path(__file__),Path(__file__).with_name('batch_probe.py'),a.model_dir/'config.json',
+    paths=[Path(__file__),Path(__file__).with_name('batch_probe.py'),
+           Path(__file__).with_name('benchmark_runtime.py'),a.model_dir/'config.json',
            a.index.with_name('manifest.json') if a.phase=='3' else a.dataset/'student_view.json']
     request['source_input_sha256']={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
     write(a.output/'request.json',request)
     for mode in dict.fromkeys(a.modes):
+        prepared = None
+        prepared_sha = None
+        if a.phase=='4':
+            prepared = a.output/f'prepared_rgb{mode}.json'
+            command=[sys.executable,'-u','-m','qwen3vl_local.audit_joint.batch_benchmark',
+                     '--prepare-worker','--phase','4','--output',str(prepared),'--modes',str(mode),
+                     '--batches',str(a.batches[0]),'--gpus',a.gpus]
+            for name in ('data_root','model_dir','dataset','samples_per_event','update_samples','seed'):
+                command.extend(['--'+name.replace('_','-'),str(getattr(a,name))])
+            print(f'[benchmark] CPU preparation RGB={mode}; limit={a.prepare_timeout}s; no GPU workers',flush=True)
+            code=run_owned(command,a.output/f'prepare_rgb{mode}.log',
+                           dict(os.environ,CUDA_VISIBLE_DEVICES='',PYTHONUNBUFFERED='1'),a.prepare_timeout)
+            preparation=dict(rgb_mode=mode,returncode=code,status='prepared' if code==0 else 'failed',
+                             log=str(a.output/f'prepare_rgb{mode}.log'))
+            write(a.output/f'prepare_rgb{mode}.json',preparation)
+            if code:
+                write(a.output/'summary.json',dict(status='preparation_failed',preparation=preparation,
+                    trials=trials,fastest_measured_candidates={}))
+                raise SystemExit(code if code in (130,143) else 2)
+            prepared_sha=hashlib.sha256(prepared.read_bytes()).hexdigest()
+            if a.prepare_only:continue
         for repeat in range(a.repeats):
             batches=sorted(set(a.batches),reverse=bool(repeat%2))
             for batch in batches:
@@ -382,24 +427,23 @@ def main():
                     value=getattr(a,name)
                     if value is not None:cmd.extend(['--'+name.replace('_','-'),str(value)])
                 cmd.append('--gradient-checkpointing' if a.gradient_checkpointing else '--no-gradient-checkpointing')
+                if prepared is not None:
+                    cmd.extend(['--prepared-samples',str(prepared),'--prepared-sha256',prepared_sha])
                 env=dict(os.environ,CUDA_VISIBLE_DEVICES=a.gpus,TOKENIZERS_PARALLELISM='false',OMP_NUM_THREADS=os.environ.get('OMP_NUM_THREADS','1'))
                 print(f'[benchmark] RGB={mode} batch/card={batch} GPUs={a.gpus} repeat={repeat}',flush=True)
-                # Timeout kills the complete torchrun process group, including workers.
-                import signal
-                with (folder/'worker.log').open('w') as stream:
-                    proc=subprocess.Popen(cmd,env=env,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True)
-                    try:code=proc.wait(timeout=a.trial_timeout)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid,signal.SIGTERM)
-                        try:proc.wait(timeout=10)
-                        except subprocess.TimeoutExpired:os.killpg(proc.pid,signal.SIGKILL);proc.wait()
-                        code=124
+                code=run_owned(cmd,folder/'worker.log',env,a.trial_timeout)
                 try:result=collect(folder,len(gpu_ids),code)
                 except (ValueError,OSError,KeyError,TypeError) as exc:result=dict(status='error',error=str(exc),returncode=code)
+                if code==124:result['error']='trial wall-clock timeout; inspect stage log and periodic stacks'
                 result.update(rgb_mode=mode,batch_size=batch,repeat=repeat,folder=str(folder))
                 trials.append(result);write(folder/'trial.json',result)
                 write(a.output/'summary.json',summarize(trials,a.repeats))
                 print(json.dumps({k:v for k,v in result.items() if k not in ('ranks','selection')}) ,flush=True)
+                if code in (130,143):raise SystemExit(code)
+                if result['status']!='measured' and not a.continue_on_error:
+                    raise SystemExit(2)
+    if a.prepare_only:
+        write(a.output/'summary.json',dict(status='prepared_cpu_only',trials=[],fastest_measured_candidates={}))
     if any(r['status']!='measured' for r in trials):raise SystemExit(2)
 
 

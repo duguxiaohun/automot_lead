@@ -1,5 +1,7 @@
 # Phase3／4 连续片段 batch 实验
 
+> 最新v3尾部拼段、空闲可见GPU筛选和Phase4分模式batch参数见 [当前修正](BATCH_TAIL_MODES_20261015.md)；历史v1／v2描述保留当时状态。
+
 > 最新四项复审及v2同锚点补偿见 [修正记录](BATCH_AUDIT_FIXES_20261015.md)。probe容量上限不是正式入口推荐值，应读取training_compatible_candidates及排除原因；Phase4固定1024/event不接受仅改B为3／5／6／7。
 
 > 发布更新：本轮已获用户授权按白名单发布，统一 v60_batch_profiles_20261015（523源），发布前209项相关回归通过。同步最终发布源码后执行本文入口；历史段落中的“未push”描述保留当时状态。

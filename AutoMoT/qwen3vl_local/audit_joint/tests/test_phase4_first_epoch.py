@@ -139,6 +139,44 @@ def test_wrong_parent_view_rejected_before_training(inputs,monkeypatch,tmp_path)
     assert 'requested native dataset' in json.loads((inputs[1]/'workflow.json').read_text())['error']
 
 
+@pytest.mark.parametrize('fallback,two,four,expected',[
+    (1,2,1,{'2':(2,4),'4':(1,8)}), (2,None,1,{'2':(2,4),'4':(1,8)}),
+    (1,4,2,{'2':(4,2),'4':(2,4)}), (2,None,None,{'2':(2,4),'4':(2,4)})])
+def test_mode_batches_flow_into_admission_training_and_handoff(inputs,monkeypatch,fallback,two,four,expected):
+    calls=[]
+    # Ignore stale environment values from earlier shell experiments.
+    monkeypatch.setenv('BATCH_SIZE','8');monkeypatch.setenv('ACCUMULATION','1')
+    def execute(command,log,env):
+        log.write_text('fixture')
+        if log.stem.startswith('rgb'):calls.append((env['RGB_MODE'],env['BATCH_SIZE'],env['ACCUMULATION'],env['UPDATE_SAMPLES']))
+        return 0
+    monkeypatch.setattr(tool,'execute',execute)
+    assert tool.run(*inputs,batch_size=fallback,batch_size_rgb2=two,batch_size_rgb4=four)==2
+    assert calls==[(mode,str(batch),str(accum),'32') for mode,(batch,accum) in expected.items()]
+    receipt=unpack(inputs[1]/'handoff')['workflow.json']
+    for mode,(batch,accum) in expected.items():
+        config=dict(batch_size=batch,accumulation=accum,update_samples=32)
+        assert receipt['mode_configuration'][mode]==config
+        assert next(s for s in receipt['stages'] if s['stage']=='rgb'+mode)['training_configuration']==config
+    assert receipt['batch_size']==(expected['2'][0] if expected['2']==expected['4'] else None)
+
+
+def test_invalid_mode_batch_refused_before_output(inputs,monkeypatch):
+    monkeypatch.setattr(tool,'execute',lambda *a:pytest.fail('must not launch'))
+    with pytest.raises(ValueError,match='batch'):
+        tool.run(*inputs,batch_size_rgb2=3)
+    assert not inputs[1].exists()
+
+
+def test_cli_passes_independent_batch_overrides(inputs,monkeypatch):
+    captured={}
+    monkeypatch.setattr(tool,'run',lambda *a,**kw:captured.update(kw) or 0)
+    monkeypatch.setattr(sys,'argv',['phase4_first_epoch','--prepared',str(inputs[0]),
+        '--output',str(inputs[1]),'--batch-size','4','--batch-size-rgb2','2','--batch-size-rgb4','1'])
+    assert tool.main()==0
+    assert (captured['batch_size'],captured['batch_size_rgb2'],captured['batch_size_rgb4'])==(4,2,1)
+
+
 @pytest.mark.parametrize('content',['[]','{"parent": null}'])
 def test_malformed_reused_view_still_produces_diagnostic_package(inputs,monkeypatch,tmp_path,content):
     view=tmp_path/'bad_view';view.mkdir();(view/'student_view.json').write_text(content)

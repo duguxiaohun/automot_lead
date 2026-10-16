@@ -11,6 +11,53 @@ def pool(events=10,n=80):
         for e in range(events) for i in range(n)]
 
 
+@pytest.mark.parametrize('stride',[1,2])
+@pytest.mark.parametrize('lengths,expected',[
+    ([6,6,2,2],[6,2,6,2]), ([6,6,1,1,1,1],[6,1,1,6,1,1])])
+def test_batch_tail_preserves_complete_long_pieces(stride,lengths,expected):
+    rows=[dict(id=f'{route}/{frame}',event='event',sequence=str(route),frame=frame*stride,
+               action='same',split='train',group=str(route))
+          for route,length in enumerate(lengths) for frame in range(length)]
+    order,report=plan(rows,per_event=16,world_size=4,batch_size=2,stride=stride)
+    assert [s['length'] for s in report['segments']['event']]==expected
+    assert report['tail_packing']['event']['truncated_pieces']==0
+    assert report['unique_questions']==report['new_questions']==16
+    assert report['event_counts']=={'event':16} and report['action_balance']['event']['actual']=={'same':16}
+    assert all(rows[b[1]]['frame']-rows[b[0]]['frame']==stride
+               for b in rank_batches(order,rank=0,world_size=4,batch_size=2))
+    reversed_rows=list(reversed(rows))
+    reordered,_=plan(reversed_rows,per_event=16,world_size=4,batch_size=2,stride=stride)
+    assert [rows[i]['id'] for i in order]==[reversed_rows[i]['id'] for i in reordered]
+
+
+def test_tail_packing_is_bounded_minimizes_joins_and_has_no_false_fit():
+    from qwen3vl_local.sequence_batch import tail_piece_length
+    # A single 1 cannot be used twice to fill 2; fall back without cutting
+    # a long piece into even more fragments after consuming that singleton.
+    assert tail_piece_length({6:[0,1],1:[0]},2)==6
+    assert tail_piece_length({6:[0,1],2:[0],1:[0,1]},2)==2
+    assert tail_piece_length({8:[0],3:[0],2:[0,1,2]},6)==2
+    assert tail_piece_length({8:[0],3:[0,1],2:[0,1,2]},6)==3
+
+
+def test_tail_packing_against_exhaustive_bounded_combinations():
+    from itertools import product
+    from qwen3vl_local.sequence_batch import tail_piece_length
+    for counts in product(range(3),repeat=4):
+        if not any(counts):continue
+        available={i+1:list(range(n)) for i,n in enumerate(counts) if n}
+        for remaining in range(1,9):
+            feasible=[]
+            for usage in product(*(range(n+1) for n in counts)):
+                combo=tuple(sorted((i+1 for i,n in enumerate(usage) for _ in range(n)),reverse=True))
+                if sum(combo)==remaining:feasible.append(combo)
+            if feasible:
+                optimum=min(feasible,key=lambda c:(len(c),tuple(-n for n in c)))
+                assert tail_piece_length(available,remaining)==optimum[0]
+            else:
+                assert tail_piece_length(available,remaining)==max(available)
+
+
 def test_equal_contiguous_four_rank_batches_and_history_first():
     rows=pool();history=None;seen=set()
     for epoch in range(5):
@@ -86,10 +133,11 @@ def test_same_anchor_alternatives_compensate_without_changing_continuity(stride)
     assert b['new_questions']==2 and len(set(next_order[:2])-set(order))==2
 
 
-def test_previous_sampler_history_is_rejected():
+@pytest.mark.parametrize('version',[1,2])
+def test_previous_sampler_history_is_rejected(version):
     rows=pool(events=1,n=16)
     _,a=plan(rows,per_event=8)
-    a['next_history']['policy']='event_equal_contiguous_unseen_first_v1'
+    a['next_history']['policy']=f'event_equal_contiguous_unseen_first_v{version}'
     with pytest.raises(ValueError,match='history'):
         plan(rows,per_event=8,epoch=1,history=a['next_history'])
 

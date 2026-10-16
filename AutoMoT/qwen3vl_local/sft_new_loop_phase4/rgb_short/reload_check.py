@@ -74,7 +74,6 @@ def run_check(a, output, report, stage):
     device = a.device
     if device == 'cuda':
         from ..devices import select_gpus
-        os.environ.pop('CUDA_VISIBLE_DEVICES', None)
         os.environ['CUDA_VISIBLE_DEVICES'] = select_gpus(1)
         device = 'cuda:0'
     report['device'] = device

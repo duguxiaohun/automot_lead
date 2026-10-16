@@ -6,7 +6,7 @@ P4_PYTHON="${PYTHON:-python}"
 : "${OUTPUT_DIR:?Set OUTPUT_DIR to the experiment output base}"
 P4_MODE="${RGB_MODE:-2}"
 [[ "$P4_MODE" == 2 || "$P4_MODE" == 4 ]] || { echo 'RGB_MODE must be 2 or 4' >&2; exit 2; }
-P4_GPUS="$(env -u CUDA_VISIBLE_DEVICES "$P4_PYTHON" -c 'from qwen3vl_local.sft_new_loop_phase4.devices import select_gpus; print(select_gpus(4))')"
+P4_GPUS="$("$P4_PYTHON" -c 'from qwen3vl_local.sft_new_loop_phase4.devices import select_gpus; print(select_gpus(4))')"
 IFS=',' read -ra P4_GPU_ARRAY <<< "$P4_GPUS"
 [[ "${#P4_GPU_ARRAY[@]}" == 4 ]] || { echo 'This experiment requires four GPUs; set GPU_IDS=0,1,2,3 to pin.' >&2; exit 2; }
 P4_RUN="$OUTPUT_DIR/run_${RUN_TAG:-$(date +%Y%m%d_%H%M%S_%N)}_rgb${P4_MODE}"

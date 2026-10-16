@@ -1,5 +1,29 @@
 # AGENTS.md
 
+### 2026-10-16 v62／v63白名单授权发布
+
+用户明确要求push本轮连续段尾部、可见GPU、分模式batch及限时benchmark修补。发布v63_bounded_benchmark，528源码SHA matched；118相关回归通过（13.69秒），承接v62既有261项验证，不叠加为独立总数。提交本轮源码、测试、轻量回执和命令文档，保留用户.vscode、paper、checkpoints、权重、RGB及其它任务未跟踪文件。服务器先沿sync_automot.sh同步，按PHASE4_SHORT_DIAGNOSIS_20261016.md执行120秒CPU定位，通过后单trial CPU120秒／GPU300秒；有效v62 view继续复用，不重放老师或重建原生库。目标4B四卡尚未验收，本次发布不代表GPU结果通过。
+
+### 2026-10-16 Phase4 benchmark限时定位与准备阶段拆分
+
+服务器四组各1800秒超时，worker各约14GiB CPU内存、GPU仅上下文占用；日志无模型完成或训练进度，具体全池热点仍需调用栈，不把NCCL弃用warning当根因。用户已清理并确认1个torchrun与4个worker退出。新增benchmark_runtime：Phase4完整load/validate/schedule在单CPU子进程每模式一次，通过后仅将SHA绑定的选中小集合交给各rank／batch／repeat；正式encode_batch、事件配额和更新成员不变。新增prepare-only／prepare-timeout默认120秒，阶段日志实时输出及30秒调用栈，默认首错停止矩阵；显式continue-on-error才继续。按PID与启动时间跟踪并清理独立session后代，支持超时／Ctrl+C／SIGTERM，不清理其它任务。
+本次不改学生／原生合同，既有有效v62 view可复用，不重新建库或回放老师。真实1457题小池CPU CLI通过，278不同题／320呈现；目标4B权重本机缺失，未GPU测试。命令见audit_joint/PHASE4_SHORT_DIAGNOSIS_20261016.md：旧代码也可直接120秒栈定位；同步补丁后单trial预算CPU120秒+GPU300秒，先两图B1再四图，避免重跑12组。118相关测试13.69秒通过，含两模式小集合与真实信号清理；当前v63_bounded_benchmark清单528源matched，回执benchmark_bounded_verification_20261016.json；未push，保留.vscode及paper。
+
+### 2026-10-16 Phase4 RGB2 首轮交回核验与原版本接续
+
+Downloads 两文件：3740004字节ZIP/27成员SHA与CRC通过；四rank实际ID/顺序匹配10240计划，十事件各1024、10036独立题/298787池（3.36%），val实际各37共370、347正确（规则一致率93.78%），YES31/50、NO316/320；raw重解析、370题重载完整案例一致。RGB2固定test和RGB4结果缺，原workflow SIGINT130保留。R-E5 proceed YES0/3（训练暴露158）、R-E2 YES0/2；val无UE2 return/UE7 complete，UE5 proceed无YES，不以总体高分宣称全能力。训练1h30m55、内置val179s、独立reload2h49m、view2h58m；后两者无细分计时，不归因全部GPU生成。
+启动523源匹配v60，运行15学生源匹配v61采样v2，sequence_batch启动/运行SHA不同；不能称v62实验或完整同版启动快照。保持原合同继续RGB2 test→RGB4单轮/重载/test，先check_contract，若已同步v62则停止并恢复独立原版本环境，不能改SHA。33相关回归6.15秒及文档命令语法通过，无生产修改/新RGB目视/训练/远程/push。既有v62工作树及用户.vscode保留。报告audit_joint/PHASE4_RGB2_RECEIVED_20261016.md、轻量phase4_rgb2_received_verification_20261016.json；全证据checkpoints/phase4_rgb2_received_20261016。无需重建库/老师回放/重做P3/RGB2训练或reload，不要求YESNO等额，联合G0仍未认证。
+
+### 2026-10-15 v62复审收尾与Phase4实测交接
+
+用户交回独立只读审计摘要：205专项、150随机池×4轮及真实1457题覆盖通过，前轮三项问题关闭，无新增确定缺陷；未接收该轮原始日志，不与本地261项相加或声称本轮重跑。核对保留v62运行源码／采样v3合同，仅修正文档残留v2说明、补齐实测后复用同一view的分模式首轮命令，记录证据来源与待验收项。下一步发布同步v62→既有有效v57 data4生成新view→Phase4目标4B四卡实测→分别选batch→首轮／重载／test；不重做原生建库或老师回放，不用P3结果替代P4实测。尚未push／远程／GPU，保留用户.vscode。详见audit_joint/PHASE4_BENCHMARK_20261015.md及batch_tail_modes_verification_20261015.json。
+
+### 2026-10-15 连续段尾部修正、可见GPU与分模式batch
+
+用户复审三项均复现并修正。共享采样升v3：曝光层级不变，batch开头最长段，尾部在本层用完整段恰好补齐（最少段数、再长段），无完整组合才截长段；保留同锚点action软补偿，旧v1／v2 history拒绝。6/6/2/2→6+2、6+2。真实1457train、四卡B2、1024/event：两／四图可避免同action截断选择156／83→0／0，总段数4214→4004／3497→3266；各模式全覆盖1457题，16/event五轮累计151/278/383/479/575保持、U-E3仍14proceedNO+2holdYES。空留出仅CPU计划，非GPU消费／全局最优排布。
+P3 batch入口与P4 benchmark复用原devices空闲筛选（显存<4096MiB、利用率<20%），尊重CUDA_VISIBLE_DEVICES索引／完整UUID，不足四卡／无查询即停止，无0..3回退；P4当前学生run/evaluate/reload也不清除mask。GPU_IDS显式pin优先仍可覆盖mask／空闲筛选；原生devices／teacher合同不改。phase4_first_epoch新增--batch-size-rgb2/--batch-size-rgb4，--batch-size作后备，每模式计算32样本/update累积8/B；实际配置写workflow.mode_configuration与阶段记录并进入交接，混合模式顶层batch_size/accumulation=null不误报。
+261相关回归17.01秒通过，含真实shell+selector模拟忙卡／单可见卡／UUID／显式pin及混合模式环境／交接、枚举组合检查；七shell和文档命令语法、CLI help通过。新v62_batch_tail_modes清单526源matched无额外Python，三个发布指针更新。原生producer和题目成员SHA不变；共享采样及当前学生入口源码改变合同，最终同步后从有效v57 data4新建view，不重放老师／20h建库、不改旧SHA续训。详见audit_joint/BATCH_TAIL_MODES_20261015.md及batch_tail_modes_verification_20261015.json；本机checkpoints/batch_tail_modes_20261015。未push／远程／GPU，保留用户.vscode。
+
 ### 2026-10-15 v61复审补丁与Phase4实测授权发布
 
 用户明确要求完善代码push并给出Phase4实测完整命令。本轮发布此前v61四项修正（通用P3 warmup比例、v2同锚点action选择、probe配置可用性交集、旧回执测试），另将Phase4 benchmark默认扩为两／四图B1／2／4两重复共12trial，有效更新32、累积8／4／2、正式encode_batch路径。完整命令在audit_joint/PHASE4_BENCHMARK_20261015.md：现有v57 data4→新学生view→四卡实测，包含来源校验／磁盘guard／失败停止／日志与交回文件，不启动正式整轮、不重放老师。未收到Phase4 GPU实测结果，不能用Phase3结果替代。

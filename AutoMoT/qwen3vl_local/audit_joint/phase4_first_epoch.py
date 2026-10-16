@@ -16,7 +16,7 @@ from .server_readiness import source_check
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v61_batch_audit_20261015.json')
+RELEASE = Path(__file__).with_name('release_sources_v63_bounded_benchmark_20261016.json')
 
 
 class Interrupted(BaseException):
@@ -66,10 +66,13 @@ def execute(command, log, env):
             raise
 
 
-def run(prepared, output, data_root, model_dir, *, view=None, batch_size=1, gpus=None):
+def run(prepared, output, data_root, model_dir, *, view=None, batch_size=1, gpus=None,
+        batch_size_rgb2=None, batch_size_rgb4=None):
     prepared, output, data_root, model_dir = [Path(p).absolute() for p in (prepared, output, data_root, model_dir)]
     view = Path(view).absolute() if view is not None else None
-    if batch_size not in (1, 2, 4, 8):
+    batches = {2: batch_size if batch_size_rgb2 is None else batch_size_rgb2,
+               4: batch_size if batch_size_rgb4 is None else batch_size_rgb4}
+    if any(type(value) is not int or value not in (1, 2, 4, 8) for value in (batch_size, *batches.values())):
         raise ValueError('four-card first epoch supports per-rank batch 1, 2, 4 or 8')
     gpus = os.environ.get('GPU_IDS', '') if gpus is None else gpus
     cards = gpus.split(',') if gpus else []
@@ -80,8 +83,11 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=1, gpus
             raise ValueError('output must be outside all input directories')
     output.mkdir(parents=True, exist_ok=False)
     state = dict(status='running', stage='preflight', stages=[], prepared=str(prepared),
-                 dataset=str(view or output/'student/view'), batch_size=batch_size, gpu_ids=gpus or 'auto',
-                 update_samples=32, accumulation=8//batch_size,
+                 dataset=str(view or output/'student/view'),
+                 batch_size=batches[2] if batches[2] == batches[4] else None, gpu_ids=gpus or 'auto',
+                 update_samples=32, accumulation=8//batches[2] if batches[2] == batches[4] else None,
+                 mode_configuration={str(mode): dict(batch_size=size, accumulation=8//size, update_samples=32)
+                                     for mode, size in batches.items()},
                  training_accepted=False, unsupported_capabilities=['U-E5/proceed/YES'])
     receipt = output/'workflow.json'
     code = 2
@@ -123,8 +129,8 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=1, gpus
                    DATASET=state['dataset'], DATA_ROOT=str(data_root), MODEL_DIR=str(model_dir),
                    TEACHER_REFERENCES=str(prepared/'references4'),
                    FIRST_EPOCH_BUDGET=str(budget_path), OUTPUT_DIR=str(output),
-                   RUN_TAG='first_epoch', GPU_IDS=gpus, BATCH_SIZE=str(batch_size),
-                   UPDATE_SAMPLES='32', ACCUMULATION=str(8//batch_size),
+                   RUN_TAG='first_epoch', GPU_IDS=gpus,
+                   UPDATE_SAMPLES='32',
                    AUTOMATIC_COVERAGE_POLICY='existing_data_development')
         commands = []
         if view is None:
@@ -139,11 +145,18 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=1, gpus
         for stage, command in commands:
             state['stage'] = stage
             record = dict(stage=stage, status='running', log=f'{stage}.log')
+            stage_env = dict(env)
+            if stage.startswith('rgb'):
+                mode = stage[-1]
+                config = state['mode_configuration'][mode]
+                record['training_configuration'] = config
+                stage_env.update(RGB_MODE=mode, BATCH_SIZE=str(config['batch_size']),
+                                 ACCUMULATION=str(config['accumulation']))
             state['stages'].append(record)
             save()
-            print(f'[phase4] {stage}: {output / record["log"]}', flush=True)
+            print(f'[phase4] {stage}: {output / record["log"]}; {record.get("training_configuration", {})}', flush=True)
             started = time.monotonic()
-            code = execute(command, output/record['log'], dict(env, RGB_MODE=stage[-1]) if stage.startswith('rgb') else env)
+            code = execute(command, output/record['log'], stage_env)
             record.update(exit_code=code, elapsed_seconds=time.monotonic()-started,
                           status='finished' if code == 0 else 'failed')
             save()
@@ -182,10 +195,13 @@ def main():
     p.add_argument('--data-root', type=Path, default=Path('lead_data'))
     p.add_argument('--model-dir', type=Path, default=Path('checkpoints/Qwen3.5-4B'))
     p.add_argument('--view', type=Path, help='Optional existing current view; admission still validates it')
-    p.add_argument('--batch-size', type=int, choices=(1, 2, 4, 8), default=1)
+    p.add_argument('--batch-size', type=int, choices=(1, 2, 4, 8), default=1, help='Fallback batch per GPU for both modes')
+    p.add_argument('--batch-size-rgb2', type=int, choices=(1, 2, 4, 8), help='Override batch per GPU for two RGB')
+    p.add_argument('--batch-size-rgb4', type=int, choices=(1, 2, 4, 8), help='Override batch per GPU for four RGB')
     a = p.parse_args()
     try:
-        return run(a.prepared, a.output, a.data_root, a.model_dir, view=a.view, batch_size=a.batch_size)
+        return run(a.prepared, a.output, a.data_root, a.model_dir, view=a.view, batch_size=a.batch_size,
+                   batch_size_rgb2=a.batch_size_rgb2, batch_size_rgb4=a.batch_size_rgb4)
     except (OSError, ValueError) as ex:
         p.error(str(ex))
 

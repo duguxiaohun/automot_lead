@@ -8,17 +8,11 @@ ulimit -S -c 0 2>/dev/null || true
 P3_BATCH_MODE="${1:-ddp}"
 [[ "$P3_BATCH_MODE" == ddp || "$P3_BATCH_MODE" == sampling ]] || { echo 'Use ddp or sampling' >&2; exit 2; }
 if [[ -z "${GPU_IDS:-}" ]]; then
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    GPU_IDS="$(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits \
-      | awk -F, '{gsub(/ /,"",$0); print $2, $3, $1}' | sort -n -k1,1 -k2,2 \
-      | head -n 4 | awk '{print $3}' | paste -sd, -)"
-  else
-    GPU_IDS=0,1,2,3
-  fi
+  GPU_IDS="$(python -c 'from qwen3vl_local.sft_new_loop_phase4.devices import select_gpus; print(select_gpus(4))')"
 fi
 export GPU_IDS
 IFS=, read -r -a P3_BATCH_GPUS <<< "$GPU_IDS"
-[[ ${#P3_BATCH_GPUS[@]} == 4 ]] || { echo 'This profile requires four distinct GPU IDs' >&2; exit 2; }
+[[ ${#P3_BATCH_GPUS[@]} == 4 ]] || { echo 'This profile requires four idle visible GPUs, or four explicit GPU_IDS' >&2; exit 2; }
 declare -A P3_BATCH_SEEN=()
 for P3_BATCH_GPU in "${P3_BATCH_GPUS[@]}"; do
   [[ "$P3_BATCH_GPU" =~ ^[0-9]+$ && ! -v P3_BATCH_SEEN[$P3_BATCH_GPU] ]] || { echo 'This profile requires four distinct GPU IDs' >&2; exit 2; }

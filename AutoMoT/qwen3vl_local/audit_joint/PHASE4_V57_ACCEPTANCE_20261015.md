@@ -1,5 +1,9 @@
 # Phase4 正式包验收与当前连续视图首轮
 
+> 2026-10-16 已收 RGB2 首轮结果：训练、固定验证、重载通过，固定 test 和 RGB4 尚缺。此旧实验运行合同匹配 v61，启动快照为 v60；请按 [RGB2 收件审计及接续命令](PHASE4_RGB2_RECEIVED_20261016.md) 保留原合同补齐，不按下文新实验流程重建 view 或重复 RGB2。v62 新实验与本次结果分开记录。
+
+> 最新入口支持 `--batch-size-rgb2`／`--batch-size-rgb4` 分别覆盖共同 `--batch-size`，每模式自动换算累积次数。采样v3尾部拼段和可见GPU修正见 [当前补丁说明](BATCH_TAIL_MODES_20261015.md)；按最终同步源码生成当前view，原生v57库继续复用。
+
 > 发布更新：本轮已获用户授权按白名单发布，统一 v60_batch_profiles_20261015（523源），发布前209项相关回归通过。同步最终发布源码后执行本文入口；历史段落中的“未push”描述保留当时状态。
 
 本次收到 Downloads/fullflow_report.zip（867630字节，SHA256 `b5d54761918ccbf53a00cb998ef250dd28a727754807feca485b24a8898c9b6f`）及 fullflow_package.json。ZIP CRC、12个成员SHA和501份服务器来源记录与原v57发布清单一致；汇总之间的输入绑定、配额、关键支持、预算均交叉核对。**v57正式CPU建库完成，可以复用；不再运行server_finish/server_phase4_existing建库。** 包内没有GPU训练结果。

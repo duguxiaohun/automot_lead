@@ -174,15 +174,11 @@ def test_actual_two_rank_gloo_accumulation_matches_full_batch(tmp_path):
 def test_parent_uses_simultaneous_torchrun_and_alternates_order(tmp_path,monkeypatch):
     (tmp_path/'index').write_text('{}');(tmp_path/'manifest.json').write_text('{}');(tmp_path/'config.json').write_text('{}')
     commands=[]
-    class Process:
-        def __init__(self,cmd,**kwargs):
-            commands.append((cmd,kwargs));self.pid=123
-        def wait(self,timeout):return 0
-    monkeypatch.setattr(b.subprocess,'Popen',Process)
+    monkeypatch.setattr(b,'run_owned',lambda cmd, log, env, timeout: commands.append((cmd,dict(env=env))) or 0)
     monkeypatch.setattr(b,'collect',lambda folder,world,code:dict(status='error',returncode=9))
     monkeypatch.setattr(sys,'argv',['bench','--phase','3','--index',str(tmp_path/'index'),
         '--data-root',str(tmp_path),'--model-dir',str(tmp_path),'--output',str(tmp_path/'out'),
-        '--gpus','0,1,2,3','--modes','2','--batches','1','2','4'])
+        '--gpus','0,1,2,3','--modes','2','--batches','1','2','4','--continue-on-error'])
     with pytest.raises(SystemExit) as exc:b.main()
     assert exc.value.code==2
     assert [int(c[c.index('--batches')+1]) for c,_ in commands]==[1,2,4,4,2,1]
@@ -250,22 +246,14 @@ def test_warmup_is_also_ten_event_equal():
 
 
 def test_parent_timeout_terminates_worker_process_group(tmp_path,monkeypatch):
-    import signal
     (tmp_path/'index').write_text('{}');(tmp_path/'manifest.json').write_text('{}');(tmp_path/'config.json').write_text('{}')
-    signals=[]
-    class Process:
-        def __init__(self,*a,**kw):self.pid=123;self.calls=0
-        def wait(self,timeout=None):
-            self.calls+=1
-            if self.calls<=2:raise b.subprocess.TimeoutExpired('torchrun',timeout)
-            return -9
-    monkeypatch.setattr(b.subprocess,'Popen',Process)
-    monkeypatch.setattr(b.os,'killpg',lambda pid,sig:signals.append((pid,sig)))
+    calls=[]
+    monkeypatch.setattr(b,'run_owned',lambda *args: calls.append(args) or 124)
     monkeypatch.setattr(sys,'argv',['bench','--phase','3','--index',str(tmp_path/'index'),
         '--data-root',str(tmp_path),'--model-dir',str(tmp_path),'--output',str(tmp_path/'out'),
         '--gpus','0','--modes','2','--batches','1','--repeats','1'])
     with pytest.raises(SystemExit) as exc:b.main()
     assert exc.value.code==2
-    assert signals==[(123,signal.SIGTERM),(123,signal.SIGKILL)]
+    assert len(calls)==1
     result=json.loads((tmp_path/'out/summary.json').read_text())
     assert result['trials'][0]['returncode']==124 and result['fastest_measured_candidates']=={}

@@ -1,0 +1,30 @@
+{
+  "status": "bounded_cpu_preparation_verified_gpu_pending",
+  "release": "release_sources_v63_bounded_benchmark_20261016.json",
+  "source_status": "matched",
+  "source_count": 528,
+  "tests_passed": 118,
+  "test_log": "118 passed in 13.69s",
+  "document_commands_checked": 5,
+  "real_cpu_prepare": {
+    "status": "prepared_cpu_only",
+    "trials": [],
+    "fastest_measured_candidates": {}
+  },
+  "runtime_boundaries": [
+    "full Phase4 validation once per requested mode before GPU launch",
+    "worker reads SHA-bound selected subset",
+    "first failure stops matrix by default",
+    "owned descendants including separate sessions cleaned on timeout and signals"
+  ],
+  "student_contract_changed_this_turn": false,
+  "native_producer_changed": false,
+  "server_full_pool_hotspot": "pending 120-second stack diagnosis",
+  "target_4b_gpu_executed": false,
+  "pushed": false,
+  "evidence_sha256": {
+    "regression.log": "84007346a3657242d1a8ee9a054ae0396f42c1826a60ba81f8f20822e9645f9b",
+    "real_prepare/prepare_rgb2.log": "dd8feea934937738696deca4bec7f0a549d3c119d8ea0ff77c79df5702f7a211",
+    "real_prepare/prepared_rgb2.json": "20e9758cd8175b1869439725ae24d161b791119558fae1307ead7e1f04bd22bd"
+  }
+}
