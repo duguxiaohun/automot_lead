@@ -19,6 +19,63 @@ from .io import file_sha
 
 
 @contextmanager
+def validated_teacher_sources():
+    """Reuse frozen teacher source hashes only during one isolated read.
+
+    Question validation still runs for every call. Recompute source bytes and
+    identity at transaction end; no persistent cache or row/proof bypass.
+    Patching this module's file_sha also covers previously imported identity
+    aliases, without changing any frozen producer source bytes.
+    """
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_rules as rules
+    if threading.current_thread() is not threading.main_thread() or threading.active_count()!=1:
+        raise RuntimeError('teacher source adapter requires an isolated single-threaded process')
+    original=rules.file_sha
+    if getattr(original,'_teacher_snapshot',False):raise RuntimeError('nested teacher source adapter')
+    before=deepcopy(rules.identity())
+    hashes={rules.ROOT/name:sha for name,sha in before['sources'].items()}
+    calls=0
+    def cached(path):
+        nonlocal calls
+        key=Path(path)
+        if key not in hashes:return original(path)
+        calls+=1
+        return hashes[key]
+    cached._teacher_snapshot=True
+    rules.file_sha=cached
+    progress(f'teacher source snapshot START files={len(hashes)}')
+    try:
+        yield
+        rules.file_sha=original
+        if rules.identity()!=before:raise ValueError('teacher sources or parameters changed during read transaction')
+        progress(f'teacher source snapshot DONE reused_hash_calls={calls}')
+    finally:
+        rules.file_sha=original
+
+
+@contextmanager
+def load_progress():
+    """Report completion of native validation stages without replacing checks."""
+    from qwen3vl_local.sft_new_loop_phase4 import dataset as native
+    names=('read_rows','validate_model_inputs','coverage_report','training_report')
+    originals={name:getattr(native,name) for name in names}
+    def wrap(name,fn):
+        def run(*args,**kwargs):
+            label=name+(f' {args[0]}' if name=='read_rows' else '')
+            started=time.monotonic();progress(label+' START')
+            result=fn(*args,**kwargs)
+            progress(f'{label} DONE seconds={time.monotonic()-started:.2f}'
+                     +(f' rows={len(result)}' if name=='read_rows' else ''))
+            return result
+        return run
+    try:
+        for name,fn in originals.items():setattr(native,name,wrap(name,fn))
+        yield
+    finally:
+        for name,fn in originals.items():setattr(native,name,fn)
+
+
+@contextmanager
 def validated_reservations():
     """Single-threaded read transaction, not a persistent or unverified cache.
 
@@ -47,7 +104,8 @@ def validated_reservations():
     cached._reservation_snapshot = True
     native.producer_check_reservations = cached
     try:
-        yield
+        with validated_teacher_sources(), load_progress():
+            yield
         progress('protocol end validation START')
         if file_sha(path) != before or original() != owners or file_sha(path) != before:
             raise ValueError('producer protocol changed during read transaction')

@@ -23,6 +23,52 @@ def test_reservations_validate_twice_not_per_row_and_restore(tmp_path,monkeypatc
     assert len(calls)==2 and native.producer_check_reservations is original
 
 
+def test_teacher_identity_alias_reuses_hashes_but_rechecks_at_end(tmp_path,monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_rules as rules
+    source=tmp_path/'source.py';source.write_text('before')
+    monkeypatch.setattr(rules,'ROOT',tmp_path);monkeypatch.setattr(rules,'SOURCES',('source.py',))
+    original=rules.file_sha;calls=[]
+    def counted(path):calls.append(path);return original(path)
+    monkeypatch.setattr(rules,'file_sha',counted)
+    alias=rules.identity
+    with fast.validated_teacher_sources():
+        for _ in range(100):assert alias()['sources']['source.py']==original(source)
+    assert len(calls)==2 and rules.file_sha is counted
+
+
+@pytest.mark.parametrize('change',['source','parameter','exception'])
+def test_teacher_snapshot_rejects_changes_and_restores(tmp_path,monkeypatch,change):
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_rules as rules
+    source=tmp_path/'source.py';source.write_text('before')
+    monkeypatch.setattr(rules,'ROOT',tmp_path);monkeypatch.setattr(rules,'SOURCES',('source.py',))
+    monkeypatch.setattr(rules,'PARAMS',dict(rules.PARAMS))
+    original=rules.file_sha
+    with pytest.raises(ValueError):
+        with fast.validated_teacher_sources():
+            if change=='source':source.write_text('after')
+            elif change=='parameter':rules.PARAMS['seed_horizon_m']+=1
+            else:raise ValueError('bad row')
+    assert rules.file_sha is original
+
+
+def test_teacher_unknown_files_not_cached_and_nested_scope_rejected(tmp_path):
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_rules as rules
+    path=tmp_path/'unlisted';path.write_text('before')
+    with fast.validated_teacher_sources():
+        first=rules.file_sha(path);path.write_text('after')
+        assert rules.file_sha(path)!=first
+        with pytest.raises(RuntimeError,match='nested'):
+            with fast.validated_teacher_sources():pass
+
+
+def test_progress_preserves_validation_errors_and_restores(monkeypatch):
+    def bad(*a):raise ValueError('input rejected')
+    monkeypatch.setattr(native,'validate_model_inputs',bad)
+    with pytest.raises(ValueError,match='input rejected'):
+        with fast.load_progress():native.validate_model_inputs([])
+    assert native.validate_model_inputs is bad
+
+
 @pytest.mark.parametrize('change',['plan','owners','source','exception'])
 def test_invalid_or_mutated_protocol_never_returns_success(tmp_path,monkeypatch,change):
     plan=tmp_path/'plan';plan.write_text('before')

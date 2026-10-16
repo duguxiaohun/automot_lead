@@ -1,0 +1,25 @@
+{
+  "native_equal": true,
+  "counts": {
+    "train": 1457,
+    "val": 0,
+    "test": 0
+  },
+  "native_original_seconds": 4.108846764982445,
+  "native_adapter_seconds": 1.7160471760143992,
+  "teacher_identity_100_original_seconds": 0.08661201302311383,
+  "teacher_identity_100_snapshot_seconds": 0.020351006009150296,
+  "invalid_proof_rejected": true,
+  "scope": "local small pool only; not server full-pool timing",
+  "protocol_only_seconds": 1.9509022710262798,
+  "protocol_plus_teacher_seconds": 1.6862855949730147,
+  "protocol_only_equal": true,
+  "tests": {
+    "passed": 56,
+    "seconds": 8.86
+  },
+  "source_manifest": "release_sources_v68_teacher_snapshot_20261016.json",
+  "source_count": 534,
+  "server_full_pool": "pending",
+  "frozen_contracts_changed": false
+}

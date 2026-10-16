@@ -1,5 +1,10 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-16 v68完整池读取老师源码SHA复用
+
+服务器两/四图B1/B2小池全部measured/headroom通过，B2吞吐+7.89%/+6.20%，正式32/update及完整池尚未验收，不再重复smoke。只读审计发现visible_scope经validate_question未传expected_teacher_sha，每次rules.identity重复46个源码SHA。phase4_load隔离读取事务内复用teacher_rules.file_sha的已知源，未列路径实时读取；结束恢复原函数重读完整身份/参数，变化拒绝，每题完整校验保持，不持久缓存、不改冻结producer/teacher/学生合同。原生read_rows/model_input/coverage/admission增加阶段计时；正式训练原入口未自动替换。
+56相关回归8.86秒通过；真实1457train原生返回与原始/协议适配两路径完全一致，错误question证明拒绝；协议适配1.95秒→加teacher复用1.69秒，仅本地小池，不外推服务器。源码v68_teacher_snapshot共534源。沿已授权故障修复白名单发布；下一步仅phase4_load --native --timeout240一次完整CPU校验，成功native_validated再推进view迁移/正式入口，超时交日志不自动重跑。命令audit_joint/PHASE4_FULL_LOAD_NEXT_20261016.md；保留.vscode/paper/checkpoints和其它任务。
+
 ### 2026-10-16 v67 Phase4限时十事件小池对照
 
 服务器交回H20-3e四卡两/四图均model_step_passed/exit0：B1 allocated12.43/15.00GiB，最大reserved18.23/23.40GiB，仅同题单步。新增phase4_quick_benchmark，原生大文件32分散连续窗口、最多20000行/256MiB、32候选/event；选中图身份/正式两四图转换/候选内冲突排除，十事件各至少8独立题，不足CPU拒绝。默认CPU60秒、B1/B2各180秒，首错停；十事件各8题计时+各8预热，每update8、B1累积2/B2累积1，成员/update固定，正式encode_batch及既有DDP benchmark消费核验，不存权重。准备文件可显式复用、源码/输入stat/成员SHA绑定；只报provisional_subset_candidates及full_pool_admitted=false，不伪称全train SHA/老师证据/跨split准入、正式32/update不改。
