@@ -1,0 +1,32 @@
+{
+  "first": {
+    "seconds": 1.1262728220026474,
+    "new": 17,
+    "reused": 0
+  },
+  "reuse": {
+    "seconds": 0.019212833023630083,
+    "new": 0,
+    "reused": 17
+  },
+  "uncached_native_seconds": 1.6352012810239103,
+  "cached_native_seconds": 0.5622432969976217,
+  "equal_native": true,
+  "counts": {
+    "train": 1457,
+    "val": 0,
+    "test": 0
+  },
+  "routes": 17,
+  "tests": {
+    "passed": 85,
+    "seconds": 11.23
+  },
+  "source_manifest": "release_sources_v69_route_cache_20261016.json",
+  "source_count": 536,
+  "real_timeout_resume_test_passed": true,
+  "cli_route_and_native_passed": true,
+  "frozen_contracts_changed": false,
+  "server_full_pool": "pending",
+  "scope": "Local 17-route/1457-train pool and CPU regression only; no server/GPU run or full-pool admission"
+}

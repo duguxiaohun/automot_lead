@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-16 v69原生路线校验续接
+
+服务器v68完整读取240秒退出124，无result；JSON读取62.96秒、25万协议复用184.1秒、model_inputs校验15.08秒完成，后续visible_scope和生产路线accounting尚无成功回执，不解释为GPU失效或数据已坏。新增同次读取question内容SHA+teacher身份核对后复用首次完整证明校验（上限30万缓存项，超限仍原验证）；增加visible_scope/risk/candidate阶段日志。
+新增audit_joint.phase4_production_cache：不读train大JSON，直接对已有生产路线调用原inspect_route逐条全校验后原子保存本地回执。绑定老师源码/适配器/父库manifest/pool/index/路线内容和物理路径，复用重新SHA核对，源码输入漂移/坏回执拒绝；每条通过即保存，真实超时后保留完成项，独占锁随进程释放。默认240秒、无自动循环；只报production_routes_validated/full_pool_admitted=false，不是训练准入或签名认证。phase4_load及显式旧view迁移支持--production-cache，未自动替换所有正式训练入口，不建库/老师回放、不改冻结生产或学生合同。
+85相关回归11.23秒通过，含真实子进程超时后续接/篡改/恢复；17路线1457train真实原生返回一致，路线首查1.13秒/复用0.019秒、完整适配读取1.64→0.56秒，仅本地小池；两个真实CPU CLI通过。v69清单536源，沿已授权故障修复白名单发布。服务器下一步只跑一次240秒路线缓存命令，失败不自动排队；进度有新增且124时可保持cache目录手动续接，成功后完整读取/视图仍需独立验收。命令audit_joint/PHASE4_ROUTE_CACHE_20261016.md；保留.vscode/paper/checkpoints及其它任务。
+
 ### 2026-10-16 v68完整池读取老师源码SHA复用
 
 服务器两/四图B1/B2小池全部measured/headroom通过，B2吞吐+7.89%/+6.20%，正式32/update及完整池尚未验收，不再重复smoke。只读审计发现visible_scope经validate_question未传expected_teacher_sha，每次rules.identity重复46个源码SHA。phase4_load隔离读取事务内复用teacher_rules.file_sha的已知源，未列路径实时读取；结束恢复原函数重读完整身份/参数，变化拒绝，每题完整校验保持，不持久缓存、不改冻结producer/teacher/学生合同。原生read_rows/model_input/coverage/admission增加阶段计时；正式训练原入口未自动替换。

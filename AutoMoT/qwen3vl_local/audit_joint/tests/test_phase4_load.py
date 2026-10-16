@@ -69,6 +69,48 @@ def test_progress_preserves_validation_errors_and_restores(monkeypatch):
     assert native.validate_model_inputs is bad
 
 
+def test_question_reuse_checks_content_teacher_and_restores(monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_replay as replay, teacher_data, teacher_rules
+    from qwen3vl_local.sft_new_loop_phase4.identity import digest
+    calls=[]
+    def original(q,*,expected_teacher_sha=None):
+        calls.append(1)
+        if q.get('valid') is not True or q['teacher_sha256']!=expected_teacher_sha:
+            raise ValueError('invalid proof')
+        if q['question_id']!=digest({k:v for k,v in q.items() if k!='question_id'}):
+            raise ValueError('invalid question hash')
+        return q
+    monkeypatch.setattr(replay,'validate_question',original)
+    monkeypatch.setattr(teacher_data,'validate_question',original)
+    with fast.validated_teacher_sources(),fast.validated_question_reuse():
+        teacher=digest(teacher_rules.identity());q=dict(valid=True,teacher_sha256=teacher)
+        q['question_id']=digest(q)
+        assert replay.validate_question(q) is q
+        copy=deepcopy(q)
+        assert teacher_data.validate_question(copy,expected_teacher_sha=teacher) is copy
+        assert len(calls)==1
+        bad=deepcopy(q);bad['valid']=False
+        with pytest.raises(ValueError):replay.validate_question(bad)
+        bad['question_id']=digest({k:v for k,v in bad.items() if k!='question_id'})
+        with pytest.raises(ValueError):replay.validate_question(bad)
+        with pytest.raises(ValueError):replay.validate_question(q,expected_teacher_sha='wrong')
+        assert len(calls)==4
+        with pytest.raises(RuntimeError,match='nested'):
+            with fast.validated_question_reuse():pass
+    assert replay.validate_question is original and teacher_data.validate_question is original
+
+
+def test_question_reuse_requires_source_transaction_and_restores_on_error():
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_replay as replay, teacher_data
+    original=replay.validate_question;alias=teacher_data.validate_question
+    with pytest.raises(RuntimeError,match='verified teacher'):
+        with fast.validated_question_reuse():pass
+    with pytest.raises(ValueError):
+        with fast.validated_teacher_sources(),fast.validated_question_reuse():
+            raise ValueError('load failed')
+    assert replay.validate_question is original and teacher_data.validate_question is alias
+
+
 @pytest.mark.parametrize('change',['plan','owners','source','exception'])
 def test_invalid_or_mutated_protocol_never_returns_success(tmp_path,monkeypatch,change):
     plan=tmp_path/'plan';plan.write_text('before')

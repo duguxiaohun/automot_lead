@@ -1,5 +1,7 @@
 # 小池 GPU 已通过后的下一步：限时完整原生库校验
 
+> 后续：服务器v68本命令240秒退出124，未完成全池。不要重复下面旧命令；同步v69后按 [可续接路线校验](PHASE4_ROUTE_CACHE_20261016.md) 先执行一次限时路线检查。本文保留v68历史操作记录。
+
 已收到四H20-3e两/四图B1/B2全部measured及headroom通过。相同小池8/update，B2吞吐分别+7.89%/+6.20%；单重复、小池结论，不是正式32/update或全库验收。不要重跑通信、单题smoke或同配置小池对照。
 
 早期无GPU训练的调用栈停在JSON解析、逐题协议校验；诊断入口软链接误拒绝已修复。v68进一步复用一次CPU读取事务内的46个老师源码SHA：visible_scope调用validate_question时原先反复rules.identity读取这些源码。每道题完整校验照常执行，事务结束恢复原函数并重读源码/参数比对，变化拒绝；不改冻结producer/teacher/学生合同，不持久缓存，不跳过teacher证明。增加read_rows/model_input/coverage/training_report阶段日志。完整库耗时尚待服务器实测，不保证240秒完成。

@@ -54,11 +54,55 @@ def validated_teacher_sources():
 
 
 @contextmanager
+def validated_question_reuse():
+    """Reuse completed checks only for content-identical questions in this load.
+
+    The first visit always calls the frozen validator. Subsequent visits hash
+    the entire question again (excluding its self hash), and also check the
+    requested teacher identity. Never trust question_id alone or object identity.
+    Teacher source/parameter snapshots must surround this context.
+    """
+    from qwen3vl_local.sft_new_loop_phase4 import teacher_replay as replay, teacher_data, teacher_rules
+    from qwen3vl_local.sft_new_loop_phase4.identity import digest
+    if not getattr(teacher_rules.file_sha,'_teacher_snapshot',False):
+        raise RuntimeError('question reuse requires a verified teacher source transaction')
+    original=replay.validate_question; alias=teacher_data.validate_question
+    if getattr(original,'_question_reuse',False):raise RuntimeError('nested question reuse')
+    if alias is not original:raise RuntimeError('unexpected teacher validator alias')
+    teacher_sha=digest(teacher_rules.identity())
+    checked={};hits=0;misses=0
+    def validate(q,*,expected_teacher_sha=None):
+        nonlocal hits,misses
+        expected=expected_teacher_sha or teacher_sha
+        key=q.get('question_id') if isinstance(q,dict) else None
+        if (isinstance(key,str) and checked.get(key)==expected
+                and q.get('teacher_sha256')==expected
+                and digest({k:v for k,v in q.items() if k!='question_id'})==key):
+            hits+=1
+            return q
+        result=original(q,expected_teacher_sha=expected)
+        # Bound auxiliary memory on full production pools; a missed cache entry
+        # simply runs the original validator again.
+        if len(checked)<300000:checked[q['question_id']]=expected
+        misses+=1
+        return result
+    validate._question_reuse=True
+    replay.validate_question=teacher_data.validate_question=validate
+    try:
+        yield
+        progress(f'question validation reuse DONE full_checks={misses} content_verified_reuses={hits}')
+    finally:
+        replay.validate_question=original;teacher_data.validate_question=alias
+
+
+@contextmanager
 def load_progress():
     """Report completion of native validation stages without replacing checks."""
     from qwen3vl_local.sft_new_loop_phase4 import dataset as native
-    names=('read_rows','validate_model_inputs','coverage_report','training_report')
-    originals={name:getattr(native,name) for name in names}
+    from qwen3vl_local.sft_new_loop_phase4 import visible_scope,risk_review,candidate_pool
+    targets=[(native,name) for name in ('read_rows','validate_model_inputs','coverage_report','training_report')]
+    targets += [(visible_scope,'validate_rows'),(risk_review,'validate_rows'),(candidate_pool,'coverage')]
+    originals={(module,name):getattr(module,name) for module,name in targets}
     def wrap(name,fn):
         def run(*args,**kwargs):
             label=name+(f' {args[0]}' if name=='read_rows' else '')
@@ -69,10 +113,12 @@ def load_progress():
             return result
         return run
     try:
-        for name,fn in originals.items():setattr(native,name,wrap(name,fn))
+        for (module,name),fn in originals.items():
+            label=name if module is native else module.__name__.rsplit('.',1)[-1]+'.'+name
+            setattr(module,name,wrap(label,fn))
         yield
     finally:
-        for name,fn in originals.items():setattr(native,name,fn)
+        for (module,name),fn in originals.items():setattr(module,name,fn)
 
 
 @contextmanager
@@ -104,7 +150,7 @@ def validated_reservations():
     cached._reservation_snapshot = True
     native.producer_check_reservations = cached
     try:
-        with validated_teacher_sources(), load_progress():
+        with validated_teacher_sources(), validated_question_reuse(), load_progress():
             yield
         progress('protocol end validation START')
         if file_sha(path) != before or original() != owners or file_sha(path) != before:
@@ -144,7 +190,7 @@ def inspect_view(view):
     return descriptor, current, changed
 
 
-def migrate_view(view, output, data_root):
+def migrate_view(view, output, data_root, *, production_cache=None):
     """Create a new descriptor only after full native/member revalidation.
 
     Reuse the immutable RGB identity sidecar because all RGB transformation and
@@ -177,7 +223,8 @@ def migrate_view(view, output, data_root):
         raise ValueError('RGB identity sidecar changed')
     identities = json.loads(identities_path.read_text())
     progress('native full validation START')
-    with validated_reservations():
+    from .phase4_production_cache import production_routes
+    with production_routes(parent, production_cache), validated_reservations():
         data, _ = native.load_dataset(parent)
     progress('native full validation DONE; paired view revalidation START')
     for mode in (2,4):
@@ -218,17 +265,20 @@ def main():
     p.add_argument('--data-root',type=Path,default=Path('lead_data'))
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--timeout',type=int,default=120)
+    p.add_argument('--production-cache',type=Path,help='Explicit local verified-route cache; never a full-pool admission')
     p.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     a=p.parse_args()
     if (a.native is None)==(a.view is None) or a.timeout<1:p.error('choose exactly one of --native / --view and a positive timeout')
     if a.worker:
         trace_waits()
         if a.view:
-            result=migrate_view(a.view,a.output/'view',a.data_root)
+            result=migrate_view(a.view,a.output/'view',a.data_root,production_cache=a.production_cache)
         else:
             from qwen3vl_local.sft_new_loop_phase4.dataset import load_dataset
             progress('native full validation START')
-            with validated_reservations():data,manifest=load_dataset(a.native)
+            from .phase4_production_cache import production_routes
+            with production_routes(a.native,a.production_cache), validated_reservations():
+                data,manifest=load_dataset(a.native)
             result=dict(status='native_validated',counts={s:len(rows) for s,rows in data.items()})
         write(a.output/'result.json',result)
         print(json.dumps(result),flush=True)
@@ -244,6 +294,7 @@ def main():
     args=[sys.executable,'-u','-m','qwen3vl_local.audit_joint.phase4_load','--worker',
           '--output',str(a.output),'--data-root',str(a.data_root)]
     args += ['--native',str(a.native)] if a.native else ['--view',str(a.view)]
+    if a.production_cache:args += ['--production-cache',str(a.production_cache)]
     progress(f'output={a.output}; wall limit={a.timeout}s; CPU only')
     code=run_owned(args,a.output/'load.log',dict(os.environ,CUDA_VISIBLE_DEVICES=''),a.timeout)
     write(a.output/'status.json',dict(returncode=code,completed=code==0,log=str(a.output/'load.log')))
