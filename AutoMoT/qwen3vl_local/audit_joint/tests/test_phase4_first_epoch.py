@@ -43,8 +43,8 @@ def test_sequential_gates_and_failure_handoff(inputs,monkeypatch,failure):
     for stage,command,env in calls:
         if stage.startswith('rgb'):
             assert env['RGB_MODE']==stage[-1] and env['RUN_TAG']=='first_epoch'
-            assert env['OUTPUT_DIR']==str(inputs[1]) and env['BATCH_SIZE']=='1'
-            assert env['UPDATE_SAMPLES']=='32' and env['ACCUMULATION']=='8'
+            assert env['OUTPUT_DIR']==str(inputs[1]) and env['BATCH_SIZE']=='2'
+            assert env['UPDATE_SAMPLES']=='32' and env['ACCUMULATION']=='4'
             assert env['AUTOMATIC_COVERAGE_POLICY']=='existing_data_development'
             assert command==['bash','qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh']
     assert '--dataset4' in calls[0][1] and 'teacher_replay' not in ' '.join(calls[0][1])
@@ -175,6 +175,41 @@ def test_cli_passes_independent_batch_overrides(inputs,monkeypatch):
         '--output',str(inputs[1]),'--batch-size','4','--batch-size-rgb2','2','--batch-size-rgb4','1'])
     assert tool.main()==0
     assert (captured['batch_size'],captured['batch_size_rgb2'],captured['batch_size_rgb4'])==(4,2,1)
+
+
+def test_cli_default_is_selected_b2(inputs,monkeypatch):
+    captured={}
+    monkeypatch.setattr(tool,'run',lambda *a,**kw:captured.update(kw) or 0)
+    monkeypatch.setattr(sys,'argv',['phase4_first_epoch','--prepared',str(inputs[0]),
+                                  '--output',str(inputs[1])])
+    assert tool.main()==0 and captured['batch_size']==2
+
+
+@pytest.mark.parametrize('override',[{}, {'BATCH_SIZE':'1'}, {'ACCUMULATION':'8'},
+                                    {'UPDATE_SAMPLES':'16'}, {'GRADIENT_CHECKPOINTING':'0'}])
+def test_fixed_b2_shell_forwards_profile_or_rejects_conflicts(tmp_path,override):
+    stub=tmp_path/'python';captured=tmp_path/'arguments.json'
+    stub.write_text('#!'+sys.executable+'\nimport json,os,sys\nfrom pathlib import Path\n'
+        'Path(os.environ["CAPTURE"]).write_text(json.dumps(dict(args=sys.argv[1:],'
+        'env={k:os.environ.get(k) for k in ("BATCH_SIZE","ACCUMULATION","UPDATE_SAMPLES","GPU_IDS")})))\n')
+    stub.chmod(0o755)
+    env={k:v for k,v in os.environ.items() if k not in
+         ('BATCH_SIZE','ACCUMULATION','UPDATE_SAMPLES','GRADIENT_CHECKPOINTING')}
+    env.update(PYTHON=str(stub),CAPTURE=str(captured),PREPARED='prepared bundle',
+               DATASET='existing view',OUTPUT_DIR=str(tmp_path/'new output'),GPU_IDS='7,6,5,4',**override)
+    result=subprocess.run(['bash',str(tool.APP/'qwen3vl_local/audit_joint/train_phase4_batch.sh')],
+                          env=env,text=True,capture_output=True)
+    if override:
+        assert result.returncode==2 and not captured.exists()
+    else:
+        assert result.returncode==0
+        record=json.loads(captured.read_text());args=record['args']
+        assert args[:2]==['-m','qwen3vl_local.audit_joint.phase4_first_epoch']
+        for key,value in [('--prepared','prepared bundle'),('--view','existing view'),
+                          ('--batch-size','2'),('--batch-size-rgb2','2'),('--batch-size-rgb4','2')]:
+            assert args[args.index(key)+1]==value
+        assert record['env']==dict(BATCH_SIZE='2',ACCUMULATION='4',UPDATE_SAMPLES='32',GPU_IDS='7,6,5,4')
+    assert not (tmp_path/'new output').exists()  # No actual training or view preparation.
 
 
 @pytest.mark.parametrize('content',['[]','{"parent": null}'])

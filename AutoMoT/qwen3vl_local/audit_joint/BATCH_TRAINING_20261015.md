@@ -1,5 +1,7 @@
 # Phase3 实测配置与 Phase4 独立对照
 
+> 当前决定：用户已接受Phase3／Phase4两图、四图均每卡B2，batch选型已结束，不再要求新增benchmark或全库检查。正式配置与入口见 [最终B2配置](BATCH_SELECTION_FINAL_20261016.md)。下文保留历史流程。
+
 > 当前v3采样保留可完整补齐的短段，自动选卡尊重可见范围且要求四张空闲卡；Phase4首轮可分别指定两图／四图batch。见 [尾部拼段及按模式配置](BATCH_TAIL_MODES_20261015.md)。
 
 > 最新复审修正见 [连续batch复审](BATCH_AUDIT_FIXES_20261015.md)：通用Phase3入口默认按实际更新数预热10%，本页B2专用入口仍显式500步；同锚点action补偿升级v2，probe区分容量与可启动候选。最终同步后生成新学生view。

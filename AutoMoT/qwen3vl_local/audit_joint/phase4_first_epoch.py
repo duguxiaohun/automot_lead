@@ -16,7 +16,7 @@ from .server_readiness import source_check
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v69_route_cache_20261016.json')
+RELEASE = Path(__file__).with_name('release_sources_v70_selected_b2_20261016.json')
 
 
 class Interrupted(BaseException):
@@ -66,7 +66,7 @@ def execute(command, log, env):
             raise
 
 
-def run(prepared, output, data_root, model_dir, *, view=None, batch_size=1, gpus=None,
+def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus=None,
         batch_size_rgb2=None, batch_size_rgb4=None):
     prepared, output, data_root, model_dir = [Path(p).absolute() for p in (prepared, output, data_root, model_dir)]
     view = Path(view).absolute() if view is not None else None
@@ -195,7 +195,8 @@ def main():
     p.add_argument('--data-root', type=Path, default=Path('lead_data'))
     p.add_argument('--model-dir', type=Path, default=Path('checkpoints/Qwen3.5-4B'))
     p.add_argument('--view', type=Path, help='Optional existing current view; admission still validates it')
-    p.add_argument('--batch-size', type=int, choices=(1, 2, 4, 8), default=1, help='Fallback batch per GPU for both modes')
+    p.add_argument('--batch-size', type=int, choices=(1, 2, 4, 8), default=2,
+                   help='Batch per GPU for both modes; user-selected default B2, accumulation 4, 32 samples/update')
     p.add_argument('--batch-size-rgb2', type=int, choices=(1, 2, 4, 8), help='Override batch per GPU for two RGB')
     p.add_argument('--batch-size-rgb4', type=int, choices=(1, 2, 4, 8), help='Override batch per GPU for four RGB')
     a = p.parse_args()

@@ -1,0 +1,29 @@
+{
+  "status": "batch_selection_closed_by_user",
+  "phase3": {
+    "rgb2": 2,
+    "rgb4": 2,
+    "world_size": 4,
+    "accumulation": 2,
+    "update_samples": 16
+  },
+  "phase4": {
+    "rgb2": 2,
+    "rgb4": 2,
+    "world_size": 4,
+    "accumulation": 4,
+    "update_samples": 32
+  },
+  "gradient_checkpointing": true,
+  "additional_benchmark_required": false,
+  "phase4_evidence_scope": "User accepts B2 from prior fixed 8/update subset results; no claim of new 32/update or global optimum measurement",
+  "tests": {
+    "passed": 108,
+    "seconds": 6.95
+  },
+  "source_manifest": "release_sources_v70_selected_b2_20261016.json",
+  "source_count": 537,
+  "student_native_contracts_changed": false,
+  "v69_route_cache_sources_changed": false,
+  "server_gpu_run_this_change": false
+}

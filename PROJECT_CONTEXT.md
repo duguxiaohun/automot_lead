@@ -1,5 +1,11 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-16 v70用户确定两／四图每卡B2，选型关闭
+
+用户明确接受Phase4两图、四图每卡B2，不需要再补任何batch测试。Phase3沿已测B2/累积2/四卡16样本更新；Phase4固定B2/累积4/四卡32样本更新；均开启GC。不得再以B4比较、全库准入、路线校验或view迁移作为本轮batch选型前置。已有P4小池8/update单重复支持运行选择，不宣称正式32/update新实测或全局最优。服务器另已交回8614路线全复用、完整原生native_validated/exit0/298787train（val/test0，独立references4另用），学生view迁移尚未收到成功回执，不编造有效新路径。
+phase4_first_epoch函数/CLI默认改B2，两模式实际env均B2/累积4并入workflow；新增固定train_phase4_batch.sh要求已有有效view，冲突环境拒绝、按既有两模式首轮/重载/test执行，无隐式benchmark或view构建。底层rgb_short通用入口保留历史默认并由推荐入口显式传参，避免改变合同字节；sequence_batch、原生/学生合同、phase4_load/production_cache均不改，已有有效view与v69缓存不因这次发布失效。历史操作页加最终决策入口，操作见audit_joint/BATCH_SELECTION_FINAL_20261016.md。
+108相关CPU回归6.95秒通过，覆盖真实shell参数流、两模式默认、旧环境冲突、训练batch回执、连续段/未见优先及Action等量评估；无新增服务器GPU、全库、迁移或训练。v70_selected_b2清单537源，按既有授权白名单发布；保留.vscode/paper/checkpoints及其它任务。后续只在用户要求正式训练时用已选B2入口，不再追加性能验收待办。
+
 ### 2026-10-16 v69原生路线校验续接
 
 服务器v68完整读取240秒退出124，无result；JSON读取62.96秒、25万协议复用184.1秒、model_inputs校验15.08秒完成，后续visible_scope和生产路线accounting尚无成功回执，不解释为GPU失效或数据已坏。新增同次读取question内容SHA+teacher身份核对后复用首次完整证明校验（上限30万缓存项，超限仍原验证）；增加visible_scope/risk/candidate阶段日志。

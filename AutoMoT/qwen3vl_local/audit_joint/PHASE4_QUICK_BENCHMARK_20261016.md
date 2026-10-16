@@ -1,5 +1,7 @@
 # Phase4 已通过 GPU 单步后的限时小池对照
 
+> 当前决定：用户已接受Phase3／Phase4两图、四图均每卡B2，batch选型已结束，不再要求新增benchmark或全库检查。正式配置与入口见 [最终B2配置](BATCH_SELECTION_FINAL_20261016.md)。下文保留历史流程。
+
 服务器交回：NVIDIA H20-3e 四卡 RGB2/RGB4 均 model_step_passed / exit0。
 单题B1两图 allocated 12.43 GiB、最大reserved18.23 GiB；四图15.00/23.40 GiB。
 这些不是完整池容量上界或 batch 推荐。旧整库准备在CPU解析/逐题校验，不能据此称GPU不可用；后续模型加载SHA/PEFT导入也在CPU。
