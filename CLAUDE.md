@@ -1,5 +1,10 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-16 v65独立GPU运行诊断
+
+v64服务器180秒迁移退出124，160.6秒协议复用20万次、逐题老师证据校验仍进行，全池及view未完成。新增audit_joint.phase4_gpu_smoke避免整库成为硬件诊断前置：transport限时60秒CUDA矩阵乘+NCCL数值核验；model限时180秒读取第一条原生train YES/NO及所需2/4图、源码/图SHA检查，正式转换/encode_batch、GC/LoRA16/32、四卡一次前反向/AdamW。各rank重复同一题，仅运行诊断，不是事件均衡训练；不保存权重，summary固定full_pool_admitted=false，不当batch排名/质量准入。正式合同/全池规则不改，未修复所有整库耗时。
+38相关测试11.90秒通过；本地真实首题两图[32,34]、四图[31,32,33,34]输入各约0.07/0.02秒，仅CPU图检查，4B/CUDA未验收。v65清单532源，命令PHASE4_GPU_SMOKE_20261016.md，轻量phase4_gpu_smoke_verification_20261016.json。沿当前Phase4故障修复及白名单发布流程交付，只发布代码/测试/轻量文档回执，保留.vscode/paper/checkpoints和其它任务文件。先transport成功再model两图，失败交worker.log，不跑12组/整轮或重建原生库。
+
 ### 2026-10-16 v64原生读取协议复用与旧view显式迁移
 
 服务器30/60秒在JSONL解析、90秒进入逐题冻结协议SHA；每题55文件约1.34MB、298787题约1643万哈希调用，不等于物理磁盘字节或全部耗时。新增audit_joint.phase4_load隔离单线程读取适配层，原生函数开始/结束真实验证、计划SHA前后复核、每题返回归属副本；期间变更拒绝，异常恢复，不跨调用缓存。benchmark准备接入；原生producer/teacher/dataset/identity及学生合同源码字节不变，正式训练器仍用原路径，不声称全入口加速。

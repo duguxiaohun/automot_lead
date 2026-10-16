@@ -1,0 +1,35 @@
+{
+  "status": "cpu_verified_target_gpu_pending",
+  "release": "release_sources_v65_gpu_smoke_20261016.json",
+  "source_count": 532,
+  "tests": "38 passed in 11.90s",
+  "actual_examples": [
+    {
+      "mode": 2,
+      "id": "ed69619fa08ffa981a6fe92b22140fffa0f9779d5327bb0c9330df2a5e66b718",
+      "history": [
+        32,
+        34
+      ],
+      "seconds": 0.07287755000288598
+    },
+    {
+      "mode": 4,
+      "id": "ed69619fa08ffa981a6fe92b22140fffa0f9779d5327bb0c9330df2a5e66b718",
+      "history": [
+        31,
+        32,
+        33,
+        34
+      ],
+      "seconds": 0.02074888299102895
+    }
+  ],
+  "full_pool_admitted": false,
+  "target_gpu_executed": false,
+  "scope": "runtime smoke only, never balanced training, capacity ranking or quality admission",
+  "evidence_sha256": {
+    "tests.log": "153211f622760e5e2d43e4b9d73daab292aeefb1c985bbadd0b128996b564041",
+    "real_examples.json": "5f5e6f6fb3185c7ab082a36e73ebb2d6360629341072a6ce4827bb4b6947da88"
+  }
+}
