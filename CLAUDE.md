@@ -1,5 +1,10 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-16 v67 Phase4限时十事件小池对照
+
+服务器交回H20-3e四卡两/四图均model_step_passed/exit0：B1 allocated12.43/15.00GiB，最大reserved18.23/23.40GiB，仅同题单步。新增phase4_quick_benchmark，原生大文件32分散连续窗口、最多20000行/256MiB、32候选/event；选中图身份/正式两四图转换/候选内冲突排除，十事件各至少8独立题，不足CPU拒绝。默认CPU60秒、B1/B2各180秒，首错停；十事件各8题计时+各8预热，每update8、B1累积2/B2累积1，成员/update固定，正式encode_batch及既有DDP benchmark消费核验，不存权重。准备文件可显式复用、源码/输入stat/成员SHA绑定；只报provisional_subset_candidates及full_pool_admitted=false，不伪称全train SHA/老师证据/跨split准入、正式32/update不改。
+70相关回归11.38秒通过；真实1457题小池U-E5仅7题，默认8/event正确拒绝；降为4/event、world2的CPU准备两模式各40独立题通过，仅验证接线非四卡GPU消费。v67清单534源，命令audit_joint/PHASE4_QUICK_BENCHMARK_20261016.md，先RGB2两组约7分钟预算。完整池加载/迁移性能仍未解决，不重建原生库/view/老师回放，沿现有故障修复白名单发布，保留.vscode/paper及其它任务文件。
+
 ### 2026-10-16 v66 GPU诊断软链接路径修正
 
 服务器交回四rank transport_passed，CUDA矩阵乘/NCCL数值核验通过；model在读取首题RGB时被诊断脚本物理路径越界检查拒绝，尚未加载4B。修正phase4_gpu_smoke复用正式encoder的data_path，接受数据树内指向外盘的route/asset软链接，仍拒绝绝对路径/点段穿越并核对图SHA。34相关CPU回归0.66秒通过，覆盖两模式外盘route/单文件链接、篡改拒绝及路径穿越；非GPU模型验收。v66清单532源；学生/原生合同不变，无需重建库或view。按既有故障修复白名单发布，服务器同步后仅重跑model RGB2（180秒），不重跑transport或12组矩阵。具体命令沿PHASE4_GPU_SMOKE_20261016.md。

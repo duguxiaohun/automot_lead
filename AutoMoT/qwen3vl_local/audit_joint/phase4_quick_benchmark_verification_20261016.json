@@ -1,0 +1,42 @@
+{
+  "schema": "phase4_quick_benchmark_verification_v1",
+  "tests": {
+    "passed": 70,
+    "seconds": 11.38
+  },
+  "source_manifest": "release_sources_v67_quick_benchmark_20261016.json",
+  "source_count": 534,
+  "source_status": "matched",
+  "real_cpu": {
+    "native_train_rows": 1457,
+    "default_8_per_event": "rejected: U-E5 only 7 distinct questions",
+    "checked_per_event": 4,
+    "checked_world": 2,
+    "modes": [
+      2,
+      4
+    ],
+    "distinct_questions_per_mode": 40,
+    "same_membership": true
+  },
+  "gpu_new_benchmark": "not_run_locally; target 4B weights unavailable",
+  "received_smoke": {
+    "source": "user supplied server summaries",
+    "gpu": "NVIDIA H20-3e",
+    "world": 4,
+    "rgb2": {
+      "status": "model_step_passed",
+      "returncode": 0,
+      "allocated_gib": 12.43,
+      "max_reserved_gib": 18.23
+    },
+    "rgb4": {
+      "status": "model_step_passed",
+      "returncode": 0,
+      "allocated_gib": 15.0,
+      "max_reserved_gib": 23.4
+    }
+  },
+  "full_pool_admitted": false,
+  "scope": "bounded windows runtime comparison only; formal full-pool load/migration performance remains pending"
+}
