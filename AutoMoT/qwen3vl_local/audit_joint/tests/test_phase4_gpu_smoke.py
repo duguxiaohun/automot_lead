@@ -39,6 +39,37 @@ def test_changed_original_image_rejected(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match='SHA'):s.example(native,root,2)
 
 
+@pytest.mark.parametrize('mode',[2,4])
+@pytest.mark.parametrize('layout',['route','files'])
+def test_external_rgb_links_match_formal_loader(tmp_path,monkeypatch,mode,layout):
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.model import load_images
+    native,disk,row=fixture(tmp_path,monkeypatch)
+    root=tmp_path/'lead_data';root.mkdir()
+    if layout=='route':
+        (root/'route').symlink_to(disk,target_is_directory=True)
+        row['images']=['route/'+p for p in row['images']]
+        (native/'train.jsonl').write_text(json.dumps(row))
+    else:
+        for path in disk.iterdir():(root/path.name).symlink_to(path)
+    actual=s.example(native,root,mode)
+    # Fixture transformers omit full metadata; compare real encoder RGB loading.
+    actual['image_sha256']=[identity.file_sha(root/p) for p in actual['images']]
+    actual['observation']['history_frames']=[int(Path(p).stem) for p in actual['images']]
+    assert len(load_images(actual,root))==mode
+    Image.new('RGB',(4,4),(99,0,0)).save(disk/'0010.jpg')
+    with pytest.raises(ValueError,match='SHA'):s.example(native,root,mode)
+
+
+@pytest.mark.parametrize('bad',['../outside/0010.jpg','/tmp/0010.jpg','route/../0010.jpg'])
+@pytest.mark.parametrize('mode',[2,4])
+def test_diagnostic_rejects_lexical_escape(tmp_path,monkeypatch,bad,mode):
+    native,root,row=fixture(tmp_path,monkeypatch)
+    row['images'][-1]=bad
+    (native/'train.jsonl').write_text(json.dumps(row))
+    with pytest.raises(ValueError,match='invalid relative dataset path'):
+        s.example(native,root,mode)
+
+
 def test_val_row_rejected(tmp_path,monkeypatch):
     native,root,row=fixture(tmp_path,monkeypatch);row['split']='val'
     (native/'train.jsonl').write_text(json.dumps(row))

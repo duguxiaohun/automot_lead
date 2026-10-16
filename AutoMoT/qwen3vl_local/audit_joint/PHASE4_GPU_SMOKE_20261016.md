@@ -1,5 +1,8 @@
 # Phase4 GPU独立冒烟测试
 
+
+2026-10-16 v66修正：服务器四rank transport已通过；model的 `RGB path outside data root` 来自诊断入口未支持数据树内外盘软链接。现复用正式encoder的 `data_path`，保留SHA和逻辑路径校验。同步v66后直接重跑下方RGB2 model命令即可，transport无需重跑；不需要重建原生库或view。可在命令前加 `NCCL_DEBUG=WARN` 减少INFO输出，180秒上限不变。GPU模型前反向仍待服务器验证。
+
 v64服务器迁移180秒退出124，160.6秒已复用协议表20万次，但全池校验和视图迁移未完成。它不是GPU错误，也不能据此报告GPU吞吐。继续调大迁移超时无法满足先短时确认硬件/模型路径的需求。
 
 新增phase4_gpu_smoke将运行诊断与整库准入分开。transport不读取任何数据或模型：每卡CUDA矩阵乘、NCCL all_reduce数值核验。model先做同样检查，再从原生train.jsonl前100行中读取第一条YES/NO样本；原生源码合同校验、实际所需2/4图解码与SHA检查后，使用正式short_row/four_row与encode_batch，GC、LoRA16/32、vision off，一次DDP前反向及AdamW。输入两图[t-2,t]、四图[t-3,t-2,t-1,t]。原样本相同图的SHA必须匹配，新增四图时刻只记录当前读取身份，不伪称新标签认证。

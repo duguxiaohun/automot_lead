@@ -20,6 +20,7 @@ def example(native, root, mode):
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.data import short_row, four_row
     from qwen3vl_local.sft_new_loop_phase4.identity import check_contract, file_sha
     from qwen3vl_local.sft_new_loop_phase4.input_identity import rgb_content_sha
+    from qwen3vl_local.sft_new_loop_phase4.data_paths import data_path
     manifest=json.loads((native/'manifest.json').read_text())
     check_contract(manifest['contract'])
     if manifest['rgb_mode']!=4:raise ValueError('native RGB4 required')
@@ -44,8 +45,9 @@ def example(native, root, mode):
     else:paths=row['images']
     identities={}
     for rel in paths:
-        path=(root/rel).resolve()
-        if not path.is_relative_to(root.resolve()):raise ValueError('RGB path outside data root')
+        # Match the formal encoder's logical dataset namespace: routes/assets
+        # may be symlinks to other disks. data_path still rejects traversal.
+        path=data_path(root,rel)
         before=file_sha(path)
         if rel in original and before!=original[rel]:raise ValueError('native RGB SHA mismatch')
         with Image.open(path) as image:rgb=rgb_content_sha(image.convert('RGB'))

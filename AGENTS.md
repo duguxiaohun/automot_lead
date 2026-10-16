@@ -1,5 +1,9 @@
 # AGENTS.md
 
+### 2026-10-16 v66 GPU诊断软链接路径修正
+
+服务器交回四rank transport_passed，CUDA矩阵乘/NCCL数值核验通过；model在读取首题RGB时被诊断脚本物理路径越界检查拒绝，尚未加载4B。修正phase4_gpu_smoke复用正式encoder的data_path，接受数据树内指向外盘的route/asset软链接，仍拒绝绝对路径/点段穿越并核对图SHA。34相关CPU回归0.66秒通过，覆盖两模式外盘route/单文件链接、篡改拒绝及路径穿越；非GPU模型验收。v66清单532源；学生/原生合同不变，无需重建库或view。按既有故障修复白名单发布，服务器同步后仅重跑model RGB2（180秒），不重跑transport或12组矩阵。具体命令沿PHASE4_GPU_SMOKE_20261016.md。
+
 ### 2026-10-16 v65独立GPU运行诊断
 
 v64服务器180秒迁移退出124，160.6秒协议复用20万次、逐题老师证据校验仍进行，全池及view未完成。新增audit_joint.phase4_gpu_smoke避免整库成为硬件诊断前置：transport限时60秒CUDA矩阵乘+NCCL数值核验；model限时180秒读取第一条原生train YES/NO及所需2/4图、源码/图SHA检查，正式转换/encode_batch、GC/LoRA16/32、四卡一次前反向/AdamW。各rank重复同一题，仅运行诊断，不是事件均衡训练；不保存权重，summary固定full_pool_admitted=false，不当batch排名/质量准入。正式合同/全池规则不改，未修复所有整库耗时。
