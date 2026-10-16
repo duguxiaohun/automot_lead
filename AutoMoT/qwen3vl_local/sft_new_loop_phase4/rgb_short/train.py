@@ -83,7 +83,8 @@ def main():
     p.add_argument('--vision-scope',choices=('off','merger','last4','all'),default='off')
     p.add_argument('--sampling-only',action='store_true')
     p.add_argument('--sampling-policy',choices=('contiguous_event_equal','phase3_balanced','full_event_equal','event_equal','event_edge_answer','event_weighted','legacy_ring'),default='contiguous_event_equal')
-    p.add_argument('--max-question-repeat',type=int,default=4)
+    p.add_argument('--max-question-repeat',type=int,default=None,
+                   help='Per-question per-epoch hard limit; contiguous default unlimited, legacy default 4')
     p.add_argument('--require-complete-coverage',action='store_true',
                    help='Optional exhaustive coverage acceptance, not needed to start training')
     p.add_argument('--selection-mode', choices=('reviewed','rule_consistency'), default='reviewed')

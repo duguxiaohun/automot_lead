@@ -207,15 +207,63 @@ def test_real_qwen_multimodal_batch_logits_and_gradients(frames):
     torch.testing.assert_close(grad,model.lm_head.weight.grad,atol=2e-5,rtol=2e-4)
 
 
-def test_fixed_evaluation_membership_equal_across_modes_and_label_blind():
+def test_fixed_evaluation_equal_quota_mode_stride_and_label_blind():
     from qwen3vl_local.sft_new_loop_phase3.sequence_evaluation import select
     rows=pool()
     one,a=select(rows,[str(e) for e in range(10)],limit=16,stride=1)
     two,b=select(rows,[str(e) for e in range(10)],limit=16,stride=2)
-    assert set(one)==set(two) and a['membership_sha256']==b['membership_sha256']
+    assert len(set(one))==len(set(two))==160
     assert a['per_event']==b['per_event']==16
     for r in rows:r['action']='changed test label'
     assert select(rows,[str(e) for e in range(10)],limit=16,stride=1)[0]==one
+    assert select(list(reversed(rows)),[str(e) for e in range(10)],limit=16,stride=2)[0]==two
+
+
+@pytest.mark.parametrize('stride',[1,2])
+def test_evaluation_prefers_longest_route_and_keeps_same_anchor_alternatives(stride):
+    from qwen3vl_local.sft_new_loop_phase3.sequence_evaluation import select
+    rows=[dict(id=f'long/{i}/{j}',event='e',sequence='long',frame=i*stride)
+          for i in range(8) for j in range(2)]
+    rows.append(dict(id='isolated',event='e',sequence='short',frame=0))
+    by_id={r['id']:r for r in rows}
+    for seed in range(10):
+        ids,report=select(rows,['e'],seed=seed,limit=8,stride=stride)
+        assert [by_id[i]['frame'] for i in ids]==list(range(0,8*stride,stride))
+        assert all(by_id[i]['sequence']=='long' for i in ids)
+        assert report['per_event']==8
+    ids,_=select(rows,['e'],limit=17,stride=stride)
+    assert len(ids)==len(set(ids))==17
+
+
+@pytest.mark.parametrize('stride',[1,2])
+def test_contiguous_repeat_cap_is_hard_and_bound_to_history(stride):
+    rows=pool(events=10,n=2)
+    with pytest.raises(ValueError,match='capacity'):
+        plan(rows,per_event=16,world_size=4,batch_size=2,stride=stride,max_question_repeat=1)
+    indices,report=plan(rows,per_event=16,world_size=4,batch_size=2,stride=stride,max_question_repeat=8)
+    assert max(Counter(indices).values())==8 and report['max_question_repeat_limit']==8
+    next_indices,second=plan(rows,per_event=16,epoch=1,world_size=4,batch_size=2,stride=stride,
+                            max_question_repeat=8,history=report['next_history'])
+    assert max(Counter(next_indices).values())==8
+    assert plan(rows,per_event=16,epoch=1,world_size=4,batch_size=2,stride=stride,max_question_repeat=8)[0]==next_indices
+    with pytest.raises(ValueError,match='history'):
+        plan(rows,per_event=16,epoch=1,world_size=4,batch_size=2,stride=stride,
+             max_question_repeat=9,history=report['next_history'])
+    with pytest.raises(ValueError,match='history'):
+        plan(rows,per_event=16,epoch=1,world_size=4,batch_size=2,stride=stride,
+             history=report['next_history'])
+
+
+def test_phase4_repeat_limit_reaches_shared_sampler():
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import plan as p4_plan
+    from qwen3vl_local.sft_new_loop_phase4.taxonomy import EVENTS
+    rows=[dict(id=f'{event}/{i}',episode=dict(event=event,instance_id=event),scenario='s',route_id=event,
+               observation=dict(frame_id=4+i*2),edge='hold',target='YES',split='train',physical_group=event)
+          for event in EVENTS for i in range(2)]
+    with pytest.raises(ValueError,match='capacity'):
+        p4_plan(rows,epoch=0,budget=160,expected_events=EVENTS,world_size=4,batch_size=2,max_question_repeat=1)
+    ids,report=p4_plan(rows,epoch=0,budget=160,expected_events=EVENTS,world_size=4,batch_size=2)
+    assert report['max_question_repeat_limit'] is None and max(Counter(ids).values())==8
 
 
 def test_batched_consumption_receipt_checks_every_member_and_update():

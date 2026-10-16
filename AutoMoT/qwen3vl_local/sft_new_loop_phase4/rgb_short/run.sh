@@ -17,6 +17,10 @@ for P4_ARG in "$@"; do
   done
 done
 mkdir -p "$OUTPUT_DIR"
+export P4_VALIDATED_DATA="${P4_VALIDATED_DATA:-$OUTPUT_DIR/validated_data}"
+# One CPU process completes native proof validation before spawning GPU ranks.
+CUDA_VISIBLE_DEVICES='' "$P4_PYTHON" -m qwen3vl_local.sft_new_loop_phase4.rgb_short.runtime_data \
+  --dataset "$DATASET" --rgb-mode "$P4_MODE"
 CUDA_VISIBLE_DEVICES="$P4_GPUS" PYTHON="$P4_PYTHON" \
 bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$OUTPUT_DIR" --min-free-gib 20 -- \
   "$P4_PYTHON" -m torch.distributed.run --standalone --nproc_per_node=4 \

@@ -1,8 +1,8 @@
 """Fixed event-equal evaluation: contiguous anchor groups, label-blind membership."""
-from collections import defaultdict, deque
+from collections import defaultdict
 from qwen3vl_local.sequence_batch import digest
 
-POLICY='fixed_equal_contiguous_evaluation_v1'
+POLICY='fixed_equal_contiguous_evaluation_v2'
 
 
 def select(records, expected, *, seed=20261011, limit=0, stride=1):
@@ -20,30 +20,31 @@ def select(records, expected, *, seed=20261011, limit=0, stride=1):
     if limit:quota=min(quota,limit)
     chosen=[]
     for event in expected:
-        queues=[]
-        for sequence,rows in sorted(pools[event].items(),key=lambda kv:digest([seed,event,kv[0]])):
-            # Stable blocks of up to eight consecutive anchors; both modes use
-            # identical membership. Gaps and same-frame questions start new pieces.
-            ordered=sorted(rows,key=lambda r:(r['frame'],r['id']))
-            pieces=[];piece=[]
-            for row in ordered:
-                if piece and (row['frame']!=piece[-1]['frame']+1 or len(piece)==8):
-                    pieces.append(piece);piece=[]
-                piece.append(row)
-            if piece:pieces.append(piece)
-            pieces.sort(key=lambda p:(-len(p),digest([seed,p[0]['id']])))
-            queues.append(deque(pieces))
+        # Same-frame questions are alternatives, not artificial temporal gaps.
+        # Rebuild after each consumed run so remaining alternatives remain eligible.
+        remaining={sequence:defaultdict(list) for sequence in pools[event]}
+        for sequence,rows in pools[event].items():
+            for row in sorted(rows,key=lambda r:digest([seed,r['id']])):
+                remaining[sequence][row['frame']].append(row)
         selected=[]
         while len(selected)<quota:
-            for queue in queues:
-                if queue and len(selected)<quota:selected.extend(queue.popleft()[:quota-len(selected)])
-        # Reorder chosen anchors only: no mode-specific label/answer selection.
-        selected.sort(key=lambda r:(digest([seed,event,r['sequence']]),r['frame']%stride,r['frame'],r['id']))
+            pieces=[]
+            for sequence,frames in remaining.items():
+                for residue in range(stride):
+                    run=[]
+                    for frame in sorted(f for f,values in frames.items() if values and f%stride==residue):
+                        if run and frame!=run[-1]+stride:
+                            pieces.append((sequence,run));run=[]
+                        run.append(frame)
+                    if run:pieces.append((sequence,run))
+            sequence,frames=min(pieces,key=lambda p:(-len(p[1]),digest([seed,event,p[0],p[1]])))
+            for frame in frames[:quota-len(selected)]:
+                selected.append(remaining[sequence][frame].pop(0))
         chosen.extend(r['id'] for r in selected)
     return chosen,dict(policy=POLICY,seed=seed,limit=limit,per_event=quota,available=available,
         anchor_stride=stride,selected_ids=chosen,ordered_ids_sha256=digest(chosen),
         membership_sha256=digest(sorted(chosen)),pool_sha256=digest(sorted(records,key=lambda r:r['id'])),
-        scope='fixed label-blind membership, no replacement; modes differ only in traversal order')
+        scope='fixed label-blind longest anchor runs across routes, no replacement; stride may change membership')
 
 
 def select_work(work, *, seed=20261011, limit=0, stride=1):

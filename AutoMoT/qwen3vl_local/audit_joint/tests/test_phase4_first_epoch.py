@@ -81,6 +81,27 @@ def test_reuse_view_keeps_inputs_and_never_skips_auto_admission(inputs,monkeypat
     assert (view/'student_view.json').read_text()==original
 
 
+def test_known_old_view_upgrades_once_before_training_with_shared_preparation(inputs,monkeypatch,tmp_path):
+    from qwen3vl_local.audit_joint import phase4_view_upgrade
+    view=tmp_path/'old_view';view.mkdir()
+    descriptor=dict(parent=dict(logical_path=str(inputs[0]/'data4')),source={'old':True})
+    original=json.dumps(descriptor);(view/'student_view.json').write_text(original)
+    monkeypatch.setattr(phase4_view_upgrade,'inspect_view',lambda v:(descriptor,{},['data.py']))
+    monkeypatch.setenv('P4_PRODUCTION_CACHE','verified/routes')
+    calls=[]
+    def execute(command,log,env):
+        calls.append((log.stem,command,env));log.write_text('fixture')
+        return 0 if log.stem=='view_upgrade' else 2
+    monkeypatch.setattr(tool,'execute',execute)
+    assert tool.run(*inputs,view=view)==2
+    assert [x[0] for x in calls]==['view_upgrade','rgb2']
+    args=calls[0][1]
+    assert args[args.index('--production-cache')+1]=='verified/routes'
+    assert calls[1][2]['DATASET']==str(inputs[1]/'view_upgrade/view')
+    assert calls[1][2]['P4_VALIDATED_DATA']==str(inputs[1]/'validated_data')
+    assert (view/'student_view.json').read_text()==original
+
+
 def test_existing_or_nested_outputs_refused(inputs,monkeypatch):
     monkeypatch.setattr(tool,'execute',lambda *a:pytest.fail('must not launch'))
     prepared,out,data,model=inputs
@@ -196,7 +217,8 @@ def test_fixed_b2_shell_forwards_profile_or_rejects_conflicts(tmp_path,override)
     env={k:v for k,v in os.environ.items() if k not in
          ('BATCH_SIZE','ACCUMULATION','UPDATE_SAMPLES','GRADIENT_CHECKPOINTING')}
     env.update(PYTHON=str(stub),CAPTURE=str(captured),PREPARED='prepared bundle',
-               DATASET='existing view',OUTPUT_DIR=str(tmp_path/'new output'),GPU_IDS='7,6,5,4',**override)
+               DATASET='existing view',P4_PRODUCTION_CACHE='route cache',
+               OUTPUT_DIR=str(tmp_path/'new output'),GPU_IDS='7,6,5,4',**override)
     result=subprocess.run(['bash',str(tool.APP/'qwen3vl_local/audit_joint/train_phase4_batch.sh')],
                           env=env,text=True,capture_output=True)
     if override:

@@ -4,7 +4,8 @@ set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
 [[ $# == 0 ]] || { echo 'Configure this fixed B2 entry through environment variables, not extra arguments.' >&2; exit 2; }
 : "${PREPARED:?Set PREPARED to the existing Phase4 bundle containing data4 and references4}"
-: "${DATASET:?Set DATASET to an existing current student/view; this entry does not build or migrate views}"
+: "${DATASET:?Set DATASET to an existing student/view; known runtime-only old versions are upgraded into the new output}"
+: "${P4_PRODUCTION_CACHE:?Set P4_PRODUCTION_CACHE to the completed verified route cache}"
 : "${OUTPUT_DIR:?Set OUTPUT_DIR to a new Phase4 workflow directory}"
 export BATCH_SIZE="${BATCH_SIZE:-2}"
 export ACCUMULATION="${ACCUMULATION:-4}"

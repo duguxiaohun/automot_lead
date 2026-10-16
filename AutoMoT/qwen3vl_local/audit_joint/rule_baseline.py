@@ -86,7 +86,7 @@ def measure(data, evaluation, *, batch_size=None, anchor_stride=2):
                                  for split,record in evaluation['plans'].items()}
     return dict(support=support,**critical,
                 schedule=schedule,selected_counts={s:len(v) for s,v in ids.items()},
-                selected_ids_sha256=digest(ids),evaluation=compact_evaluation)
+                selected_ids_sha256=digest(ids),train_ids_sha256=digest(ids['train']),evaluation=compact_evaluation)
 
 
 def check(dataset, references, *, budget=None, space_path=None, coverage_policy='strict', data_root=None, batch_size=1):
@@ -140,8 +140,10 @@ def check(dataset, references, *, budget=None, space_path=None, coverage_policy=
                 report['errors'].append(f'RGB{mode}: {type(ex).__name__}: {ex}')
         if all('selected_ids_sha256' in report['modes'][str(mode)] for mode in (2,4)):
             two,four=report['modes']['2'],report['modes']['4']
-            if two['selected_ids_sha256']!=four['selected_ids_sha256']:
-                raise ValueError('RGB2/RGB4 selected membership differs')
+            if two['train_ids_sha256']!=four['train_ids_sha256']:
+                raise ValueError('RGB2/RGB4 training membership differs')
+            # Evaluation remains event-equal and label-blind, with membership
+            # chosen using each mode's actual anchor stride.
         if before!=dataset_bindings(dataset) or (ref_before is not None and ref_before!=pack_binding(references)):
             raise ValueError('baseline inputs changed during admission')
         report['input_bindings']=dict(dataset=before,references=ref_before)

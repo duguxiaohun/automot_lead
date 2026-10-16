@@ -39,7 +39,7 @@ def tail_piece_length(by_length, remaining):
 
 
 def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
-         stride=2, history=None):
+         stride=2, history=None, max_question_repeat=None):
     """Records contain id/event/sequence/frame/action/split/group, no model tensors.
 
     Equal events are hard. Exposure is lexicographically first, then longest
@@ -67,15 +67,22 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
     block = world_size * batch_size
     if set(targets) != set(pools) or any(type(n) is not int or n < 1 or n % block for n in targets.values()):
         raise ValueError(f'each event quota must be positive and divisible by global batch {block}; no silent padding/drop')
+    if max_question_repeat is not None:
+        if type(max_question_repeat) is not int or max_question_repeat<1:
+            raise ValueError('max_question_repeat must be a positive integer or None')
+        if any(targets[e]>len(pool)*max_question_repeat for e,pool in pools.items()):
+            raise ValueError('event-equal quota exceeds max_question_repeat capacity')
     binding = dict(policy=POLICY, pool_sha256=digest(sorted(records, key=lambda r:r['id'])),
                    seed=seed, targets=targets, world_size=world_size, batch_size=batch_size, stride=stride)
+    if max_question_repeat is not None:binding['max_question_repeat_limit']=max_question_repeat
     if history is None:
         history = dict(**binding, next_epoch=0, counts=dict.fromkeys(ids, 0))
         for previous in range(epoch):
             _, prior = plan(records, per_event=targets, epoch=previous, seed=seed,
-                world_size=world_size, batch_size=batch_size, stride=stride, history=history)
+                world_size=world_size, batch_size=batch_size, stride=stride, history=history, max_question_repeat=max_question_repeat)
             history = prior['next_history']
     if (not isinstance(history, dict) or any(history.get(k) != v for k,v in binding.items())
+            or history.get('max_question_repeat_limit') != max_question_repeat
             or history.get('next_epoch') != epoch or set(history.get('counts', {})) != set(ids)):
         raise ValueError('sampling history pool/config/epoch mismatch')
     counts = dict(history['counts'])
@@ -96,10 +103,12 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
         desired = support_aware_quota(actions, targets[event])
         actual = Counter()
         while len(selected) < targets[event]:
-            level = min(counts[ids[i]] for i in pool)
-            frame_level=min(frame_counts[frame_keys[i]] for i in pool if counts[ids[i]]==level)
+            eligible=[i for i in pool if max_question_repeat is None or counts[ids[i]]-before[ids[i]]<max_question_repeat]
+            if not eligible:raise ValueError('max_question_repeat capacity exhausted')
+            level = min(counts[ids[i]] for i in eligible)
+            frame_level=min(frame_counts[frame_keys[i]] for i in eligible if counts[ids[i]]==level)
             groups = defaultdict(lambda: defaultdict(list))
-            for i in pool:
+            for i in eligible:
                 if counts[ids[i]] == level and frame_counts[frame_keys[i]]==frame_level:
                     r = records[i]
                     groups[(r['sequence'], r['frame'] % stride)][r['frame']].append(i)
@@ -187,6 +196,7 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
     return result, dict(policy=POLICY, epoch=epoch, presentations=len(result), event_counts=targets,
         per_event_quota=next(iter(targets.values())) if len(set(targets.values()))==1 else None,
         batch_size=batch_size, world_size=world_size, anchor_stride=stride,
+        max_question_repeat_limit=max_question_repeat, repeat_limit_scope='per question per epoch; None means unlimited',
         global_batch=block, unique_questions=len(repeats), max_question_repeat=max(repeats.values()),
         new_questions=sum(before[ids[i]]==0 for i in repeats),
         cumulative_unique_questions=sum(n>0 for n in counts.values()),

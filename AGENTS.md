@@ -1,5 +1,12 @@
 # AGENTS.md
 
+### 2026-10-16 v71评估连续性、重复上限与正式全池加载闭环
+
+用户复审三项已修正，每卡B2决定不变，不补benchmark。评估共享选择器升v2：跨路线最长实际stride连续锚点优先、同帧多题作候选不制造断点、标签盲选无放回十事件等量；两/四图成员可不同，正式准入保留训练成员相等，分别记录评估SHA，不冒称逐题配对。连续训练max_question_repeat明确每题每epoch硬限，容量不足前置拒绝，绑定history且改变/取消上限拒绝混用；默认None不限，回执区分配置上限与实际重复，保留既有少见/连续/action优先。
+新增rgb_short.runtime_data：正式run.sh在torchrun前单CPU完整准备、run_automatic准入与两模式首轮/重载/test共享派生JSON。每模式native.load_dataset一次，四rank只读已验证学生快照，不再独立校验原生老师证明；直接DDP无准备目录拒绝。源码及适配器SHA、源数据/view/生产路径stat（device/inode/size/mtime/ctime）和准备JSON SHA读前后绑定，失败不发布回执、20GiB磁盘余量；可信本机派生缓存，非外部认证。原参考包与跨split检查不跳过，每rank仍读学生数据/做评估准备，不宣称全I/O消失。
+学生合同改变，新增phase4_view_upgrade仅接受v61/v70已知运行/采样差异，完整父库及两模式成员/排除/sidecar核验后写新view；phase4_first_epoch可自动先升级已知旧view，不覆盖旧view、不恢复旧checkpoint。固定B2入口要求P4_PRODUCTION_CACHE；phase4_load和production_cache源码字节保持，既有v69路线缓存可用，不重建原生库或重放老师。命令audit_joint/SAMPLING_RUNTIME_FIXES_20261016.md，原生/teacher合同字节未改。
+315相关回归21.97秒通过，含4真实CPU worker禁用native loader仍读一致、连续反例、上限/取消绑定、坏缓存/变更/低磁盘、shell和升级接线。真实17路线1457train以v70合同fixture升级2.60秒，两模式准备1.61/1.63秒，各四次读取一致，共2次native加载而非8次，仅本地小池；v71清单541源matched。无新服务器4B/GPU/整轮，生成评估逐题和独立样本重复图编码范围不变。沿已授权白名单发布，保留.vscode/paper/checkpoints等其它任务。
+
 ### 2026-10-16 v70用户确定两／四图每卡B2，选型关闭
 
 用户明确接受Phase4两图、四图每卡B2，不需要再补任何batch测试。Phase3沿已测B2/累积2/四卡16样本更新；Phase4固定B2/累积4/四卡32样本更新；均开启GC。不得再以B4比较、全库准入、路线校验或view迁移作为本轮batch选型前置。已有P4小池8/update单重复支持运行选择，不宣称正式32/update新实测或全局最优。服务器另已交回8614路线全复用、完整原生native_validated/exit0/298787train（val/test0，独立references4另用），学生view迁移尚未收到成功回执，不编造有效新路径。

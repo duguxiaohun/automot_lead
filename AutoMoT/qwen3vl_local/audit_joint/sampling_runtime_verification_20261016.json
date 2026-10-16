@@ -1,0 +1,39 @@
+{
+  "migration": "view_migrated",
+  "migration_seconds": 2.595172094006557,
+  "counts": {
+    "train": 1457,
+    "val": 0,
+    "test": 0
+  },
+  "modes": {
+    "2": {
+      "prepare_seconds": 1.6058836559823249,
+      "worker_reads": 4,
+      "equal": true
+    },
+    "4": {
+      "prepare_seconds": 1.6310173429956194,
+      "worker_reads": 4,
+      "equal": true
+    }
+  },
+  "native_load_calls": 2,
+  "gpu_run": false,
+  "status": "implemented_cpu_verified",
+  "tests": {
+    "passed": 315,
+    "seconds": 21.97
+  },
+  "source_manifest": "release_sources_v71_sampling_runtime_20261016.json",
+  "source_count": 541,
+  "evaluation_policy": "fixed_equal_contiguous_evaluation_v2",
+  "evaluation_membership": "mode-specific stride, event-equal, label-blind, no replacement",
+  "repeat_limit": "per question per epoch, None unlimited, configured cap binds history",
+  "native_producer_changed": false,
+  "v69_route_cache_adapter_changed": false,
+  "student_runtime_contract_changed": true,
+  "four_real_cpu_processes_no_native_reload": true,
+  "server_gpu_run": false,
+  "scope": "Real local 1457-train pool and synthetic boundary tests; no target 4B or server full-pool timing certification"
+}

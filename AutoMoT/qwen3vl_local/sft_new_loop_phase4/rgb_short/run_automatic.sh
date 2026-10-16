@@ -23,6 +23,7 @@ echo "[phase4-automatic] batch/card=$P4_AUTO_BATCH accumulation=$P4_AUTO_ACCUMUL
 P4_AUTO_PYTHON="${PYTHON:-python}"
 export RUN_TAG="${RUN_TAG:-automatic_$(date +%Y%m%d_%H%M%S_%N)}"
 mkdir -p "$OUTPUT_DIR"
+export P4_VALIDATED_DATA="${P4_VALIDATED_DATA:-$OUTPUT_DIR/validated_data}"
 P4_AUTO_REPORT="$OUTPUT_DIR/admission_${RGB_MODE:-2}_$(date +%Y%m%d_%H%M%S_%N).json"
 "$P4_AUTO_PYTHON" -m qwen3vl_local.audit_joint.rule_baseline \
   --dataset "$DATASET" --teacher-references "$TEACHER_REFERENCES" \

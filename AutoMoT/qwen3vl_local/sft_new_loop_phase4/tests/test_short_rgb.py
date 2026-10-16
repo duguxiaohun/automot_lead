@@ -333,6 +333,10 @@ elif 'qwen3vl_local.sft_new_loop_phase4.rgb_short.reload_check' in sys.argv:
     assert os.environ['GPU_IDS'] == '1'
     pathlib.Path(os.environ['RELOAD_RECORD']).write_text(json.dumps(sys.argv[1:]))
     raise SystemExit(int(os.environ['RELOAD_EXIT']))
+elif 'qwen3vl_local.sft_new_loop_phase4.rgb_short.runtime_data' in sys.argv:
+    assert os.environ['CUDA_VISIBLE_DEVICES'] == ''
+    assert os.environ['P4_VALIDATED_DATA'].endswith('/validated_data')
+    raise SystemExit(0)
 else:
     pathlib.Path(os.environ['CALL_RECORD']).write_text(json.dumps({
         'argv': sys.argv[1:], 'mask': os.environ.get('CUDA_VISIBLE_DEVICES')}))

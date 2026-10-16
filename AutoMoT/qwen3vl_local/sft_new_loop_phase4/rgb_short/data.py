@@ -189,7 +189,11 @@ def create(parent, output, *, data_root=None):
     return descriptor
 
 
-def load_dataset(path, *, rgb_mode=2, require_trainable=False, require_complete_coverage=False):
+def load_dataset(path, *, rgb_mode=2, require_trainable=False, require_complete_coverage=False, _runtime_raw=False):
+    if not _runtime_raw:
+        from .runtime_data import load
+        return load(path,rgb_mode,load_dataset,require_trainable=require_trainable,
+                    require_complete_coverage=require_complete_coverage)
     observation_contract(rgb_mode)
     descriptor = json.loads((Path(path) / 'student_view.json').read_text())
     if descriptor.get('schema') != POLICY or descriptor.get('source') != contract():

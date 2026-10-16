@@ -16,7 +16,7 @@ from .server_readiness import source_check
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v70_selected_b2_20261016.json')
+RELEASE = Path(__file__).with_name('release_sources_v71_sampling_runtime_20261016.json')
 
 
 class Interrupted(BaseException):
@@ -109,6 +109,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                 raise ValueError(f'required input missing: {path}')
         if not data_root.is_dir():
             raise ValueError('data root is missing')
+        upgrade_command = None
         if view is not None:
             descriptor = json.loads((view/'student_view.json').read_text())
             if not isinstance(descriptor, dict) or not isinstance(descriptor.get('parent'), dict):
@@ -116,6 +117,18 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
             parent = descriptor.get('parent', {}).get('logical_path')
             if not parent or Path(parent).resolve() != (prepared/'data4').resolve():
                 raise ValueError('reused view does not belong to the requested native dataset')
+            if descriptor.get('source'):
+                from .phase4_view_upgrade import inspect_view
+                _,_,changes=inspect_view(view)
+                if changes:
+                    upgraded=output/'view_upgrade'
+                    upgrade_command=[sys.executable,'-m','qwen3vl_local.audit_joint.phase4_view_upgrade',
+                        '--view',str(view),'--output',str(upgraded),'--data-root',str(data_root)]
+                    if os.environ.get('P4_PRODUCTION_CACHE'):
+                        upgrade_command+=['--production-cache',os.environ['P4_PRODUCTION_CACHE']]
+                    state['original_view']=str(view)
+                    state['view_upgrade_changes']=changes
+                    state['dataset']=str(upgraded/'view')
         budget_path = prepared/'first_epoch_budget.json'
         request = json.loads(budget_path.read_text())
         if not isinstance(request, dict):
@@ -130,6 +143,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                    TEACHER_REFERENCES=str(prepared/'references4'),
                    FIRST_EPOCH_BUDGET=str(budget_path), OUTPUT_DIR=str(output),
                    RUN_TAG='first_epoch', GPU_IDS=gpus,
+                   P4_VALIDATED_DATA=str(output/'validated_data'),
                    UPDATE_SAMPLES='32',
                    AUTOMATIC_COVERAGE_POLICY='existing_data_development')
         commands = []
@@ -140,6 +154,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                 '--data-root', str(data_root), '--output', str(output/'student')]))
         else:
             state['reused_view'] = str(view)  # Native admission validates its current contract before GPU.
+            if upgrade_command:commands.append(('view_upgrade',upgrade_command))
         for mode in (2, 4):
             commands.append((f'rgb{mode}', ['bash', 'qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh']))
         for stage, command in commands:

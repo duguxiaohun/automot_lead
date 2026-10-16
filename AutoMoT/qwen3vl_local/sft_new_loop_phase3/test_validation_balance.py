@@ -175,6 +175,6 @@ def test_generation_and_loss_caps_shrink_to_unique_common_capacity(monkeypatch):
     train.train(args)
     assert args.validation_sampling["loss"]["requested"] == 32
     assert args.eval_balance_count == 1
-    assert args.validation_sampling["loss"]["policy"] == "fixed_equal_contiguous_evaluation_v1"
+    assert args.validation_sampling["loss"]["policy"] == "fixed_equal_contiguous_evaluation_v2"
     assert args.validation_sampling["generation"]["requested"] == 16
     assert args.validation_sampling["generation"]["effective"] == args.generation_eval_balance_count == 1
