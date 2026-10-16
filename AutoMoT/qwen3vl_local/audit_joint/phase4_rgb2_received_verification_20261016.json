@@ -1,0 +1,895 @@
+{
+  "status": "rgb2_execution_and_validation_verified_test_missing",
+  "package_sha": "35ad45a1be161771980460b98416a96a4ffe8ffbb7892fe284dd5dfab49a84f8",
+  "members": 27,
+  "consumption": {
+    "status": "matched_recorded_plan",
+    "presentations": 10240,
+    "event_counts_from_recorded_plan": {
+      "U-E2": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "R-E2": 1024,
+      "U-E3": 1024,
+      "U-E7": 1024,
+      "U-E4": 1024,
+      "R-E3": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024
+    },
+    "scope": "All four step logs match the hashed plan. Event labels are inherited from that plan; no fresh dataset, optimizer or label-quality certification."
+  },
+  "unique_training_questions": 10036,
+  "training_pool": 298787,
+  "unique_pool_fraction": 0.03358914544474827,
+  "validation_correct": 347,
+  "validation_count": 370,
+  "diagnostics": {
+    "overall": {
+      "count": 370,
+      "targets": {
+        "YES": 50,
+        "NO": 320
+      },
+      "predictions": {
+        "YES": 35,
+        "NO": 335
+      },
+      "recall": {
+        "YES": 0.62,
+        "NO": 0.9875
+      },
+      "balanced_reference_agreement": 0.80375,
+      "majority_reference_baseline": 0.8648648648648649,
+      "constant_prediction": null,
+      "warnings": []
+    },
+    "by_event": {
+      "R-E2": {
+        "count": 37,
+        "targets": {
+          "NO": 35,
+          "YES": 2
+        },
+        "predictions": {
+          "NO": 35,
+          "YES": 2
+        },
+        "recall": {
+          "YES": 0.0,
+          "NO": 0.9428571428571428
+        },
+        "balanced_reference_agreement": 0.4714285714285714,
+        "majority_reference_baseline": 0.9459459459459459,
+        "constant_prediction": null,
+        "warnings": [
+          "not_above_majority_reference_baseline",
+          "zero_yes_recall"
+        ]
+      },
+      "R-E3": {
+        "count": 37,
+        "targets": {
+          "NO": 29,
+          "YES": 8
+        },
+        "predictions": {
+          "NO": 34,
+          "YES": 3
+        },
+        "recall": {
+          "YES": 0.25,
+          "NO": 0.9655172413793104
+        },
+        "balanced_reference_agreement": 0.6077586206896552,
+        "majority_reference_baseline": 0.7837837837837838,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "R-E5": {
+        "count": 37,
+        "targets": {
+          "YES": 10,
+          "NO": 27
+        },
+        "predictions": {
+          "YES": 6,
+          "NO": 31
+        },
+        "recall": {
+          "YES": 0.6,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 0.8,
+        "majority_reference_baseline": 0.7297297297297297,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E1": {
+        "count": 37,
+        "targets": {
+          "YES": 3,
+          "NO": 34
+        },
+        "predictions": {
+          "YES": 3,
+          "NO": 34
+        },
+        "recall": {
+          "YES": 1.0,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 1.0,
+        "majority_reference_baseline": 0.918918918918919,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E2": {
+        "count": 37,
+        "targets": {
+          "NO": 35,
+          "YES": 2
+        },
+        "predictions": {
+          "NO": 36,
+          "YES": 1
+        },
+        "recall": {
+          "YES": 0.5,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 0.75,
+        "majority_reference_baseline": 0.9459459459459459,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E3": {
+        "count": 37,
+        "targets": {
+          "NO": 33,
+          "YES": 4
+        },
+        "predictions": {
+          "NO": 33,
+          "YES": 4
+        },
+        "recall": {
+          "YES": 1.0,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 1.0,
+        "majority_reference_baseline": 0.8918918918918919,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E4": {
+        "count": 37,
+        "targets": {
+          "YES": 4,
+          "NO": 33
+        },
+        "predictions": {
+          "NO": 33,
+          "YES": 4
+        },
+        "recall": {
+          "YES": 0.75,
+          "NO": 0.9696969696969697
+        },
+        "balanced_reference_agreement": 0.8598484848484849,
+        "majority_reference_baseline": 0.8918918918918919,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E5": {
+        "count": 37,
+        "targets": {
+          "NO": 27,
+          "YES": 10
+        },
+        "predictions": {
+          "NO": 27,
+          "YES": 10
+        },
+        "recall": {
+          "YES": 1.0,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 1.0,
+        "majority_reference_baseline": 0.7297297297297297,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E6": {
+        "count": 37,
+        "targets": {
+          "NO": 34,
+          "YES": 3
+        },
+        "predictions": {
+          "NO": 36,
+          "YES": 1
+        },
+        "recall": {
+          "YES": 0.3333333333333333,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 0.6666666666666666,
+        "majority_reference_baseline": 0.918918918918919,
+        "constant_prediction": null,
+        "warnings": []
+      },
+      "U-E7": {
+        "count": 37,
+        "targets": {
+          "YES": 4,
+          "NO": 33
+        },
+        "predictions": {
+          "NO": 36,
+          "YES": 1
+        },
+        "recall": {
+          "YES": 0.25,
+          "NO": 1.0
+        },
+        "balanced_reference_agreement": 0.625,
+        "majority_reference_baseline": 0.8918918918918919,
+        "constant_prediction": null,
+        "warnings": []
+      }
+    },
+    "scope": "diagnostics only; does not change checkpoint selection or certify reference accuracy"
+  },
+  "events": {
+    "R-E2": {
+      "count": 37,
+      "correct": 33,
+      "yes": 2,
+      "yes_correct": 0,
+      "physical_groups": 7
+    },
+    "R-E3": {
+      "count": 37,
+      "correct": 30,
+      "yes": 8,
+      "yes_correct": 2,
+      "physical_groups": 6
+    },
+    "R-E5": {
+      "count": 37,
+      "correct": 33,
+      "yes": 10,
+      "yes_correct": 6,
+      "physical_groups": 7
+    },
+    "U-E1": {
+      "count": 37,
+      "correct": 37,
+      "yes": 3,
+      "yes_correct": 3,
+      "physical_groups": 6
+    },
+    "U-E2": {
+      "count": 37,
+      "correct": 36,
+      "yes": 2,
+      "yes_correct": 1,
+      "physical_groups": 7
+    },
+    "U-E3": {
+      "count": 37,
+      "correct": 37,
+      "yes": 4,
+      "yes_correct": 4,
+      "physical_groups": 5
+    },
+    "U-E4": {
+      "count": 37,
+      "correct": 35,
+      "yes": 4,
+      "yes_correct": 3,
+      "physical_groups": 7
+    },
+    "U-E5": {
+      "count": 37,
+      "correct": 37,
+      "yes": 10,
+      "yes_correct": 10,
+      "physical_groups": 3
+    },
+    "U-E6": {
+      "count": 37,
+      "correct": 35,
+      "yes": 3,
+      "yes_correct": 1,
+      "physical_groups": 5
+    },
+    "U-E7": {
+      "count": 37,
+      "correct": 34,
+      "yes": 4,
+      "yes_correct": 1,
+      "physical_groups": 2
+    }
+  },
+  "edges": {
+    "R-E2/enter": {
+      "count": 30,
+      "yes": 1,
+      "yes_correct": 0,
+      "correct": 29
+    },
+    "R-E2/hold": {
+      "count": 4,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 4
+    },
+    "R-E2/recover_follow": {
+      "count": 1,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 0
+    },
+    "R-E2/restrict": {
+      "count": 1,
+      "yes": 1,
+      "yes_correct": 0,
+      "correct": 0
+    },
+    "R-E2/stable": {
+      "count": 1,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 0
+    },
+    "R-E3/enter": {
+      "count": 32,
+      "yes": 6,
+      "yes_correct": 2,
+      "correct": 27
+    },
+    "R-E3/hold": {
+      "count": 2,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 2
+    },
+    "R-E3/restrict": {
+      "count": 3,
+      "yes": 2,
+      "yes_correct": 0,
+      "correct": 1
+    },
+    "R-E5/hold": {
+      "count": 5,
+      "yes": 5,
+      "yes_correct": 5,
+      "correct": 5
+    },
+    "R-E5/proceed": {
+      "count": 30,
+      "yes": 3,
+      "yes_correct": 0,
+      "correct": 27
+    },
+    "R-E5/restrict": {
+      "count": 2,
+      "yes": 2,
+      "yes_correct": 1,
+      "correct": 1
+    },
+    "U-E1/hold": {
+      "count": 1,
+      "yes": 1,
+      "yes_correct": 1,
+      "correct": 1
+    },
+    "U-E1/proceed": {
+      "count": 34,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 34
+    },
+    "U-E1/restrict": {
+      "count": 2,
+      "yes": 2,
+      "yes_correct": 2,
+      "correct": 2
+    },
+    "U-E2/depart": {
+      "count": 34,
+      "yes": 1,
+      "yes_correct": 0,
+      "correct": 33
+    },
+    "U-E2/hold": {
+      "count": 2,
+      "yes": 1,
+      "yes_correct": 1,
+      "correct": 2
+    },
+    "U-E2/pass": {
+      "count": 1,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 1
+    },
+    "U-E3/hold": {
+      "count": 1,
+      "yes": 1,
+      "yes_correct": 1,
+      "correct": 1
+    },
+    "U-E3/proceed": {
+      "count": 33,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 33
+    },
+    "U-E3/restrict": {
+      "count": 3,
+      "yes": 3,
+      "yes_correct": 3,
+      "correct": 3
+    },
+    "U-E4/hold": {
+      "count": 1,
+      "yes": 1,
+      "yes_correct": 1,
+      "correct": 1
+    },
+    "U-E4/proceed": {
+      "count": 33,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 32
+    },
+    "U-E4/restrict": {
+      "count": 3,
+      "yes": 3,
+      "yes_correct": 2,
+      "correct": 2
+    },
+    "U-E5/hold": {
+      "count": 5,
+      "yes": 5,
+      "yes_correct": 5,
+      "correct": 5
+    },
+    "U-E5/proceed": {
+      "count": 27,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 27
+    },
+    "U-E5/restrict": {
+      "count": 5,
+      "yes": 5,
+      "yes_correct": 5,
+      "correct": 5
+    },
+    "U-E6/proceed": {
+      "count": 36,
+      "yes": 2,
+      "yes_correct": 0,
+      "correct": 34
+    },
+    "U-E6/restrict": {
+      "count": 1,
+      "yes": 1,
+      "yes_correct": 1,
+      "correct": 1
+    },
+    "U-E7/hold": {
+      "count": 2,
+      "yes": 1,
+      "yes_correct": 1,
+      "correct": 2
+    },
+    "U-E7/proceed": {
+      "count": 30,
+      "yes": 1,
+      "yes_correct": 0,
+      "correct": 29
+    },
+    "U-E7/recover_follow": {
+      "count": 2,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 2
+    },
+    "U-E7/restrict": {
+      "count": 2,
+      "yes": 2,
+      "yes_correct": 0,
+      "correct": 0
+    },
+    "U-E7/stable": {
+      "count": 1,
+      "yes": 0,
+      "yes_correct": 0,
+      "correct": 1
+    }
+  },
+  "source_capture_drift": [
+    {
+      "path": "qwen3vl_local/sequence_batch.py",
+      "startup_sha": "9301496c0713511b617be4940e7521217296368b2f53d71f76ffb29ae08c5cdd",
+      "runtime_sha": "f19b027e07f571ce456086d33ff34ee605fd914b052d01acdef623813f2d0c75"
+    }
+  ],
+  "runtime_student_sources_match": "v61_batch_audit_20261015",
+  "training_seconds": 5454.806100461166,
+  "in_training_validation_seconds": 179.2220094227232,
+  "reload_end_to_end_seconds": 10140.663059123792,
+  "view_build_seconds": 10705.525372620206,
+  "training_sample_targets": {
+    "YES": 3490,
+    "NO": 6750
+  },
+  "action_counts": {
+    "R-E2": {
+      "target": {
+        "complete/YES": 74,
+        "enter/NO": 73,
+        "enter/YES": 73,
+        "hold/NO": 73,
+        "hold/YES": 73,
+        "recover_follow/NO": 73,
+        "release/NO": 73,
+        "release/YES": 73,
+        "renewed_restriction/NO": 73,
+        "renewed_restriction/YES": 73,
+        "stable/NO": 73,
+        "stable/YES": 73,
+        "recover_follow/YES": 73,
+        "complete/NO": 74
+      },
+      "actual": {
+        "release/NO": 75,
+        "hold/NO": 73,
+        "hold/YES": 64,
+        "enter/NO": 130,
+        "enter/YES": 79,
+        "release/YES": 74,
+        "renewed_restriction/NO": 71,
+        "complete/YES": 72,
+        "complete/NO": 59,
+        "recover_follow/NO": 70,
+        "stable/NO": 71,
+        "renewed_restriction/YES": 68,
+        "recover_follow/YES": 59,
+        "stable/YES": 59
+      }
+    },
+    "R-E3": {
+      "target": {
+        "enter/YES": 135,
+        "hold/NO": 135,
+        "enter/NO": 136,
+        "hold/YES": 135,
+        "complete/YES": 28,
+        "recover_follow/NO": 47,
+        "renewed_restriction/NO": 35,
+        "stable/YES": 10,
+        "recover_follow/YES": 12,
+        "release/NO": 135,
+        "release/YES": 135,
+        "renewed_restriction/YES": 23,
+        "stable/NO": 49,
+        "complete/NO": 9
+      },
+      "actual": {
+        "enter/NO": 239,
+        "hold/NO": 151,
+        "release/NO": 138,
+        "enter/YES": 173,
+        "release/YES": 139,
+        "stable/NO": 8,
+        "complete/NO": 8,
+        "hold/YES": 135,
+        "renewed_restriction/YES": 11,
+        "recover_follow/NO": 8,
+        "renewed_restriction/NO": 4,
+        "stable/YES": 1,
+        "recover_follow/YES": 1,
+        "complete/YES": 8
+      }
+    },
+    "R-E5": {
+      "target": {
+        "hold/YES": 76,
+        "proceed/NO": 76,
+        "complete/NO": 76,
+        "complete/YES": 28,
+        "hold/NO": 76,
+        "proceed/YES": 75,
+        "re_yield/NO": 75,
+        "recover_follow/NO": 75,
+        "renewed_restriction/NO": 75,
+        "stable/NO": 75,
+        "stable/YES": 46,
+        "re_yield/YES": 75,
+        "renewed_restriction/YES": 75,
+        "recover_follow/YES": 61,
+        "release/YES": 46,
+        "release/NO": 14
+      },
+      "actual": {
+        "proceed/NO": 220,
+        "proceed/YES": 158,
+        "renewed_restriction/NO": 68,
+        "complete/NO": 73,
+        "stable/NO": 66,
+        "recover_follow/NO": 64,
+        "hold/YES": 68,
+        "recover_follow/YES": 55,
+        "hold/NO": 63,
+        "re_yield/NO": 61,
+        "release/YES": 42,
+        "release/NO": 13,
+        "re_yield/YES": 12,
+        "renewed_restriction/YES": 25,
+        "stable/YES": 30,
+        "complete/YES": 6
+      }
+    },
+    "U-E1": {
+      "target": {
+        "hold/YES": 77,
+        "proceed/NO": 77,
+        "hold/NO": 77,
+        "re_yield/NO": 77,
+        "recover_follow/NO": 76,
+        "renewed_restriction/NO": 76,
+        "stable/NO": 76,
+        "complete/NO": 77,
+        "recover_follow/YES": 76,
+        "complete/YES": 77,
+        "release/NO": 76,
+        "proceed/YES": 74,
+        "release/YES": 26,
+        "re_yield/YES": 41,
+        "renewed_restriction/YES": 41
+      },
+      "actual": {
+        "proceed/NO": 368,
+        "stable/NO": 76,
+        "recover_follow/NO": 106,
+        "complete/NO": 52,
+        "re_yield/NO": 77,
+        "renewed_restriction/NO": 76,
+        "proceed/YES": 8,
+        "recover_follow/YES": 49,
+        "release/YES": 17,
+        "complete/YES": 9,
+        "renewed_restriction/YES": 12,
+        "re_yield/YES": 12,
+        "hold/YES": 77,
+        "release/NO": 8,
+        "hold/NO": 77
+      }
+    },
+    "U-E2": {
+      "target": {
+        "depart/NO": 64,
+        "depart/YES": 64,
+        "hold/NO": 64,
+        "hold/YES": 64,
+        "pass/YES": 64,
+        "recover_follow/NO": 64,
+        "renewed_restriction/NO": 64,
+        "stable/NO": 64,
+        "renewed_restriction/YES": 64,
+        "release/NO": 64,
+        "return/NO": 62,
+        "stable/YES": 64,
+        "complete/NO": 64,
+        "complete/YES": 64,
+        "release/YES": 64,
+        "pass/NO": 64,
+        "return/YES": 2
+      },
+      "actual": {
+        "release/NO": 77,
+        "depart/NO": 217,
+        "hold/NO": 66,
+        "stable/YES": 47,
+        "complete/NO": 64,
+        "depart/YES": 65,
+        "pass/NO": 70,
+        "complete/YES": 47,
+        "release/YES": 65,
+        "return/NO": 33,
+        "renewed_restriction/NO": 47,
+        "stable/NO": 42,
+        "recover_follow/NO": 37,
+        "renewed_restriction/YES": 48,
+        "pass/YES": 47,
+        "hold/YES": 52
+      }
+    },
+    "U-E3": {
+      "target": {
+        "hold/YES": 79,
+        "proceed/NO": 79,
+        "complete/NO": 79,
+        "complete/YES": 79,
+        "hold/NO": 79,
+        "re_yield/NO": 79,
+        "recover_follow/NO": 79,
+        "renewed_restriction/NO": 79,
+        "stable/NO": 78,
+        "stable/YES": 7,
+        "proceed/YES": 79,
+        "recover_follow/YES": 79,
+        "release/YES": 79,
+        "release/NO": 8,
+        "renewed_restriction/YES": 31,
+        "re_yield/YES": 31
+      },
+      "actual": {
+        "hold/YES": 79,
+        "proceed/NO": 468,
+        "recover_follow/YES": 66,
+        "recover_follow/NO": 36,
+        "complete/NO": 46,
+        "proceed/YES": 89,
+        "stable/NO": 59,
+        "re_yield/YES": 7,
+        "complete/YES": 25,
+        "stable/YES": 2,
+        "renewed_restriction/YES": 6,
+        "release/NO": 2,
+        "re_yield/NO": 45,
+        "renewed_restriction/NO": 38,
+        "hold/NO": 38,
+        "release/YES": 18
+      }
+    },
+    "U-E4": {
+      "target": {
+        "hold/YES": 263,
+        "proceed/NO": 263,
+        "proceed/YES": 262,
+        "complete/NO": 75,
+        "hold/NO": 86,
+        "re_yield/NO": 75
+      },
+      "actual": {
+        "hold/YES": 182,
+        "proceed/NO": 546,
+        "proceed/YES": 244,
+        "hold/NO": 18,
+        "re_yield/NO": 17,
+        "complete/NO": 17
+      }
+    },
+    "U-E5": {
+      "target": {
+        "hold/YES": 211,
+        "proceed/NO": 813
+      },
+      "actual": {
+        "proceed/NO": 915,
+        "hold/YES": 109
+      }
+    },
+    "U-E6": {
+      "target": {
+        "hold/YES": 327,
+        "proceed/NO": 349,
+        "proceed/YES": 348
+      },
+      "actual": {
+        "hold/YES": 165,
+        "proceed/NO": 506,
+        "proceed/YES": 353
+      }
+    },
+    "U-E7": {
+      "target": {
+        "hold/NO": 104,
+        "hold/YES": 104,
+        "proceed/NO": 104,
+        "proceed/YES": 104,
+        "re_yield/NO": 104,
+        "recover_follow/NO": 104,
+        "renewed_restriction/NO": 104,
+        "stable/NO": 103,
+        "stable/YES": 39,
+        "complete/NO": 104,
+        "re_yield/YES": 20,
+        "renewed_restriction/YES": 17,
+        "complete/YES": 13
+      },
+      "actual": {
+        "hold/YES": 104,
+        "proceed/YES": 105,
+        "stable/YES": 30,
+        "complete/NO": 83,
+        "proceed/NO": 338,
+        "renewed_restriction/NO": 79,
+        "hold/NO": 61,
+        "recover_follow/NO": 77,
+        "stable/NO": 77,
+        "re_yield/NO": 58,
+        "complete/YES": 4,
+        "re_yield/YES": 4,
+        "renewed_restriction/YES": 4
+      }
+    }
+  },
+  "critical_support": {
+    "U-E2/return/YES": {
+      "rows": 2,
+      "physical_groups": 2
+    },
+    "U-E2/return/NO": {
+      "rows": 62,
+      "physical_groups": 17
+    },
+    "U-E3/proceed/YES": {
+      "rows": 277,
+      "physical_groups": 95
+    },
+    "U-E3/proceed/NO": {
+      "rows": 14703,
+      "physical_groups": 685
+    },
+    "U-E5/proceed/YES": {
+      "rows": 0,
+      "physical_groups": 0
+    },
+    "U-E5/proceed/NO": {
+      "rows": 711,
+      "physical_groups": 72
+    },
+    "U-E6/proceed/YES": {
+      "rows": 708,
+      "physical_groups": 97
+    },
+    "U-E6/proceed/NO": {
+      "rows": 1903,
+      "physical_groups": 269
+    },
+    "U-E7/complete/YES": {
+      "rows": 13,
+      "physical_groups": 13
+    },
+    "U-E7/complete/NO": {
+      "rows": 201,
+      "physical_groups": 31
+    },
+    "R-E5/proceed/YES": {
+      "rows": 760,
+      "physical_groups": 182
+    },
+    "R-E5/proceed/NO": {
+      "rows": 32451,
+      "physical_groups": 1124
+    }
+  },
+  "missing": [
+    "RGB2 fixed test",
+    "RGB4 entire run"
+  ],
+  "limits": [
+    "no weights or raw production pool locally received",
+    "event assignments of training samples inherit recorded plan; IDs/order independently verified",
+    "no independent ground-truth label accuracy or joint G0 certification",
+    "startup source snapshot does not cover runtime sequence_batch version",
+    "no new RGB inspection of val/test"
+  ],
+  "regression": {
+    "passed": 33,
+    "seconds": 6.15,
+    "scope": [
+      "test_phase4_epoch_handoff.py",
+      "test_short_diagnostics.py"
+    ]
+  },
+  "document_commands_syntax": "passed; not executed on server"
+}
