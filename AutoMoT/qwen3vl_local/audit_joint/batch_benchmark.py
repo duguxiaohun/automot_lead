@@ -388,7 +388,7 @@ def main():
     import hashlib
     request={k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()}
     paths=[Path(__file__),Path(__file__).with_name('batch_probe.py'),
-           Path(__file__).with_name('benchmark_runtime.py'),a.model_dir/'config.json',
+           Path(__file__).with_name('benchmark_runtime.py'),Path(__file__).with_name('phase4_load.py'),a.model_dir/'config.json',
            a.index.with_name('manifest.json') if a.phase=='3' else a.dataset/'student_view.json']
     request['source_input_sha256']={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
     write(a.output/'request.json',request)

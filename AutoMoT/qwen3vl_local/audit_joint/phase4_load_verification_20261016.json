@@ -1,0 +1,37 @@
+{
+  "status": "local_verified_server_pending",
+  "release": "release_sources_v64_read_protocol_20261016.json",
+  "source_count": 530,
+  "native_and_student_sources_unchanged": true,
+  "real_equivalence": {
+    "native_results_identical": true,
+    "plain_seconds": 4.070533943013288,
+    "adapted_seconds": 1.9076527410070412,
+    "migrated_view_load_both_modes": true,
+    "paired_members": 1457,
+    "scope": "existing 1457 train-only pool, not server full pool or GPU"
+  },
+  "protocol_microbenchmark": {
+    "calls": 1000,
+    "old_seconds": 1.3390391420107335,
+    "new_seconds": 0.003403298993362114,
+    "scope": "local protocol check microbenchmark only, not full server load or GPU"
+  },
+  "historical_view_fixture": "real 1457 train pool with explicit v61 runtime-source descriptor fixture; not server full pool",
+  "tests": "123 passed in 15.52s",
+  "gpu_executed": false,
+  "server_full_pool_verified": false,
+  "scope": "isolated CPU read adapter and explicit view migration; formal trainer remains unchanged",
+  "evidence_sha256": {
+    "tests_final.log": "43555e09dd66b54d00f36cf15730b0df968fcd3f78a9de9bc9d2cea6ebe103f9",
+    "real_equivalence.json": "16420f2b8ba382ad69d6832e4965efa148cbe2e74e4a5090a30bda09ee9ddcdb",
+    "protocol_timing.json": "f4524d54efd338f91e70a09e58e89df4401c6b47d88de638b96767e25be41705",
+    "migrated/result.json": "8400c1a9081282e6b92aac850fbca59184f67a34a2329ccbdc937685b6855df8",
+    "benchmark_prepare/summary.json": "1f71f7038af7db639c5220674767e3d29457e4526ba1866a3abc36239e312672"
+  },
+  "real_benchmark_prepare": {
+    "status": "prepared_cpu_only",
+    "trials": [],
+    "fastest_measured_candidates": {}
+  }
+}

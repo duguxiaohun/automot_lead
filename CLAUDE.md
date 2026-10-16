@@ -1,5 +1,10 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-16 v64原生读取协议复用与旧view显式迁移
+
+服务器30/60秒在JSONL解析、90秒进入逐题冻结协议SHA；每题55文件约1.34MB、298787题约1643万哈希调用，不等于物理磁盘字节或全部耗时。新增audit_joint.phase4_load隔离单线程读取适配层，原生函数开始/结束真实验证、计划SHA前后复核、每题返回归属副本；期间变更拒绝，异常恢复，不跨调用缓存。benchmark准备接入；原生producer/teacher/dataset/identity及学生合同源码字节不变，正式训练器仍用原路径，不声称全入口加速。
+旧服务器view四SHA均v61，显式迁移只接受已知sequence_batch/evaluate/reload_check/run.sh差异，其余合同完全相同；完整原生校验、两RGB成员/排除项/配额复算后新目录写当前view和迁移来源记录，RGB sidecar前后SHA核验后复用，不覆盖旧view/checkpoint、不重放老师/建原生库，不将迁移用于旧checkpoint恢复或声称新RGB认证。真实1457train小池以v61运行SHA构造历史描述符fixture迁移，两模式重载ID/标签配对；原生新旧返回完全一致，本地4.07→1.91秒仅小池。123回归15.52秒通过，含真实冻结文件中途变更拒绝、未知迁移源拒绝及清理；当前v64_read_protocol清单530源。用户授权本轮白名单push，命令PHASE4_LOAD_V64_20261016.md：先CPU迁移180秒，再两图B1单trial准备180秒/GPU300秒，失败交日志不继续排队。服务器整库/GPU待验收，保留.vscode、paper、checkpoints及其它任务产物。
+
 ### 2026-10-16 v62／v63白名单授权发布
 
 用户明确要求push本轮连续段尾部、可见GPU、分模式batch及限时benchmark修补。发布v63_bounded_benchmark，528源码SHA matched；118相关回归通过（13.69秒），承接v62既有261项验证，不叠加为独立总数。提交本轮源码、测试、轻量回执和命令文档，保留用户.vscode、paper、checkpoints、权重、RGB及其它任务未跟踪文件。服务器先沿sync_automot.sh同步，按PHASE4_SHORT_DIAGNOSIS_20261016.md执行120秒CPU定位，通过后单trial CPU120秒／GPU300秒；有效v62 view继续复用，不重放老师或重建原生库。目标4B四卡尚未验收，本次发布不代表GPU结果通过。

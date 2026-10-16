@@ -112,7 +112,9 @@ def run_owned(command, log, env, timeout):
 def prepare_phase4(args):
     from .batch_benchmark import load_pool, schedule, write
     progress('load_validate_full_pool START (CPU only, once for this RGB mode)')
-    items, records, manifest = load_pool(args, args.modes[0])
+    from .phase4_load import validated_reservations
+    with validated_reservations():
+        items, records, manifest = load_pool(args, args.modes[0])
     progress(f'load_validate_full_pool DONE rows={len(items)}; sampling START')
     updates, selection = schedule(records, per_event=args.samples_per_event,
         update_samples=args.update_samples, world=len(args.gpus.split(',')),
