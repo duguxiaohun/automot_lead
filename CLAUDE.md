@@ -1,5 +1,10 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-17 v78升级139可疑定时栈打印隔离
+
+用户交回同PID1662801两层日志：8614绑定完成、298787题JSON62.13秒、协议25万次173.4秒，validate_model_inputs时30秒faulthandler输出截于半行File，随后139/总210.27秒。30秒Timeout是诊断输出非900秒任务超时，未GPU。形态类似CPython官方116008/131580，但缺C栈/解释器补丁信息，未确证或复现同一根因，不归因json.dumps/OOM/坏标签。
+benchmark_runtime取消周期watchdog栈遍历，保留fatal诊断；父进程30秒输出PID/耗时/上限/存活（明确不代表完成），原超时/信号/进程清理保留。98相关回归19.65秒通过含真实CPU worker及清理，两新增反例先失败；非服务器修复验收。v78清单558源，仅诊断器/测试和三个指针变化；学生/原生/teacher、phase4_load/production_cache等合同字节不变，现有缓存/view不因补丁重建。发布后仅既定B2两模式单轮流程一次，新输出、复用原库/旧view升级/已完成v69缓存，不追加readiness/benchmark/全池/GPU测试；若再失败直接交新版含日志ZIP。不改标定提示词采样、不承诺耗时，不自动重试。用户随后明确授权本轮白名单push；实际逐帧复看两既有train路线各40–46共14RGB，42目视源SHA/54重算源SHA（去重60）通过，4题stable/re_yield事实一致，STOP历史沿用已绑定回放，非新全路线重放/盲审，无新改标签提示词依据，不作为服务器前置。命令audit_joint/PHASE4_WORKER_DIAGNOSTICS_20261017.md和worker_diagnostics_verification_20261017.json。保留用户.vscode/paper等其它任务。
+
 ### 2026-10-17 v77 Phase4视图升级失败交接补强
 
 收到34888字节/4成员ZIP，SHA/CRC通过，558源码匹配v76、磁盘预算通过。新版workflow仅view_upgrade执行210.27秒退出139，两模式训练均未启动；47缺项是未生成证据，非47缺陷。通常139为SIGSEGV但缺原日志不能定根因，不判OOM/坏标签/磁盘或900秒超时。确认collector漏view_upgrade.log及子目录load.log/status，已加固定白名单60KB日志尾、SHA/漂移检查及可用status/result，缺训练记录改明确missing证据错误，保留阻塞态及30MB上限。两新反例先失败后修复，50相关回归通过；v77清单558matched。生产/学生合同、训练提示词标定及缓存适配器不改，不为此重新迁移。服务器只需交既有phase4_b2_epoch1_20261017_113332_626467217的view_upgrade.log、view_upgrade/load.log尾及status；不重跑建库/benchmark/GPU/P3。尚未取得崩溃栈，不能称全流程修好。报告audit_joint/PHASE4_UPGRADE_FAILURE_20261017.md和phase4_upgrade_handoff_verification_20261017.json；原包本地checkpoints/phase4_failed_upgrade_received_20261017。本轮未远程/GPU/push，保留.vscode/paper等其它任务。

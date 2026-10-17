@@ -12,6 +12,43 @@ import pytest
 from qwen3vl_local.audit_joint import batch_benchmark as b
 from qwen3vl_local.audit_joint import benchmark_runtime as rt
 
+
+def test_worker_diagnostics_do_not_schedule_asynchronous_stack_walk(monkeypatch, capsys):
+    calls=[]
+    monkeypatch.setattr(rt.faulthandler, 'enable', lambda: calls.append('fatal_handler'))
+    monkeypatch.setattr(rt.faulthandler, 'cancel_dump_traceback_later', lambda: calls.append('cancel_timer'))
+    monkeypatch.setattr(rt.faulthandler, 'dump_traceback_later',
+                        lambda *a, **kw: pytest.fail('do not walk a running worker stack periodically'))
+    rt.trace_waits()
+    assert calls == ['cancel_timer', 'fatal_handler']
+    assert 'periodic_stack_dump=off' in capsys.readouterr().out
+
+
+def test_parent_heartbeat_does_not_interrupt_worker(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(rt, 'HEARTBEAT_SECONDS', .05)
+    payload="import time; print('work START', flush=True); time.sleep(.3); print('work DONE', flush=True)"
+    code=rt.run_owned([sys.executable, '-c', payload], tmp_path/'log', os.environ, 5)
+    assert code == 0
+    output=capsys.readouterr().out
+    assert '[worker monitor]' in output and 'not stage completion' in output
+    assert 'returncode=0' in output
+    assert (tmp_path/'log').read_text() == 'work START\nwork DONE\n'
+
+
+def test_real_cpu_worker_keeps_fatal_handler_and_single_thread(tmp_path):
+    payload='''
+import faulthandler, json, threading
+from qwen3vl_local.audit_joint.benchmark_runtime import trace_waits
+trace_waits()
+assert faulthandler.is_enabled()
+assert threading.active_count() == 1
+for _ in range(1000):
+    assert json.loads(json.dumps({'a': list(range(100))}))['a'][-1] == 99
+print('CPU worker completed', flush=True)
+'''
+    assert rt.run_owned([sys.executable, '-c', payload], tmp_path/'log', os.environ, 5) == 0
+    assert 'CPU worker completed' in (tmp_path/'log').read_text()
+
 def records():
     return [dict(id=f'{e}/{f}',event=str(e),sequence=f'route{e}',frame=f,
                  action='STOP' if f<24 else 'KEEP',split='train',group=f'route{e}')

@@ -6,7 +6,10 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
+
+HEARTBEAT_SECONDS = 30
 
 
 def progress(stage):
@@ -14,8 +17,16 @@ def progress(stage):
 
 
 def trace_waits():
+    """Keep fatal diagnostics, without watchdog-thread walks of live frames.
+
+    The server's 139 exit truncated a periodic traceback at ``File``. This is
+    consistent with known CPython faulthandler races, not proof of that cause.
+    Normal liveness belongs to the parent; validation and timeout rules stay.
+    """
+    faulthandler.cancel_dump_traceback_later()
     faulthandler.enable()
-    faulthandler.dump_traceback_later(30, repeat=True)
+    progress(f'worker diagnostics python={sys.version.split()[0]} '
+             'fatal_handler=on periodic_stack_dump=off')
 
 
 def descendants(root, known):
@@ -58,6 +69,7 @@ def run_owned(command, log, env, timeout):
     process = None
     known = {}
     started = time.monotonic()
+    last_heartbeat = started
     code = 2
     try:
         with Path(log).open('xb') as stream, Path(log).open() as reader:
@@ -80,8 +92,15 @@ def run_owned(command, log, env, timeout):
                 if result is not None:
                     code = result if result >= 0 else 128 - result
                     break
+                now = time.monotonic()
+                if now - last_heartbeat >= HEARTBEAT_SECONDS:
+                    print(f'[worker monitor] pid={process.pid} elapsed={now-started:.1f}s '
+                          f'limit={timeout}s alive; not stage completion', flush=True)
+                    last_heartbeat = now
                 time.sleep(.1)
             relay()
+            print(f'[worker monitor] pid={process.pid} returncode={code} '
+                  f'elapsed={time.monotonic()-started:.1f}s', flush=True)
     finally:
         if process is not None:
             descendants(process.pid, known)

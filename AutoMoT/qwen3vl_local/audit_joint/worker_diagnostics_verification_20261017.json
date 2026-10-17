@@ -1,0 +1,41 @@
+{
+  "release": "v78_worker_diagnostics_20261017",
+  "server_observation": {
+    "pid": 1662801,
+    "rows": 298787,
+    "read_rows_seconds": 62.13,
+    "last_stage": "validate_model_inputs",
+    "exit_code": 139,
+    "periodic_traceback_truncated": true
+  },
+  "diagnosis": "suspected asynchronous traceback walk crash, not independently reproduced or confirmed",
+  "tests": {
+    "passed": 98,
+    "seconds": 19.65,
+    "scope": "six relevant test modules; real CPU subprocesses, no server/GPU"
+  },
+  "student_producer_and_cache_adapter_bytes": "unchanged_vs_v77",
+  "server_rerun": false,
+  "push": false,
+  "local_rgb_review": {
+    "actual_rgb_frames": 14,
+    "routes": 2,
+    "visual_source_sha_verified": 42,
+    "fact_source_sha_verified": 54,
+    "union_source_sha_verified": 60,
+    "recomputed_questions": 4,
+    "new_teacher_replay": false,
+    "scope": "previously reviewed train windows, development re-review, not blind; stop history reused from source-bound production evidence",
+    "observations": {
+      "HardBreakRoute_40_46": "STOP sign leaves right edge; lateral vehicles on both sides remain visible and appear closer as ego advances. RGB alone does not establish prior stop duration or geometric priority.",
+      "ParkedObstacleTwoWays_40_46": "STOP sign leaves view; right-side dark vehicle approaches the near corner as ego advances. Do not infer earlier release was wrong solely from a later restriction."
+    },
+    "label_or_prompt_changes": false,
+    "evidence": {
+      "visual_sources.json": "60c1dbf41a1f062aa9fe88dd6f581c42204049e92b1bd21a6c9e4c221b22c7a4",
+      "facts_sources.json": "ca9867e01bbb486a348d5b699425b58f923d4fe0bffa046b3a7dde98c7449391",
+      "facts_recomputed.json": "246ec14682badab919341a606e539e822b211c2bcdb442890ab8ea50cd241930"
+    }
+  },
+  "publication": "user authorized whitelist publication; remote SHA reported after push"
+}
