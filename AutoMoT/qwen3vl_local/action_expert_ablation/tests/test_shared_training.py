@@ -20,7 +20,7 @@ import qwen3vl_local.leadmot as leadmot
 
 
 @pytest.fixture
-def harness(tmp_path, monkeypatch):
+def harness(tmp_path, monkeypatch, ablation_source_tree):
     """替换模型/数据/日志 IO，小样本采样用夹具；执行真实 loss、优化器、EMA 与保存/恢复。"""
     # 测试使用 CPU 小模型；不能由其它入口选卡后的宿主 CUDA 状态触发 GPU 内存统计。
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
@@ -96,6 +96,7 @@ def harness(tmp_path, monkeypatch):
 
     def run(variant, out, *, resume=False, limit=0, val_steps=2, extra=()):
         argv = ["train", "--data-dir", str(data), "--output-dir", str(out),
+                "--evaluation-distribution", "natural",  # This optimizer fixture has no event taxonomy.
                 "--num-epochs", "2", "--grad-accum-steps", "2", "--num-workers", "0",
                 "--val-steps", str(val_steps), "--save-steps", "1", "--logging-steps", "1",
                 "--max-train-steps", str(limit), "--decoder-dtype", "float32"]

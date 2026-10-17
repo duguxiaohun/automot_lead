@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-17 v76 Action缺依赖前置检查与v75四卡证据补录
+
+用户复审两项：Action qwen_simple/bev_only实际依赖只读runner，本机缺失，不能删源码哈希或造占位实现。新增action_expert_ablation.source_check（纯标准库/CPU）输出外部runner/BEV工具存在性与SHA；launcher/直接train/eval/合同构建在选卡、输出、数据及大权重前汇总缺失项。保留真实内容绑定。合同单测用显式临时源码夹具，生产缺失/变更必须拒绝；旧优化器toy无事件标签，明确natural评估，与主线toy一致，生产十事件默认不变。94消融测试8.11秒、181相关测试14.74秒通过（含前组），不是Action真实运行通过。本机仍缺runner，已向用户询问当前原版来源；旧Git有c28935ab历史副本，未据此自动恢复或发布只读文件。
+已收到服务器v75日志：CPU41项28.38秒、四H20-3e两/四图每卡B2、DDP反向+分片生成correctness_passed/exit0；loss一致，梯度最大相对误差0.008143/0.003575，四rank消费[2,2,2,2]。补four_gpu_received回执并将four_gpu_verification的未执行状态更新为服务端已执行，原本机测试记录保留。单真实样本重复/dropout0，不是全池/完整epoch/Phase3独立GPU验收；不重跑GPU或batch选型。
+413项Phase3/4、共享batch/sequence及读取适配字节与v75一致，已有v75 view/缓存/checkpoint不需迁移；Action自身合同新增前置检查文件，旧Action checkpoint仍用原版。v76清单558源。命令audit_joint/ACTION_SOURCES_AND_GPU_RECEIPT_20261017.md：服务器仅python -S -m qwen3vl_local.action_expert_ablation.source_check，纯CPU缺文件exit2。代码/测试在既有目录白名单内，沿持续授权精确发布；不上传外部runner、聊天原文、权重或其它任务产物，保留.vscode/paper/checkpoints。
+
 ### 2026-10-17 v75用户要求正式全流程四卡与普通默认参数
 
 用户明确要求Phase3/4训练、验证、重载和test全四卡。已选训练B2、P3累积2/P4累积4及sequence采样不变；评估B2/冻结RGB复用改普通默认，无需特殊export。P3 loss改整批分片、按样本聚合；生成val/final由全部rank参与；独立eval整批四卡分片。P4每轮val全rank，新增evaluate.sh四卡reload/test，直接CUDA CLI同样自动启动四卡；CPU准备/明确CPU诊断仍CPU。训练是真DDP梯度同步，推理为四卡独立生成后汇总，不混称推理需要DDP反向。完整batch分片、尾批不重复、成员一致与一次消费检查、某rank推理失败全rank拒绝，rank0单写结果。

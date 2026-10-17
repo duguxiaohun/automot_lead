@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from qwen3vl_local.action_expert_ablation.common import VARIANTS
+from qwen3vl_local.action_expert_ablation.common import VARIANTS, contract_source_paths
+from qwen3vl_local.action_expert_ablation.source_check import require_sources
 from qwen3vl_local.action_prior.launch import ensure_gpu, prepare_run_directory, run_logged
 
 
@@ -87,6 +88,7 @@ def main() -> None:
     p.add_argument("mode", choices=["train", "eval", "preflight"])
     p.add_argument("--variant", choices=sorted(VARIANTS), required=True)
     known, extra = p.parse_known_args()
+    require_sources(ROOT, contract_source_paths(known.variant))
     os.environ["PYTHONUNBUFFERED"] = "1"
     os.environ["PYTHONPATH"] = str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")
     module = f"qwen3vl_local.action_expert_ablation.{known.variant}." + (

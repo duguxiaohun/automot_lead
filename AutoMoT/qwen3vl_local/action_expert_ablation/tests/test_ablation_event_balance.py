@@ -33,7 +33,7 @@ def test_aliases_validation_and_prior_boundary(variant):
 
 
 @pytest.mark.parametrize("variant", ["qwen_simple", "bev_only"])
-def test_contract_binds_sampling_and_allows_source_relocation(tmp_path, variant):
+def test_contract_binds_sampling_and_allows_source_relocation(tmp_path, variant, ablation_source_tree):
     source = _write_source(tmp_path)
     bev = tmp_path / "bev.pth"
     bev.write_bytes(b"fake-bev")

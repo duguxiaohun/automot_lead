@@ -347,7 +347,7 @@ action_ablation_run_full_pipeline bev_only checkpoints/action_expert_ablation/be
     assert "--data-dir checkpoints/action_prior_data" not in calls
 
 
-def test_execution_fingerprint_covers_shared_runtime_dependencies():
+def test_execution_fingerprint_covers_shared_runtime_dependencies(ablation_source_tree):
     """Condition identity should move when shared train/decoder helpers move."""
 
     fingerprint = common._execution_fingerprint(

@@ -1,0 +1,22 @@
+{
+  "release": "v76_action_sources_20261017",
+  "source_count": 558,
+  "tests": {
+    "action_ablation": {
+      "passed": 94,
+      "seconds": 8.11
+    },
+    "related": {
+      "passed": 181,
+      "seconds": 14.74,
+      "includes_action_ablation": true
+    }
+  },
+  "unchanged_phase3_phase4_sampling_runtime_sources": 413,
+  "changed_protected_sources": [],
+  "received_gpu_evidence": "four_gpu_received_20261017.json",
+  "new_gpu_runs": 0,
+  "action_external_source_status": "missing runner on local workstation; original current-version file required",
+  "action_end_to_end_certified": false,
+  "test_boundary": "Contract fixtures are isolated temporary source trees; optimizer toy rows explicitly use natural evaluation; production remains strict and ten-event default unchanged"
+}

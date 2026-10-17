@@ -1,0 +1,91 @@
+{
+  "release": "v75_four_gpu_20261017",
+  "evidence_kind": "user_pasted_server_log",
+  "input_sha256": "2fb389d0a896252774854d469781c6785380ff79fbe6cfefbf64aafbef576361",
+  "server_run": "checkpoints/v75_four_gpu_20261017_105725_728264199",
+  "cpu": {
+    "passed": 41,
+    "seconds": 28.38,
+    "returncode": 0
+  },
+  "gpu": {
+    "status": "correctness_passed",
+    "returncode": 0,
+    "world_size": 4,
+    "ranks": [
+      {
+        "rank": 0,
+        "gpu": "NVIDIA H20-3e"
+      },
+      {
+        "rank": 1,
+        "gpu": "NVIDIA H20-3e"
+      },
+      {
+        "rank": 2,
+        "gpu": "NVIDIA H20-3e"
+      },
+      {
+        "rank": 3,
+        "gpu": "NVIDIA H20-3e"
+      }
+    ],
+    "modes": [
+      {
+        "rgb_mode": 2,
+        "loss": 0.7434476613998413,
+        "baseline_loss": 0.7434476613998413,
+        "max_gradient_relative_error": 0.008143029893082774,
+        "distributed_generation": {
+          "world_size": 4,
+          "batch_per_rank": 2,
+          "selected_count": 8,
+          "per_rank_counts": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "ordered_membership_sha256": "ba988e4a049dbe022bf3665406feaa51066595bac72256bb910d5c89c25a7c7a",
+          "consumed_once": true,
+          "partition": "consecutive_batches_round_robin"
+        },
+        "visual_reuse": {
+          "images": 4,
+          "encoded_images": 2,
+          "reused_images": 2,
+          "reason": "frozen_exact_processed_rgb"
+        }
+      },
+      {
+        "rgb_mode": 4,
+        "loss": 0.8362964391708374,
+        "baseline_loss": 0.8362964391708374,
+        "max_gradient_relative_error": 0.0035750892768338194,
+        "distributed_generation": {
+          "world_size": 4,
+          "batch_per_rank": 2,
+          "selected_count": 8,
+          "per_rank_counts": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "ordered_membership_sha256": "ba988e4a049dbe022bf3665406feaa51066595bac72256bb910d5c89c25a7c7a",
+          "consumed_once": true,
+          "partition": "consecutive_batches_round_robin"
+        },
+        "visual_reuse": {
+          "images": 8,
+          "encoded_images": 4,
+          "reused_images": 4,
+          "reason": "frozen_exact_processed_rgb"
+        }
+      }
+    ]
+  },
+  "scope": "four-rank DDP backward and distributed generation; repeated single real example, dropout zero; not full-pool, quality or speed acceptance",
+  "full_pool_admitted": false,
+  "phase3_entry_gpu_certified": false
+}

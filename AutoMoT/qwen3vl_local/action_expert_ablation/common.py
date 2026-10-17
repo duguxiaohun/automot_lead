@@ -19,6 +19,7 @@ AUTOMOT_ROOT = Path(__file__).resolve().parents[2]
 if str(AUTOMOT_ROOT) not in sys.path:
     sys.path.insert(0, str(AUTOMOT_ROOT))
 
+from qwen3vl_local.action_expert_ablation.source_check import require_sources
 from qwen3vl_local.action_prior import config as prior_config
 from qwen3vl_local.action_prior.contracts import digest, file_hash
 from qwen3vl_local.action_prior.event_balance import (
@@ -294,6 +295,7 @@ def training_plan(args: argparse.Namespace, rows: dict[str, list[dict]], world: 
 def _hash_existing(root: Path, relative_paths: list[str]) -> dict[str, str]:
     """Hash only files that are part of the real ablation execution path."""
 
+    require_sources(root, relative_paths)
     result = {}
     for rel in relative_paths:
         path = root / rel
@@ -342,6 +344,7 @@ def contract_source_paths(variant: str) -> list[str]:
     sources = [*phase3_sources(),
         "qwen3vl_local/action_expert_ablation/__init__.py",
         "qwen3vl_local/action_expert_ablation/common.py",
+        "qwen3vl_local/action_expert_ablation/source_check.py",
         "qwen3vl_local/action_expert_ablation/launch.py",
         f"qwen3vl_local/action_expert_ablation/{variant}/__init__.py",
         f"qwen3vl_local/action_expert_ablation/{variant}/train.py",
@@ -395,8 +398,9 @@ def contract_source_paths(variant: str) -> list[str]:
 def build_contract(args: argparse.Namespace, variant: str) -> dict:
     """Freeze the ablation condition identity without selecting any RS/EVENT adapters."""
 
-    root = Path(__file__).resolve().parents[2]
+    root = AUTOMOT_ROOT
     sources = contract_source_paths(variant)
+    require_sources(root, sources)
 
     base_hashes = None
     if VARIANTS[variant]["uses_qwen"]:
@@ -801,6 +805,7 @@ def train_main(variant: str) -> None:
     """Train one action expert ablation."""
 
     args = parse_train_args(variant)
+    require_sources(AUTOMOT_ROOT, contract_source_paths(variant))
     from qwen3vl_local.action_prior.action_token import ensure_token_inputs
     ensure_token_inputs(args)
     validate_args(args, variant)
@@ -926,6 +931,7 @@ def eval_main(variant: str) -> None:
     p.add_argument("--raw", action="store_true", help="use raw decoder instead of EMA")
     p.add_argument("--evaluation-distribution",choices=("equal_events","natural"),default="equal_events")
     cli = p.parse_args()
+    require_sources(AUTOMOT_ROOT, contract_source_paths(variant))
     from qwen3vl_local.action_prior.launch import ensure_gpu
 
     ensure_gpu()

@@ -1,5 +1,7 @@
 # v75：Phase3／4 正式模型流程四卡
 
+> 2026-10-17 已收到 v75 四卡成功回执：CPU 41 项通过，GPU correctness_passed/exit0，两模式每卡 B2。详见 four_gpu_received_20261017.json。该短检查无需重跑，以下命令仅保留用于复现。
+
 当前推荐入口保持训练每卡B2，四卡每次前向8个独立片段。Phase3累积2（16样本/update），Phase4累积4（32样本/update），GC开启。评估B2和冻结RGB复用现在是普通参数的默认值，无需额外export启用；显式关闭参数保留用于诊断。旧checkpoint继续遵守保存时的配置和源码绑定。
 
 | 阶段 | 执行方式 |

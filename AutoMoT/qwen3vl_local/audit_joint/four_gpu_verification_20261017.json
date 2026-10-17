@@ -20,7 +20,7 @@
   },
   "frozen_contract_adapter_files": 147,
   "unchanged_backend_tracked_files": 23,
-  "target_4b_four_gpu_executed": false,
+  "target_4b_four_gpu_executed": true,
   "received_v74_gpu": {
     "scope": "user supplied single H20-3e repeated example B2 two modes",
     "generation_equal": true,
@@ -37,5 +37,8 @@
     "phase3_accumulation": 2,
     "phase4_accumulation": 4
   },
-  "boundary": "CPU preparation remains CPU; inference uses four-rank sharding without gradient synchronization; old checkpoints remain bound to original sources; no full-pool or quality/speed claim"
+  "boundary": "CPU preparation remains CPU; inference uses four-rank sharding without gradient synchronization; old checkpoints remain bound to original sources; no full-pool or quality/speed claim",
+  "target_4b_four_gpu_evidence": "four_gpu_received_20261017.json",
+  "target_4b_execution_location": "user server; received log, not executed on this workstation",
+  "evidence_updated": "2026-10-17"
 }
