@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import sys
+import threading
+import time
 
 from . import phase4_load
-from .benchmark_runtime import run_owned, trace_waits
+from .benchmark_runtime import progress, run_owned, trace_waits
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 
@@ -21,9 +23,10 @@ def inspect_view(view):
               'release_sources_v71_sampling_runtime_20261016.json',
               'release_sources_v72_action_exposure_20261017.json',
               'release_sources_v73_epoch_recovery_20261017.json',
-              'release_sources_v74_batch_runtime_20261017.json']
+              'release_sources_v74_batch_runtime_20261017.json',
+              'release_sources_v78_worker_diagnostics_20261017.json']
     releases=[json.loads(Path(__file__).with_name(v).read_text())['files'] for v in versions]
-    # Only reviewed runtime/sampling edits, no RGB transformation or label edits.
+    # Reviewed runtime/sampling and byte-equivalent view conversion edits only.
     names={'../../sequence_batch.py','../../sft_new_loop_phase3/sequence_evaluation.py',
            'contract.py','data.py','train.py','run.sh','run_automatic.sh','batch_sampling.py',
            'evaluate.py','reload_check.py','runtime_data.py','model.py','../../batch_runtime.py'}
@@ -69,10 +72,32 @@ def inspect_view(view):
 
 
 def upgrade(view,output,data_root,cache=None):
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import data as student
+    if threading.current_thread() is not threading.main_thread() or threading.active_count()!=1:
+        raise RuntimeError('view upgrade requires an isolated single-thread process')
     original=phase4_load.inspect_view
+    original_pair=student.paired_view
+    pending=None
+    def paired_once(data,mode,exposed,*,identities=None,data_root=None):
+        nonlocal pending
+        if pending is None:
+            if mode!=2 or identities is None:raise ValueError('unexpected paired migration order')
+            started=time.monotonic()
+            both,exclusions=student.paired_views(data,exposed,identities=identities)
+            progress(f'paired conversion both modes DONE seconds={time.monotonic()-started:.2f}')
+            pending=(data,identities,set(exposed),both.pop(4),exclusions)
+            return both.pop(2),exclusions
+        source,sidecar,groups,four,exclusions=pending
+        if mode!=4 or data is not source or identities is not sidecar or groups!=exposed:
+            raise ValueError('paired migration input changed')
+        pending=None
+        return four,exclusions
     phase4_load.inspect_view=inspect_view
+    student.paired_view=paired_once
     try:return phase4_load.migrate_view(view,output,data_root,production_cache=cache)
-    finally:phase4_load.inspect_view=original
+    finally:
+        phase4_load.inspect_view=original
+        student.paired_view=original_pair
 
 
 def main():

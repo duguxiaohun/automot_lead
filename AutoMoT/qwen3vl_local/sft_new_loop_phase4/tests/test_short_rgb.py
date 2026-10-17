@@ -44,6 +44,51 @@ def test_short_row_preserves_semantic_target_and_provenance_without_approval(tmp
     assert small['model_input_sha256'] != row['model_input_sha256']
 
 
+def test_paired_conversion_hashes_complete_proof_once_without_copying_it(tmp_path,monkeypatch):
+    class Proof(dict):
+        def __deepcopy__(self,memo):raise AssertionError('discarded proof copied')
+    row=source_row(tmp_path)
+    row['teacher_provenance']=Proof(secret_evidence=[{'value':123}])
+    last=Path(row['images'][-1])
+    for frame in (7,9):Image.new('RGB',(64,64)).save(tmp_path/last.with_name(f'{frame:04d}'+last.suffix))
+    rows={'train':[row],'val':[],'test':[]};identities=data.image_identities(rows,tmp_path)
+    full_digest=digest(row);real_digest=data.digest;seen=[]
+    def counted(value):
+        if value is row:seen.append(1)
+        return real_digest(value)
+    monkeypatch.setattr(data,'digest',counted)
+    both,excluded=data.paired_views(rows,set(),identities=identities)
+    assert not excluded and len(seen)==1
+    for mode in (2,4):
+        assert both[mode]['train'][0]['student_reference']['source_row_sha256']==full_digest
+        assert 'teacher_provenance' not in both[mode]['train'][0]
+    both[2]['train'][0]['episode']['event']='changed'
+    both[2]['train'][0]['student_reference']['source_id']='changed'
+    assert both[4]['train'][0]['episode']==row['episode']
+    assert both[4]['train'][0]['student_reference']['source_id']==row['id']
+    row['teacher_provenance']['secret_evidence'][0]['value']=456
+    assert data.short_row(row)['student_reference']['source_row_sha256']!=full_digest
+
+
+@pytest.mark.parametrize('damage',['conflict','exposure','sha','duplicate'])
+def test_paired_conversion_keeps_rejections(tmp_path,damage):
+    row=source_row(tmp_path);other=deepcopy(row);other['id']='other'
+    last=Path(row['images'][-1])
+    for frame in (7,9):Image.new('RGB',(64,64)).save(tmp_path/last.with_name(f'{frame:04d}'+last.suffix))
+    rows={'train':[row,other],'val':[],'test':[]};groups=set()
+    identities=data.image_identities(rows,tmp_path)
+    if damage=='conflict':other['target']='NO'
+    elif damage=='exposure':rows={'train':[],'val':[row,other],'test':[]};groups.add(row['physical_group'])
+    elif damage=='sha':identities[row['images'][-1]]['sha256']='bad'
+    else:other['id']=row['id']
+    if damage in ('sha','duplicate'):
+        with pytest.raises(ValueError):data.paired_views(rows,groups,identities=identities)
+    else:
+        both,exclusions=data.paired_views(rows,groups,identities=identities)
+        assert all(not values for mode in both.values() for values in mode.values())
+        assert len(exclusions)==2 and all(r['reasons'] for r in exclusions)
+
+
 @pytest.mark.parametrize('target', ['YES', 'NO'])
 def test_real_short_encoder_masks_only_answer_eos_and_has_two_images(tmp_path, processor, target):
     row = data.short_row(source_row(tmp_path, target))

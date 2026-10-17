@@ -19,7 +19,9 @@ from .contract import POLICY, contract, observation_contract, validate_observati
 
 def short_row(original):
     validate_producer(producer_observation(4), original['observation'], len(original['images']))
-    row = deepcopy(original)
+    # Hash the complete source below, but do not copy proofs that are discarded.
+    row = deepcopy({k: v for k, v in original.items()
+                    if k not in ('teacher_provenance', 'condition_provenance', 'visual_review')})
     row['observation']['history_frames'] = original['observation']['history_frames'][2:]
     for field in ('images', 'image_sha256', 'image_rgb_sha256'):
         if len(original[field]) != 4:
@@ -105,6 +107,11 @@ def image_identities(data, data_root):
 def four_row(original, identities):
     """Transfer old sparse-RGB4 target to new consecutive RGB4, explicitly."""
     row=short_row(original)  # strips old visibility/teacher approval, retaining provenance
+    return _four_from_short(original, identities, row)
+
+
+def _four_from_short(original, identities, row):
+    """Consume an independently owned, already checked short row."""
     frame=original['observation']['frame_id'];last=Path(original['images'][-1])
     row['observation']['history_frames']=[frame+i for i in (-3,-2,-1,0)]
     row['images']=[last.with_name(f'{f:04d}'+last.suffix).as_posix() for f in row['observation']['history_frames']]
@@ -126,23 +133,31 @@ def paired_view(data, mode, exposed, *, identities=None, data_root=None):
     if identities is None:
         if data_root is None:return legacy_paired_view(data,mode,exposed)
         identities=image_identities(data,data_root)
+    both, exclusions = paired_views(data, exposed, identities=identities)
+    return both[mode], exclusions
+
+
+def paired_views(data, exposed, *, identities):
+    """Compute both views once with exactly the same common exclusions."""
     transformed={};targets=defaultdict(set)
     for split,rows in data.items():
         for row in rows:
             if row['id'] in transformed:raise ValueError('duplicate source row ID')
-            pair={2:short_row(row),4:four_row(row,identities)}
+            small=short_row(row)
+            pair={2:small,4:_four_from_short(row,identities,deepcopy(small))}
             transformed[row['id']]=pair
             for m,r in pair.items():targets[(split,m,r['model_input_sha256'])].add(r['target'])
-    result={};exclusions=[]
+    result={2:{},4:{}};exclusions=[]
     for split,rows in data.items():
-        result[split]=[]
+        for m in result:result[m][split]=[]
         for row in rows:
             pair=transformed[row['id']];reasons=[]
             if split!='train' and row['physical_group'] in exposed:reasons.append('registered_development_exposure')
             for m,r in pair.items():
                 if len(targets[(split,m,r['model_input_sha256'])])>1:reasons.append(f'conflicting_targets_for_rgb{m}_input')
             if reasons:exclusions.append(dict(id=row['id'],split=split,physical_group=row['physical_group'],reasons=reasons))
-            else:result[split].append(pair[mode])
+            else:
+                for m in result:result[m][split].append(pair[m])
     return result,exclusions
 
 

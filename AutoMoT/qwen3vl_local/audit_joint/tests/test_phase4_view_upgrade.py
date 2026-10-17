@@ -7,7 +7,7 @@ from qwen3vl_local.audit_joint import phase4_view_upgrade as upgrade
 from qwen3vl_local.sft_new_loop_phase4.rgb_short.contract import contract,POLICY
 
 
-@pytest.mark.parametrize('release',['v61_batch_audit_20261015','v70_selected_b2_20261016','v71_sampling_runtime_20261016','v72_action_exposure_20261017','v73_epoch_recovery_20261017','v74_batch_runtime_20261017'])
+@pytest.mark.parametrize('release',['v61_batch_audit_20261015','v70_selected_b2_20261016','v71_sampling_runtime_20261016','v72_action_exposure_20261017','v73_epoch_recovery_20261017','v74_batch_runtime_20261017','v78_worker_diagnostics_20261017'])
 def test_known_old_view_sources_allowed_but_unknown_or_semantic_drift_refused(tmp_path,release):
     old=json.loads(Path(upgrade.__file__).with_name('release_sources_'+release+'.json').read_text())['files']
     saved=contract();prefix='qwen3vl_local/sft_new_loop_phase4/rgb_short/'
@@ -25,7 +25,7 @@ def test_known_old_view_sources_allowed_but_unknown_or_semantic_drift_refused(tm
     path=tmp_path/'student_view.json';path.write_text(json.dumps(descriptor))
     _,current,changes=upgrade.inspect_view(tmp_path)
     assert current==contract()
-    assert 'evaluate.sh (added)' in changes
+    if not release.startswith('v78'):assert 'evaluate.sh (added)' in changes
     if release.startswith(('v61','v70','v71')):
         assert ('runtime_data.py' if release.startswith('v71') else 'runtime_data.py (added)') in changes
     if release.startswith('v74'):
@@ -39,13 +39,35 @@ def test_known_old_view_sources_allowed_but_unknown_or_semantic_drift_refused(tm
 
 
 def test_upgrade_restores_original_inspector_on_failure(monkeypatch,tmp_path):
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import data
     original=upgrade.phase4_load.inspect_view
+    pair=data.paired_view
     def fail(*a,**kw):
         assert upgrade.phase4_load.inspect_view is upgrade.inspect_view
         raise ValueError('failed membership')
     monkeypatch.setattr(upgrade.phase4_load,'migrate_view',fail)
     with pytest.raises(ValueError):upgrade.upgrade(tmp_path,tmp_path/'out',tmp_path)
     assert upgrade.phase4_load.inspect_view is original
+    assert data.paired_view is pair
+
+
+@pytest.mark.parametrize('changed',[False,True])
+def test_upgrade_converts_once_and_refuses_changed_inputs(monkeypatch,tmp_path,changed):
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short import data
+    calls=[];rows={'train':[]};identities={};groups={'known'}
+    def both(source,exposed,*,identities):
+        calls.append(source)
+        return {2:{'train':[{'mode':2}]},4:{'train':[{'mode':4}]}},[]
+    monkeypatch.setattr(data,'paired_views',both)
+    def migrate(*args,**kwargs):
+        assert data.paired_view(rows,2,groups,identities=identities)[0]['train'][0]['mode']==2
+        if changed:groups.add('new')
+        assert data.paired_view(rows,4,groups,identities=identities)[0]['train'][0]['mode']==4
+    monkeypatch.setattr(upgrade.phase4_load,'migrate_view',migrate)
+    if changed:
+        with pytest.raises(ValueError,match='input changed'):upgrade.upgrade(tmp_path,tmp_path/'out',tmp_path)
+    else:upgrade.upgrade(tmp_path,tmp_path/'out',tmp_path)
+    assert len(calls)==1
 
 
 from qwen3vl_local.sft_new_loop_phase4.tests.test_short_rgb import native_view

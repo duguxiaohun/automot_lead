@@ -1,0 +1,115 @@
+{
+  "status": "local_verified_server_pending",
+  "received": {
+    "zip_sha256": "ecb9019396e241ed205e8bcbc663e17a020a9b1694f6de77ae6d6249c8cc4136",
+    "bytes": 38303,
+    "members": 7,
+    "source_files": 558,
+    "source_release": "v78_worker_diagnostics_20261017",
+    "stage": "view_upgrade",
+    "exit_code": 124,
+    "elapsed_seconds": 900.2629242559924,
+    "native_validated": true,
+    "reused_routes": 8614,
+    "training_started": false
+  },
+  "comparison": {
+    "rows": {
+      "train": 1457,
+      "val": 0,
+      "test": 0
+    },
+    "seconds": {
+      "old_2": 0.9056377779925242,
+      "old_4": 0.8821541579964105,
+      "new_both": 0.35794285498559475
+    },
+    "ratio": 4.9946294809010325,
+    "all_fields_equal": true,
+    "excluded": 0,
+    "parent": "/home/codon/automot_lead/AutoMoT/checkpoints/stop_position_v57_20261014/ten_events/data4",
+    "old_data_sha256": "cd3e1ee94cb05a152d11274f8e0dbc18d6478e462bdc923a99204349106c0185"
+  },
+  "migration": {
+    "status": "view_migrated",
+    "view": "checkpoints/view_conversion_20261017/migrated",
+    "changed_sources": [
+      "contract.py",
+      "batch_sampling.py",
+      "reload_check.py",
+      "run.sh",
+      "run_automatic.sh",
+      "data.py",
+      "../../sft_new_loop_phase3/sequence_evaluation.py",
+      "train.py",
+      "model.py",
+      "evaluate.py",
+      "../../sequence_batch.py",
+      "runtime_data.py (added)",
+      "automatic_admission_sources/rule_baseline.py",
+      "../../batch_runtime.py (added)",
+      "evaluate.sh (added)"
+    ],
+    "counts": {
+      "train": 1457,
+      "val": 0,
+      "test": 0
+    },
+    "old_descriptor_sha256": "1c57e6984702afadd1dd99957bbe4feb8b8bb5093ff270f3679fa6982112db26",
+    "scope": "Runtime-only migration; original RGB identity sidecar reused, no new label certification",
+    "elapsed_seconds": 2.1163747950049583
+  },
+  "tests": [
+    {
+      "count": 205,
+      "seconds": 15.94,
+      "scope": "student views/runtime data/native load/route cache/upgrade/handoff/first epoch/multi epoch/admission/support"
+    },
+    {
+      "count": 42,
+      "seconds": 4.67,
+      "scope": "sequence sampling and distributed evaluation"
+    }
+  ],
+  "label_prompt_changed": false,
+  "new_rgb_visual_review": true,
+  "gpu_executed": false,
+  "server_speedup_measured": false,
+  "existing_route_cache_compatible": true,
+  "old_checkpoint_resume_allowed": false,
+  "publication_recheck": {
+    "tests": 74,
+    "seconds": 8.83,
+    "overlaps_prior_247": true
+  },
+  "local_rgb_followup": {
+    "routes": 2,
+    "replayed_prefix_frames": 80,
+    "viewed_rgb_frames": 16,
+    "viewed_frame_ranges": [
+      32,
+      39
+    ],
+    "source_files_sha_verified": 240,
+    "visual_source_files": 48,
+    "recomputed_questions": 16,
+    "all_replayed_records_byte_equal": false,
+    "semantic_records_equal_with_float_tolerance": true,
+    "float_tolerance": 1e-10,
+    "numeric_difference_count": 366,
+    "max_numeric_delta": 4.547473508864641e-13,
+    "changed_question_ids": 98,
+    "seconds": 1.9114345529815182,
+    "scope": "Native causal replay from each route start through frame 39; partial routes, previously known training routes, nonblind development review; no complete dataset build",
+    "observations": "Both windows show nearly stationary ego followed by forward movement. Native speed is near zero at frames 32-35 and rises from frame 36. R-E5 proceed changes NO to YES at frame 35; visual motion alone does not establish completion or corridor safety.",
+    "label_prompt_changed": false,
+    "transition_evidence": "Both routes: STOP completion retained from frames28/29/30; frames34→35 source stop_sign_hazard true→false, priority_satisfied false→true. Completion was not inferred from ego movement or erased association.",
+    "evidence": {
+      "sources.json": "894dba18c240ce11bc1a1d5354a231959a9f2cabfdfc0523d771a561f995d546",
+      "visual_sources.json": "c57402f6ab0ffbe15c42cb4c6a1036ca0e9d45c04a0a9d7590484f8d237760e1",
+      "recomputed.json": "b8e4b20867b57385088e16de84793a64bfdae5d5607105215f1534fa56223789",
+      "numeric_differences.json": "5c82a93dd5a2e1af5157ca5e9691f5ef9b964cac0d1ea92d784f3c343d7474fc",
+      "changed_question_ids.json": "eca417b43f494c63d1ea9e01641ebd30d063f174487e4e5e97eece3a82b986e8"
+    }
+  }
+}
