@@ -7,6 +7,10 @@ from pathlib import Path
 from .io import digest, file_sha
 from .server_pilot import LIMIT, package
 
+# The delivered ZIP remains <=30MB. Two complete modes can exceed 30MB as
+# plain JSON; keep a separate bounded serialization budget, not silent omissions.
+DECODED_LIMIT = 128_000_000
+
 
 NAMES = (
     'epoch_000_samples.jsonl', 'epoch_000_sampling.json', 'epoch_000_runtime.json',
@@ -110,7 +114,7 @@ def collect(root, output=None):
     def put(name, value):
         nonlocal used
         size = len(json.dumps(value, ensure_ascii=False, indent=2).encode()) + 1
-        if used + size > LIMIT - 2_000_000:
+        if used + size > DECODED_LIMIT - 2_000_000:
             error(dict(member=name, error='package_budget_exceeded',
                        omitted_bytes=size, canonical_sha256=digest(value)))
             return False
@@ -166,6 +170,10 @@ def collect(root, output=None):
     # Optional for historical runs; current orchestration failures must travel
     # with the package even if no view or training run could be created.
     workflow = None
+    for name in ('continuation.json','workflow_before_continuation.json','continuation_source_check.json'):
+        if (root/name).exists():read(root/name,name,metadata=True)
+    for name in ('continuation_rgb2_reload.log','continuation_rgb2_test.log'):
+        if (root/name).exists():read(root/name,name.replace('.log','_log_tail.json'),tail=True)
     for name in ('source_check.json', 'launch_budget.json', 'workflow.json'):
         if (root / name).exists():
             value = read(root / name, name, metadata=True)
@@ -232,7 +240,7 @@ def collect(root, output=None):
                          'Package SHA verification is not training or label-quality acceptance.')
     members['collection_receipt.json'] = receipt
     output.mkdir(parents=True, exist_ok=False)
-    packed = package(output, members)
+    packed = package(output, members, uncompressed_limit=DECODED_LIMIT)
     (output / 'pilot_report.zip').rename(output / 'phase4_epoch_report.zip')
     (output / 'pilot_package.json').rename(output / 'phase4_epoch_package.json')
     return dict(output=str(output), bytes=packed['bytes'], status=receipt['status'],

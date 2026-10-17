@@ -123,6 +123,8 @@ def run(prepared,view,output,data_root,model_dir,*,epochs,resume_rgb2=None,resum
         env=dict(os.environ,PYTHON=sys.executable,PYTHONUNBUFFERED='1',DATASET=str(view),DATA_ROOT=str(data_root),
                  MODEL_DIR=str(model_dir),OUTPUT_DIR=str(output),RUN_TAG='training',BATCH_SIZE='2',
                  P4_VALIDATED_DATA=os.environ.get('P4_VALIDATED_DATA') or str(output/'validated_data'))
+        from .python_dispatch import environment as python_environment
+        env.update(python_environment())
         commands=[]
         commands.append(('admission',[sys.executable,'-m','qwen3vl_local.audit_joint.rule_baseline',
             '--dataset',str(view),'--teacher-references',str(prepared/'references4'),'--data-root',str(data_root),

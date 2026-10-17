@@ -1,5 +1,12 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-17 v80 RGB2已训练、重载启动歧义与免重训接续
+
+收到3156117字节27成员v79包及相同副本，只计一次；ZIP/成员SHA/CRC、558源及运行学生合同通过。view升级525.23秒/转换146.19秒成功；RGB2四H20每卡B2/累积4，10240实际呈现逐步匹配计划（十事件各1024）、370固定val各37/四卡94,92,92,92无重复；训练4375.21秒/val33.41秒。规则一致316/370=85.41%，YES18/66=27.27%；UE4 YES0/29但训练proceed YES呈现262，不能都归因缺正例。UE1/2/3/RE5 val单NO且各1物理组；不把100%当全能力。test18/event计划未执行，RGB4未开始，禁止重训RGB2或直接续7轮。
+重载torchrun解析--run为--run-path歧义退出2，真实解析器复现。外围python_dispatch.sh/py显式插入--，首轮/多轮/新phase4_continue接入，学生/teacher/合同/已升级view/准备快照/v69缓存字节保持，可直接复用当前权重；直接旧CUDA CLI/旧evaluate.sh需经适配入口，不改SHA。phase4_continue验证已完成RGB2消费及合同后reload→test→RGB4首轮/reload/test，保存旧workflow及handoff，首错停止/已有输出拒绝；新包handoff_continued。打包分离128MB未压缩预算与30MB实际ZIP上限，保持逐题/步证据，超限不签成功；旧pilot默认不变。81回归7.87秒含两个真实CPU torchrun worker及压缩边界，非GPU重载验收。v80清单563源；本轮无新RGB目视/改标签提示词/远程/push。命令audit_joint/PHASE4_RGB2_EPOCH_CONTINUE_20261017.md，轻量epoch_continuation_verification_20261017.json。保留.vscode/paper及其它任务；下一步发布同步后只接续125707_138502059目录，不新增view/全池/benchmark任务。
+
+本轮用户随后明确授权白名单发布。发布前仅在两条既有train横穿路线并行原生重放126帧、核验378源SHA，实际逐帧查看16RGB；16道U-E4 proceed题答案/布尔条件/ID一致，仅12处浮点末位最大1.42e-14，未回写生产。雾天及隐藏条件限制保留，无新确定标定/提示词缺陷，不作为服务器接续前置。轻量摘要在v80回执，RGB/重算留checkpoints/v80_release_rgb_20261017；保留用户.vscode/paper等其它任务，按精确白名单发布。
+
 ### 2026-10-17 v79视图重复转换超时修复
 
 收到38303字节7成员包，ZIP/成员SHA/CRC及558源匹配v78。原生298787train完整校验完成、8614路线缓存全复用，paired RGB2完成后RGB4未完即900.263秒退出124；139未复现，两模式尚未训练，不再问日志或跑readiness。short_row保留完整原题digest但不拷贝将删除的证明；四图复用独立短行副本；paired_views一次转换两模式，upgrade单线程事务复用结果，仍核对双模式排除/成员/输入及最终SHA，异常恢复。原生teacher/标定/提示词/采样及phase4_load/production_cache字节不变，v69缓存保留。学生data.py合同变化，已知v78及此前view显式迁移，旧checkpoint原版续训，不改SHA绕门禁。

@@ -53,12 +53,13 @@ def run(data_root, output):
         compression='gzip', route_keys={(r['scenario'], r['route_id']) for r in rows})
 
 
-def package(output, members):
+def package(output, members, *, uncompressed_limit=None):
     """Only caller-built, bounded diagnostics; never walk checkpoint directories."""
+    if uncompressed_limit is None:uncompressed_limit=LIMIT
     blobs = {name: json.dumps(value, ensure_ascii=False, indent=2).encode()+b'\n'
              for name, value in members.items()}
-    if sum(map(len, blobs.values())) > LIMIT:
-        raise ValueError('diagnostics exceed 30MB; no truncated success package')
+    if sum(map(len, blobs.values())) > uncompressed_limit:
+        raise ValueError(f'diagnostics exceed uncompressed limit {uncompressed_limit}; no truncated success package')
     import hashlib
     receipt = dict(files={name: hashlib.sha256(data).hexdigest() for name, data in blobs.items()})
     path = Path(output)/'pilot_report.zip'

@@ -1,0 +1,141 @@
+{
+  "source_files": 558,
+  "source_contract_matches": true,
+  "consumption": {
+    "status": "matched_recorded_plan",
+    "presentations": 10240,
+    "event_counts_from_recorded_plan": {
+      "U-E2": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "R-E2": 1024,
+      "U-E3": 1024,
+      "U-E7": 1024,
+      "U-E4": 1024,
+      "R-E3": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024
+    },
+    "scope": "All four step logs match the hashed plan. Event labels are inherited from that plan; no fresh dataset, optimizer or label-quality certification."
+  },
+  "validation_event_counts": {
+    "U-E1": 37,
+    "U-E2": 37,
+    "U-E3": 37,
+    "U-E4": 37,
+    "U-E5": 37,
+    "U-E6": 37,
+    "U-E7": 37,
+    "R-E2": 37,
+    "R-E3": 37,
+    "R-E5": 37
+  },
+  "validation_groups": {
+    "U-E1": 1,
+    "U-E2": 1,
+    "U-E3": 1,
+    "U-E4": 2,
+    "U-E5": 3,
+    "U-E6": 5,
+    "U-E7": 2,
+    "R-E2": 1,
+    "R-E3": 1,
+    "R-E5": 1
+  },
+  "validation_edges": {
+    "U-E1": {
+      "proceed/NO": 37
+    },
+    "U-E2": {
+      "depart/NO": 37
+    },
+    "U-E3": {
+      "proceed/NO": 37
+    },
+    "U-E4": {
+      "proceed/YES": 29,
+      "proceed/NO": 8
+    },
+    "U-E5": {
+      "restrict/YES": 5,
+      "proceed/NO": 27,
+      "hold/YES": 5
+    },
+    "U-E6": {
+      "restrict/YES": 3,
+      "proceed/NO": 15,
+      "proceed/YES": 18,
+      "hold/YES": 1
+    },
+    "U-E7": {
+      "proceed/NO": 24,
+      "restrict/YES": 2,
+      "renewed_restriction/NO": 2,
+      "stable/YES": 1,
+      "restrict/NO": 2,
+      "hold/NO": 2,
+      "recover_follow/NO": 2,
+      "stable/NO": 2
+    },
+    "R-E2": {
+      "hold/YES": 1,
+      "enter/NO": 19,
+      "release/NO": 17
+    },
+    "R-E3": {
+      "hold/YES": 1,
+      "enter/NO": 36
+    },
+    "R-E5": {
+      "proceed/NO": 37
+    }
+  },
+  "confusion": {
+    "NO->NO": 298,
+    "YES->NO": 48,
+    "YES->YES": 18,
+    "NO->YES": 6
+  },
+  "agreement": 0.8540540540540541,
+  "training_seconds": 4375.207439132006,
+  "validation_seconds": 33.413921671002754,
+  "full_workflow_complete": false,
+  "zip_sha256": "e1121d716037e5fcaea47cdde9608e784aaadc2feb152539fdf97fcf1ccee849",
+  "zip_bytes": 3156117,
+  "members": 27,
+  "duplicate_download_identical": true,
+  "received_exit_code": 2,
+  "received_error": "torchrun ambiguous option --run",
+  "view_upgrade_seconds": 525.2296556710062,
+  "view_conversion_seconds": 146.19,
+  "yes_recall": 0.2727272727272727,
+  "majority_baseline": 0.8216216216216217,
+  "rgb2_reload_done": false,
+  "rgb2_test_done": false,
+  "rgb4_started": false,
+  "tests": {
+    "count": 81,
+    "seconds": 7.87,
+    "real_cpu_torchrun_workers": 2,
+    "gpu_executed": false
+  },
+  "student_contract_unchanged": true,
+  "source_files_current": 563,
+  "new_rgb_visual_review": false,
+  "publication_followup_local_rgb": {
+    "routes": 2,
+    "replayed_prefix_frames": 126,
+    "source_files_sha_verified": 378,
+    "visual_source_files": 48,
+    "selected_rgb_frames": 16,
+    "viewed_rgb_frames": 16,
+    "semantic_equal_with_tolerance": 1e-10,
+    "differences": 12,
+    "scope": "Known train routes only; partial causal replay, nonblind development review; no val/test exposure",
+    "recomputed_proceed_questions": 16,
+    "label_prompt_changed": false,
+    "question_ids_changed": false,
+    "max_float_delta": 1.4210854715202004e-14,
+    "observations": "Town02 frames61-68: pedestrian crosses right to left; NO61-64, UNKNOWN65-67, YES68. Town07 frames49-56: pedestrian continues left in fog, UNKNOWN49-51 then YES52-56; a second pedestrian is visible near left hedge later. These are train-only nonblind development observations, not complete safety/visibility certification. No definite new label or prompt defect established."
+  }
+}

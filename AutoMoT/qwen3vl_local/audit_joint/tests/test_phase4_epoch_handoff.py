@@ -149,12 +149,32 @@ def test_budget_excess_is_explicit_in_incomplete_package(tmp_path, monkeypatch):
     run = tmp_path / 'run_first_epoch_rgb2'
     run.mkdir()
     (run / 'epoch_000_cases.jsonl').write_text(json.dumps({'raw': 'x' * 10000}) + '\n')
-    monkeypatch.setattr(tool, 'LIMIT', 2_001_000)
+    monkeypatch.setattr(tool, 'DECODED_LIMIT', 2_001_000)
     result = tool.collect(tmp_path)
     assert result['status'] == 'incomplete'
     data = unpack(tmp_path / 'handoff')
     assert 'rgb2/epoch_000_cases.jsonl' not in data
     assert data['collection_receipt.json']['errors'][0]['error'] == 'package_budget_exceeded'
+
+
+def test_compressible_two_mode_evidence_is_not_dropped_at_30mb_raw(tmp_path):
+    for mode in (2,4):
+        run=tmp_path/f'run_first_epoch_rgb{mode}';run.mkdir()
+        (run/'epoch_000_cases.jsonl').write_text(json.dumps(dict(raw='x'*16_000_000))+'\n')
+    tool.collect(tmp_path)
+    data=unpack(tmp_path/'handoff')
+    assert all(len(data[f'rgb{m}/epoch_000_cases.jsonl'][0]['raw'])==16_000_000 for m in (2,4))
+    assert not any(e['error']=='package_budget_exceeded' for e in data['collection_receipt.json']['errors'])
+
+
+def test_compressed_limit_remains_enforced(tmp_path,monkeypatch):
+    from qwen3vl_local.audit_joint import server_pilot
+    import random
+    monkeypatch.setattr(server_pilot,'LIMIT',1000)
+    text=''.join(random.Random(7).choices('abcdefghijklmnopqrstuvwxyz0123456789',k=10000))
+    with pytest.raises(ValueError,match='package exceeds 30MB'):
+        server_pilot.package(tmp_path,{'evidence.json':text},uncompressed_limit=128_000_000)
+    assert not (tmp_path/'pilot_package.json').exists()
 
 
 def test_logical_link_retarget_is_recorded_as_drift(tmp_path, monkeypatch):

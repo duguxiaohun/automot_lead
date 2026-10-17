@@ -13,10 +13,11 @@ from .guard import no_core
 from .phase4_epoch_handoff import collect
 from .rule_baseline import budget_check
 from .server_readiness import source_check
+from .python_dispatch import environment as python_environment
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v79_view_conversion_20261017.json')
+RELEASE = Path(__file__).with_name('release_sources_v80_epoch_continuation_20261017.json')
 
 
 class Interrupted(BaseException):
@@ -150,6 +151,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                    P4_VALIDATED_DATA=str(output/'validated_data'),
                    UPDATE_SAMPLES='32',
                    AUTOMATIC_COVERAGE_POLICY='existing_data_development')
+        env.update(python_environment())
         commands = []
         if view is None:
             commands.append(('view_build', [sys.executable, '-m', 'qwen3vl_local.audit_joint.guard',
