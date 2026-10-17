@@ -1,5 +1,10 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-17 v81已收RGB2重载通过，test快照读取边界及接续
+
+旧125707目录及权重用户已删除；当前必须保留phase4_restart_20261017_162511。新包3270100字节30成员SHA/CRC、563源通过；RGB2四rank实际10240呈现=十事件各1024，val各37，316/370/YES18of66，与前轮统计相同；训练4416.45秒/val32.85秒，reload384.96秒370题及raw一致，资产/optimizer绑定通过服务器回执。test在rgb2.receipt.json哈希报属性变化、RGB4未开始；不是训练失败，严禁再重训当前RGB2或重跑已通过reload。旧torchrun --run问题真实关闭。
+哈希改打开文件后fstat前后+路径身份+字节数检查，异常输出device/inode/size/mtime/ctime；不删除检查、不自动重试。open元数据刷新合成反例通过，读中写动/替换/链接改指拒绝；日志缺前后stat，服务器根因未确证，不能声称并发写或挂载刷新已实证。接续核对成功reload/案例/当前adapter及optimizer后先CPU快照检查→RGB2test→RGB4首轮/重载/test，缺快照拒绝隐式重建，失败诊断入handoff_continued。学生/teacher/提示词/采样/两缓存适配器字节未改，现有权重/view/快照复用。186相关回归14.73秒含真实四CPU与torchrun测试，首批42重叠；非服务器GPU验收。v81清单564源。命令audit_joint/PHASE4_TEST_SNAPSHOT_20261017.md，轻量snapshot_read_verification_20261017.json。没有新增RGB目视或修改标定阈值，不为此重新建库/回放/P3/readiness。UE4/UE6低YES召回及UE5无proceed正例仍待两模式效果对照，不能宣布全能力/联合G0通过。沿当前故障修复发布授权精确白名单同步，保留.vscode/paper/checkpoints等其它任务。
+
 ### 2026-10-17 v80 RGB2已训练、重载启动歧义与免重训接续
 
 收到3156117字节27成员v79包及相同副本，只计一次；ZIP/成员SHA/CRC、558源及运行学生合同通过。view升级525.23秒/转换146.19秒成功；RGB2四H20每卡B2/累积4，10240实际呈现逐步匹配计划（十事件各1024）、370固定val各37/四卡94,92,92,92无重复；训练4375.21秒/val33.41秒。规则一致316/370=85.41%，YES18/66=27.27%；UE4 YES0/29但训练proceed YES呈现262，不能都归因缺正例。UE1/2/3/RE5 val单NO且各1物理组；不把100%当全能力。test18/event计划未执行，RGB4未开始，禁止重训RGB2或直接续7轮。

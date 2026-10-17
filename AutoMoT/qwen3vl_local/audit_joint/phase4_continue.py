@@ -19,12 +19,39 @@ def read(path):return json.loads(path.read_text())
 def rows(path):return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def verified_reload(run, record):
+    """Reuse complete reload evidence only while its inputs and weights match."""
+    folder=run/'reload_check'
+    if not folder.exists():return False
+    report=read(folder/'checkpoint_reload.json')
+    cases=rows(run/'epoch_000_cases.jsonl')
+    checks=dict(status='verified',stage='complete',epoch=0,world_size=4,
+        count=len(cases),expected_count=len(cases),prediction_mismatch_ids=[],
+        raw_text_differences=0,checkpoint_assets_verified=True,optimizer_bytes_verified=True,
+        source=record['source'],dataset=record['dataset'],
+        expected_cases_sha256=file_sha(run/'epoch_000_cases.jsonl'),
+        checkpoint_receipt_sha256=file_sha(run/'epoch_000_checkpoint.json'))
+    if any(report.get(k)!=v for k,v in checks.items()):
+        raise ValueError('existing reload is incomplete or its evidence changed')
+    if rows(folder/'cases.jsonl')!=cases:
+        raise ValueError('reload cases differ from saved validation')
+    checkpoint=read(run/'epoch_000_checkpoint.json');adapter=run/'epoch_000'
+    actual={p.relative_to(adapter).as_posix():file_sha(p) for p in sorted(adapter.rglob('*'))
+            if p.is_file() and p.name!='training_state.pt'}
+    state=adapter/'training_state.pt'
+    if (checkpoint['epoch']!=0 or checkpoint['adapter']!='epoch_000'
+            or checkpoint['files']!=actual or checkpoint['training_state']!=
+                dict(bytes=state.stat().st_size,sha256=file_sha(state))):
+        raise ValueError('checkpoint assets changed after successful reload')
+    return True
+
+
 def preflight(root):
     state=read(root/'workflow.json');run=root/'run_first_epoch_rgb2'
-    if state.get('stage')!='rgb2' or state.get('command_exit_code')!=2:
+    if state.get('stage')!='rgb2' or state.get('command_exit_code') not in (1,2):
         raise ValueError('expected the completed-RGB2/failed-reload workflow')
     if any((root/p).exists() for p in ('continuation.json','workflow_before_continuation.json',
-            'run_first_epoch_rgb4','rgb4.log','run_first_epoch_rgb2/reload_check',
+            'run_first_epoch_rgb4','rgb4.log',
             'run_first_epoch_rgb2/test_fixed','handoff_continued')):
         raise FileExistsError('continuation outputs already exist; preserve them for audit')
     record=read(run/'run.json');check_contract(record['source'])
@@ -45,13 +72,16 @@ def preflight(root):
     cases=rows(run/'epoch_000_cases.jsonl')
     if len(expected)!=370 or [c['id'] for c in cases]!=expected:
         raise ValueError('RGB2 validation incomplete or wrong membership')
-    if not (root/'validated_data').is_dir():raise ValueError('missing prepared runtime snapshot')
+    if not all((root/'validated_data'/name).is_file() for name in ('rgb2.json','rgb2.receipt.json')):
+        raise ValueError('missing prepared RGB2 runtime snapshot; refusing implicit rebuilding')
+    verified_reload(run,record)
     return state,prepared,view,run
 
 
 def run(root,data_root,model_dir):
     root,data_root,model_dir=[Path(p).absolute() for p in (root,data_root,model_dir)]
     state,prepared,view,rgb2=preflight(root)
+    reuse_reload=(rgb2/'reload_check').exists()
     source=workflow.source_check(workflow.APP,workflow.RELEASE)
     if source['status']!='matched':raise ValueError('current release source check failed')
     env=dict(os.environ,PYTHONUNBUFFERED='1',DATASET=str(view),DATA_ROOT=str(data_root),
@@ -64,15 +94,22 @@ def run(root,data_root,model_dir):
     evaluator=['bash','qwen3vl_local/audit_joint/run_guarded.sh','--space-path',str(root),
         '--min-free-gib','20','--','bash','qwen3vl_local/sft_new_loop_phase4/rgb_short/evaluate.sh']
     common=['--dataset',str(view),'--data-root',str(data_root),'--model-dir',str(model_dir)]
-    commands=[('rgb2_reload',evaluator+['reload_check','--run',str(rgb2),*common]),
-              ('rgb2_test',evaluator+['evaluate',*common,'--adapter',str(rgb2/'epoch_000'),
+    # Validate the existing snapshot once on CPU before reserving GPUs. This
+    # reuses preparation; it does not regenerate the native pool or its proofs.
+    commands=[('snapshot_check',['bash','qwen3vl_local/audit_joint/run_guarded.sh',
+              '--space-path',str(root),'--min-free-gib','20','--',sys.executable,
+              '-m','qwen3vl_local.sft_new_loop_phase4.rgb_short.runtime_data',
+              '--dataset',str(view),'--rgb-mode','2'])]
+    if not reuse_reload:
+        commands.append(('rgb2_reload',evaluator+['reload_check','--run',str(rgb2),*common]))
+    commands.extend([('rgb2_test',evaluator+['evaluate',*common,'--adapter',str(rgb2/'epoch_000'),
                   '--rgb-mode','2','--split','test','--output-dir',str(rgb2/'test_fixed')]),
-              ('rgb4',['bash','qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh'])]
+              ('rgb4',['bash','qwen3vl_local/sft_new_loop_phase4/rgb_short/run_automatic.sh'])])
     original_sha=file_sha(root/'workflow.json')
     write_json(root/'workflow_before_continuation.json',state)
     write_json(root/'continuation_source_check.json',source)
     receipt=dict(status='in_progress',original_workflow_sha256=original_sha,
-        rgb2_training_reused=True,stages=[],training_accepted=False)
+        rgb2_training_reused=True,rgb2_reload_reused=reuse_reload,stages=[],training_accepted=False)
     def save():
         write_json(root/'continuation.json',receipt);write_json(root/'workflow.json',state)
     def on_signal(number,frame):raise workflow.Interrupted(number)

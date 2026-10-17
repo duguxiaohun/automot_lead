@@ -172,7 +172,7 @@ def collect(root, output=None):
     workflow = None
     for name in ('continuation.json','workflow_before_continuation.json','continuation_source_check.json'):
         if (root/name).exists():read(root/name,name,metadata=True)
-    for name in ('continuation_rgb2_reload.log','continuation_rgb2_test.log'):
+    for name in ('continuation_snapshot_check.log','continuation_rgb2_reload.log','continuation_rgb2_test.log'):
         if (root/name).exists():read(root/name,name.replace('.log','_log_tail.json'),tail=True)
     for name in ('source_check.json', 'launch_budget.json', 'workflow.json'):
         if (root / name).exists():

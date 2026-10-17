@@ -17,7 +17,7 @@ from .python_dispatch import environment as python_environment
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v80_epoch_continuation_20261017.json')
+RELEASE = Path(__file__).with_name('release_sources_v81_snapshot_read_20261017.json')
 
 
 class Interrupted(BaseException):

@@ -1,5 +1,7 @@
 # Phase4 RGB2首轮已完成：v80结果核验与接续
 
+> 后续状态已更新：旧125707目录被用户删除；新162511运行的RGB2训练及重载均通过，test读取快照失败。请使用[最新接续说明](PHASE4_TEST_SNAPSHOT_20261017.md)，不要再执行本文旧目录命令。
+
 ## 已收证据
 
 Downloads的phase4_epoch_report(2).zip与带(1)副本字节相同，只计一次。3156117字节、27个成员，ZIP/成员SHA及CRC通过；ZIP SHA为e1121d716037e5fcaea47cdde9608e784aaadc2feb152539fdf97fcf1ccee849。558份源码逐项匹配v79；运行/adapter来源合同与本机当前学生合同一致，run和adapter投影记录一致。权重未随ZIP提交，文件字节仍需服务器重载检查，不能用元数据SHA声称已本地核验权重。

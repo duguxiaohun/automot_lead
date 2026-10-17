@@ -1,0 +1,124 @@
+{
+  "source_files": 563,
+  "source_contract_matches": true,
+  "consumption": {
+    "status": "matched_recorded_plan",
+    "presentations": 10240,
+    "event_counts_from_recorded_plan": {
+      "U-E2": 1024,
+      "R-E5": 1024,
+      "U-E1": 1024,
+      "R-E2": 1024,
+      "U-E3": 1024,
+      "U-E7": 1024,
+      "U-E4": 1024,
+      "R-E3": 1024,
+      "U-E5": 1024,
+      "U-E6": 1024
+    },
+    "scope": "All four step logs match the hashed plan. Event labels are inherited from that plan; no fresh dataset, optimizer or label-quality certification."
+  },
+  "validation_event_counts": {
+    "U-E1": 37,
+    "U-E2": 37,
+    "U-E3": 37,
+    "U-E4": 37,
+    "U-E5": 37,
+    "U-E6": 37,
+    "U-E7": 37,
+    "R-E2": 37,
+    "R-E3": 37,
+    "R-E5": 37
+  },
+  "validation_groups": {
+    "U-E1": 1,
+    "U-E2": 1,
+    "U-E3": 1,
+    "U-E4": 2,
+    "U-E5": 3,
+    "U-E6": 5,
+    "U-E7": 2,
+    "R-E2": 1,
+    "R-E3": 1,
+    "R-E5": 1
+  },
+  "validation_edges": {
+    "U-E1": {
+      "proceed/NO": 37
+    },
+    "U-E2": {
+      "depart/NO": 37
+    },
+    "U-E3": {
+      "proceed/NO": 37
+    },
+    "U-E4": {
+      "proceed/YES": 29,
+      "proceed/NO": 8
+    },
+    "U-E5": {
+      "restrict/YES": 5,
+      "proceed/NO": 27,
+      "hold/YES": 5
+    },
+    "U-E6": {
+      "restrict/YES": 3,
+      "proceed/NO": 15,
+      "proceed/YES": 18,
+      "hold/YES": 1
+    },
+    "U-E7": {
+      "proceed/NO": 24,
+      "restrict/YES": 2,
+      "renewed_restriction/NO": 2,
+      "stable/YES": 1,
+      "restrict/NO": 2,
+      "hold/NO": 2,
+      "recover_follow/NO": 2,
+      "stable/NO": 2
+    },
+    "R-E2": {
+      "hold/YES": 1,
+      "enter/NO": 19,
+      "release/NO": 17
+    },
+    "R-E3": {
+      "hold/YES": 1,
+      "enter/NO": 36
+    },
+    "R-E5": {
+      "proceed/NO": 37
+    }
+  },
+  "confusion": {
+    "NO->NO": 298,
+    "YES->NO": 48,
+    "YES->YES": 18,
+    "NO->YES": 6
+  },
+  "agreement": 0.8540540540540541,
+  "training_seconds": 4416.448540739002,
+  "validation_seconds": 32.84971827499976,
+  "full_workflow_complete": false,
+  "reload_status": "verified",
+  "reload_seconds": 384.9605602630036,
+  "reload_cases_identical": true,
+  "zip_bytes": 3270100,
+  "zip_sha256": "cce299c90a7a78ce9304ef3861cd5fce069236e62d1aff4a066a8ddcc3d1b88d",
+  "members": 30,
+  "server_root": "checkpoints/phase4_restart_20261017_162511",
+  "failure": "file changed while hashing validated_data/rgb2.receipt.json",
+  "rgb4_started": false,
+  "fixed_test_done": false,
+  "tests": {
+    "passed": 186,
+    "seconds": 14.73,
+    "includes_real_four_cpu_workers": true,
+    "gpu_run_this_turn": false
+  },
+  "release_source_count": 564,
+  "student_contract_unchanged": true,
+  "hash_change_scope": "Hash opened descriptor before/after read and compare final logical path identity; no retry or guard bypass",
+  "server_cause_not_proven": "Original log omitted changed stat fields; open metadata refresh vs concurrent write remains unresolved",
+  "new_rgb_review": false
+}

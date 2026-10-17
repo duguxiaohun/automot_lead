@@ -12,15 +12,24 @@ def digest(value):
 
 def file_sha(path):
     path = Path(path)
-    before = path.stat()
     h = hashlib.sha256()
+    fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+    signature = lambda s: {key: getattr(s, key) for key in fields}
     with path.open('rb') as stream:
+        # Opening can refresh cached remote-filesystem metadata. Bind the
+        # transaction to the actual opened file, not a pre-open path stat.
+        before = signature(os.fstat(stream.fileno()))
+        size = 0
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b''):
             h.update(block)
-    after = path.stat()
-    signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
-    if signature(before) != signature(after):
-        raise RuntimeError(f'file changed while hashing: {path}')
+            size += len(block)
+        after = signature(os.fstat(stream.fileno()))
+        path_after = signature(path.stat())
+    if before != after or after != path_after or size != after['st_size']:
+        detail = dict(descriptor_before=before, descriptor_after=after,
+                      path_after=path_after, bytes_read=size)
+        raise RuntimeError(f'file changed while hashing: {path}; '
+                           + json.dumps(detail, sort_keys=True))
     return h.hexdigest()
 
 

@@ -12,6 +12,7 @@ def completed(tmp_path,plan):
     root=tmp_path/'run';run=root/'run_first_epoch_rgb2';(run/'epoch_000').mkdir(parents=True)
     view=root/'view';view.mkdir();prepared=tmp_path/'prepared'
     (root/'validated_data').mkdir()
+    for name in ('rgb2.json','rgb2.receipt.json'):(root/'validated_data'/name).write_text('{}')
     state=dict(stage='rgb2',command_exit_code=2,status='failed',dataset=str(view),prepared=str(prepared),stages=[])
     write_json(root/'workflow.json',state)
     write_json(view/'student_view.json',dict(source=contract(),parent={'logical_path':str(prepared/'data4')}))
@@ -40,7 +41,7 @@ def test_preflight_requires_real_completed_epoch(completed,damage):
         with pytest.raises((ValueError,FileExistsError)):tool.preflight(root)
 
 
-@pytest.mark.parametrize('failure',[None,'rgb2_reload','rgb2_test','rgb4','raise_after_reload'])
+@pytest.mark.parametrize('failure',[None,'snapshot_check','rgb2_reload','rgb2_test','rgb4','raise_after_reload'])
 def test_continuation_never_retrains_rgb2_and_stops_at_failure(completed,monkeypatch,failure):
     calls=[];original=(completed/'workflow.json').read_bytes()
     monkeypatch.setattr(tool.workflow,'source_check',lambda *a:{'status':'matched'})
@@ -53,10 +54,10 @@ def test_continuation_never_retrains_rgb2_and_stops_at_failure(completed,monkeyp
     monkeypatch.setattr(tool.workflow,'execute',execute)
     code=tool.run(completed,Path('lead_data'),Path('model'))
     assert code==(0 if failure is None else 2)
-    assert [c[0] for c in calls]==(['rgb2_reload'] if failure=='rgb2_reload' else
+    assert [c[0] for c in calls]==['snapshot_check']+([] if failure=='snapshot_check' else ['rgb2_reload'] if failure=='rgb2_reload' else
         ['rgb2_reload','rgb2_test'] if failure in ('rgb2_test','raise_after_reload') else ['rgb2_reload','rgb2_test','rgb4'])
     assert all(c[2]['RGB_MODE']=='4' for c in calls)
-    assert '--run' in calls[0][1] and 'run_automatic.sh' not in ' '.join(calls[0][1])
+    assert 'run_automatic.sh' not in ' '.join(calls[0][1])
     assert tool.read(completed/'workflow_before_continuation.json')==json.loads(original)
     assert tool.read(completed/'workflow.json')['command_exit_code']==code
 
@@ -68,3 +69,44 @@ def test_collector_preserves_continuation_failure(tmp_path):
     members=unpack(tmp_path/'new_handoff')
     assert members['continuation.json']['status']=='failed'
     assert members['continuation_rgb2_reload_log_tail.json']['tail']=='fixture failure'
+
+
+def make_reload(root):
+    run=root/'run_first_epoch_rgb2';record=tool.read(run/'run.json');record['dataset']='fixture-dataset'
+    for p in (run/'run.json',run/'epoch_000/phase4_contract.json'):write_json(p,record)
+    adapter=run/'epoch_000';state=adapter/'training_state.pt';state.write_bytes(b'fixture optimizer')
+    write_json(run/'epoch_000_checkpoint.json',dict(epoch=0,adapter='epoch_000',
+        files={p.name:tool.file_sha(p) for p in adapter.iterdir() if p!=state},
+        training_state=dict(bytes=state.stat().st_size,sha256=tool.file_sha(state))))
+    folder=run/'reload_check';folder.mkdir();(folder/'cases.jsonl').write_bytes((run/'epoch_000_cases.jsonl').read_bytes())
+    write_json(folder/'checkpoint_reload.json',dict(status='verified',stage='complete',epoch=0,
+        world_size=4,count=370,expected_count=370,prediction_mismatch_ids=[],raw_text_differences=0,
+        checkpoint_assets_verified=True,optimizer_bytes_verified=True,source=record['source'],dataset=record['dataset'],
+        expected_cases_sha256=tool.file_sha(run/'epoch_000_cases.jsonl'),
+        checkpoint_receipt_sha256=tool.file_sha(run/'epoch_000_checkpoint.json')))
+    workflow=tool.read(root/'workflow.json');workflow['command_exit_code']=1;write_json(root/'workflow.json',workflow)
+    return run
+
+
+@pytest.mark.parametrize('damage',[None,'weight','optimizer','cases','receipt','missing_snapshot'])
+def test_verified_reload_reuse_binds_real_assets(completed,damage):
+    run=make_reload(completed)
+    paths={'weight':run/'epoch_000/adapter_model.safetensors','optimizer':run/'epoch_000/training_state.pt',
+        'cases':run/'reload_check/cases.jsonl','receipt':run/'epoch_000_checkpoint.json'}
+    if damage in paths:paths[damage].write_text('{}')
+    if damage=='missing_snapshot':(completed/'validated_data/rgb2.receipt.json').unlink()
+    if damage is None:assert tool.preflight(completed)[3]==run
+    else:
+        with pytest.raises((ValueError,KeyError)):tool.preflight(completed)
+
+
+def test_reuse_reload_does_not_run_train_or_reload_again(completed,monkeypatch):
+    make_reload(completed);calls=[]
+    monkeypatch.setattr(tool.workflow,'source_check',lambda *a:{'status':'matched'})
+    monkeypatch.setattr(tool,'collect',lambda *a:{'status':'collected_not_semantically_verified'})
+    def execute(command,log,env):calls.append((log.stem,command));return 0
+    monkeypatch.setattr(tool.workflow,'execute',execute)
+    assert tool.run(completed,Path('lead_data'),Path('model'))==0
+    assert [c[0] for c in calls]==['continuation_snapshot_check','continuation_rgb2_test','rgb4']
+    assert tool.read(completed/'continuation.json')['rgb2_reload_reused'] is True
+    assert all('reload_check' not in c[1] for c in calls)
