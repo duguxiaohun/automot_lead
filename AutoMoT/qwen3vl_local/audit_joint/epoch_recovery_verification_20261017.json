@@ -1,0 +1,44 @@
+{
+  "release": "v73_epoch_recovery_20261017",
+  "user_confirmed_scope": "Phase3 epoch-boundary recovery and Phase4 multi-epoch/resume entry only",
+  "tests": {
+    "passed": 419,
+    "seconds": 27.89,
+    "scope": "related CPU suite"
+  },
+  "phase3": {
+    "actual_cpu_loop": "3 uninterrupted vs 1 + restored 2 epochs",
+    "matched": [
+      "trainable",
+      "optimizer",
+      "scheduler",
+      "Python/Torch RNG",
+      "sampling history",
+      "later batch IDs/losses"
+    ],
+    "world_size": 1,
+    "schedule": "same original horizon; extending a finished horizon rejected"
+  },
+  "phase4": {
+    "actual_cpu_loop": "RGB2 and RGB4 separately: 3 vs 1 + restored 2 epochs",
+    "matched": [
+      "weights",
+      "optimizer",
+      "sampling history",
+      "sample order",
+      "inherited best"
+    ],
+    "world_size": 1,
+    "workflow": "four-card B2 accumulation4 argument flow and CPU gates tested"
+  },
+  "binding_checks": {
+    "phase4_unchanged": 148,
+    "release_sources": 545
+  },
+  "deferred": [
+    "batched generation evaluation",
+    "shared visual encoding deduplication"
+  ],
+  "gpu_run": false,
+  "server_full_pool_run": false
+}

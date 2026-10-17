@@ -48,7 +48,7 @@ def test_validation_does_not_score_an_incomplete_fixed_list(monkeypatch):
     from types import SimpleNamespace
     model = torch.nn.Linear(1, 1)
     work = train._balanced_work(candidate_rows(), target_per_bin=1, seed=1, action_output_mode='choice')
-    monkeypatch.setattr(train, '_load_images', lambda *a: [])
+    monkeypatch.setattr(train, '_load_images', lambda *a, **kw: [])
     monkeypatch.setattr(train, '_build_inputs', lambda *a, **kw: None)
     with pytest.raises(ValueError, match='fixed validation cannot skip'):
         train.evaluate_loss(SimpleNamespace(model=model), work, history_rgb_mode='4rgb',
@@ -73,9 +73,9 @@ def test_native_cpu_training_loop_records_only_complete_epoch(tmp_path, monkeypa
     bundle = SimpleNamespace(model=model, unwrap=lambda: model, lora_target_modules=['weight'])
     monkeypatch.setattr(preflight, 'check_model', lambda *a: None)
     monkeypatch.setattr(train, 'load_model_with_lora', lambda *a, **kw: bundle)
-    monkeypatch.setattr(train, '_load_images', lambda *a: [])
+    monkeypatch.setattr(train, '_load_images', lambda *a, **kw: [])
     monkeypatch.setattr(train, '_build_inputs', lambda *a, **kw: None if reject_input else {})
-    monkeypatch.setattr(train, '_loss_one', lambda *a: (model.weight.square().sum() + model.bias.square().sum(), {}))
+    monkeypatch.setattr(train, '_loss_batch', lambda bundle, packed, specs: (model.weight.square().sum() + model.bias.square().sum(), [{} for _ in packed]))
     path = output / 'balance/consumed_epoch_0001.json'
     if reject_input:
         with pytest.raises(ValueError, match='packing rejected'):

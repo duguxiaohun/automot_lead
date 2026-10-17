@@ -201,6 +201,9 @@ COMMON_ARGS=(
   --seed "${SEED:-20260904}"
   "${EXTRA_ARGS[@]}"
 )
+if [[ "${SAVE_TRAINING_STATE:-0}" == 1 ]]; then COMMON_ARGS+=(--save-training-state); fi
+if [[ -n "${RESUME:-}" ]]; then COMMON_ARGS+=(--resume "$RESUME"); fi
+if [[ -n "${STOP_AFTER_EPOCH:-}" ]]; then COMMON_ARGS+=(--stop-after-epoch "$STOP_AFTER_EPOCH"); fi
 if [[ -n "${WARMUP_STEPS:-}" ]]; then COMMON_ARGS+=(--warmup-steps "$WARMUP_STEPS"); fi
 if [[ "${GRADIENT_CHECKPOINTING:-0}" == "1" ]]; then COMMON_ARGS+=(--gradient-checkpointing); fi
 if [[ -n "${ANCHOR_STRIDE:-}" ]]; then COMMON_ARGS+=(--anchor-stride "$ANCHOR_STRIDE"); fi

@@ -105,3 +105,13 @@ def test_phase4_formal_entry_rejects_inconsistent_update_budget(tmp_path,env):
         {'DATASET':'view','TEACHER_REFERENCES':'refs','FIRST_EPOCH_BUDGET':'budget',
          'OUTPUT_DIR':str(tmp_path/'result'),**env})
     assert result.returncode!=0 and calls==[] and not (tmp_path/'result').exists()
+
+
+def test_phase3_recovery_flags_reach_real_launcher(tmp_path):
+    result,calls=launch(tmp_path,'train_phase3_batch.sh',{'INDEX':'index.jsonl','RESUME':'old state with spaces',
+        'STOP_AFTER_EPOCH':'2','NUM_EPOCHS':'3'},['sampling'])
+    assert result.returncode==0,result.stderr
+    args=calls[-1]
+    assert '--save-training-state' in args
+    for flag,value in [('--resume','old state with spaces'),('--stop-after-epoch','2'),('--num-epochs','3')]:
+        assert args[args.index(flag)+1]==value

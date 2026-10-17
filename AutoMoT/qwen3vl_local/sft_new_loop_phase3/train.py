@@ -1269,6 +1269,8 @@ def _save_adapter(
         "learning_rate_schedule": getattr(args, "learning_rate_schedule", {}),
         "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
         "training_index_sha256": getattr(args, "training_index_sha256", None),
+        "resume_from": args.resume,
+        "epoch_recovery_enabled": bool(args.save_training_state or args.resume),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),
         "git": _git_metadata(),
@@ -1424,6 +1426,8 @@ def _write_run_metadata(
         "learning_rate_schedule": getattr(args, "learning_rate_schedule", {}),
         "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
         "training_index_sha256": getattr(args, "training_index_sha256", None),
+        "resume_from": args.resume,
+        "epoch_recovery_enabled": bool(args.save_training_state or args.resume),
     }
     (output_dir / "train_run_manifest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
@@ -1470,7 +1474,7 @@ def train(args: argparse.Namespace) -> None:
                 prompt_variant=getattr(args, "prompt_variant", "baseline"))
     if not args.sampling_only:
         if (pathlib.Path(args.output_dir) / "train_run_manifest.json").exists():
-            raise ValueError("existing training run: choose a fresh output directory; resume is not implemented")
+            raise ValueError("existing training run: choose a fresh output directory, including when using --resume")
         check_model(args.model_dir)
     # 先完成纯 CPU 采样预检；失败时尚未创建 NCCL 进程组。
     rank = int(os.environ.get("RANK", "0"))
@@ -1552,6 +1556,8 @@ def train(args: argparse.Namespace) -> None:
             print(f"[validation-balance] stage={stage} "
                   + json.dumps(audit, ensure_ascii=False, sort_keys=True), flush=True)
 
+    if args.sampling_only and args.resume:
+        raise ValueError('sampling-only reports a fresh plan; resume validation runs in the training entry')
     if args.sampling_only:
         # 与正式训练共用完整采样路径；不读 RGB/权重、不建进程组或运行目录。
         if rank == 0:
@@ -1578,6 +1584,30 @@ def train(args: argparse.Namespace) -> None:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     args.training_index_sha256 = digest.hexdigest()
+
+    steps_per_epoch = len(full_work) // (world_size * args.batch_size)
+    total_steps = int(args.max_steps) if int(args.max_steps) > 0 else max(1, steps_per_epoch * max(1, int(args.num_epochs)))
+    total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
+    args.learning_rate_schedule = resolve_warmup(total_optimizer_steps,
+        steps=args.warmup_steps, ratio=args.warmup_ratio)
+    args.warmup_steps = args.learning_rate_schedule['warmup_updates']
+    if rank == 0:
+        print(f"[schedule] {args.learning_rate_schedule}", flush=True)
+
+    from qwen3vl_local.sft_new_loop_phase3 import training_state as recovery
+    recoverable = args.save_training_state or args.resume is not None
+    if recoverable and (args.max_steps != 0 or steps_per_epoch % args.grad_accum):
+        raise ValueError('epoch recovery requires max_steps=0 and whole optimizer updates per epoch')
+    if args.stop_after_epoch is not None and (not recoverable or not 0 < args.stop_after_epoch <= args.num_epochs):
+        raise ValueError('stop-after-epoch requires training state and a boundary within the original total epochs')
+    resume_binding = recovery.binding(args,world_size,steps_per_epoch) if recoverable else None
+    resumed = recovery.read(args.resume,resume_binding) if args.resume is not None else None
+    if resumed is not None:
+        if args.stop_after_epoch is not None and args.stop_after_epoch <= resumed['next_epoch']:
+            raise ValueError('stop-after-epoch must be beyond the resumed boundary')
+        # Validate actual exposure history before CUDA or creating a new run.
+        _contiguous_work(rows,args,epoch=resumed['next_epoch'],world_size=world_size,history=resumed['sampling_history'])
+    random.seed(args.seed);torch.manual_seed(args.seed)
 
     rank, local_rank, world_size = setup_distributed(int(args.ddp_timeout_seconds))
     device = (
@@ -1657,14 +1687,6 @@ def train(args: argparse.Namespace) -> None:
     if world_size > 1:
         ddp_barrier(local_rank)
 
-    steps_per_epoch = len(full_work) // (world_size * args.batch_size)
-    total_steps = int(args.max_steps) if int(args.max_steps) > 0 else max(1, steps_per_epoch * max(1, int(args.num_epochs)))
-    total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
-    args.learning_rate_schedule = resolve_warmup(total_optimizer_steps,
-        steps=args.warmup_steps, ratio=args.warmup_ratio)
-    args.warmup_steps = args.learning_rate_schedule['warmup_updates']
-    if rank == 0:
-        print(f"[schedule] {args.learning_rate_schedule}", flush=True)
 
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
@@ -1719,6 +1741,15 @@ def train(args: argparse.Namespace) -> None:
     t0 = time.time()
     bundle.model.train()
     epoch = 0
+    if resumed is not None:
+        recovery.restore(resumed,bundle.unwrap(),optimizer,scheduler,device,rank)
+        epoch=resumed['next_epoch'];global_step=resumed['global_step']
+        sampling_history=resumed['sampling_history']
+        best_val_loss=resumed['best_val_loss']
+        best_generation_score=tuple(resumed['best_generation_score'])
+        best_fallback_score=tuple(resumed['best_fallback_score'])
+        if rank==0:recovery.restore_selection(args.resume,output_dir)
+        if world_size>1:ddp_barrier(local_rank)
     while global_step < total_steps:
         if epoch > 0:
             full_work, sampling_audit = _contiguous_work(rows,args,epoch=epoch,
@@ -2070,6 +2101,30 @@ def train(args: argparse.Namespace) -> None:
             (output_dir/'balance'/f'exposure_epoch_{epoch+1:04d}.json').write_text(
                 json.dumps(sampling_history,sort_keys=True)+'\n')
         epoch += 1
+        if recoverable:
+            local_rng=recovery.rng_state(device)
+            rng=[None]*world_size
+            if world_size>1:dist.all_gather_object(rng,local_rng)
+            else:rng=[local_rng]
+            if rank==0:
+                recovery.save(output_dir/'training_states'/f'epoch_{epoch:04d}',output_dir,
+                    bundle.unwrap(),optimizer,scheduler,binding=resume_binding,rng=rng,
+                    state=dict(next_epoch=epoch,global_step=global_step,sampling_history=sampling_history,
+                        best_val_loss=best_val_loss,best_generation_score=best_generation_score,
+                        best_fallback_score=best_fallback_score))
+            if world_size>1:ddp_barrier(local_rank)
+        if args.stop_after_epoch is not None and epoch>=args.stop_after_epoch:
+            break
+
+    if global_step < total_steps:
+        if rank==0:
+            (output_dir/'training_progress.json').write_text(json.dumps(dict(status='stopped_at_epoch_boundary',
+                completed_epochs=epoch,planned_epochs=args.num_epochs,global_step=global_step,
+                resume_from=str((output_dir/'training_states'/f'epoch_{epoch:04d}').resolve())))+'\n')
+            print(f'[stopped] completed {epoch}/{args.num_epochs} epochs; resume with the same total plan',flush=True)
+        if writer:writer.close()
+        cleanup_distributed()
+        return
 
     if accum_steps > 0:
         _optimizer_step(
@@ -2140,6 +2195,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-root", default=str(_AUTOMOT_ROOT / "lead_data"))
     p.add_argument("--model-dir", default=str(_AUTOMOT_ROOT / "checkpoints/Qwen3.5-4B"))
     p.add_argument("--output-dir", default=str(_AUTOMOT_ROOT / "checkpoints/sft_new_loop_phase3_runs/manual"))
+    p.add_argument("--resume", help="Complete epoch training_states/epoch_NNNN; requires the original total plan and fresh output")
+    p.add_argument("--save-training-state", action="store_true", help="Save optimizer, scheduler, RNG and exposure at every complete epoch")
+    p.add_argument("--stop-after-epoch", type=int, help="Stop after this absolute epoch without shortening the original LR schedule")
     p.add_argument("--split", default="train")
     p.add_argument("--history-rgb-mode", choices=HISTORY_RGB_MODES, default=DEFAULT_HISTORY_RGB_MODE)
     p.add_argument(
@@ -2225,8 +2283,8 @@ def parse_args() -> argparse.Namespace:
         p.error("warmup ratio must be in [0,1); warmup steps must be nonnegative")
     if args.anchor_stride is None:args.anchor_stride=1 if args.history_rgb_mode=="4rgb" else 2
     args.action_output_mode = validate_action_output_mode(args.action_output_mode)
-    if min(args.batch_size,args.anchor_stride,args.grad_accum)<1:
-        p.error("batch size, anchor stride and grad accumulation must be positive")
+    if min(args.batch_size,args.anchor_stride,args.grad_accum,args.num_epochs)<1:
+        p.error("batch size, anchor stride, grad accumulation and epochs must be positive")
     if args.ddp_timeout_seconds <= 0 or args.generation_eval_log_every <= 0:
         p.error("--ddp-timeout-seconds and --generation-eval-log-every must be positive")
     if int(args.generation_eval_steps) > 0 and int(args.eval_steps) > 0:

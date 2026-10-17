@@ -1,5 +1,11 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-17 v73用户确认续训与多轮入口范围
+
+用户异步明确选择本轮先完成Phase3 epoch边界续训和Phase4多轮/续训入口，评估batch和视觉编码去重暂缓；每卡B2、P3累积2/P4累积4、输入时间窗口与采样v4不变。P3已选入口默认SAVE_TRAINING_STATE=1，完整epoch/optimizer边界保存训练参数、AdamW、scheduler、各rank Python/Torch RNG、实际曝光history及checkpoint本地best副本；临时目录完整SHA回执后发布，再更新latest_training_state。恢复至新run，绑定源码/索引/配置/基座stat及元数据SHA/world，原定NUM_EPOCHS与LR计划不变；仅max_steps0且每epoch更新整除。STOP_AFTER_EPOCH保留完整计划；旧仅adapter不可恢复，中断未保存epoch须重跑。
+P4新增audit_joint.phase4_training，通过既有train_phase4_batch.sh的EPOCHS及RESUME_RGB2/4接入；EPOCHS绝对目标，两模式分别指定恢复点/起始epoch。两模式CPU恢复预检均通过后才GPU，保留正式训练/逐轮val/最新epoch重载及固定test，预算扩大到全部目标epoch；新training_workflow.json记录阶段，失败即停/信号只清本次进程。无参数仍原首轮入口；多轮不误用只支持epoch000的旧ZIP收集器。可显式复用P4_VALIDATED_DATA。
+419相关CPU回归27.89秒通过：实际P3小模型连续3轮与1+恢复2轮参数/optimizer/scheduler/RNG/history与后续batch日志一致；P4两模式相同分拆下参数/optimizer/history/样本一致并继承best。同步旧消费测试的cache/batch模拟接口。Phase4学生/producer及路线适配器148项绑定字节未变，v72有效view/快照、v69路线缓存保留；新v73清单545源matched。没有目标4B/四卡GPU恢复或服务器完整训练验收，不保证GPU逐位确定性。完整命令audit_joint/EPOCH_RECOVERY_20261017.md，轻量epoch_recovery_verification_20261017.json；沿已授权白名单发布，保留.vscode/paper/checkpoints和其它任务。
+
 ### 2026-10-17 v72段内action边际补偿与开发曝光缓存绑定
 
 两项复审缺陷先复现（两步长action及两RGB缓存共4项旧代码失败），现已修正。共享训练采样v4按段内provisional计数累计实际归一化欠额减少，达到目标后不加分；保留覆盖/连续性/尾部拼接/同锚点机会优先。四个8题段反例20seed×两步长均8A8B、两段8、16新题，次epoch覆盖剩余16；仍非全局最优。旧v1/v2/v3 history拒绝混用。

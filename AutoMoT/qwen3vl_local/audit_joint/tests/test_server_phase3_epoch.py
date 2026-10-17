@@ -334,9 +334,9 @@ def test_native_three_epoch_loop_requires_complete_consumption_each_round(tmp_pa
         '--no-tb', '--no-require-invalid-coverage', '--warmup-steps', '10'])
     monkeypatch.setattr(preflight, 'check_model', lambda *a: None)
     monkeypatch.setattr(train, 'load_model_with_lora', lambda *a, **kw: bundle)
-    monkeypatch.setattr(train, '_load_images', lambda *a: [])
+    monkeypatch.setattr(train, '_load_images', lambda *a, **kw: [])
     monkeypatch.setattr(train, '_build_inputs', inputs)
-    monkeypatch.setattr(train, '_loss_one', lambda *a: (model.weight.square().sum() + model.bias.square().sum(), {}))
+    monkeypatch.setattr(train, '_loss_batch', lambda bundle, packed, specs: (model.weight.square().sum() + model.bias.square().sum(), [{} for _ in packed]))
     if reject_at is None:
         train.train(train.parse_args())
     else:
