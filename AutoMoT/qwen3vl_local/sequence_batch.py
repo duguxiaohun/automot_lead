@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 import hashlib
 import json
 
-POLICY = 'event_equal_contiguous_unseen_first_v3'
+POLICY = 'event_equal_contiguous_unseen_first_v4'
 
 
 def digest(value):
@@ -153,10 +153,11 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
                             action = records[i]['action']
                             return (max(0, desired[action]-provisional[action]) / max(1, available[action]), deficit(i))
                         i = max(alternatives, key=urgency)
-                        # Keep the existing between-piece score; only selection
-                        # within an anchor uses the running provisional deficit.
+                        # Score marginal deficit reduction, including earlier
+                        # samples in this candidate. Over-target actions earn
+                        # nothing; each candidate starts from the same actual.
                         action = records[i]['action']
-                        score += max(0, desired[action]-actual[action]) / max(1, desired[action])
+                        score += min(1, max(0, desired[action]-provisional[action])) / max(1, desired[action])
                         take.append(i)
                         provisional[records[i]['action']] += 1
                         for action in {records[j]['action'] for j in alternatives}:

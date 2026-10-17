@@ -133,7 +133,7 @@ def test_same_anchor_alternatives_compensate_without_changing_continuity(stride)
     assert b['new_questions']==2 and len(set(next_order[:2])-set(order))==2
 
 
-@pytest.mark.parametrize('version',[1,2])
+@pytest.mark.parametrize('version',[1,2,3])
 def test_previous_sampler_history_is_rejected(version):
     rows=pool(events=1,n=16)
     _,a=plan(rows,per_event=8)
@@ -388,3 +388,21 @@ def test_probe_directory_index_rejected_before_workers(tmp_path,monkeypatch,caps
     assert exc.value.code==2
     assert '--index must be an existing index file' in capsys.readouterr().err
     assert not (tmp_path/'out').exists()
+
+
+@pytest.mark.parametrize('stride',[1,2])
+def test_action_segment_score_decrements_deficit_without_sacrificing_continuity(stride):
+    rows=[dict(id=f'{route}/{i}',event='event',sequence=str(route),frame=i*stride,
+               action=action,split='train',group=str(route))
+          for route,actions in enumerate(['AAAABBBB','AAAABBBB','AAAAAAAA','BBBBBBBB'])
+          for i,action in enumerate(actions)]
+    for seed in range(20):
+        order,report=plan(rows,per_event=16,world_size=4,batch_size=2,stride=stride,seed=seed)
+        assert report['action_balance']['event']==dict(target={'A':8,'B':8},actual={'A':8,'B':8})
+        assert [s['length'] for s in report['segments']['event']]==[8,8]
+        assert report['unique_questions']==report['new_questions']==16
+        assert report['tail_packing']['event']['truncated_pieces']==0
+        second,again=plan(rows,per_event=16,world_size=4,batch_size=2,stride=stride,seed=seed,
+                          epoch=1,history=report['next_history'])
+        assert not set(order)&set(second)
+        assert again['cumulative_unique_questions']==32

@@ -104,3 +104,52 @@ def test_disk_reserve_failure_never_publishes_snapshot(tmp_path,monkeypatch):
     monkeypatch.setattr(shutil,'disk_usage',lambda p:SimpleNamespace(free=1))
     with pytest.raises(ValueError,match='disk reserve'):runtime.load(view,2,loader)
     assert not (tmp_path/'prepared/rgb2.receipt.json').exists()
+
+
+@pytest.mark.parametrize('mode',[2,4])
+def test_cached_and_raw_load_both_reject_changed_exposure_inventory(native_view,tmp_path,monkeypatch,mode):
+    parent,view=native_view;data.create(parent,view)
+    monkeypatch.setenv('P4_VALIDATED_DATA',str(tmp_path/'snapshot'))
+    data.load_dataset(view,rgb_mode=mode)
+    groups,files=data.exposure_inventory()
+    monkeypatch.setattr(data,'exposure_inventory',lambda:(groups|{'new-development-group'},dict(files,new_inventory='new-sha')))
+    with pytest.raises(ValueError,match='exposure inventory changed'):
+        data.load_dataset(view,rgb_mode=mode)
+    with pytest.raises(ValueError,match='exposure inventory changed'):
+        data.load_dataset(view,rgb_mode=mode,_runtime_raw=True)
+
+
+@pytest.mark.parametrize('change',['add','remove','edit','empty'])
+def test_live_inventory_enumeration_catches_unlisted_files(tmp_path,monkeypatch,change):
+    root=tmp_path/'sources';p3=root/'sft_new_loop_phase3';p4=root/'sft_new_loop_phase4'
+    p3.mkdir(parents=True);p4.mkdir()
+    monkeypatch.setattr(data.native,'ROOT',p4)
+    base=p3/'development_route_groups.json'
+    extra=p3/'development_route_groups_extra.json'
+    base.write_text(json.dumps({'groups':['scenario/routeA']}))
+    extra.write_text(json.dumps({'groups':['scenario/routeB']}))
+    parent=tmp_path/'native';parent.mkdir()
+    (parent/'manifest.json').write_text(json.dumps({'files':{}}))
+    (parent/'review_queue.jsonl').write_text('')
+    view=tmp_path/'view';view.mkdir();(view/'rgb_identities.json').write_text('{}')
+    groups,files=data.exposure_inventory()
+    (view/'student_view.json').write_text(json.dumps(dict(parent=dict(logical_path=str(parent)),exposure_files=files)))
+    before=runtime.inputs(view,2)
+    assert before['exposure_inventory']==dict(files=files,groups=sorted(groups))
+    if change=='add':(p4/'new_development.json').write_text(json.dumps({'train_only_groups':['scenario/routeC']}))
+    elif change=='remove':extra.unlink()
+    elif change=='edit':extra.write_text(json.dumps({'groups':['scenario/routeC']}))
+    else:extra.write_text(json.dumps({'groups':[]}))
+    with pytest.raises(ValueError,match='exposure inventory changed'):runtime.inputs(view,2)
+
+
+def test_group_change_during_cache_read_is_rejected(native_view,tmp_path,monkeypatch):
+    parent,view=native_view;data.create(parent,view)
+    monkeypatch.setenv('P4_VALIDATED_DATA',str(tmp_path/'snapshot'))
+    data.load_dataset(view,rgb_mode=2)
+    groups,files=data.exposure_inventory();calls=[]
+    def changing():
+        calls.append(1)
+        return (groups if len(calls)==1 else groups|{'unexpected/group'}),files
+    monkeypatch.setattr(data,'exposure_inventory',changing)
+    with pytest.raises(ValueError,match='changed during read'):data.load_dataset(view,rgb_mode=2)

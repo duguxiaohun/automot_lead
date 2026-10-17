@@ -14,7 +14,7 @@ from ..identity import write_json
 from .contract import contract
 from qwen3vl_local.audit_joint.io import file_sha
 
-POLICY='phase4_validated_student_snapshot_v1'
+POLICY='phase4_validated_student_snapshot_v2'
 
 
 def stamp(path):
@@ -31,6 +31,13 @@ def inputs(view,mode):
     """
     view=Path(view).absolute()
     descriptor=json.loads((view/'student_view.json').read_text())
+    # Enumerate the live inventory on EVERY preparation/reuse check: the
+    # source contract lists only some exposure files and cannot detect newly
+    # registered files. Match the raw student loader before trusting a receipt.
+    from .data import exposure_inventory
+    groups,exposure_files=exposure_inventory()
+    if exposure_files!=descriptor['exposure_files']:
+        raise ValueError('exposure inventory changed; prepare a new view')
     parent=Path(descriptor['parent']['logical_path'])
     manifest=json.loads((parent/'manifest.json').read_text())
     # Enumerate without hashing huge raw JSONL on every rank. Native preparation
@@ -53,6 +60,7 @@ def inputs(view,mode):
             paths.add(index.parent/name)
     adapter=Path(__file__).resolve().parents[2]/'audit_joint'
     return dict(policy=POLICY,rgb_mode=mode,view=str(view),source=contract(),
+                exposure_inventory=dict(files=exposure_files,groups=sorted(groups)),
                 read_adapters={n:file_sha(adapter/n) for n in ('phase4_load.py','phase4_production_cache.py')},
                 files=[stamp(p) for p in sorted(paths)])
 

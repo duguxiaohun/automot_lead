@@ -17,14 +17,16 @@ def inspect_view(view):
     if descriptor.get('schema')!=POLICY:raise ValueError('unsupported student schema')
     saved=descriptor['source'];normalized=deepcopy(saved);changes=[]
     versions=['release_sources_v61_batch_audit_20261015.json',
-              'release_sources_v70_selected_b2_20261016.json']
+              'release_sources_v70_selected_b2_20261016.json',
+              'release_sources_v71_sampling_runtime_20261016.json']
     releases=[json.loads(Path(__file__).with_name(v).read_text())['files'] for v in versions]
     # Only reviewed runtime/sampling edits, no RGB transformation or label edits.
     names={'../../sequence_batch.py','../../sft_new_loop_phase3/sequence_evaluation.py',
            'contract.py','data.py','train.py','run.sh','run_automatic.sh','batch_sampling.py',
-           'evaluate.py','reload_check.py'}
+           'evaluate.py','reload_check.py','runtime_data.py'}
     root=Path('qwen3vl_local/sft_new_loop_phase4/rgb_short')
     for name in names:
+        if name=='runtime_data.py' and name not in normalized.get('sources',{}):continue
         if normalized.get('sources',{}).get(name)==current['sources'][name]:continue
         # Resolve lexical ../ segments without relying on files on disk.
         parts=[]

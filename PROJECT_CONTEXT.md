@@ -1,5 +1,11 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-17 v72段内action边际补偿与开发曝光缓存绑定
+
+两项复审缺陷先复现（两步长action及两RGB缓存共4项旧代码失败），现已修正。共享训练采样v4按段内provisional计数累计实际归一化欠额减少，达到目标后不加分；保留覆盖/连续性/尾部拼接/同锚点机会优先。四个8题段反例20seed×两步长均8A8B、两段8、16新题，次epoch覆盖剩余16；仍非全局最优。旧v1/v2/v3 history拒绝混用。
+运行快照v2每次准备和复用前后动态调用正式exposure_inventory，比较view完整文件SHA清单并绑定物理group集合，检测新登记、删改及读中变化；直接/reviewed缓存同样拒绝曝光漂移，不推断已有泄漏。phase4_view_upgrade加入已知v71源码，保留v61/v70，仍全父库/两模式成员/sidecar核验且曝光变化拒绝，不覆盖旧view或用于旧checkpoint恢复。旧快照需新输出准备；phase4_load/production_cache和原生teacher源码不改，v69路线缓存保留。
+327相关CPU回归26.23秒通过，含真实reviewed小库v71合同fixture升级、两模式数据一致、四CPU worker禁用native验证仍读成功。v72源码清单541源；每卡B2、P3累积2/P4累积4及时间窗口不变，无新benchmark/GPU/服务器全池验收；P3跨进程续训/批量评估生成/共享视觉编码去重边界不变。说明audit_joint/ACTION_EXPOSURE_FIXES_20261017.md，沿已授权白名单发布，保留用户.vscode/paper/checkpoints及其它任务。
+
 ### 2026-10-16 v71评估连续性、重复上限与正式全池加载闭环
 
 用户复审三项已修正，每卡B2决定不变，不补benchmark。评估共享选择器升v2：跨路线最长实际stride连续锚点优先、同帧多题作候选不制造断点、标签盲选无放回十事件等量；两/四图成员可不同，正式准入保留训练成员相等，分别记录评估SHA，不冒称逐题配对。连续训练max_question_repeat明确每题每epoch硬限，容量不足前置拒绝，绑定history且改变/取消上限拒绝混用；默认None不限，回执区分配置上限与实际重复，保留既有少见/连续/action优先。

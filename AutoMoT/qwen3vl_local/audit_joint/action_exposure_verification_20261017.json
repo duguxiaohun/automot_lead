@@ -1,0 +1,50 @@
+{
+  "release": "v72_action_exposure_20261017",
+  "tests": {
+    "passed": 327,
+    "seconds": 26.23,
+    "scope": "related CPU regression suite; no target GPU training"
+  },
+  "before_fix": {
+    "failed_reproductions": 4
+  },
+  "action": {
+    "strides": [
+      1,
+      2
+    ],
+    "seeds": 20,
+    "target": {
+      "A": 8,
+      "B": 8
+    },
+    "actual": {
+      "A": 8,
+      "B": 8
+    },
+    "segments": [
+      8,
+      8
+    ],
+    "new_questions": 16,
+    "next_epoch_total_unique": 32
+  },
+  "snapshot": {
+    "policy": "phase4_validated_student_snapshot_v2",
+    "live_exposure_inventory": true,
+    "checks": [
+      "file addition/removal/edit/empty",
+      "cache and raw exposure rejection in both modes",
+      "groups changed during read",
+      "real v71 view migration preserves members",
+      "four real CPU workers no native validation"
+    ]
+  },
+  "batch": {
+    "per_card": 2,
+    "phase3_accumulation": 2,
+    "phase4_accumulation": 4
+  },
+  "server_gpu_run": false,
+  "route_cache_adapters_changed": false
+}

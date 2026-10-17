@@ -1,5 +1,7 @@
 # v71：评估连续段、重复上限与正式全池准备
 
+> 后续v72已修正段内action评分及开发曝光缓存绑定；已知v71 view也可升级，须使用新输出目录。每卡B2不变，详见 [ACTION_EXPOSURE_FIXES_20261017.md](ACTION_EXPOSURE_FIXES_20261017.md)。
+
 每卡B2选择不变：Phase3累积2、四卡16样本/update；Phase4累积4、四卡32样本/update。没有新增batch比较、GPU试验或模型效果验收要求。
 
 ## 修正内容
