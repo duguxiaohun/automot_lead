@@ -13,7 +13,7 @@ def contract():
                     for name in ('rule_baseline.py','training_budget.py','training_scope.py')},
                 exposure_normalizer_sha256=file_sha(ROOT.parents[1] / 'audit_joint/splits.py'), sources={
         name: file_sha(ROOT / name) for name in
-        ('__init__.py', 'contract.py', 'data.py', 'runtime_data.py', 'model.py', 'train.py', 'evaluate.py', 'build.py', 'run.sh', 'diagnostics.py', 'reload_check.py', 'run_automatic.sh', 'batch_sampling.py', 'evaluation_policy.py', '../../sequence_batch.py', '../../batch_runtime.py', '../../sft_new_loop_phase3/sequence_evaluation.py')})
+        ('__init__.py', 'contract.py', 'data.py', 'runtime_data.py', 'model.py', 'train.py', 'evaluate.py', 'evaluate.sh', 'build.py', 'run.sh', 'diagnostics.py', 'reload_check.py', 'run_automatic.sh', 'batch_sampling.py', 'evaluation_policy.py', '../../sequence_batch.py', '../../batch_runtime.py', '../../sft_new_loop_phase3/sequence_evaluation.py')})
 
 
 def observation_contract(mode):

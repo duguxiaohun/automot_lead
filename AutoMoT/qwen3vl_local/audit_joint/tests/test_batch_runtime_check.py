@@ -50,7 +50,7 @@ def test_upgrade_known_v73_view_but_not_missing_current_binding(tmp_path):
     with pytest.raises(ValueError,match='missing batch runtime'):upgrade.inspect_view(tmp_path)
 
 
-@pytest.mark.parametrize('key,value',[('EVAL_BATCH_SIZE','2'),('REUSE_FROZEN_RGB','1')])
+@pytest.mark.parametrize('key,value',[('EVAL_BATCH_SIZE','1'),('REUSE_FROZEN_RGB','0')])
 def test_resume_rejects_runtime_configuration_change(monkeypatch,tmp_path,key,value):
     from qwen3vl_local.audit_joint.tests.test_phase4_training import make_checkpoint
     from qwen3vl_local.audit_joint.phase4_training import checkpoint
@@ -60,17 +60,18 @@ def test_resume_rejects_runtime_configuration_change(monkeypatch,tmp_path,key,va
 
 
 @pytest.mark.parametrize('valid',[False,True])
-def test_gpu_requires_both_modes_and_pins_one_card(monkeypatch,tmp_path,valid):
+def test_gpu_requires_both_modes_and_four_ranks(monkeypatch,tmp_path,valid):
     from qwen3vl_local.sft_new_loop_phase4 import devices
     monkeypatch.setattr(check,'source_check',lambda *a:{'status':'matched'})
-    monkeypatch.setattr(devices,'select_gpus',lambda n:'3' if n==1 else 'bad')
+    monkeypatch.setattr(devices,'select_gpus',lambda n:'0,1,2,3' if n==4 else 'bad')
     native=tmp_path/'native';native.mkdir();(native/'train.jsonl').write_text('{}')
     model=tmp_path/'model';model.mkdir();(model/'config.json').write_text('{}')
     out=tmp_path/'out'
     def run(args,log,env,timeout):
-        assert env['CUDA_VISIBLE_DEVICES']=='3' and timeout==7
-        assert '--worker' in args and '--native' in args
+        assert env['CUDA_VISIBLE_DEVICES']=='0,1,2,3' and timeout==7
+        assert '--worker' in args and '--native' in args and '--nproc_per_node=4' in args
         (out/'result.json').write_text(json.dumps(dict(status='correctness_passed',
+            world_size=4,ranks=[dict(rank=r,world_size=4,modes=[dict(rgb_mode=m) for m in (2,4)]) for r in range(4)],
             modes=[dict(rgb_mode=m) for m in ([2,4] if valid else [2])])))
         return 0
     monkeypatch.setattr(check,'run_owned',run)

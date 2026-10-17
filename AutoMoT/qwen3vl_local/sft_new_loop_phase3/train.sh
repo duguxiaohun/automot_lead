@@ -178,7 +178,7 @@ COMMON_ARGS=(
   --generation-eval-steps "${GENERATION_EVAL_STEPS:-2000}"
   --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-32}"
   --generation-eval-sampling-seed "${GENERATION_EVAL_SAMPLING_SEED:-20260904}"
-  --generation-eval-batch-size "${GENERATION_EVAL_BATCH_SIZE:-1}"
+  --generation-eval-batch-size "${GENERATION_EVAL_BATCH_SIZE:-2}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
   --generation-eval-log-every "${GENERATION_EVAL_LOG_EVERY:-10}"
   --generation-eval-min-valid-rate "${GENERATION_EVAL_MIN_VALID_RATE:-1.0}"
@@ -206,7 +206,11 @@ if [[ "${SAVE_TRAINING_STATE:-0}" == 1 ]]; then COMMON_ARGS+=(--save-training-st
 if [[ -n "${RESUME:-}" ]]; then COMMON_ARGS+=(--resume "$RESUME"); fi
 if [[ -n "${STOP_AFTER_EPOCH:-}" ]]; then COMMON_ARGS+=(--stop-after-epoch "$STOP_AFTER_EPOCH"); fi
 if [[ -n "${WARMUP_STEPS:-}" ]]; then COMMON_ARGS+=(--warmup-steps "$WARMUP_STEPS"); fi
-if [[ "${REUSE_FROZEN_RGB:-0}" == "1" ]]; then COMMON_ARGS+=(--reuse-frozen-rgb); fi
+case "${REUSE_FROZEN_RGB:-1}" in
+  1) COMMON_ARGS+=(--reuse-frozen-rgb) ;;
+  0) COMMON_ARGS+=(--no-reuse-frozen-rgb) ;;
+  *) echo "REUSE_FROZEN_RGB must be 0 or 1" >&2; exit 2 ;;
+esac
 if [[ "${GRADIENT_CHECKPOINTING:-0}" == "1" ]]; then COMMON_ARGS+=(--gradient-checkpointing); fi
 if [[ -n "${ANCHOR_STRIDE:-}" ]]; then COMMON_ARGS+=(--anchor-stride "$ANCHOR_STRIDE"); fi
 # 验证预算不足时按覆盖规划增容；严格配对实验可关闭并显式指定预算。

@@ -72,8 +72,8 @@ def main():
     p.add_argument('--epochs',type=int,default=7)
     p.add_argument('--lr',type=float,default=2e-5)
     p.add_argument('--batch-size',type=int,default=1)
-    p.add_argument('--eval-batch-size',type=int,default=1)
-    p.add_argument('--reuse-frozen-rgb',action='store_true')
+    p.add_argument('--eval-batch-size',type=int,default=2)
+    p.add_argument('--reuse-frozen-rgb',action=argparse.BooleanOptionalAction,default=True)
     p.add_argument('--anchor-stride',type=int,default=None)
     p.add_argument('--accumulation',type=int,default=8)
     p.add_argument('--cap',type=int,default=8)
@@ -245,12 +245,13 @@ def main():
             ranks=[runtime]
         if rank==0:
             write_json(a.output_dir/f'epoch_{epoch:03d}_runtime.json',dict(ranks=ranks,validation_status='pending'))
-            raw=bundle.model.module if world>1 else bundle.model
-            raw.eval()
-            validation_start=time.perf_counter()
-            report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length,
-                batch_size=a.eval_batch_size,reuse_rgb=a.reuse_frozen_rgb)
-            validation_seconds=time.perf_counter()-validation_start
+        raw=bundle.model.module if world>1 else bundle.model
+        raw.eval()
+        validation_start=time.perf_counter()
+        report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length,
+            batch_size=a.eval_batch_size,reuse_rgb=a.reuse_frozen_rgb)
+        validation_seconds=time.perf_counter()-validation_start
+        if rank==0:
             # Selection consumes the source-bound fixed ten-event subset.
             report.update(score_cases(cases,a.selection_mode,evaluation['plans']['val']['selected_ids']))
             score=report['selection_agreement']

@@ -144,11 +144,15 @@ COMMON_ARGS=(
   --cases-per-bin "${CASES_PER_BIN}"
   --max-frames "${MAX_EVAL_FRAMES}"
   --max-new-tokens "${MAX_NEW_TOKENS}"
-  --batch-size "${EVAL_BATCH_SIZE:-1}"
+  --batch-size "${EVAL_BATCH_SIZE:-2}"
   --no-timestamp-output
   --overwrite
 )
-if [[ "${REUSE_FROZEN_RGB:-0}" == "1" ]]; then COMMON_ARGS+=(--reuse-frozen-rgb); fi
+case "${REUSE_FROZEN_RGB:-1}" in
+  1) COMMON_ARGS+=(--reuse-frozen-rgb) ;;
+  0) COMMON_ARGS+=(--no-reuse-frozen-rgb) ;;
+  *) echo "REUSE_FROZEN_RGB must be 0 or 1" >&2; exit 2 ;;
+esac
 if [[ "${ROUTE_DIVERSE_SAMPLING}" == "1" ]]; then
   COMMON_ARGS+=(--route-diverse-sampling)
 else
@@ -170,29 +174,23 @@ COMMON_ARGS+=(
 )
 
 pick_idle_gpus() {
-  local want_count="$1"
-  local selected
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    selected="$(
-      nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits \
-        | awk -F',' '{gsub(/ /, "", $1); gsub(/ /, "", $2); gsub(/ /, "", $3); print $2, $3, $1}' \
-        | sort -n -k1,1 -k2,2 \
-        | head -n "${want_count}" \
-        | awk '{print $3}' \
-        | paste -sd, -
-    )"
-    if [[ -n "${selected}" ]]; then echo "${selected}"; return 0; fi
-  fi
-  if [[ "${want_count}" -le 1 ]]; then echo "0"; else seq -s, 0 "$((want_count - 1))"; fi
+  python -c 'from qwen3vl_local.sft_new_loop_phase4.devices import select_gpus; print(select_gpus(4))'
 }
-
 EVAL_GPU_COUNT="${EVAL_GPU_COUNT:-4}"
+[[ "$EVAL_GPU_COUNT" == 4 ]] || { echo "This evaluation requires four GPUs" >&2; exit 2; }
 if [[ -z "${GPU_IDS:-}" ]]; then
   GPU_IDS="$(pick_idle_gpus "${EVAL_GPU_COUNT}")"
 fi
+declare -A P3_EVAL_SEEN=()
+IFS=',' read -ra P3_EVAL_CARDS <<< "$GPU_IDS"
+for P3_EVAL_CARD in "${P3_EVAL_CARDS[@]}"; do
+  [[ -n "$P3_EVAL_CARD" && ! -v P3_EVAL_SEEN[$P3_EVAL_CARD] ]] || { echo 'Distinct GPU_IDS required' >&2; exit 2; }
+  P3_EVAL_SEEN[$P3_EVAL_CARD]=1
+done
 export GPU_IDS
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 NPROC="$(awk -F',' '{print NF}' <<< "${GPU_IDS}")"
+[[ "$NPROC" == 4 ]] || { echo "This evaluation requires four distinct GPU_IDS" >&2; exit 2; }
 
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"

@@ -828,12 +828,13 @@ def _optimizer_step(
     optimizer.zero_grad(set_to_none=True)
 
 
-def _split_work_for_rank(work: Sequence[WorkItem], *, rank: int, world_size: int) -> List[WorkItem]:
+def _split_work_for_rank(work: Sequence[WorkItem], *, rank: int, world_size: int, batch_size: int = 1) -> List[WorkItem]:
     """按 rank 切分同一个均衡全集。"""
 
     if int(world_size) <= 1:
         return list(work)
-    shard = list(work)[int(rank) :: int(world_size)]
+    from qwen3vl_local.batch_runtime import batch_indices
+    shard = [work[i] for group in batch_indices(len(work),batch_size,int(rank),int(world_size)) for i in group]
     if not shard:
         raise ValueError(f"rank {rank} got empty work shard; reduce WORLD_SIZE or increase balance count")
     return shard
@@ -875,6 +876,7 @@ def evaluate_loss(
     format_loss_weight: float,
     device: torch.device,
     world_size: int,
+    batch_size: int = 1,
 ) -> Dict[str, float]:
     """在独立 val split 上跑 teacher-forced loss 和当前问题组 token accuracy。"""
 
@@ -896,24 +898,47 @@ def evaluate_loss(
     choice_action_count = 0.0
     invalid_subgroup_ok: Counter = Counter()
     invalid_subgroup_total: Counter = Counter()
-    for item in work:
-        row = item.row
-        spec = item.spec
-        images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
-        packed = _build_inputs(
-            bundle,
-            images=images,
-            history_rgb_mode=history_rgb_mode,
-            prompt_variant=prompt_variant,
-            target=build_action_target(spec),
-            spec=spec,
-            max_length=int(max_length),
-            format_loss_weight=float(format_loss_weight),
-        )
-        if packed is None:
-            skipped += 1
-            continue
-        loss, stats = _loss_one(bundle, packed, spec)
+    # DDP wrappers may broadcast buffers during forward. Validation shard
+    # lengths differ, so use the underlying model and reduce metrics explicitly.
+    from types import SimpleNamespace
+    raw_bundle=SimpleNamespace(model=bundle.model.module if hasattr(bundle.model,'module') else bundle.model,
+        tokenizer=bundle.tokenizer,device=bundle.device,reuse_frozen_rgb=getattr(bundle,'reuse_frozen_rgb',False))
+    def losses():
+        nonlocal skipped
+        for start in range(0,len(work),batch_size):
+            selected=[];packed_rows=[]
+            for item in work[start:start+batch_size]:
+                images=_load_images(select_history_rgb_paths(item.row.history_rgb_paths,history_rgb_mode))
+                packed=_build_inputs(bundle,images=images,history_rgb_mode=history_rgb_mode,
+                    prompt_variant=prompt_variant,target=build_action_target(item.spec),spec=item.spec,
+                    max_length=int(max_length),format_loss_weight=float(format_loss_weight))
+                if packed is None:
+                    skipped+=1
+                    continue
+                selected.append(item);packed_rows.append(packed)
+            if not selected:continue
+            if batch_size==1:
+                loss,stats=_loss_one(raw_bundle,packed_rows[0],selected[0].spec)
+                yield selected[0],loss,stats
+            else:
+                # Preserve per-example loss aggregation, including uneven tails.
+                from qwen3vl_local.sequence_batch import collate
+                rows=[]
+                for packed in packed_rows:
+                    row={key:packed[key].unsqueeze(0) for key in
+                         ('input_ids','attention_mask','labels','loss_weights','component_ids')}
+                    row.update(packed['vision']);rows.append(row)
+                inputs={k:v.to(bundle.device) for k,v in collate(rows,bundle.tokenizer.pad_token_id).items()}
+                labels=inputs.pop('labels');weights=inputs.pop('loss_weights');components=inputs.pop('component_ids')
+                from qwen3vl_local.batch_runtime import frozen_rgb_reuse
+                with frozen_rgb_reuse(raw_bundle.model,enabled=raw_bundle.reuse_frozen_rgb):
+                    logits=raw_bundle.model(**inputs,use_cache=False,return_dict=True).logits
+                for i,item in enumerate(selected):
+                    loss,stats=_loss_from_logits(logits[i:i+1],labels[i:i+1],weights[i:i+1],components[i:i+1],item.spec)
+                    yield item,loss,stats
+    if batch_size<1:raise ValueError('validation batch must be positive')
+    for item,loss,stats in losses():
+        row=item.row;spec=item.spec
         loss_sum += float(loss.detach().item())
         samples += 1
         token_acc_sum += float(stats.get("token_acc", 0.0))
@@ -1067,6 +1092,19 @@ def evaluate_generation_probe(
     invalid_subgroup_counts: Counter = Counter()
     pattern_counts: Counter = Counter()
     records: List[Dict[str, Any]] = []
+    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
+    from qwen3vl_local.batch_runtime import distributed_batches,distributed_identity,encode_messages,greedy_batch
+    generation_rank,generation_world=distributed_identity()
+    generated_all=None
+    if generation_world>1:
+        def generate_group(group):
+            encoded=[encode_messages(runtime,build_action_messages(
+                images=_load_images(select_history_rgb_paths(x.row.history_rgb_paths,history_rgb_mode)),
+                spec=x.spec,audit=False,history_rgb_mode=history_rgb_mode,prompt_variant=prompt_variant)) for x in group]
+            return greedy_batch(runtime,encoded,max_new_tokens=int(max_new_tokens),phase3=True,reuse_rgb=reuse_rgb)
+        generated_all,execution=distributed_batches(work,batch_size,generate_group,
+            identities=[str(case_identity(x)) for x in work])
+        if generation_rank==0:print(f'[generation distributed] {execution}',flush=True)
     for case_index, item in enumerate(work, 1):
         row = item.row
         spec = item.spec
@@ -1080,7 +1118,9 @@ def evaluate_generation_probe(
                 f"route={row.scenario}/{row.route_id} frame={row.frame_id} "
                 f"elapsed={now - started_at:.1f}s", flush=True,
             )
-        if batch_size == 1 and not reuse_rgb:
+        if generated_all is not None:
+            raw=generated_all[case_index-1]
+        elif batch_size == 1 and not reuse_rgb:
             images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
             state = _kv_start_state(runtime, build_action_messages(images=images, spec=spec, audit=False,
                 history_rgb_mode=history_rgb_mode, prompt_variant=prompt_variant))
@@ -1191,6 +1231,8 @@ def evaluate_generation_probe(
     metrics: Dict[str, float] = {
         "samples": samples,
         "sampled_before_dedup": float(sampled_count),
+        "evaluation_world_size": float(generation_world),
+        "generation_batch_size": float(batch_size),
         "same_rs_unique_routes": float(len(same_rs_routes)),
         "format_valid_rate": valid / max(1.0, samples),
         "exact_accuracy": exact / max(1.0, samples),
@@ -1232,7 +1274,7 @@ def evaluate_generation_probe(
     metrics["invalid/line_yes_rate"] = float(pattern_counts.get("invalid_pred_line_yes", 0)) / invalid_total
     metrics["invalid/actions_all_no_rate"] = float(pattern_counts.get("invalid_actions_all_no", 0)) / invalid_total
     metrics["invalid/joint_ok_rate"] = float(pattern_counts.get("invalid_joint_ok", 0)) / invalid_total
-    if record_path is not None:
+    if record_path is not None and generation_rank==0:
         record_path.parent.mkdir(parents=True, exist_ok=True)
         with record_path.open("a", encoding="utf-8") as f:
             for record in records:
@@ -1358,6 +1400,8 @@ def record_final_generation(bundle, work, args, output_dir, step):
         log_every=int(args.generation_eval_log_every),
         batch_size=getattr(args,"generation_eval_batch_size",1), reuse_rgb=getattr(args,"reuse_frozen_rgb",False),
     )
+    from qwen3vl_local.batch_runtime import distributed_identity
+    if distributed_identity()[0]!=0:return metrics
     record = dict(step=int(step), kind="free_generation", split=str(args.eval_split),
                   checkpoint="final", after_accumulation_flush=True, **metrics)
     (output_dir / "final_generation.json").write_text(
@@ -1550,7 +1594,7 @@ def train(args: argparse.Namespace) -> None:
             )
             args.eval_balance_count = loss_audit["effective"]
             args.validation_sampling["loss"] = loss_audit
-            eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size)
+            eval_work = _split_work_for_rank(full_eval_work, rank=rank, world_size=world_size,batch_size=args.batch_size)
             if int(args.generation_eval_steps) > 0 and int(args.generation_eval_balance_count) > 0:
                 stage = "generation"
                 full_generation_eval_work, generation_audit = _validation_work(
@@ -1938,7 +1982,7 @@ def train(args: argparse.Namespace) -> None:
                     max_length=int(args.max_length),
                     format_loss_weight=float(args.format_loss_weight),
                     device=device,
-                    world_size=world_size,
+                    world_size=world_size, batch_size=args.batch_size,
                 )
                 if writer:
                     for key, value in metrics.items():
@@ -1964,7 +2008,7 @@ def train(args: argparse.Namespace) -> None:
                     and int(args.generation_eval_steps) > 0
                     and global_step % int(args.generation_eval_steps) == 0
                 )
-                if run_generation_eval and rank == 0:
+                if run_generation_eval:
                     generation_metrics = evaluate_generation_probe(
                         bundle,
                         full_generation_eval_work,
@@ -1976,28 +2020,29 @@ def train(args: argparse.Namespace) -> None:
                         log_every=int(args.generation_eval_log_every),
                         batch_size=getattr(args,"generation_eval_batch_size",1), reuse_rgb=getattr(args,"reuse_frozen_rgb",False),
                     )
-                    if writer:
-                        for key, value in generation_metrics.items():
-                            writer.add_scalar(f"val_generation/{key}", float(value), global_step)
-                    _append_jsonl(
-                        eval_metrics_path,
-                        {
-                            "step": int(global_step),
-                            "kind": "free_generation",
-                            "split": str(args.eval_split),
-                            **{key: float(value) for key, value in generation_metrics.items()},
-                        },
-                    )
-                    print(
-                        f"[generation-val] step={global_step}/{total_steps} "
-                        f"format_valid={generation_metrics['format_valid_rate']:.4f} "
-                        f"exact={generation_metrics['exact_accuracy']:.4f} "
-                        f"elapsed={generation_metrics['elapsed_seconds']:.1f}s", flush=True,
-                    )
+                    if rank==0:
+                        if writer:
+                            for key, value in generation_metrics.items():
+                                writer.add_scalar(f"val_generation/{key}", float(value), global_step)
+                        _append_jsonl(
+                            eval_metrics_path,
+                            {
+                                "step": int(global_step),
+                                "kind": "free_generation",
+                                "split": str(args.eval_split),
+                                **{key: float(value) for key, value in generation_metrics.items()},
+                            },
+                        )
+                        print(
+                            f"[generation-val] step={global_step}/{total_steps} "
+                            f"format_valid={generation_metrics['format_valid_rate']:.4f} "
+                            f"exact={generation_metrics['exact_accuracy']:.4f} "
+                            f"elapsed={generation_metrics['elapsed_seconds']:.1f}s", flush=True,
+                        )
                 if run_generation_eval and world_size > 1:
                     print(
                         f"[generation-val-sync] rank={rank} step={global_step} "
-                        f"enter barrier; rank0 runs generation, timeout={args.ddp_timeout_seconds}s",
+                        f"enter barrier; all ranks completed generation, timeout={args.ddp_timeout_seconds}s",
                         flush=True,
                     )
                     ddp_barrier(local_rank)
@@ -2166,7 +2211,7 @@ def train(args: argparse.Namespace) -> None:
         if rank == 0 and bool(args.save_final)
         else None
     )
-    if rank == 0 and final_dir is not None and full_generation_eval_work and int(args.generation_eval_steps) > 0:
+    if bool(args.save_final) and full_generation_eval_work and int(args.generation_eval_steps) > 0:
         record_final_generation(bundle, full_generation_eval_work, args, output_dir, global_step)
     if world_size > 1:
         ddp_barrier(local_rank)
@@ -2230,7 +2275,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--device", default="auto")
     p.add_argument("--ddp-timeout-seconds", type=int, default=3600,
-                   help="NCCL collective timeout, including waiting for rank0 generation validation")
+                   help="NCCL collective timeout, including distributed generation validation")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument(
         "--focus-balance-count",
@@ -2287,8 +2332,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-length", type=int, default=8192)
     p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--batch-size",type=int,default=1)
-    p.add_argument("--generation-eval-batch-size",type=int,default=1)
-    p.add_argument("--reuse-frozen-rgb",action="store_true")
+    p.add_argument("--generation-eval-batch-size",type=int,default=2)
+    p.add_argument("--reuse-frozen-rgb",action=argparse.BooleanOptionalAction,default=True)
     p.add_argument("--anchor-stride",type=int,default=None)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--weight-decay", type=float, default=0.0)

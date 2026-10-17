@@ -20,15 +20,16 @@ def inspect_view(view):
               'release_sources_v70_selected_b2_20261016.json',
               'release_sources_v71_sampling_runtime_20261016.json',
               'release_sources_v72_action_exposure_20261017.json',
-              'release_sources_v73_epoch_recovery_20261017.json']
+              'release_sources_v73_epoch_recovery_20261017.json',
+              'release_sources_v74_batch_runtime_20261017.json']
     releases=[json.loads(Path(__file__).with_name(v).read_text())['files'] for v in versions]
     # Only reviewed runtime/sampling edits, no RGB transformation or label edits.
     names={'../../sequence_batch.py','../../sft_new_loop_phase3/sequence_evaluation.py',
            'contract.py','data.py','train.py','run.sh','run_automatic.sh','batch_sampling.py',
-           'evaluate.py','reload_check.py','runtime_data.py','model.py'}
+           'evaluate.py','reload_check.py','runtime_data.py','model.py','../../batch_runtime.py'}
     root=Path('qwen3vl_local/sft_new_loop_phase4/rgb_short')
     for name in names:
-        if name=='runtime_data.py' and name not in normalized.get('sources',{}):continue
+        if name in ('runtime_data.py','../../batch_runtime.py') and name not in normalized.get('sources',{}):continue
         if normalized.get('sources',{}).get(name)==current['sources'][name]:continue
         # Resolve lexical ../ segments without relying on files on disk.
         parts=[]
@@ -52,8 +53,15 @@ def inspect_view(view):
     name='../../batch_runtime.py'
     if name not in normalized.get('sources',{}):
         key='qwen3vl_local/sft_new_loop_phase4/rgb_short/contract.py'
-        if saved.get('sources',{}).get('contract.py') not in {r.get(key) for r in releases}:
+        if saved.get('sources',{}).get('contract.py') not in {r.get(key) for r in releases if 'qwen3vl_local/batch_runtime.py' not in r}:
             raise ValueError('missing batch runtime binding in nonhistorical view')
+        normalized['sources'][name]=current['sources'][name]
+        changes.append(name+' (added)')
+    name='evaluate.sh'
+    if name not in normalized.get('sources',{}):
+        key='qwen3vl_local/sft_new_loop_phase4/rgb_short/contract.py'
+        if saved.get('sources',{}).get('contract.py') not in {r.get(key) for r in releases}:
+            raise ValueError('missing distributed evaluation launcher binding')
         normalized['sources'][name]=current['sources'][name]
         changes.append(name+' (added)')
     if normalized!=current:raise ValueError('view differs beyond reviewed runtime/sampling changes')

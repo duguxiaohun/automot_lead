@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-17 v75用户要求正式全流程四卡与普通默认参数
+
+用户明确要求Phase3/4训练、验证、重载和test全四卡。已选训练B2、P3累积2/P4累积4及sequence采样不变；评估B2/冻结RGB复用改普通默认，无需特殊export。P3 loss改整批分片、按样本聚合；生成val/final由全部rank参与；独立eval整批四卡分片。P4每轮val全rank，新增evaluate.sh四卡reload/test，直接CUDA CLI同样自动启动四卡；CPU准备/明确CPU诊断仍CPU。训练是真DDP梯度同步，推理为四卡独立生成后汇总，不混称推理需要DDP反向。完整batch分片、尾批不重复、成员一致与一次消费检查、某rank推理失败全rank拒绝，rank0单写结果。
+277相关回归16.80秒通过，含真实四CPU/Gloo两epoch Phase4 DDP训练和各rank验证、P3/P4生成、尾批/错误传播及P3 B1/B2非等长loss一致；追加已知v72/v73/v74迁移及缺失绑定拒绝8项3.78秒（与主组有重叠）。实际限时CPU CLI41项5.37秒通过（重叠），不是4B GPU验收。服务器已有v74单H20两模式B2生成/loss/梯度通过，仅收到日志；本轮不冒称四卡新路径已实测。短命令audit_joint/FULL_FOUR_GPU_20261017.md：CPU180秒后GPU四卡240秒，无整库/view/容量矩阵，首错停止。
+本轮147个原生合同/资产/依赖及读取适配SHA未变，Qwen3.5已跟踪后端文件亦逐字与HEAD一致；v69路线缓存保留。v75清单551源；新增evaluate.sh进入学生合同，已知v74运行差异可显式迁移新view，旧checkpoint仍需原版源码续训，不绕过SHA。新tests/test_distributed_evaluation.py按本轮全四卡需求纳入文件白名单；沿持续授权精确发布源码/测试/轻量文档回执，保留.vscode/paper/checkpoints及其它任务。
+
 ### 2026-10-17 v74可选评估batch与冻结视觉复用
 
 承接用户继续完善/push/短测试要求，新增共享batch_runtime和当前P3/P4评估batch路径：左padding、保留成员/顺序/尾批；P3保持原EOS和1.05重复惩罚，pad不入惩罚。冻结Qwen3.5视觉塔可在单次前向按实际预处理像素+grid去重，再展开原图槽；不跨rank/step缓存，视觉可训练/随机层/输入需梯度/多时刻grid/额外输出走原路径。训练已选B2、累积2/4和采样v4不变；新优化显式启用，默认评估B1、复用关，不冒称目标4B已验收或更快。P4 reload/test继承训练配置，多轮恢复预检拒绝开关漂移。
@@ -1819,6 +1825,7 @@ LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANAL
 
 - `AutoMoT/qwen3vl_local/batch_runtime.py`（本轮授权的独立样本评估组批与冻结视觉复用）
 - `AutoMoT/qwen3vl_local/tests/test_batch_runtime.py`（上述功能专项回归；不含测试产物）
+- `AutoMoT/qwen3vl_local/tests/test_distributed_evaluation.py`（本轮四卡分片及真实四进程DDP训练验证专项）
 - `AutoMoT/qwen3vl_local/sequence_batch.py`（本轮授权的Phase3／4共享连续batch采样与组批源码）
 - `AutoMoT/qwen3vl_local/tests/test_sequence_batch.py`（上述源码专项回归；不包含测试缓存/产物）
 - `.vscode/settings.json`（用户授权：排除大数据/产物目录的文件监视；保留源码监视，不隐藏或删除文件）。

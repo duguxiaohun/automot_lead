@@ -26,7 +26,8 @@ def launch(tmp_path,script,env,args=()):
         stub.write_text('#!/usr/bin/env bash\nexec python "$@"\n')
     clean={k:v for k,v in os.environ.items() if k not in (
         'BATCH_SIZE','GRAD_ACCUM','GRADIENT_CHECKPOINTING','HISTORY_RGB_MODE','ANCHOR_STRIDE',
-        'WARMUP_STEPS','EVAL_STEPS','GENERATION_EVAL_STEPS','SAVE_STEPS','PROMPT_VARIANT','PYTHON')}
+        'WARMUP_STEPS','EVAL_STEPS','GENERATION_EVAL_STEPS','SAVE_STEPS','PROMPT_VARIANT','PYTHON',
+        'REUSE_FROZEN_RGB','EVAL_BATCH_SIZE','GENERATION_EVAL_BATCH_SIZE')}
     entry=ROOT/script if '/' in script else ROOT/'audit_joint'/script
     result=subprocess.run(['bash',str(entry),*args],cwd=tmp_path,
         env={**clean,'PATH':str(binary)+os.pathsep+os.environ['PATH'],'CAPTURE':str(capture),'GPU_IDS':'0,1,2,3',**env},
@@ -95,7 +96,7 @@ def test_phase4_formal_entry_keeps_update_samples_when_batch_changes(tmp_path,ba
     assert args[args.index('--batch-size')+1]==batch
     assert args[args.index('--accumulation')+1]==accumulation
     assert any('qwen3vl_local.audit_joint.rule_baseline' in row for row in calls)
-    assert any('qwen3vl_local.sft_new_loop_phase4.rgb_short.evaluate' in row for row in calls)
+    assert any('qwen3vl_local/sft_new_loop_phase4/rgb_short/evaluate.sh' in row and 'evaluate' in row for row in calls)
 
 
 @pytest.mark.parametrize('env',[{'BATCH_SIZE':'3'},{'UPDATE_SAMPLES':'0'},
@@ -115,3 +116,28 @@ def test_phase3_recovery_flags_reach_real_launcher(tmp_path):
     assert '--save-training-state' in args
     for flag,value in [('--resume','old state with spaces'),('--stop-after-epoch','2'),('--num-epochs','3')]:
         assert args[args.index(flag)+1]==value
+
+
+@pytest.mark.parametrize('enabled,flag',[(None,'--reuse-frozen-rgb'),('0','--no-reuse-frozen-rgb')])
+def test_confirmed_runtime_defaults_and_explicit_override(tmp_path,enabled,flag):
+    env={'INDEX':'index.jsonl'}
+    if enabled is not None:
+        env.update(REUSE_FROZEN_RGB=enabled,GENERATION_EVAL_BATCH_SIZE='1')
+    result,calls=launch(tmp_path,'train_phase3_batch.sh',env,['sampling'])
+    assert result.returncode==0,result.stderr
+    args=calls[-1]
+    assert args[args.index('--generation-eval-batch-size')+1]==('2' if enabled is None else '1')
+    assert flag in args
+
+
+@pytest.mark.parametrize('module_name,batch_attr',[
+    ('qwen3vl_local.sft_new_loop_phase3.train','generation_eval_batch_size'),
+    ('qwen3vl_local.sft_new_loop_phase3.eval','batch_size')])
+def test_phase3_python_defaults_and_explicit_disable(monkeypatch,module_name,batch_attr):
+    import importlib
+    module=importlib.import_module(module_name)
+    monkeypatch.setattr(sys,'argv',['entry'])
+    args=module.parse_args()
+    assert getattr(args,batch_attr)==2 and args.reuse_frozen_rgb is True
+    monkeypatch.setattr(sys,'argv',['entry','--no-reuse-frozen-rgb'])
+    assert module.parse_args().reuse_frozen_rgb is False

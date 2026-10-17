@@ -18,7 +18,7 @@ def budget():
 
 def make_checkpoint(tmp_path,mode):
     root=tmp_path/f'old{mode}';p=root/'epoch_000';p.mkdir(parents=True)
-    training=dict(batch_size=2,anchor_stride=2 if mode==2 else 1,accumulation=4,epoch_samples=10240,
+    training=dict(eval_batch_size=2,reuse_frozen_rgb=True,batch_size=2,anchor_stride=2 if mode==2 else 1,accumulation=4,epoch_samples=10240,
         seed=20260929,lr=2e-5,max_length=8192,lora_rank=16,lora_alpha=32,vision_scope='off',cap=8,
         require_complete_coverage=False,sampling_policy='contiguous_event_equal',max_question_repeat=None,
         evaluation=dict(mode='rule_consistency'))

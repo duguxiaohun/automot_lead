@@ -14,14 +14,14 @@ from .model import generate, generate_batch, load_for_inference
 def evaluate_rows(bundle, rows, data_root, max_length=8192, *, batch_size=1, reuse_rgb=False):
     if batch_size < 1:
         raise ValueError('evaluation batch_size must be positive')
+    from qwen3vl_local.batch_runtime import distributed_batches
+    def predict(selected):
+        if batch_size==1 and not reuse_rgb:
+            return [generate(bundle,row,data_root,max_length) for row in selected]
+        return generate_batch(bundle,selected,data_root,max_length,reuse_rgb=reuse_rgb)
+    predictions,execution=distributed_batches(rows,batch_size,predict,identities=[r['id'] for r in rows])
     cases = []
-    pending = []
-    for index, row in enumerate(rows):
-        if index % batch_size == 0:
-            selected = rows[index:index+batch_size]
-            pending = (generate_batch(bundle, selected, data_root, max_length, reuse_rgb=reuse_rgb)
-                       if batch_size > 1 or reuse_rgb else [generate(bundle, row, data_root, max_length)])
-        answer, raw = pending[index % batch_size]
+    for index, (row, (answer, raw)) in enumerate(zip(rows,predictions)):
         original_kind = row.get('student_reference', {}).get('original_reference_kind', row.get('reference_kind', 'reviewed_rgb'))
         cases.append(dict(id=row['id'], target=row['target'], prediction=answer, raw=raw,
                           event=row['episode']['event'], edge=row['edge'], slice=row['slice'],
@@ -37,7 +37,7 @@ def evaluate_rows(bundle, rows, data_root, max_length=8192, *, batch_size=1, reu
                     malformed=metrics['malformed'], confusion=metrics['confusion'])
     reviewed = agreement([row for row in cases if row['original_reference_kind'] != 'rule_teacher'])
     teacher = agreement([row for row in cases if row['original_reference_kind'] == 'rule_teacher'])
-    return dict(generation_batch_size=batch_size, frozen_rgb_reuse_requested=reuse_rgb, count=len(cases), transferred_reviewed_reference=reviewed, teacher_consistency=teacher,
+    return dict(distributed_execution=execution,generation_batch_size=batch_size, frozen_rgb_reuse_requested=reuse_rgb, count=len(cases), transferred_reviewed_reference=reviewed, teacher_consistency=teacher,
                 diagnostics=diagnostic_report(cases),
                 selection_agreement=reviewed['event_macro_agreement_observed'],
                 selection_metric='transferred_reference_event_macro_agreement_v1',
@@ -60,6 +60,9 @@ def main():
     p.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
     p.add_argument('--evaluation-distribution', choices=('equal_events','natural'), default='equal_events')
     a = p.parse_args()
+    from qwen3vl_local.batch_runtime import launch_four_evaluation
+    launch=launch_four_evaluation('qwen3vl_local.sft_new_loop_phase4.rgb_short.evaluate',a.device)
+    if launch is not None:raise SystemExit(launch)
     if a.batch_size is not None and a.batch_size < 1:
         p.error("batch-size must be positive")
     import json
@@ -72,11 +75,15 @@ def main():
     if a.output_dir.exists():
         raise FileExistsError(a.output_dir)
     device = a.device
-    if device == 'cuda':
+    import os
+    from qwen3vl_local.batch_runtime import initialize_evaluation,distributed_identity
+    if device == 'cuda' and int(os.environ.get('WORLD_SIZE','1'))==1:
         import os
         from ..devices import select_gpus
         os.environ['CUDA_VISIBLE_DEVICES'] = select_gpus(1)
         device = 'cuda:0'
+    device=initialize_evaluation(device)
+    rank,world=distributed_identity()
     bundle = load_for_inference(a.model_dir, a.adapter, device)
     metrics, cases = evaluate_rows(bundle, data[a.split], a.data_root, a.max_length,
         batch_size=a.batch_size if a.batch_size is not None else record['training'].get('eval_batch_size',1),
@@ -89,10 +96,15 @@ def main():
     metrics['evaluation_distribution'] = a.evaluation_distribution
     metrics['evaluation_scope'] = selection['training_admission']['evaluation_scope']
     metrics.update(split=a.split, dataset=digest(manifest), expected_count=len(data[a.split]))
+    if rank!=0:
+        return
     a.output_dir.mkdir(parents=True, exist_ok=False)
     write_json(a.output_dir / 'metrics.json', metrics)
     dump_rows(a.output_dir / 'cases.jsonl', cases)
 
 
 if __name__ == '__main__':
-    main()
+    try:main()
+    finally:
+        import torch.distributed as dist
+        if dist.is_initialized():dist.destroy_process_group()

@@ -7,7 +7,7 @@ from qwen3vl_local.audit_joint import phase4_view_upgrade as upgrade
 from qwen3vl_local.sft_new_loop_phase4.rgb_short.contract import contract,POLICY
 
 
-@pytest.mark.parametrize('release',['v61_batch_audit_20261015','v70_selected_b2_20261016','v71_sampling_runtime_20261016'])
+@pytest.mark.parametrize('release',['v61_batch_audit_20261015','v70_selected_b2_20261016','v71_sampling_runtime_20261016','v72_action_exposure_20261017','v73_epoch_recovery_20261017','v74_batch_runtime_20261017'])
 def test_known_old_view_sources_allowed_but_unknown_or_semantic_drift_refused(tmp_path,release):
     old=json.loads(Path(upgrade.__file__).with_name('release_sources_'+release+'.json').read_text())['files']
     saved=contract();prefix='qwen3vl_local/sft_new_loop_phase4/rgb_short/'
@@ -25,7 +25,13 @@ def test_known_old_view_sources_allowed_but_unknown_or_semantic_drift_refused(tm
     path=tmp_path/'student_view.json';path.write_text(json.dumps(descriptor))
     _,current,changes=upgrade.inspect_view(tmp_path)
     assert current==contract()
-    assert ('runtime_data.py' if release.startswith('v71') else 'runtime_data.py (added)') in changes
+    assert 'evaluate.sh (added)' in changes
+    if release.startswith(('v61','v70','v71')):
+        assert ('runtime_data.py' if release.startswith('v71') else 'runtime_data.py (added)') in changes
+    if release.startswith('v74'):
+        bad=deepcopy(descriptor);del bad['source']['sources']['../../batch_runtime.py']
+        path.write_text(json.dumps(bad))
+        with pytest.raises(ValueError,match='missing batch runtime binding'):upgrade.inspect_view(tmp_path)
     for name in ('data.py','model.py','runtime_data.py'):
         bad=deepcopy(descriptor);bad['source']['sources'][name]='unknown'
         path.write_text(json.dumps(bad))

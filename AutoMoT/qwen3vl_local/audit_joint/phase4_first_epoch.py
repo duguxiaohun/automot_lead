@@ -16,7 +16,7 @@ from .server_readiness import source_check
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v74_batch_runtime_20261017.json')
+RELEASE = Path(__file__).with_name('release_sources_v75_four_gpu_20261017.json')
 
 
 class Interrupted(BaseException):
@@ -74,6 +74,9 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                4: batch_size if batch_size_rgb4 is None else batch_size_rgb4}
     if any(type(value) is not int or value not in (1, 2, 4, 8) for value in (batch_size, *batches.values())):
         raise ValueError('four-card first epoch supports per-rank batch 1, 2, 4 or 8')
+    eval_batch=int(os.environ.get('EVAL_BATCH_SIZE','2'))
+    reuse=os.environ.get('REUSE_FROZEN_RGB','1')
+    if eval_batch<1 or reuse not in ('0','1'):raise ValueError('invalid evaluation runtime parameters')
     gpus = os.environ.get('GPU_IDS', '') if gpus is None else gpus
     cards = gpus.split(',') if gpus else []
     if gpus and (len(cards) != 4 or len(set(cards)) != 4 or any(not c.isdigit() for c in cards)):
@@ -88,6 +91,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                  update_samples=32, accumulation=8//batches[2] if batches[2] == batches[4] else None,
                  mode_configuration={str(mode): dict(batch_size=size, accumulation=8//size, update_samples=32)
                                      for mode, size in batches.items()},
+                 evaluation_configuration=dict(world_size=4,batch_size=eval_batch,reuse_frozen_rgb=reuse=='1'),
                  training_accepted=False, unsupported_capabilities=['U-E5/proceed/YES'])
     receipt = output/'workflow.json'
     code = 2

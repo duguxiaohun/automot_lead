@@ -1,0 +1,41 @@
+{
+  "release": "v75_four_gpu_20261017",
+  "source_count": 551,
+  "tests": {
+    "related": {
+      "passed": 277,
+      "seconds": 16.8
+    },
+    "migration_additional": {
+      "passed": 8,
+      "seconds": 3.78,
+      "overlaps": true
+    },
+    "bounded_cpu_cli": {
+      "passed": 41,
+      "seconds": 5.37,
+      "returncode": 0,
+      "overlaps": true
+    }
+  },
+  "frozen_contract_adapter_files": 147,
+  "unchanged_backend_tracked_files": 23,
+  "target_4b_four_gpu_executed": false,
+  "received_v74_gpu": {
+    "scope": "user supplied single H20-3e repeated example B2 two modes",
+    "generation_equal": true,
+    "gradient_relative_error_rgb2": 0.01095938,
+    "gradient_relative_error_rgb4": 0.007620013
+  },
+  "defaults": {
+    "evaluation_batch": 2,
+    "reuse_frozen_rgb": true
+  },
+  "formal_model_world_size": 4,
+  "training": {
+    "batch_per_card": 2,
+    "phase3_accumulation": 2,
+    "phase4_accumulation": 4
+  },
+  "boundary": "CPU preparation remains CPU; inference uses four-rank sharding without gradient synchronization; old checkpoints remain bound to original sources; no full-pool or quality/speed claim"
+}

@@ -12,6 +12,7 @@ from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 CPU_TESTS = (
     'qwen3vl_local/tests/test_batch_runtime.py',
+    'qwen3vl_local/tests/test_distributed_evaluation.py',
     'qwen3vl_local/audit_joint/tests/test_batch_runtime_check.py',
     'qwen3vl_local/sft_new_loop_phase3/test_training_state.py',
     'qwen3vl_local/audit_joint/tests/test_phase4_training.py',
@@ -24,11 +25,15 @@ def gpu_worker(a):
     from .phase4_gpu_smoke import example
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.model import load_bundle, encode_batch, generate, generate_batch
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.contract import observation_contract
-    from qwen3vl_local.batch_runtime import frozen_rgb_reuse
+    from qwen3vl_local.batch_runtime import frozen_rgb_reuse,initialize_evaluation,distributed_identity,distributed_batches
     torch.manual_seed(20261017)
-    device=torch.device('cuda:0');torch.cuda.set_device(device)
-    progress('4B load START; one GPU; no full-pool read')
+    import torch.distributed as dist
+    device=torch.device(initialize_evaluation('cuda'))
+    rank,world=distributed_identity()
+    if world!=4:raise ValueError('GPU correctness check requires four ranks')
+    progress(f'rank={rank} 4B load START; four GPUs; no full-pool read')
     bundle=load_bundle(a.model_dir,device,dropout=0.,vision_scope='off',checkpointing=True)
+    bundle.model=torch.nn.parallel.DistributedDataParallel(bundle.model,device_ids=[device.index],find_unused_parameters=False)
     reports=[]
     for mode in (2,4):
         progress(f'RGB={mode} input/generation check START')
@@ -37,7 +42,12 @@ def gpu_worker(a):
         bundle.model.eval()
         expected=generate(bundle,row,a.data_root)
         plain=generate_batch(bundle,[row,row],a.data_root)
-        reused=generate_batch(bundle,[row,row],a.data_root,reuse_rgb=True)
+        all_reused,execution=distributed_batches(list(range(8)),2,
+            lambda slots:generate_batch(bundle,[row]*len(slots),a.data_root,reuse_rgb=True),
+            identities=[f'diagnostic-slot-{i}' for i in range(8)])
+        if all_reused!=[expected]*8 or execution['per_rank_counts']!=[2]*4:
+            raise ValueError('distributed generation consumption/output mismatch')
+        reused=all_reused[rank*2:rank*2+2]
         if plain != [expected,expected] or reused != plain:
             raise ValueError(f'RGB{mode} generation mismatch: single={expected!r}, batch={plain!r}, reuse={reused!r}')
         progress(f'RGB={mode} B2 baseline/reuse gradient check START')
@@ -66,12 +76,16 @@ def gpu_worker(a):
         if stats['reused_images']<mode:raise ValueError(f'expected duplicate images were not reused: {stats}')
         bundle.model.zero_grad(set_to_none=True)
         reports.append(dict(rgb_mode=mode,example_id=row['id'],prompt_sha256=row['prompt_sha256'],
-            generation=plain,loss=float(actual.detach()),
+            distributed_generation=execution,generation=plain,loss=float(actual.detach()),
             baseline_loss=float(baseline.detach()),max_gradient_relative_error=max_relative,visual_reuse=stats))
         progress(f'RGB={mode} correctness PASSED')
-    write_json(a.output/'result.json',dict(status='correctness_passed',modes=reports,
-        gpu=torch.cuda.get_device_name(0),scope='one GPU, repeated single real example, dropout zero; not quality, DDP, full-pool or speed acceptance',
-        full_pool_admitted=False))
+    result=dict(rank=rank,world_size=world,modes=reports,gpu=torch.cuda.get_device_name(device))
+    ranks=[None]*world;dist.all_gather_object(ranks,result)
+    if rank==0:
+        write_json(a.output/'result.json',dict(status='correctness_passed',world_size=world,modes=reports,ranks=ranks,
+            scope='four-rank DDP backward and distributed generation; repeated single real example, dropout zero; not full-pool, quality or speed acceptance',
+            full_pool_admitted=False))
+    dist.destroy_process_group()
 
 
 def main():
@@ -100,8 +114,10 @@ def main():
         for path in (a.native/'train.jsonl',a.model_dir/'config.json'):
             if not path.is_file():p.error(f'missing input: {path}')
         from qwen3vl_local.sft_new_loop_phase4.devices import select_gpus
-        env['CUDA_VISIBLE_DEVICES']=select_gpus(1)
-        cmd=[sys.executable,'-u','-m','qwen3vl_local.audit_joint.batch_runtime_check',
+        env['CUDA_VISIBLE_DEVICES']=select_gpus(4)
+        if len(env['CUDA_VISIBLE_DEVICES'].split(','))!=4:p.error('four visible GPUs required')
+        cmd=[sys.executable,'-u','-m','torch.distributed.run','--standalone','--nproc_per_node=4',
+             '-m','qwen3vl_local.audit_joint.batch_runtime_check',
              '--worker','--check','gpu','--native',str(a.native),'--model-dir',str(a.model_dir),
              '--data-root',str(a.data_root),'--output',str(a.output)]
     else:
@@ -115,7 +131,10 @@ def main():
     if completed and a.check=='gpu':
         try:
             measured=json.loads(result.read_text())
-            completed=measured['status']=='correctness_passed' and [r['rgb_mode'] for r in measured['modes']]==[2,4]
+            completed=(measured['status']=='correctness_passed' and measured['world_size']==4
+                and [r['rgb_mode'] for r in measured['modes']]==[2,4]
+                and [r['rank'] for r in measured['ranks']]==list(range(4))
+                and all(r['world_size']==4 and [m['rgb_mode'] for m in r['modes']]==[2,4] for r in measured['ranks']))
         except (OSError,ValueError,KeyError,TypeError):
             completed=False
     exit_code=0 if completed else code or 2

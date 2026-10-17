@@ -118,3 +118,33 @@ def test_generation_progress_preserves_dedup_scores_and_mode(monkeypatch, capsys
     assert "unique_cases=1" in output
     assert "route=synthetic/route frame=1" in output
     assert "done=1/1" in output
+
+
+def test_validation_batch_preserves_per_sample_metrics_and_uneven_tail(monkeypatch):
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__();self.emb=torch.nn.Embedding(11,11);self.batch_sizes=[]
+        def forward(self,input_ids,**kw):
+            self.batch_sizes.append(len(input_ids))
+            return SimpleNamespace(logits=self.emb(input_ids))
+    model=Model()
+    bundle=SimpleNamespace(model=model,device='cpu',tokenizer=SimpleNamespace(pad_token_id=0))
+    specs=[SimpleNamespace(target_output_keys=['ACTION'],action_output_mode='choice',index=i) for i in range(3)]
+    items=[SimpleNamespace(spec=s,row=SimpleNamespace(history_rgb_paths=['unused']*4,answers={})) for s in specs]
+    packed=[]
+    for ids in ([1,2,3],[4,5,6,7],[3,4,5,6,7]):
+        x=torch.tensor(ids)
+        packed.append(dict(input_ids=x,attention_mask=torch.ones_like(x),labels=x,
+            loss_weights=torch.tensor([0.]*(len(x)-2)+[1.,.25]),
+            component_ids=torch.tensor([0]*(len(x)-2)+[1,-1]),vision={}))
+    monkeypatch.setattr(train,'_load_images',lambda paths:[])
+    monkeypatch.setattr(train,'build_action_target',lambda spec:'test')
+    monkeypatch.setattr(train,'_build_inputs',lambda bundle,**kw:packed[kw['spec'].index])
+    results=[]
+    for batch in (1,2):
+        model.batch_sizes=[]
+        results.append(train.evaluate_loss(bundle,items,history_rgb_mode='4rgb',max_length=32,
+            format_loss_weight=.25,device=torch.device('cpu'),world_size=1,batch_size=batch))
+        assert model.batch_sizes==([1,1,1] if batch==1 else [2,1])
+        assert model.training
+    assert results[0]==pytest.approx(results[1])

@@ -141,6 +141,9 @@ def _maybe_set_idle_gpu_mask() -> None:
 
 # Importing CPU sampling helpers must not select GPUs or wait for torchrun peers.
 if __name__ == "__main__":
+    from qwen3vl_local.batch_runtime import launch_four_evaluation
+    launch=launch_four_evaluation('qwen3vl_local.sft_new_loop_phase3.eval',_cli_value('--device') or 'auto')
+    if launch is not None:raise SystemExit(launch)
     _maybe_set_idle_gpu_mask()
 
 import torch
@@ -978,7 +981,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         raise ValueError(
             f"frozen eval case count mismatch: sampled={len(cases)} expected={int(args.expected_total_cases)}"
         )
-    local_cases = cases[rank::world_size]
+    from qwen3vl_local.batch_runtime import batch_indices
+    local_indices=[i for group in batch_indices(len(cases),getattr(args,'batch_size',2),rank,world_size) for i in group]
+    local_cases = [cases[i] for i in local_indices]
     device = (
         torch.device(f"cuda:{local_rank}")
         if world_size > 1
@@ -1012,7 +1017,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         for local_idx, item in enumerate(local_cases):
             row = item.row
             spec = item.spec
-            case_idx = rank + local_idx * max(1, world_size)
+            case_idx = local_indices[local_idx]
             used_history_rgb_paths = select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode)
             rgb_sha256 = [hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
                           for p in used_history_rgb_paths]
@@ -1183,6 +1188,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "pattern_counts": dict(pattern_counts),
         "invalid_subgroup_counts": dict(invalid_subgroup_counts),
         "case_path": str(case_path),
+        "consumed_indices": local_indices,
     }
     gathered: List[Any] = [local_payload]
     if world_size > 1:
@@ -1192,6 +1198,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         cleanup_distributed()
         return {}
 
+    consumed=[i for item in gathered for i in item['consumed_indices']]
+    if sorted(consumed)!=list(range(len(cases))):
+        raise ValueError('distributed evaluation omitted or repeated cases')
     total = sum(int(item.get("total", 0)) for item in gathered)
     exact = sum(int(item.get("exact", 0)) for item in gathered)
     strict_format_valid = sum(int(item.get("strict_format_valid", 0)) for item in gathered)
@@ -1257,6 +1266,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "history_rgb_mode": history_rgb_mode,
         "history_rgb_mode_source": history_rgb_mode_source,
         "generation_batch_size": getattr(args,"batch_size",1),
+        "distributed_execution": {"world_size":world_size,"per_rank_counts":[len(item["consumed_indices"]) for item in gathered],
+                                  "consumed_once":True,"partition":"consecutive_batches_round_robin"},
         "frozen_rgb_reuse_requested": getattr(args,"reuse_frozen_rgb",False),
         "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
         "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
@@ -1466,8 +1477,8 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="require the evaluated split's INVALID rows to cover R1-R5 and every mismatched context; disable only for smoke subsets",
     )
-    p.add_argument("--batch-size", type=int, default=1)
-    p.add_argument("--reuse-frozen-rgb", action="store_true")
+    p.add_argument("--batch-size", type=int, default=2)
+    p.add_argument("--reuse-frozen-rgb", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--max-new-tokens", type=int, default=256)
     p.add_argument("--prompt-variant", choices=("auto", *PROMPT_VARIANTS), default="auto")
     p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=False)

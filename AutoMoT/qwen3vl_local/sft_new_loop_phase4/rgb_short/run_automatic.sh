@@ -37,7 +37,7 @@ bash qwen3vl_local/sft_new_loop_phase4/rgb_short/run.sh \
 P4_AUTO_RUN="$OUTPUT_DIR/run_${RUN_TAG}_rgb${RGB_MODE:-2}"
 # Use this invocation's checkpoint, never a mutable latest link from another run.
 bash qwen3vl_local/audit_joint/run_guarded.sh --space-path "$OUTPUT_DIR" --min-free-gib 20 -- \
-  "$P4_AUTO_PYTHON" -m qwen3vl_local.sft_new_loop_phase4.rgb_short.evaluate \
+  bash qwen3vl_local/sft_new_loop_phase4/rgb_short/evaluate.sh evaluate \
   --dataset "$DATASET" --data-root "${DATA_ROOT:-lead_data}" \
   --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" \
   --adapter "$P4_AUTO_RUN/epoch_000" --rgb-mode "${RGB_MODE:-2}" \

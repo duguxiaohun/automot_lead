@@ -89,6 +89,8 @@ def test_cpu_training_writes_actual_steps_order_runtime_and_checkpoint(tmp_path,
     monkeypatch.setattr(sys,'argv',['train','--dataset',str(tmp_path),'--output-dir',str(output),
         '--epochs','1','--accumulation','2','--sampling-policy','legacy_ring'])
     train.main()
+    config=json.loads((output/'run.json').read_text())['training']
+    assert config['eval_batch_size']==2 and config['reuse_frozen_rgb'] is True
     steps=[json.loads(s) for s in (output/'epoch_000_rank0_steps.jsonl').read_text().splitlines()]
     assert [r['ids'] for r in steps]==[['first'],['second'],['first']]
     assert [r['optimizer_steps'] for r in steps]==[0,1,2]

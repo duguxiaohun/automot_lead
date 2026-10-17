@@ -134,3 +134,97 @@ def encode_messages(bundle, messages):
     text = bundle.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     row = bundle.processor(text=[text], images=images, return_tensors='pt', padding=True)
     return {k:v.to(bundle.device) for k,v in row.items()}
+
+
+def distributed_identity():
+    import torch.distributed as dist
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank(), dist.get_world_size()
+    return 0, 1
+
+
+def batch_indices(count, batch_size, rank, world):
+    if min(batch_size, world) < 1 or not 0 <= rank < world:
+        raise ValueError('invalid distributed batch geometry')
+    return [list(range(start, min(start+batch_size, count)))
+            for start in range(0, count, batch_size) if (start//batch_size) % world == rank]
+
+
+def distributed_batches(rows, batch_size, generate, *, identities):
+    """Whole consecutive batches per rank; no padding/repetition of eval cases.
+
+    All ranks participate, including ranks with no cases. Only predictions and
+    failure receipts are gathered; model forward never calls DDP collectives.
+    """
+    import hashlib
+    import json
+    import torch.distributed as dist
+    rank, world = distributed_identity()
+    invalid = len(identities) != len(rows) or len(set(identities)) != len(rows)
+    signature = hashlib.sha256(json.dumps([identities,batch_size],ensure_ascii=False).encode()).hexdigest()
+    if world > 1:
+        signatures = [None]*world
+        dist.all_gather_object(signatures,(invalid,signature))
+        if any(value[0] for value in signatures):
+            raise ValueError('evaluation identities must be unique and complete on every rank')
+        if len(set(signatures)) != 1:
+            raise ValueError('evaluation membership/order/batch differs across ranks')
+    if invalid:raise ValueError('evaluation identities must be unique and complete')
+    outputs=[];error=None
+    try:
+        for indices in batch_indices(len(rows),batch_size,rank,world):
+            values=generate([rows[i] for i in indices])
+            if len(values)!=len(indices):raise ValueError('generation output count mismatch')
+            outputs.extend(zip(indices,values))
+    except Exception as exc:
+        error=f'{type(exc).__name__}: {exc}'
+    receipt=dict(rank=rank,outputs=outputs,error=error)
+    ranks=[receipt]
+    if world>1:
+        ranks=[None]*world;dist.all_gather_object(ranks,receipt)
+    failures=[f"rank {r['rank']}: {r['error']}" for r in ranks if r['error']]
+    if failures:raise RuntimeError('distributed evaluation failed: '+'; '.join(failures))
+    flat=[pair for r in ranks for pair in r['outputs']]
+    if sorted(i for i,_ in flat)!=list(range(len(rows))):
+        raise ValueError('evaluation consumption missing or duplicated')
+    ordered=[v for _,v in sorted(flat,key=lambda p:p[0])]
+    audit=dict(world_size=world,batch_per_rank=batch_size,selected_count=len(rows),
+               per_rank_counts=[len(r['outputs']) for r in ranks],ordered_membership_sha256=signature,
+               consumed_once=True,partition='consecutive_batches_round_robin')
+    return ordered,audit
+
+
+def initialize_evaluation(device):
+    """Respect launcher mask; never reselect physical GPUs inside torchrun."""
+    import os
+    from datetime import timedelta
+    import torch
+    import torch.distributed as dist
+    world=int(os.environ.get('WORLD_SIZE','1'))
+    if world>1:
+        if device=='cuda':
+            local=int(os.environ['LOCAL_RANK']);torch.cuda.set_device(local)
+            device=f'cuda:{local}'
+        if not dist.is_initialized():
+            dist.init_process_group('nccl' if device.startswith('cuda') else 'gloo',
+                                    timeout=timedelta(seconds=600))
+    return device
+
+
+def launch_four_evaluation(module, device):
+    """Direct CUDA CLI calls join the same four-card path as shell launchers."""
+    import os
+    import subprocess
+    import sys
+    if device=='cpu':return None  # Explicit CPU diagnostics remain possible.
+    world=int(os.environ.get('WORLD_SIZE','1'))
+    if world==4:return None
+    if world!=1 or 'LOCAL_RANK' in os.environ:
+        raise ValueError('formal CUDA evaluation requires exactly four ranks')
+    if device not in ('auto','cuda',''):
+        raise ValueError('use GPU_IDS with four cards, not a single CUDA device')
+    from .sft_new_loop_phase4.devices import select_gpus
+    cards=select_gpus(4)
+    if len(cards.split(','))!=4:raise ValueError('four visible idle GPUs or four explicit GPU_IDS required')
+    command=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=4','-m',module,*sys.argv[1:]]
+    return subprocess.run(command,env=dict(os.environ,CUDA_VISIBLE_DEVICES=cards,GPU_IDS=cards)).returncode

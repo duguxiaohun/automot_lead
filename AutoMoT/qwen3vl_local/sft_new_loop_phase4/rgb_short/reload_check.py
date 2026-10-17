@@ -72,11 +72,14 @@ def run_check(a, output, report, stage):
     report.update(expected_cases_sha256=file_sha(expected_path), expected_count=len(expected))
     stage('device_selection')
     device = a.device
-    if device == 'cuda':
+    if device == 'cuda' and int(os.environ.get('WORLD_SIZE','1'))==1:
         from ..devices import select_gpus
         os.environ['CUDA_VISIBLE_DEVICES'] = select_gpus(1)
         device = 'cuda:0'
-    report['device'] = device
+    from qwen3vl_local.batch_runtime import initialize_evaluation,distributed_identity
+    device=initialize_evaluation(device)
+    rank,world=distributed_identity()
+    report.update(device=device,world_size=world)
     stage('model_load')
     bundle = load_for_inference(a.model_dir, folder, device)
     stage('validation')
@@ -86,11 +89,11 @@ def run_check(a, output, report, stage):
         from .evaluation_policy import score_cases
         metrics.update(score_cases(cases, run['training']['evaluation']['mode'], run['training']['evaluation']['plans']['val']['selected_ids']))
     stage('comparison')
-    dump_rows(output / 'cases.jsonl', cases)
-    actual, _ = load(output / 'cases.jsonl')
+    actual={row['id']:row for row in cases}
+    if rank==0:dump_rows(output / 'cases.jsonl', cases)
     comparison = compare_cases(expected, actual)
     stage('metrics_write')
-    write_json(output / 'metrics.json', metrics)
+    if rank==0:write_json(output / 'metrics.json', metrics)
     report.update(comparison, stage='complete')
 
 
@@ -101,9 +104,13 @@ def main():
     p.add_argument('--output', type=Path, help='Default: RUN/reload_check; existing reports are preserved')
     p.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
     a = p.parse_args()
+    from qwen3vl_local.batch_runtime import launch_four_evaluation
+    launch=launch_four_evaluation('qwen3vl_local.sft_new_loop_phase4.rgb_short.reload_check',a.device)
+    if launch is not None:raise SystemExit(launch)
     output = a.output or a.run / 'reload_check'
     # Reserve the destination before validation; never overwrite a prior attempt.
-    output.mkdir(parents=True, exist_ok=False)
+    rank=int(os.environ.get('RANK','0'))
+    if rank==0:output.mkdir(parents=True, exist_ok=False)
     started = time.perf_counter()
     report = dict(status='in_progress', stage='initializing', run=str(a.run),
                   dataset_path=str(a.dataset), model_dir=str(a.model_dir),
@@ -113,7 +120,7 @@ def main():
 
     def save():
         report['elapsed_seconds'] = time.perf_counter() - started
-        write_json(output / 'checkpoint_reload.json', report)
+        if rank==0:write_json(output / 'checkpoint_reload.json', report)
 
     def stage(name):
         report['stage'] = name
@@ -134,4 +141,7 @@ def main():
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    try:raise SystemExit(main())
+    finally:
+        import torch.distributed as dist
+        if dist.is_initialized():dist.destroy_process_group()

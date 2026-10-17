@@ -292,10 +292,10 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     monkeypatch.setattr(evaluate, 'load_dataset', lambda *args, **kwargs: (fixture, manifest))
     calls = []
     def select(n):
-        assert n == 1 and os.environ['CUDA_VISIBLE_DEVICES'] == 'old_mask'
-        assert os.environ['GPU_IDS'] == '2'
-        return '2'
-    monkeypatch.setenv('GPU_IDS', '2')
+        assert n == 4 and os.environ['CUDA_VISIBLE_DEVICES'] == 'old_mask'
+        assert os.environ['GPU_IDS'] == '0,1,2,3'
+        return '0,1,2,3'
+    monkeypatch.setenv('GPU_IDS', '0,1,2,3')
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', 'old_mask')
     monkeypatch.setattr(devices, 'select_gpus', select)
     monkeypatch.setattr(evaluate, 'load_for_inference', lambda model, adapter, selected: calls.append((selected, os.environ['CUDA_VISIBLE_DEVICES'])))
@@ -303,20 +303,34 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     output = tmp_path / 'results'
     monkeypatch.setattr(sys, 'argv', ['evaluate', '--dataset', str(tmp_path), '--model-dir', str(tmp_path),
         '--adapter', str(adapter), '--data-root', str(tmp_path), '--output-dir', str(output), '--device', device])
+    if device=='cuda':
+        import subprocess
+        from types import SimpleNamespace
+        launches=[]
+        monkeypatch.setattr(subprocess,'run',lambda cmd,**kw:(launches.append((cmd,kw)) or SimpleNamespace(returncode=0)))
+        with pytest.raises(SystemExit) as exc:evaluate.main()
+        assert exc.value.code==0 and '--nproc_per_node=4' in launches[0][0]
+        assert launches[0][1]['env']['CUDA_VISIBLE_DEVICES']=='0,1,2,3'
+        assert not calls and not output.exists()
+        return
     evaluate.main()
-    assert calls == ([('cuda:0', '2')] if device == 'cuda' else [('cpu', 'old_mask')])
+    assert calls == [('cpu', 'old_mask')]
     assert json.loads((output / 'metrics.json').read_text())['expected_count'] == 20
     assert len((output / 'cases.jsonl').read_text().splitlines()) == 20
 
 
+@pytest.mark.parametrize('enabled', [None, '0'])
 @pytest.mark.parametrize('exit_code,reload_exit', [(0, 0), (9, 0), (0, 7)])
-def test_four_gpu_launcher_passes_selection_and_preserves_failure(tmp_path, exit_code, reload_exit):
+def test_four_gpu_launcher_passes_selection_and_preserves_failure(tmp_path, exit_code, reload_exit, enabled):
     import os
     import subprocess
     import sys
     launcher = ROOT / 'rgb_short' / 'run.sh'
     guard = tmp_path / 'qwen3vl_local' / 'audit_joint' / 'run_guarded.sh'
     guard.parent.mkdir(parents=True)
+    eval_launcher=tmp_path/'qwen3vl_local/sft_new_loop_phase4/rgb_short/evaluate.sh'
+    eval_launcher.parent.mkdir(parents=True)
+    eval_launcher.write_text((ROOT/'rgb_short/evaluate.sh').read_text())
     guard.write_text('''#!/usr/bin/env bash
 set -eu
 [[ "$1" == --space-path && "$3" == --min-free-gib && "$4" == 20 && "$5" == -- ]]
@@ -330,7 +344,8 @@ if sys.argv[1] == '-c':
     assert os.environ['GPU_IDS'] == '1,3,5,7'
     print('1,3,5,7')
 elif 'qwen3vl_local.sft_new_loop_phase4.rgb_short.reload_check' in sys.argv:
-    assert os.environ['GPU_IDS'] == '1'
+    assert os.environ['GPU_IDS'] == '1,3,5,7'
+    assert '--nproc_per_node=4' in sys.argv
     pathlib.Path(os.environ['RELOAD_RECORD']).write_text(json.dumps(sys.argv[1:]))
     raise SystemExit(int(os.environ['RELOAD_EXIT']))
 elif 'qwen3vl_local.sft_new_loop_phase4.rgb_short.runtime_data' in sys.argv:
@@ -352,6 +367,9 @@ else:
         MODEL_DIR='/model', OUTPUT_DIR=str(output), RGB_MODE='2', RUN_TAG='smoke',
         CALL_RECORD=str(record), TRAIN_EXIT=str(exit_code), RELOAD_EXIT=str(reload_exit),
         RELOAD_RECORD=str(tmp_path / 'reload.json'))
+    env.pop('REUSE_FROZEN_RGB',None)
+    env.pop('EVAL_BATCH_SIZE',None)
+    if enabled is not None:env['REUSE_FROZEN_RGB']=enabled
     result = subprocess.run(['bash', str(launcher), '--epochs', '1', '--epoch-samples', '40'],
         cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode == (exit_code or reload_exit), result.stderr
@@ -360,7 +378,7 @@ else:
     assert call['argv'] == ['-m', 'torch.distributed.run', '--standalone', '--nproc_per_node=4',
         '-m', 'qwen3vl_local.sft_new_loop_phase4.rgb_short.train', '--dataset', '/data/view',
         '--data-root', '/rgb', '--model-dir', '/model', '--output-dir', str(output / 'run_smoke_rgb2'),
-        '--rgb-mode', '2', '--batch-size', '1', '--eval-batch-size', '1', '--epochs', '1', '--epoch-samples', '40']
+        '--rgb-mode', '2', '--batch-size', '1', '--eval-batch-size', '2', '--no-reuse-frozen-rgb' if enabled=='0' else '--reuse-frozen-rgb', '--epochs', '1', '--epoch-samples', '40']
     assert (output / 'latest').is_symlink()
     assert os.readlink(output / 'latest') == ('run_smoke_rgb2' if exit_code == 0 and reload_exit == 0 else 'previous_success')
     assert (tmp_path / 'reload.json').exists() == (exit_code == 0)
