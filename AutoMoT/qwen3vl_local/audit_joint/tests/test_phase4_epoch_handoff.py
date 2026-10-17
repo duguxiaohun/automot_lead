@@ -109,6 +109,42 @@ def test_projection_applies_only_to_metadata(tmp_path):
     assert data['rgb2/projected/run.json']['train_ids']['count'] == 20001
 
 
+def test_upgrade_crash_preserves_nested_diagnostics_without_training(tmp_path):
+    (tmp_path/'workflow.json').write_text(json.dumps(dict(
+        status='failed', stage='view_upgrade', command_exit_code=139,
+        stages=[dict(stage='view_upgrade', status='failed', exit_code=139)])))
+    (tmp_path/'view_upgrade.log').write_text('upgrade launcher exited 139\n')
+    upgrade = tmp_path/'view_upgrade'
+    upgrade.mkdir()
+    (upgrade/'load.log').write_text('x'*70000+'\nFatal Python error: Segmentation fault\n')
+    (upgrade/'status.json').write_text(json.dumps(dict(returncode=139, completed=False)))
+    (upgrade/'core.123').write_bytes(b'never collect core dumps')
+    tool.collect(tmp_path)
+    data = unpack(tmp_path/'handoff')
+    assert data['view_upgrade_log_tail.json']['tail'].endswith('exited 139\n')
+    tail = data['view_upgrade/load_log_tail.json']
+    assert len(tail['tail']) <= 60000 and 'Segmentation fault' in tail['tail']
+    assert tail['original_sha256'] == hashlib.sha256((upgrade/'load.log').read_bytes()).hexdigest()
+    assert data['view_upgrade/status.json']['returncode'] == 139
+    receipt = data['collection_receipt.json']
+    assert receipt['status'] == 'incomplete' and not receipt['training_accepted']
+    assert receipt['consumption']['2']['error'] == 'missing sample, sampling or rank evidence'
+    assert 'view_upgrade/load.log' in receipt['original_files']
+    assert not any('core' in name for name in data)
+
+
+def test_upgrade_missing_log_and_broken_status_are_reported(tmp_path):
+    (tmp_path/'workflow.json').write_text(json.dumps(dict(
+        status='failed', stage='view_upgrade', command_exit_code=139)))
+    (tmp_path/'view_upgrade').mkdir()
+    (tmp_path/'view_upgrade/status.json').write_text('{')
+    tool.collect(tmp_path)
+    receipt = unpack(tmp_path/'handoff')['collection_receipt.json']
+    assert 'view_upgrade.log' in receipt['missing']
+    assert 'view_upgrade/load.log' in receipt['missing']
+    assert any(e['path']=='view_upgrade/status.json' for e in receipt['errors'])
+
+
 def test_budget_excess_is_explicit_in_incomplete_package(tmp_path, monkeypatch):
     run = tmp_path / 'run_first_epoch_rgb2'
     run.mkdir()

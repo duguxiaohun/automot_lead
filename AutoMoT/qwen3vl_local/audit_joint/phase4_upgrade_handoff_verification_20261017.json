@@ -1,0 +1,36 @@
+{
+  "package": {
+    "sha256": "2dd2a5a7b377af6658ff32ea2d3ea5680b373e01ee8a3f80fb542c1a0fadf492",
+    "bytes": 34888,
+    "members": 4,
+    "integrity": "verified"
+  },
+  "server_sources": {
+    "release": "release_sources_v76_action_sources_20261017.json",
+    "files": 558,
+    "status": "matched"
+  },
+  "workflow": {
+    "stage": "view_upgrade",
+    "exit_code": 139,
+    "elapsed_seconds": 210.26577534999524,
+    "training_started": false
+  },
+  "root_cause": "unknown: required upgrade logs absent from received package",
+  "confirmed_collector_defect": "omitted view_upgrade.log and view_upgrade/load.log/status.json",
+  "regression": {
+    "passed": 50,
+    "seconds": 3.25,
+    "new_regressions_failed_before_fix": 2
+  },
+  "contracts": "student/producer/labels/prompts/runtime cache adapters unchanged",
+  "changed_sources": [
+    "qwen3vl_local/audit_joint/phase4_epoch_handoff.py",
+    "qwen3vl_local/audit_joint/phase4_first_epoch.py",
+    "qwen3vl_local/audit_joint/server_finish.sh",
+    "qwen3vl_local/audit_joint/server_phase4_existing.sh",
+    "qwen3vl_local/audit_joint/tests/test_phase4_epoch_handoff.py"
+  ],
+  "remote_gpu_run_this_turn": false,
+  "push_this_turn": false
+}

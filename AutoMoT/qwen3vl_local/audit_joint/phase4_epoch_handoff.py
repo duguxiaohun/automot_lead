@@ -41,6 +41,8 @@ def check_consumption(samples, sampling, ranks):
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.diagnostics import sample_binding
 
     try:
+        if samples is None or sampling is None or any(r is None for r in ranks):
+            raise ValueError('missing sample, sampling or rank evidence')
         if len(samples) != 10240 or sampling['event_counts'] != dict.fromkeys(EVENTS, 1024):
             raise ValueError('expected the fixed ten-event 10240-presentation plan')
         if sampling['ordered_samples'] != sample_binding(samples, 4):
@@ -163,15 +165,35 @@ def collect(root, output=None):
 
     # Optional for historical runs; current orchestration failures must travel
     # with the package even if no view or training run could be created.
+    workflow = None
     for name in ('source_check.json', 'launch_budget.json', 'workflow.json'):
         if (root / name).exists():
             value = read(root / name, name, metadata=True)
             if name == 'workflow.json' and value is not None:
+                workflow = value
                 if (value.get('status') != 'completed_execution_not_audited' or
                         value.get('command_exit_code') != 0):
                     error(dict(path=name, error='workflow did not complete successfully'))
     if (root / 'view_build.log').exists():
         read(root / 'view_build.log', 'view_build_log_tail.json', tail=True)
+    # Explicit filenames only: never follow arbitrary paths from workflow JSON
+    # or recurse into data, weights or core dumps. Early CPU failures need their
+    # nested worker traceback even when neither training directory exists.
+    stages = workflow.get('stages') if workflow else None
+    stages = stages if isinstance(stages, list) else []
+    upgrade_started = bool(workflow and (
+        workflow.get('stage') == 'view_upgrade' or any(
+            isinstance(stage, dict) and stage.get('stage') == 'view_upgrade'
+            for stage in stages)))
+    for relative, member in (
+        ('view_upgrade.log', 'view_upgrade_log_tail.json'),
+        ('view_upgrade/load.log', 'view_upgrade/load_log_tail.json'),
+    ):
+        if upgrade_started or (root / relative).exists():
+            read(root / relative, member, tail=True)
+    for relative in ('view_upgrade/status.json', 'view_upgrade/result.json'):
+        if (root / relative).exists():
+            read(root / relative, relative, metadata=True)
     for mode in (2, 4):
         run = root / f'run_first_epoch_rgb{mode}'
         start_errors = error_count

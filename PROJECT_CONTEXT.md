@@ -1,5 +1,9 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-17 v77 Phase4视图升级失败交接补强
+
+收到34888字节/4成员ZIP，SHA/CRC通过，558源码匹配v76、磁盘预算通过。新版workflow仅view_upgrade执行210.27秒退出139，两模式训练均未启动；47缺项是未生成证据，非47缺陷。通常139为SIGSEGV但缺原日志不能定根因，不判OOM/坏标签/磁盘或900秒超时。确认collector漏view_upgrade.log及子目录load.log/status，已加固定白名单60KB日志尾、SHA/漂移检查及可用status/result，缺训练记录改明确missing证据错误，保留阻塞态及30MB上限。两新反例先失败后修复，50相关回归通过；v77清单558matched。生产/学生合同、训练提示词标定及缓存适配器不改，不为此重新迁移。服务器只需交既有phase4_b2_epoch1_20261017_113332_626467217的view_upgrade.log、view_upgrade/load.log尾及status；不重跑建库/benchmark/GPU/P3。尚未取得崩溃栈，不能称全流程修好。报告audit_joint/PHASE4_UPGRADE_FAILURE_20261017.md和phase4_upgrade_handoff_verification_20261017.json；原包本地checkpoints/phase4_failed_upgrade_received_20261017。本轮未远程/GPU/push，保留.vscode/paper等其它任务。
+
 ### 2026-10-17 v76 Action缺依赖前置检查与v75四卡证据补录
 
 用户复审两项：Action qwen_simple/bev_only实际依赖只读runner，本机缺失，不能删源码哈希或造占位实现。新增action_expert_ablation.source_check（纯标准库/CPU）输出外部runner/BEV工具存在性与SHA；launcher/直接train/eval/合同构建在选卡、输出、数据及大权重前汇总缺失项。保留真实内容绑定。合同单测用显式临时源码夹具，生产缺失/变更必须拒绝；旧优化器toy无事件标签，明确natural评估，与主线toy一致，生产十事件默认不变。94消融测试8.11秒、181相关测试14.74秒通过（含前组），不是Action真实运行通过。本机仍缺runner，已向用户询问当前原版来源；旧Git有c28935ab历史副本，未据此自动恢复或发布只读文件。
