@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 2026-10-17 v82接续启动保护与白名单发布
+
+用户明确授权完善代码/push白名单并行RGB审计。外围phase4_continue增加同目录Linux非阻塞目录flock，别名同锁、退出释放、不生成/删除锁文件；持锁涵盖预检至打包，仅协调新版接续。错误GPU_IDS（含0/00重复）写输出前拒绝；悬空输出链接同样拒绝。8新增测试实例、105相关15.25秒通过，含真实子进程互斥/退出释放及CPU torchrun；非服务器锁/GPU验收。v82清单564源，学生/teacher/提示词/采样/两缓存适配字节未改，继续复用现有权重/view/快照，不重训RGB2或重复reload。
+并行任务原生重放后额度中止，主任务接手实际看完两train路线16RGB，93帧重放/279源SHA。UE4骑行者53–54 NO、55–57 UNKNOWN、58不连续终止非完成；RE5 STOP28–30完成但stop_sign_hazard仍True，24–31均NO。无新确定改标依据，未改标/阈值/提示词，不作全源/盲审认证。原始产物留checkpoints/v82_release_rgb_20261017；轻量continuation_guard_verification与PHASE4_CONTINUATION_RELEASE_20261017.md。服务器仅同步后CPU快照→现有RGB2test→RGB4首轮/重载/test，交handoff_continued两文件；当前目录phase4_restart_20261017_162511必须保留。三方案顶部加最新步骤，保留历史。精确白名单发布，保留.vscode/paper及其它任务，不上传权重/RGB/原始数据。
+
 ### 2026-10-17 v81已收RGB2重载通过，test快照读取边界及接续
 
 旧125707目录及权重用户已删除；当前必须保留phase4_restart_20261017_162511。新包3270100字节30成员SHA/CRC、563源通过；RGB2四rank实际10240呈现=十事件各1024，val各37，316/370/YES18of66，与前轮统计相同；训练4416.45秒/val32.85秒，reload384.96秒370题及raw一致，资产/optimizer绑定通过服务器回执。test在rgb2.receipt.json哈希报属性变化、RGB4未开始；不是训练失败，严禁再重训当前RGB2或重跑已通过reload。旧torchrun --run问题真实关闭。

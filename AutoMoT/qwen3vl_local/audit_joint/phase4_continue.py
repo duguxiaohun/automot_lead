@@ -1,5 +1,7 @@
 """Finish a source-compatible RGB2 epoch: reload, test, then RGB4; never retrain RGB2."""
 import argparse
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -17,6 +19,23 @@ from qwen3vl_local.sft_new_loop_phase4.rgb_short.contract import check_contract
 
 def read(path):return json.loads(path.read_text())
 def rows(path):return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+@contextmanager
+def continuation_lock(root):
+    """Nonblocking Linux directory lock, shared by aliases and released on exit.
+
+    No lock file to delete or stale PID to override. This coordinates this
+    continuation entry only, not arbitrary external writers or old launchers.
+    """
+    descriptor=os.open(root,os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        try:fcntl.flock(descriptor,fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(f'continuation already active for {root}; preserve outputs and wait for the owning command') from exc
+        yield
+    finally:
+        os.close(descriptor)
 
 
 def verified_reload(run, record):
@@ -50,7 +69,7 @@ def preflight(root):
     state=read(root/'workflow.json');run=root/'run_first_epoch_rgb2'
     if state.get('stage')!='rgb2' or state.get('command_exit_code') not in (1,2):
         raise ValueError('expected the completed-RGB2/failed-reload workflow')
-    if any((root/p).exists() for p in ('continuation.json','workflow_before_continuation.json',
+    if any((root/p).exists() or (root/p).is_symlink() for p in ('continuation.json','workflow_before_continuation.json',
             'run_first_epoch_rgb4','rgb4.log',
             'run_first_epoch_rgb2/test_fixed','handoff_continued')):
         raise FileExistsError('continuation outputs already exist; preserve them for audit')
@@ -80,6 +99,15 @@ def preflight(root):
 
 def run(root,data_root,model_dir):
     root,data_root,model_dir=[Path(p).absolute() for p in (root,data_root,model_dir)]
+    pin=os.environ.get('GPU_IDS','')
+    cards=pin.split(',') if pin else []
+    if pin and (len(cards)!=4 or any(not c.isascii() or not c.isdigit() for c in cards) or len({int(c) for c in cards})!=4):
+        raise ValueError('specify four distinct numeric GPU_IDS, or leave unset for automatic selection')
+    with continuation_lock(root):
+        return _run_locked(root,data_root,model_dir)
+
+
+def _run_locked(root,data_root,model_dir):
     state,prepared,view,rgb2=preflight(root)
     reuse_reload=(rgb2/'reload_check').exists()
     source=workflow.source_check(workflow.APP,workflow.RELEASE)

@@ -1,0 +1,246 @@
+{
+  "source_files_matched": 564,
+  "routes": 9,
+  "replayed_prefix_frames": 369,
+  "bound_route_source_files": 1842,
+  "prepared_rgb_frames": 40,
+  "visual_source_files": 120,
+  "selected_question_counts": {
+    "U-E1": 4,
+    "U-E2": 4,
+    "U-E3": 4,
+    "U-E4": 4,
+    "U-E5": 4,
+    "U-E6": 4,
+    "U-E7": 4,
+    "R-E2": 4,
+    "R-E3": 4,
+    "R-E5": 4
+  },
+  "elapsed_seconds": 9.754406058986206,
+  "scope": "Previously exposed train routes only; same historical windows; nonblind diagnostic replay, no new dataset or model run; P3 raw trajectory diagnostics are not a rebuilt P3 index",
+  "viewed_rgb_frames": 40,
+  "nonblind": true,
+  "overlap_prior_development_windows": true,
+  "new_production_changes": false,
+  "new_server_gpu_run": false,
+  "tests": {
+    "passed": 284,
+    "seconds": 9.58,
+    "initial_default_environment_collection_failed_missing_torch": true,
+    "passing_python": "/tmp/automot_batch_env/bin/python"
+  },
+  "semantic_comparison": {
+    "selected_questions": 40,
+    "exact_edge_target_facts_differences": []
+  },
+  "received_results_recheck": {
+    "phase4": {
+      "consumption": {
+        "status": "matched_recorded_plan",
+        "presentations": 10240,
+        "event_counts_from_recorded_plan": {
+          "U-E2": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E3": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024
+        },
+        "scope": "All four step logs match the hashed plan. Event labels are inherited from that plan; no fresh dataset, optimizer or label-quality certification."
+      },
+      "validation_count": 370,
+      "confusion": {
+        "NO->NO": 298,
+        "YES->NO": 48,
+        "YES->YES": 18,
+        "NO->YES": 6
+      },
+      "per_event_confusion": {
+        "U-E1": {
+          "NO->NO": 37
+        },
+        "U-E2": {
+          "NO->NO": 37
+        },
+        "U-E3": {
+          "NO->NO": 37
+        },
+        "U-E4": {
+          "YES->NO": 29,
+          "NO->NO": 8
+        },
+        "U-E5": {
+          "YES->YES": 10,
+          "NO->NO": 27
+        },
+        "U-E6": {
+          "YES->YES": 4,
+          "NO->NO": 15,
+          "YES->NO": 18
+        },
+        "U-E7": {
+          "NO->NO": 28,
+          "YES->YES": 2,
+          "NO->YES": 6,
+          "YES->NO": 1
+        },
+        "R-E2": {
+          "YES->YES": 1,
+          "NO->NO": 36
+        },
+        "R-E3": {
+          "YES->YES": 1,
+          "NO->NO": 36
+        },
+        "R-E5": {
+          "NO->NO": 37
+        }
+      },
+      "per_event_physical_groups": {
+        "U-E1": 1,
+        "U-E2": 1,
+        "U-E3": 1,
+        "U-E4": 2,
+        "U-E5": 3,
+        "U-E6": 5,
+        "U-E7": 2,
+        "R-E2": 1,
+        "R-E3": 1,
+        "R-E5": 1
+      },
+      "reload_identical": true
+    },
+    "phase3": {
+      "2rgb_short": {
+        "val": {
+          "count": 320,
+          "correct": 240,
+          "event_counts": {
+            "LEAD_BRAKE": 32,
+            "STATIC_BLOCKAGE": 32,
+            "DYNAMIC_CUTIN": 32,
+            "VULNERABLE_CROSSING": 32,
+            "ONCOMING_INVASION": 32,
+            "JUNCTION_RULE_CONFLICT": 32,
+            "SIGNAL_FAILURE": 32,
+            "POST_BYPASS_RETURN": 32,
+            "UNSIGNALIZED_PRIORITY": 32,
+            "RAMP_MERGE_EXIT": 32
+          }
+        },
+        "reload": {
+          "count": 320,
+          "correct": 240,
+          "event_counts": {
+            "LEAD_BRAKE": 32,
+            "STATIC_BLOCKAGE": 32,
+            "DYNAMIC_CUTIN": 32,
+            "VULNERABLE_CROSSING": 32,
+            "ONCOMING_INVASION": 32,
+            "JUNCTION_RULE_CONFLICT": 32,
+            "SIGNAL_FAILURE": 32,
+            "POST_BYPASS_RETURN": 32,
+            "UNSIGNALIZED_PRIORITY": 32,
+            "RAMP_MERGE_EXIT": 32
+          }
+        },
+        "test": {
+          "count": 380,
+          "correct": 270,
+          "event_counts": {
+            "LEAD_BRAKE": 38,
+            "STATIC_BLOCKAGE": 38,
+            "DYNAMIC_CUTIN": 38,
+            "VULNERABLE_CROSSING": 38,
+            "ONCOMING_INVASION": 38,
+            "JUNCTION_RULE_CONFLICT": 38,
+            "SIGNAL_FAILURE": 38,
+            "POST_BYPASS_RETURN": 38,
+            "UNSIGNALIZED_PRIORITY": 38,
+            "RAMP_MERGE_EXIT": 38
+          }
+        }
+      },
+      "4rgb": {
+        "val": {
+          "count": 320,
+          "correct": 242,
+          "event_counts": {
+            "LEAD_BRAKE": 32,
+            "STATIC_BLOCKAGE": 32,
+            "DYNAMIC_CUTIN": 32,
+            "VULNERABLE_CROSSING": 32,
+            "ONCOMING_INVASION": 32,
+            "JUNCTION_RULE_CONFLICT": 32,
+            "SIGNAL_FAILURE": 32,
+            "POST_BYPASS_RETURN": 32,
+            "UNSIGNALIZED_PRIORITY": 32,
+            "RAMP_MERGE_EXIT": 32
+          }
+        },
+        "reload": {
+          "count": 320,
+          "correct": 242,
+          "event_counts": {
+            "LEAD_BRAKE": 32,
+            "STATIC_BLOCKAGE": 32,
+            "DYNAMIC_CUTIN": 32,
+            "VULNERABLE_CROSSING": 32,
+            "ONCOMING_INVASION": 32,
+            "JUNCTION_RULE_CONFLICT": 32,
+            "SIGNAL_FAILURE": 32,
+            "POST_BYPASS_RETURN": 32,
+            "UNSIGNALIZED_PRIORITY": 32,
+            "RAMP_MERGE_EXIT": 32
+          }
+        },
+        "test": {
+          "count": 380,
+          "correct": 274,
+          "event_counts": {
+            "LEAD_BRAKE": 38,
+            "STATIC_BLOCKAGE": 38,
+            "DYNAMIC_CUTIN": 38,
+            "VULNERABLE_CROSSING": 38,
+            "ONCOMING_INVASION": 38,
+            "JUNCTION_RULE_CONFLICT": 38,
+            "SIGNAL_FAILURE": 38,
+            "POST_BYPASS_RETURN": 38,
+            "UNSIGNALIZED_PRIORITY": 38,
+            "RAMP_MERGE_EXIT": 38
+          }
+        }
+      }
+    },
+    "phase3_raw_reparsed": 2040,
+    "scope": "Local recheck of already received reports; no original server weight/index/GPU reread; not new independent held-out results"
+  },
+  "next_server_step": "v81 phase4_continue on phase4_restart_20261017_162511; reuse RGB2 training and verified reload",
+  "source_manifest": "release_sources_v81_snapshot_read_20261017.json",
+  "artifact_hashes": {
+    "review_local.py": "5407bf86d3ca13ba4c952d88dfc4142038e02389f2f10d36a4009d79eac0fba9",
+    "rgb_windows.json": "d044697c208ad3b076a8d63a949ed512fd94d9f88410d382aa8c80e819b04131",
+    "sources.json": "a33883396bbb8ce24fca4a151a667070f49d967627a393f21819b9b7fe50b172",
+    "visual_sources.json": "87ca87dcc4e20cf9762473baa1dc211fd05442d5073016cebf9f5d230dd87536",
+    "tests.log": "e8e158909576e3bbf981530c729ac145c9065e3494092b17fd88aea26b6bbe65",
+    "check_receipts.py": "b1c0dcf31c7a908a12754b12a68b1fa1faf32892d76dcd858852b6595a24a334",
+    "receipts_recheck.json": "d02d0e8473c100cc2d7b982d8206351f7017a0939be1d25fbfbbea6b1f226621"
+  },
+  "visual_observations": {
+    "U-E1": "13–16红车持续在前方，UNKNOWN保持；画面不证明全部恢复条件。",
+    "U-E2": "51–54右侧白车开门，自车向左绕行；仅可见通道条件YES，不是完整安全许可。",
+    "U-E3": "38–41右侧黑车向前方切入；NO与仍有冲突相容，不以未来RESUME改标。",
+    "U-E4": "48–51骑行者右向左横穿，雾中近处冲突可见，NO合理。",
+    "U-E5": "56–59对向车沿中线接近，未见退出，不能补YES。",
+    "U-E6": "31–34消防车右向左横穿，NO，信号不替代横向冲突判断。",
+    "U-E7": "13–16蓝车横穿，NO；仅凭红灯不认证故障事件身份。",
+    "R-E2": "34–37左侧蓝车出现，对指定左通道YES→UNKNOWN→NO→NO；不推断后方安全。",
+    "R-E3": "13–16雾雨中邻近与前方有车，NO；不认证遮挡区域。",
+    "R-E5": "49–52前方排队和STOP标志可见，NO；不是新增STOP放行正例验证。"
+  }
+}

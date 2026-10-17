@@ -1,0 +1,54 @@
+{
+  "release": "v82_continuation_guard_20261017",
+  "source_files": 564,
+  "changed_sources": [
+    "qwen3vl_local/audit_joint/phase4_continue.py",
+    "qwen3vl_local/audit_joint/phase4_first_epoch.py",
+    "qwen3vl_local/audit_joint/server_finish.sh",
+    "qwen3vl_local/audit_joint/server_phase4_existing.sh",
+    "qwen3vl_local/audit_joint/tests/test_phase4_continue.py"
+  ],
+  "student_teacher_sampling_prompt_cache_adapters_unchanged": true,
+  "tests": {
+    "passed": 105,
+    "seconds": 15.25,
+    "new_cases": 8,
+    "real_subprocess_lock_and_cpu_torchrun": true,
+    "server_gpu": false
+  },
+  "rgb_review": {
+    "routes": 2,
+    "prefix_frames": 93,
+    "source_files_verified": 279,
+    "visual_sources": 48,
+    "selected_rgb_frames": 16,
+    "question_count": 13,
+    "seconds": 2.3620955959777348,
+    "viewed_rgb_frames": 16,
+    "nonblind": true,
+    "overlap_previous_40_frames": false,
+    "new_independent_scenarios": false,
+    "labels_changed": false,
+    "prompts_changed": false,
+    "new_definite_label_defect": false,
+    "scope": "Existing train routes; partial causal replay; no dataset rebuild, GPU or independent approval"
+  },
+  "server_root": "checkpoints/phase4_restart_20261017_162511",
+  "next_steps": [
+    "CPU snapshot reuse check",
+    "RGB2 test",
+    "RGB4 train/val/reload/test"
+  ],
+  "reuse_rgb2_training_and_verified_reload": true,
+  "scope": "Peripheral continuation protection; server snapshot root cause unresolved",
+  "local_artifacts": {
+    "control_meta.json": "638d76ac374ef7fb9cae9945557e4a891445bb14670962945dd253a5cc3e2191",
+    "windows.json": "8594b37578184e618986ccf750f897af6985495582983190345e969219426cfe",
+    "visual_sources.json": "82c41da92645fc4241fda63a9674c65668a1e9a212080ac2fb72c581ec9280bb",
+    "replay_summary.json": "1dfe06ace1cda84ff579376c1a4511b0d3f5a23d884761db9b71197449d33cff",
+    "visual_review.json": "dd38120f10c4ea7a70015bc846a303e4e3d573412bc0dff5e3dca3a70b9672c9",
+    "replayed.json": "23387af93fd3f4388b9806df8f70d86601e9bae8478ab7a76f1ec6ac15bd27ac",
+    "sources.json": "86944ca104bc5972aecb259a5e65ad0fa8b240188079b1b4231aff4e2e4eec6c",
+    "review.py": "f0ce65a212d83cc412c90afe34ecc4954faecca281232cc48689de68fc5faa06"
+  }
+}

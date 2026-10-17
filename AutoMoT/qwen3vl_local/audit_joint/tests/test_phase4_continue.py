@@ -110,3 +110,53 @@ def test_reuse_reload_does_not_run_train_or_reload_again(completed,monkeypatch):
     assert [c[0] for c in calls]==['continuation_snapshot_check','continuation_rgb2_test','rgb4']
     assert tool.read(completed/'continuation.json')['rgb2_reload_reused'] is True
     assert all('reload_check' not in c[1] for c in calls)
+
+
+@pytest.mark.parametrize('pin',['0','0,1,2','0,1,2,2','0,1,2,x','0,00,1,2'])
+def test_invalid_gpu_pin_leaves_run_untouched(completed,monkeypatch,pin):
+    monkeypatch.setenv('GPU_IDS',pin)
+    monkeypatch.setattr(tool,'preflight',lambda root:pytest.fail('GPU pin must be checked before preflight'))
+    before={p.relative_to(completed):p.read_bytes() for p in completed.rglob('*') if p.is_file()}
+    with pytest.raises(ValueError,match='four distinct'):
+        tool.run(completed,Path('lead_data'),Path('model'))
+    assert before=={p.relative_to(completed):p.read_bytes() for p in completed.rglob('*') if p.is_file()}
+
+
+def test_dangling_continuation_output_is_not_overwritten(completed):
+    target=completed/'continuation.json';target.symlink_to(completed/'missing.json')
+    with pytest.raises(FileExistsError):tool.preflight(completed)
+    assert target.is_symlink() and not (completed/'missing.json').exists()
+
+
+def test_directory_lock_blocks_alias_and_releases_after_process_exit(tmp_path):
+    import subprocess
+    import sys
+    root=tmp_path/'run';root.mkdir();alias=tmp_path/'alias';alias.symlink_to(root,target_is_directory=True)
+    child=subprocess.Popen([sys.executable,'-c',
+        'from pathlib import Path; import sys; from qwen3vl_local.audit_joint.phase4_continue import continuation_lock; '
+        'lock=continuation_lock(Path(sys.argv[1])); lock.__enter__(); print("locked",flush=True); sys.stdin.read()',str(root)],
+        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        assert child.stdout.readline().strip()=='locked'
+        with pytest.raises(RuntimeError,match='already active'):
+            with tool.continuation_lock(alias):pytest.fail('concurrent continuation admitted')
+    finally:
+        child.terminate();child.wait(timeout=10)
+    with tool.continuation_lock(alias):pass
+    assert list(root.iterdir())==[]
+
+
+def test_run_holds_lock_through_collection(completed,monkeypatch):
+    make_reload(completed)
+    monkeypatch.delenv('GPU_IDS',raising=False)
+    monkeypatch.setattr(tool.workflow,'source_check',lambda *a:{'status':'matched'})
+    def verify_locked(*args):
+        with pytest.raises(RuntimeError,match='already active'):
+            with tool.continuation_lock(completed):pass
+        return 0
+    monkeypatch.setattr(tool.workflow,'execute',verify_locked)
+    def collect(*args):
+        verify_locked();return {'status':'collected_not_semantically_verified'}
+    monkeypatch.setattr(tool,'collect',collect)
+    assert tool.run(completed,Path('lead_data'),Path('model'))==0
+    with tool.continuation_lock(completed):pass
