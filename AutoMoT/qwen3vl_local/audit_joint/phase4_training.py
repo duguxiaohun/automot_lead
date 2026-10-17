@@ -101,6 +101,9 @@ def run(prepared,view,output,data_root,model_dir,*,epochs,resume_rgb2=None,resum
     output.mkdir(parents=True,exist_ok=False)
     state=dict(status='running',epochs=epochs,stages=[],mode_configuration={},training_accepted=False,
                scope='multi-epoch execution receipt; no new GPU capacity or model-quality certification')
+    from .server_context import context
+    state['server_context']=context(prepared=prepared,view=view,output=output,
+                                    data_root=data_root,model_dir=model_dir)
     def save():write_json(output/'training_workflow.json',state)
     code=2
     old={n:signal.signal(n,lambda n,f:(_ for _ in ()).throw(first.Interrupted(n))) for n in (signal.SIGINT,signal.SIGTERM)}

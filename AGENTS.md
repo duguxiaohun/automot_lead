@@ -1,5 +1,16 @@
 # AGENTS.md
 
+### 2026-10-17 双服务器约定与cr02标定包接收
+
+用户明确说明有两台独立服务器cr02和cee，数据、权重、缓存、运行目录不互通，也不保证每次在哪台执行。后续每份报告和命令必须先确定服务器，使用该机AutoMoT工作目录和已核验资产；不得把cee的checkpoint/view/cache路径或成功结论直接套给cr02，反之亦然。源码可用既有sync_automot.sh流程分别同步，数据不会随源码同步。AUTOMOT_SERVER=cr02/cee作为用户声明标识，配合记录真实hostname和本机绝对路径；不能凭容器hostname猜机器、不能自动复制大数据或重建缺失资产。跨机器搬迁已有绝对路径绑定产物需显式重新核验，不能改SHA绕过。
+cr02本次已收fullflow_report.zip 46888字节12成员，558源对应v78；原目录checkpoints/phase4_labels_20261017_125230_304771113，日志仓库根/home/cruser1/lda/AutoMoT。回放8614路线1062401帧、train298770，自动留出val27801/432路线、test26105/452路线，build_result=admitted_existing_data_development/finished_cpu/exit0。打包漏14969873字节automatic_admission.json（旧10MB输入限）导致外层blocked_or_interrupted；不是标定建库失败，不重跑。准入完整明细未随包到达，不能独立宣布cr02两模式训练/val/test1:1最终核验；先补交该JSON即可，不需任何GPU/全库任务。UE5 proceed YES仍0、raw UE2return YES2、UE7complete YES18/13组、STOPproceed YES868/187组，raw支持非最终采样。cr02与cee训练池SHA/题数不同（298770 vs298787），不视为同一数据副本。
+cee当前已知run为checkpoints/phase4_restart_20261017_162511，RGB2训练/val/reload已通过，test失败、RGB4尚未收到结果；已删除的125707目录不能引用。cee续接不适用于cr02新标定目录；Phase3旧验收也必须区分服务器资产是否存在。
+
+本轮本地修复fullflow打包器：准入JSON限64MB、未压缩合计128MB、实际ZIP仍30MB；新增只打包--handoff-output保留原回执/数据，并记录collection/执行机器上下文；首轮/续接/多轮workflow也记录本机路径。137相关13.97秒，最终23专项5.20秒（22重叠），v83清单565源。完整说明audit_joint/CR02_FULLFLOW_REVIEW_20261017.md，当前仅需cr02补交现有automatic_admission.json，无需先同步或重算。本轮未push、未训练、未新增RGB目视；未认证缺失准入明细。
+
+
+用户随后明确授权本轮白名单push：精确发布v83打包修复、机器上下文、测试和轻量回执；保留其它任务改动。发布同步后cr02仅执行package --handoff-output补打既有报告，交fullflow_report.zip与fullflow_package.json，不重跑标定、建库或训练；cee不套用cr02目录。
+
 ### 2026-10-17 v82接续启动保护与白名单发布
 
 用户明确授权完善代码/push白名单并行RGB审计。外围phase4_continue增加同目录Linux非阻塞目录flock，别名同锁、退出释放、不生成/删除锁文件；持锁涵盖预检至打包，仅协调新版接续。错误GPU_IDS（含0/00重复）写输出前拒绝；悬空输出链接同样拒绝。8新增测试实例、105相关15.25秒通过，含真实子进程互斥/退出释放及CPU torchrun；非服务器锁/GPU验收。v82清单564源，学生/teacher/提示词/采样/两缓存适配字节未改，继续复用现有权重/view/快照，不重训RGB2或重复reload。

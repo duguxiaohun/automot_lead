@@ -1,0 +1,41 @@
+{
+  "server": "cr02",
+  "server_identification": "user declaration plus received log path; no remote access",
+  "zip_bytes": 46888,
+  "zip_sha256": "73a0fbb709ce5ab829162194adc3a88eb962f7e03dee66f888c90afa61622ddd",
+  "member_hashes_verified": 12,
+  "source_files_verified": 558,
+  "source_release": "v78_worker_diagnostics_20261017",
+  "build_status": "admitted_existing_data_development",
+  "stage": "finished_cpu",
+  "build_elapsed_seconds": 32011.035655900836,
+  "training_started": false,
+  "routes": 8614,
+  "frames": 1062401,
+  "train_rows": 298770,
+  "holdout_val_candidates": 27801,
+  "holdout_test_candidates": 26105,
+  "admission_report_missing_from_package": true,
+  "admission_report_bytes": 14969873,
+  "admission_report_sha256": "5d76e18cc8586f89ede5a58d5402666bcd9e6a023b567912882cc153c5eacce8",
+  "equal_event_final_report_independently_verified": false,
+  "source_files_current": 565,
+  "tests": {
+    "passed": 137,
+    "seconds": 13.97
+  },
+  "new_rgb_visual_review": false,
+  "synthetic_regression": {
+    "old_status": "blocked_or_interrupted",
+    "new_status": "admitted_existing_data_development",
+    "new_zip_bytes": 15577,
+    "not_actual_missing_server_report": true
+  },
+  "native_phase4_sources_unchanged": 203,
+  "final_focused_tests": {
+    "passed": 23,
+    "seconds": 5.2,
+    "overlap_with_main": 22
+  },
+  "cross_report_bindings_consistent": true
+}

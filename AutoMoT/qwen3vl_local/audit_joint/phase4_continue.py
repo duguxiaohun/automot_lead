@@ -138,6 +138,9 @@ def _run_locked(root,data_root,model_dir):
     write_json(root/'continuation_source_check.json',source)
     receipt=dict(status='in_progress',original_workflow_sha256=original_sha,
         rgb2_training_reused=True,rgb2_reload_reused=reuse_reload,stages=[],training_accepted=False)
+    from .server_context import context
+    receipt['server_context']=context(prepared=prepared,view=view,output=root,
+                                      data_root=data_root,model_dir=model_dir)
     def save():
         write_json(root/'continuation.json',receipt);write_json(root/'workflow.json',state)
     def on_signal(number,frame):raise workflow.Interrupted(number)

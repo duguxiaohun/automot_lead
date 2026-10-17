@@ -17,7 +17,7 @@ from .python_dispatch import environment as python_environment
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v82_continuation_guard_20261017.json')
+RELEASE = Path(__file__).with_name('release_sources_v83_server_handoff_20261017.json')
 
 
 class Interrupted(BaseException):
@@ -95,6 +95,9 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                  evaluation_configuration=dict(world_size=4,batch_size=eval_batch,reuse_frozen_rgb=reuse=='1'),
                  training_accepted=False, unsupported_capabilities=['U-E5/proceed/YES'])
     receipt = output/'workflow.json'
+    from .server_context import context
+    state['server_context']=context(prepared=prepared,view=view,output=output,
+                                    data_root=data_root,model_dir=model_dir)
     code = 2
     def save():
         write_json(receipt, state)

@@ -6,6 +6,9 @@ import time
 
 from .io import digest, file_sha, write_json
 
+DECODED_LIMIT = 128_000_000
+ADMISSION_LIMIT = 64_000_000
+
 
 def raw_training_support(index):
     """Necessary pre-compilation gate, not certification of the filtered pool.
@@ -117,15 +120,21 @@ def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'
     return result
 
 
-def package(output, exit_code):
+def package(output, exit_code, *, destination=None):
     from .rule_baseline import ADMITTED
     from .server_pilot import package as make_package
     from .training_budget import plan
     output = Path(output)
+    target = Path(destination) if destination is not None else output/'handoff'
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(f'preserve existing handoff; choose a fresh destination: {target}')
+    if destination is not None and output.resolve().is_relative_to(target.resolve()):
+        raise ValueError('handoff destination must not contain the original output')
     names = ('source_check.json','build_result.json','model_budget_profile.json','raw_training_support.json','first_epoch_budget.json','automatic_admission.json')
     members, diagnostics = {}, []
-    # Leave room for diagnostics and the log within the existing 30 MB package.
-    remaining = 20_000_000
+    # JSON can compress well below 30MB; bound decoded memory separately.
+    # Keep the final ZIP's existing 30MB hard limit in make_package.
+    remaining = DECODED_LIMIT - 2_000_000
 
     def failure(path, exc):
         record = dict(path=str(path), error=f'{type(exc).__name__}: {exc}'[:2000])
@@ -133,7 +142,7 @@ def package(output, exit_code):
             record.update(bytes=path.stat().st_size, sha256=file_sha(path))
             with path.open('rb') as stream:
                 record['preview'] = stream.read(1024).decode(errors='replace')
-        except OSError as read_error:
+        except (OSError, RuntimeError) as read_error:
             record['read_error'] = str(read_error)[:1000]
         diagnostics.append(record)
 
@@ -149,15 +158,22 @@ def package(output, exit_code):
         if not path.exists():
             return None
         try:
+            limit = ADMISSION_LIMIT if path.name == 'automatic_admission.json' else 10_000_000
+            if path.stat().st_size > limit:
+                raise ValueError(f'report exceeds {limit} byte diagnostic input limit')
+            before = file_sha(path)
             with path.open('rb') as stream:
-                raw = stream.read(10_000_001)
-            if len(raw) > 10_000_000:
-                raise ValueError('report exceeds 10 MB diagnostic input limit')
+                raw = stream.read(limit + 1)
+            if len(raw) > limit:
+                raise ValueError(f'report exceeds {limit} byte diagnostic input limit')
+            import hashlib
+            if hashlib.sha256(raw).hexdigest() != before or file_sha(path) != before:
+                raise ValueError('report changed during collection')
             data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError('expected a JSON object')
             return data
-        except (OSError, ValueError, RecursionError) as exc:
+        except (OSError, ValueError, RuntimeError, RecursionError) as exc:
             failure(path, exc)
             return None
 
@@ -211,16 +227,20 @@ def package(output, exit_code):
         except OSError as exc:
             failure(log, exc)
     if diagnostics:
-        completion.update(status='blocked_or_interrupted', diagnostics_complete=False,
+        completion.update(execution_status=completion['status'],status='blocked_or_interrupted', diagnostics_complete=False,
                           diagnostic_errors=len(diagnostics))
         members['collection_errors.json'] = dict(errors=diagnostics,
             scope='Incomplete diagnostics; ZIP integrity does not grant data admission')
-    write_json(output/'finish_receipt.json',completion)
     members['finish_receipt.json']=completion
-    target = output/'handoff';target.mkdir(exist_ok=False)
-    receipt=make_package(target,members)
+    from .server_context import context
+    members['server_context.json']=context(output=output)
+    members['server_context.json']['collector_sha256']=file_sha(Path(__file__))
+    target.mkdir(parents=True,exist_ok=False)
+    receipt=make_package(target,members,uncompressed_limit=DECODED_LIMIT)
     (target/'pilot_report.zip').rename(target/'fullflow_report.zip')
     (target/'pilot_package.json').rename(target/'fullflow_package.json')
+    # Repack never overwrites the original completion or its old handoff.
+    write_json((target if destination is not None else output)/'finish_receipt.json',completion)
     return receipt
 
 
@@ -234,10 +254,12 @@ def main():
     p.add_argument('--model-dir',type=Path,default=Path('checkpoints/Qwen3.5-4B'))
     p.add_argument('--workers',type=int,default=4)
     p.add_argument('--exit-code',type=int,default=0)
+    p.add_argument('--handoff-output',type=Path,help='package only: fresh destination; preserve original receipt/handoff')
     p.add_argument('--coverage-policy',choices=COVERAGE_POLICIES,default='strict')
     a=p.parse_args()
     if a.command=='package':
-        print(json.dumps(package(a.output,a.exit_code)));return 0
+        print(json.dumps(package(a.output,a.exit_code,destination=a.handoff_output)));return 0
+    if a.handoff_output:p.error('--handoff-output is only valid with package')
     if (a.output/'build_result.json').exists() or any((a.output/n).exists() for n in ('data4','references4','view')):
         p.error('use a fresh output; partial outputs are preserved')
     if a.command=='prepare':

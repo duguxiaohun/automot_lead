@@ -166,8 +166,9 @@ def test_broken_reports_keep_a_bounded_failure_package(tmp_path, name, payload):
         assert {n:hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist()} == receipt['files']
 
 
-def test_aggregate_diagnostics_budget_keeps_other_evidence(tmp_path):
+def test_aggregate_diagnostics_budget_keeps_other_evidence(tmp_path,monkeypatch):
     import zipfile
+    monkeypatch.setattr(finish,'DECODED_LIMIT',22_000_000)
     for name in ('source_check.json', 'build_result.json', 'automatic_admission.json'):
         (tmp_path/name).write_text(json.dumps(dict(padding='x' * 7_000_000)))
     (tmp_path/'build.log').write_text('last stage failed\n')
@@ -188,6 +189,69 @@ def test_intact_completed_result_keeps_admitted_status(tmp_path):
         assert json.loads(z.read('build_result.json')) == result
         assert json.loads(z.read('finish_receipt.json'))['status'] == result['status']
         assert 'collection_errors.json' not in z.namelist()
+
+
+def test_large_admission_repack_preserves_original_and_all_evidence(tmp_path,monkeypatch):
+    import zipfile,hashlib
+    result=dict(status='admitted_existing_data_development',stage='finished_cpu')
+    (tmp_path/'build_result.json').write_text(json.dumps(result))
+    admission=dict(status=result['status'],modes={'2':{'evidence':'a'*7_500_000},'4':{'evidence':'b'*7_500_000}})
+    (tmp_path/'automatic_admission.json').write_text(json.dumps(admission))
+    (tmp_path/'finish_receipt.json').write_bytes(b'old incomplete receipt')
+    (tmp_path/'handoff').mkdir();(tmp_path/'handoff/old.zip').write_bytes(b'old bundle')
+    original={str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    target=tmp_path/'handoff_repacked';monkeypatch.setenv('AUTOMOT_SERVER','cr02')
+    receipt=finish.package(tmp_path,0,destination=target)
+    assert receipt['bytes']<30_000_000
+    with zipfile.ZipFile(target/'fullflow_report.zip') as z:
+        assert z.testzip() is None
+        assert json.loads(z.read('automatic_admission.json'))==admission
+        assert json.loads(z.read('finish_receipt.json'))['status']==result['status']
+        assert json.loads(z.read('server_context.json'))['server_label']=='cr02'
+        assert {n:hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist()}==receipt['files']
+    for name,data in original.items():assert (tmp_path/name).read_bytes()==data
+    with pytest.raises(FileExistsError):finish.package(tmp_path,0,destination=target)
+
+
+def test_admission_limit_still_diagnoses_oversize(tmp_path,monkeypatch):
+    import zipfile
+    monkeypatch.setattr(finish,'ADMISSION_LIMIT',10)
+    (tmp_path/'automatic_admission.json').write_text(json.dumps({'padding':'x'*50}))
+    finish.package(tmp_path,2)
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        assert 'diagnostic input limit' in z.read('collection_errors.json').decode()
+
+
+def test_report_drift_is_diagnosed_without_granting_admission(tmp_path,monkeypatch):
+    import zipfile
+    path=tmp_path/'automatic_admission.json';path.write_text('{"status":"admitted_rule_baseline"}')
+    (tmp_path/'build_result.json').write_text('{"status":"admitted_rule_baseline","stage":"finished_cpu"}')
+    original=finish.file_sha;calls=0
+    def changed(p):
+        nonlocal calls
+        if p==path:
+            calls+=1
+            if calls==2:path.write_text('{"status":"blocked"}')
+        return original(p)
+    monkeypatch.setattr(finish,'file_sha',changed)
+    finish.package(tmp_path,0)
+    with zipfile.ZipFile(tmp_path/'handoff/fullflow_report.zip') as z:
+        result=json.loads(z.read('finish_receipt.json'))
+        assert result['status']=='blocked_or_interrupted'
+        assert result['execution_status']=='admitted_rule_baseline'
+        assert 'automatic_admission.json' not in z.namelist()
+        assert 'changed during collection' in z.read('collection_errors.json').decode()
+
+
+@pytest.mark.parametrize('server',['cr02','cee'])
+def test_context_uses_local_paths_not_other_server(tmp_path,monkeypatch,server):
+    from qwen3vl_local.audit_joint.server_context import context
+    monkeypatch.setenv('AUTOMOT_SERVER',server);monkeypatch.chdir(tmp_path)
+    (tmp_path/'checkpoints').mkdir()
+    value=context(output='checkpoints',data_root='absent_data')
+    assert value['server_label']==server
+    assert value['paths']['output']['logical']==str(tmp_path/'checkpoints')
+    assert value['paths']['data_root']['exists'] is False
 
 
 def test_completion_fields_cannot_duplicate_unbounded_payload(tmp_path):
