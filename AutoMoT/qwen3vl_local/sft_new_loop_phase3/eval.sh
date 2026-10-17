@@ -144,9 +144,11 @@ COMMON_ARGS=(
   --cases-per-bin "${CASES_PER_BIN}"
   --max-frames "${MAX_EVAL_FRAMES}"
   --max-new-tokens "${MAX_NEW_TOKENS}"
+  --batch-size "${EVAL_BATCH_SIZE:-1}"
   --no-timestamp-output
   --overwrite
 )
+if [[ "${REUSE_FROZEN_RGB:-0}" == "1" ]]; then COMMON_ARGS+=(--reuse-frozen-rgb); fi
 if [[ "${ROUTE_DIVERSE_SAMPLING}" == "1" ]]; then
   COMMON_ARGS+=(--route-diverse-sampling)
 else

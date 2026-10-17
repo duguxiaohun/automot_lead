@@ -1,0 +1,39 @@
+{
+  "release": "v74_batch_runtime_20261017",
+  "source_count": 549,
+  "tests": {
+    "runtime_sampling_recovery": {
+      "passed": 187,
+      "seconds": 18.64
+    },
+    "backend_isolated": {
+      "passed": 39,
+      "seconds": 2.83
+    },
+    "actual_bounded_cpu_cli": {
+      "passed": 36,
+      "seconds": 2.95,
+      "returncode": 0,
+      "overlaps": true
+    },
+    "final_runner_regression": {
+      "passed": 9,
+      "seconds": 0.72,
+      "overlaps": true
+    }
+  },
+  "test_isolation": "Combined backend run left a Python background thread; native read tests correctly refused that process. Retested in isolated groups without relaxing the guard.",
+  "frozen_sources_checked": 224,
+  "frozen_sources_changed": [],
+  "target_4b_gpu_executed": false,
+  "training_profile": {
+    "batch_per_card": 2,
+    "phase3_accumulation": 2,
+    "phase4_accumulation": 4
+  },
+  "defaults": {
+    "evaluation_batch": 1,
+    "reuse_frozen_rgb": false
+  },
+  "boundary": "Optional new runtime paths; GPU correctness check pending. No full-pool, speed or model-quality claim. Old checkpoints require their original source version."
+}

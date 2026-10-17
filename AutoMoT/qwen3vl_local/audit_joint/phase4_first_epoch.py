@@ -16,7 +16,7 @@ from .server_readiness import source_check
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v73_epoch_recovery_20261017.json')
+RELEASE = Path(__file__).with_name('release_sources_v74_batch_runtime_20261017.json')
 
 
 class Interrupted(BaseException):

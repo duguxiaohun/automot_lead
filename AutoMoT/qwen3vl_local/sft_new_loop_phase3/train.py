@@ -743,7 +743,12 @@ def _loss_batch(bundle, packed_items, specs):
     batch=collate(rows,bundle.tokenizer.pad_token_id)
     batch={k:v.to(bundle.device) for k,v in batch.items()}
     labels=batch.pop('labels'); weights=batch.pop('loss_weights'); comp=batch.pop('component_ids')
-    out=bundle.model(**batch,use_cache=False,return_dict=True)
+    from qwen3vl_local.batch_runtime import frozen_rgb_reuse
+    with frozen_rgb_reuse(bundle.model,enabled=getattr(bundle,'reuse_frozen_rgb',False)) as reuse:
+        out=bundle.model(**batch,use_cache=False,return_dict=True)
+    if getattr(bundle,'reuse_frozen_rgb',False) and not hasattr(bundle,'visual_reuse_last'):
+        print(f'[visual reuse first batch] {reuse}',flush=True)
+    bundle.visual_reuse_last=dict(reuse)
     results=[_loss_from_logits(out.logits[i:i+1],labels[i:i+1],weights[i:i+1],comp[i:i+1],spec)
              for i,spec in enumerate(specs)]
     return torch.stack([loss for loss,_ in results]).mean(), [stats for _,stats in results]
@@ -1030,9 +1035,13 @@ def evaluate_generation_probe(
     record_path: Optional[pathlib.Path] = None,
     step: int = 0,
     log_every: int = 10,
+    batch_size: int = 1,
+    reuse_rgb: bool = False,
 ) -> Dict[str, float]:
     """在固定独立 val 样本上以真实 greedy generation 检查输出行格式与语义。"""
 
+    if batch_size < 1:
+        raise ValueError("generation batch_size must be positive")
     sampled_count = len(work)
     work = unique_cases(work)
     started_at = time.monotonic()
@@ -1071,12 +1080,20 @@ def evaluate_generation_probe(
                 f"route={row.scenario}/{row.route_id} frame={row.frame_id} "
                 f"elapsed={now - started_at:.1f}s", flush=True,
             )
-        images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
-        state = _kv_start_state(
-            runtime,
-            build_action_messages(images=images, spec=spec, audit=False, history_rgb_mode=history_rgb_mode, prompt_variant=prompt_variant),
-        )
-        raw, _, _ = _student_generate_kv(runtime, state, int(max_new_tokens))
+        if batch_size == 1 and not reuse_rgb:
+            images = _load_images(select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode))
+            state = _kv_start_state(runtime, build_action_messages(images=images, spec=spec, audit=False,
+                history_rgb_mode=history_rgb_mode, prompt_variant=prompt_variant))
+            raw, _, _ = _student_generate_kv(runtime, state, int(max_new_tokens))
+        else:
+            if (case_index-1) % batch_size == 0:
+                from qwen3vl_local.batch_runtime import encode_messages, greedy_batch
+                group = work[case_index-1:case_index-1+batch_size]
+                encoded = [encode_messages(runtime, build_action_messages(
+                    images=_load_images(select_history_rgb_paths(x.row.history_rgb_paths,history_rgb_mode)),
+                    spec=x.spec,audit=False,history_rgb_mode=history_rgb_mode,prompt_variant=prompt_variant)) for x in group]
+                pending = greedy_batch(runtime,encoded,max_new_tokens=int(max_new_tokens),phase3=True,reuse_rgb=reuse_rgb)
+            raw = pending[(case_index-1) % batch_size]
         parsed = parse_action_output(raw, spec=spec)
         gt = {q.output_key: bool(q.answer) for q in spec.questions}
         gt_text = {key: _answer_text(value) for key, value in gt.items()}
@@ -1268,6 +1285,8 @@ def _save_adapter(
         "sampling_policy": SEQUENCE_POLICY,
         "learning_rate_schedule": getattr(args, "learning_rate_schedule", {}),
         "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
+        "generation_eval_batch_size": getattr(args,"generation_eval_batch_size",1),
+        "reuse_frozen_rgb": getattr(args,"reuse_frozen_rgb",False),
         "training_index_sha256": getattr(args, "training_index_sha256", None),
         "resume_from": args.resume,
         "epoch_recovery_enabled": bool(args.save_training_state or args.resume),
@@ -1337,6 +1356,7 @@ def record_final_generation(bundle, work, args, output_dir, step):
         max_new_tokens=int(args.generation_eval_max_new_tokens),
         record_path=output_dir / "final_generation_val_cases.jsonl", step=step,
         log_every=int(args.generation_eval_log_every),
+        batch_size=getattr(args,"generation_eval_batch_size",1), reuse_rgb=getattr(args,"reuse_frozen_rgb",False),
     )
     record = dict(step=int(step), kind="free_generation", split=str(args.eval_split),
                   checkpoint="final", after_accumulation_flush=True, **metrics)
@@ -1425,6 +1445,8 @@ def _write_run_metadata(
         "sampling_policy": SEQUENCE_POLICY,
         "learning_rate_schedule": getattr(args, "learning_rate_schedule", {}),
         "batch_size": args.batch_size, "anchor_stride": args.anchor_stride,
+        "generation_eval_batch_size": getattr(args,"generation_eval_batch_size",1),
+        "reuse_frozen_rgb": getattr(args,"reuse_frozen_rgb",False),
         "training_index_sha256": getattr(args, "training_index_sha256", None),
         "resume_from": args.resume,
         "epoch_recovery_enabled": bool(args.save_training_state or args.resume),
@@ -1739,6 +1761,7 @@ def train(args: argparse.Namespace) -> None:
     window_metric_ok: Counter = Counter()
     window_metric_count: Counter = Counter()
     t0 = time.time()
+    bundle.reuse_frozen_rgb = getattr(args,"reuse_frozen_rgb",False)
     bundle.model.train()
     epoch = 0
     if resumed is not None:
@@ -1951,6 +1974,7 @@ def train(args: argparse.Namespace) -> None:
                         record_path=output_dir / "generation_val_cases.jsonl",
                         step=global_step,
                         log_every=int(args.generation_eval_log_every),
+                        batch_size=getattr(args,"generation_eval_batch_size",1), reuse_rgb=getattr(args,"reuse_frozen_rgb",False),
                     )
                     if writer:
                         for key, value in generation_metrics.items():
@@ -2263,6 +2287,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-length", type=int, default=8192)
     p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--batch-size",type=int,default=1)
+    p.add_argument("--generation-eval-batch-size",type=int,default=1)
+    p.add_argument("--reuse-frozen-rgb",action="store_true")
     p.add_argument("--anchor-stride",type=int,default=None)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--weight-decay", type=float, default=0.0)
@@ -2283,7 +2309,7 @@ def parse_args() -> argparse.Namespace:
         p.error("warmup ratio must be in [0,1); warmup steps must be nonnegative")
     if args.anchor_stride is None:args.anchor_stride=1 if args.history_rgb_mode=="4rgb" else 2
     args.action_output_mode = validate_action_output_mode(args.action_output_mode)
-    if min(args.batch_size,args.anchor_stride,args.grad_accum,args.num_epochs)<1:
+    if min(args.generation_eval_batch_size,args.batch_size,args.anchor_stride,args.grad_accum,args.num_epochs)<1:
         p.error("batch size, anchor stride, grad accumulation and epochs must be positive")
     if args.ddp_timeout_seconds <= 0 or args.generation_eval_log_every <= 0:
         p.error("--ddp-timeout-seconds and --generation-eval-log-every must be positive")

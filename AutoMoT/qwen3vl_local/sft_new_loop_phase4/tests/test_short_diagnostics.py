@@ -130,7 +130,7 @@ def test_reload_cli_checks_saved_bytes_before_loader_and_records_comparison(tmp_
     calls=[]
     monkeypatch.setattr(module,'load_dataset',lambda *a,**kw:({'val':[row]},manifest))
     monkeypatch.setattr(module,'load_for_inference',lambda *a: calls.append(a))
-    monkeypatch.setattr(module,'evaluate_rows',lambda *a: ({'count':1},[{**case,'prediction':'NO' if damage=='prediction' else 'YES'}]))
+    monkeypatch.setattr(module,'evaluate_rows',lambda *a,**kw: ({'count':1},[{**case,'prediction':'NO' if damage=='prediction' else 'YES'}]))
     if damage == 'load':
         def failed_load(*args):
             calls.append(args)

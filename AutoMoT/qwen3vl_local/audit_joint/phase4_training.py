@@ -32,7 +32,9 @@ def checkpoint(path,mode,epochs):
     expected=dict(batch_size=2,anchor_stride=2 if mode==2 else 1,accumulation=4,epoch_samples=10240,
                   seed=20260929,lr=2e-5,max_length=8192,lora_rank=16,lora_alpha=32,vision_scope='off',
                   cap=8,require_complete_coverage=False,sampling_policy='contiguous_event_equal',max_question_repeat=None)
-    if any(run['training'].get(k)!=v for k,v in expected.items()):raise ValueError('resume differs from selected B2 training configuration')
+    expected.update(eval_batch_size=int(os.environ.get('EVAL_BATCH_SIZE','1')),
+                    reuse_frozen_rgb=os.environ.get('REUSE_FROZEN_RGB','0')=='1')
+    if any(run['training'].get(k, 1 if k=='eval_batch_size' else False if k=='reuse_frozen_rgb' else None)!=v for k,v in expected.items()):raise ValueError('resume differs from selected B2 training configuration')
     if run['training']['evaluation']['mode']!='rule_consistency':raise ValueError('automatic entry requires rule-consistency resume')
     receipt=path.parent/(path.name+'_checkpoint.json')
     before=file_sha(receipt);record=json.loads(receipt.read_text())
@@ -87,6 +89,8 @@ def extended_budget(request,output,epochs):
 
 def run(prepared,view,output,data_root,model_dir,*,epochs,resume_rgb2=None,resume_rgb4=None):
     if type(epochs) is not int or epochs<1:raise ValueError('epochs must be a positive absolute total')
+    if os.environ.get('REUSE_FROZEN_RGB','0') not in ('0','1') or int(os.environ.get('EVAL_BATCH_SIZE','1'))<1:
+        raise ValueError('invalid EVAL_BATCH_SIZE or REUSE_FROZEN_RGB')
     prepared,view,output,data_root,model_dir=[Path(v).absolute() for v in (prepared,view,output,data_root,model_dir)]
     resumes={m:Path(v).absolute() if v is not None else None for m,v in ((2,resume_rgb2),(4,resume_rgb4))}
     cards=os.environ.get('GPU_IDS','').split(',') if os.environ.get('GPU_IDS') else []
@@ -113,6 +117,8 @@ def run(prepared,view,output,data_root,model_dir,*,epochs,resume_rgb2=None,resum
         for mode,path in resumes.items():
             recovery=checkpoint(path,mode,epochs)[0] if path else None
             state['mode_configuration'][str(mode)]=dict(batch_size=2,accumulation=4,update_samples=32,
+                eval_batch_size=int(os.environ.get('EVAL_BATCH_SIZE','1')),
+                reuse_frozen_rgb=os.environ.get('REUSE_FROZEN_RGB','0')=='1',
                 first_epoch=recovery['next_epoch'] if recovery else 0,resume=recovery)
         env=dict(os.environ,PYTHON=sys.executable,PYTHONUNBUFFERED='1',DATASET=str(view),DATA_ROOT=str(data_root),
                  MODEL_DIR=str(model_dir),OUTPUT_DIR=str(output),RUN_TAG='training',BATCH_SIZE='2',

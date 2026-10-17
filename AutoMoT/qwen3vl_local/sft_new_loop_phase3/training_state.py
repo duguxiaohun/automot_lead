@@ -25,7 +25,7 @@ def binding(args, world, steps_per_epoch):
     root=Path(__file__).resolve().parents[1]
     paths={p for name in ('sft_new_loop_phase3','sft_v2','qwen35')
            for p in (root/name).rglob('*.py') if not p.name.startswith('test_') and 'tests' not in p.parts}
-    paths.update(root/name for name in ('sequence_batch.py','image_io.py','mrope_utils.py','cache_utils.py'))
+    paths.update(root/name for name in ('sequence_batch.py','batch_runtime.py','image_io.py','mrope_utils.py','cache_utils.py'))
     ignored={'output_dir','resume','save_training_state','stop_after_epoch','no_tb','log_steps','device','ddp_timeout_seconds'}
     config={k:v for k,v in vars(args).items() if k not in ignored}
     # Local base assets are immutable for recovery. Stat binding avoids rehashing

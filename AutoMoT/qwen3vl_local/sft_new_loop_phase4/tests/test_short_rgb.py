@@ -299,7 +299,7 @@ def test_evaluation_cli_pins_gpu_before_loader_and_writes_complete_cases(tmp_pat
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', 'old_mask')
     monkeypatch.setattr(devices, 'select_gpus', select)
     monkeypatch.setattr(evaluate, 'load_for_inference', lambda model, adapter, selected: calls.append((selected, os.environ['CUDA_VISIBLE_DEVICES'])))
-    monkeypatch.setattr(evaluate, 'evaluate_rows', lambda bundle,rows,*args: ({'count': len(rows)}, as_cases(rows)))
+    monkeypatch.setattr(evaluate, 'evaluate_rows', lambda bundle,rows,*args,**kwargs: ({'count': len(rows)}, as_cases(rows)))
     output = tmp_path / 'results'
     monkeypatch.setattr(sys, 'argv', ['evaluate', '--dataset', str(tmp_path), '--model-dir', str(tmp_path),
         '--adapter', str(adapter), '--data-root', str(tmp_path), '--output-dir', str(output), '--device', device])
@@ -360,7 +360,7 @@ else:
     assert call['argv'] == ['-m', 'torch.distributed.run', '--standalone', '--nproc_per_node=4',
         '-m', 'qwen3vl_local.sft_new_loop_phase4.rgb_short.train', '--dataset', '/data/view',
         '--data-root', '/rgb', '--model-dir', '/model', '--output-dir', str(output / 'run_smoke_rgb2'),
-        '--rgb-mode', '2', '--batch-size', '1', '--epochs', '1', '--epoch-samples', '40']
+        '--rgb-mode', '2', '--batch-size', '1', '--eval-batch-size', '1', '--epochs', '1', '--epoch-samples', '40']
     assert (output / 'latest').is_symlink()
     assert os.readlink(output / 'latest') == ('run_smoke_rgb2' if exit_code == 0 and reload_exit == 0 else 'previous_success')
     assert (tmp_path / 'reload.json').exists() == (exit_code == 0)

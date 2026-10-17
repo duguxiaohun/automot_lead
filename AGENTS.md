@@ -1,5 +1,12 @@
 # AGENTS.md
 
+### 2026-10-17 v74可选评估batch与冻结视觉复用
+
+承接用户继续完善/push/短测试要求，新增共享batch_runtime和当前P3/P4评估batch路径：左padding、保留成员/顺序/尾批；P3保持原EOS和1.05重复惩罚，pad不入惩罚。冻结Qwen3.5视觉塔可在单次前向按实际预处理像素+grid去重，再展开原图槽；不跨rank/step缓存，视觉可训练/随机层/输入需梯度/多时刻grid/额外输出走原路径。训练已选B2、累积2/4和采样v4不变；新优化显式启用，默认评估B1、复用关，不冒称目标4B已验收或更快。P4 reload/test继承训练配置，多轮恢复预检拒绝开关漂移。
+新增audit_joint.batch_runtime_check：CPU180秒专项，通过后单卡GPU240秒检查两/四图重复单真实样本B2生成及loss/梯度；dropout0，无全池读取/view构建/权重保存/容量搜索，首错停止。命令audit_joint/BATCH_RUNTIME_20261017.md。GPU尚未执行，不能称DDP/全池/效果验收。
+187专项回归18.64秒通过；后端39项独立进程2.83秒通过；实际CPU CLI36项2.95秒/exit0（与前两组重叠，不相加）。最初混合后端测试后10个读取测试触发后台线程隔离守卫，拆为独立进程通过，未放宽生产隔离。224个冻结producer/后端/适配文件字节未变，v69路线缓存保留；v74清单549源matched。
+当前学生源码及P3恢复绑定改变：新实验view需显式迁移，已知v72/v73纳入允许列表，仍全父库/成员/sidecar/曝光核验；短测试不需view迁移。不将旧checkpoint跨合同恢复，既有训练留原版续训；不重建原生库/重放老师。共享batch_runtime.py和tests/test_batch_runtime.py按用户本轮授权新增白名单，审计代码/测试/轻量回执按既有目录白名单发布，保留.vscode/paper/checkpoints等其它任务。
+
 ### 2026-10-17 v73用户确认续训与多轮入口范围
 
 用户异步明确选择本轮先完成Phase3 epoch边界续训和Phase4多轮/续训入口，评估batch和视觉编码去重暂缓；每卡B2、P3累积2/P4累积4、输入时间窗口与采样v4不变。P3已选入口默认SAVE_TRAINING_STATE=1，完整epoch/optimizer边界保存训练参数、AdamW、scheduler、各rank Python/Torch RNG、实际曝光history及checkpoint本地best副本；临时目录完整SHA回执后发布，再更新latest_training_state。恢复至新run，绑定源码/索引/配置/基座stat及元数据SHA/world，原定NUM_EPOCHS与LR计划不变；仅max_steps0且每epoch更新整除。STOP_AFTER_EPOCH保留完整计划；旧仅adapter不可恢复，中断未保存epoch须重跑。
@@ -1810,6 +1817,8 @@ LoRA 来源仍做 Phase1/2 先验问答。`--generate-analysis` / `GENERATE_ANAL
 
 未经用户明确同意，只允许修改：
 
+- `AutoMoT/qwen3vl_local/batch_runtime.py`（本轮授权的独立样本评估组批与冻结视觉复用）
+- `AutoMoT/qwen3vl_local/tests/test_batch_runtime.py`（上述功能专项回归；不含测试产物）
 - `AutoMoT/qwen3vl_local/sequence_batch.py`（本轮授权的Phase3／4共享连续batch采样与组批源码）
 - `AutoMoT/qwen3vl_local/tests/test_sequence_batch.py`（上述源码专项回归；不包含测试缓存/产物）
 - `.vscode/settings.json`（用户授权：排除大数据/产物目录的文件监视；保留源码监视，不隐藏或删除文件）。

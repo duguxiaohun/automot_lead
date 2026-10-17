@@ -98,6 +98,22 @@ def generate(bundle,row,data_root,max_length=8192):
     return answer,text
 
 
+def generate_batch(bundle, rows, data_root, max_length=8192, *, reuse_rgb=False):
+    from qwen3vl_local.batch_runtime import greedy_batch
+    cache = {}
+    encoded = [encode(bundle, row, data_root, supervise=False, max_length=max_length,
+                      image_cache=cache) for row in rows]
+    texts = greedy_batch(bundle, encoded, max_new_tokens=8, reuse_rgb=reuse_rgb)
+    result = []
+    for text in texts:
+        try:
+            answer = parse_answer(text)
+        except ValueError:
+            answer = 'MALFORMED'
+        result.append((answer, text))
+    return result
+
+
 def load_for_inference(model_dir,adapter_dir,device):
     from types import SimpleNamespace
     from qwen3vl_local.qwen35.backend import AutoProcessor, LocalModel

@@ -80,7 +80,8 @@ def run_check(a, output, report, stage):
     stage('model_load')
     bundle = load_for_inference(a.model_dir, folder, device)
     stage('validation')
-    metrics, cases = evaluate_rows(bundle, data['val'], a.data_root, run['training']['max_length'])
+    metrics, cases = evaluate_rows(bundle, data['val'], a.data_root, run['training']['max_length'],
+        batch_size=run['training'].get('eval_batch_size',1),reuse_rgb=run['training'].get('reuse_frozen_rgb',False))
     if 'evaluation' in run['training']:
         from .evaluation_policy import score_cases
         metrics.update(score_cases(cases, run['training']['evaluation']['mode'], run['training']['evaluation']['plans']['val']['selected_ids']))

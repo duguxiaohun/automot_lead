@@ -72,6 +72,8 @@ def main():
     p.add_argument('--epochs',type=int,default=7)
     p.add_argument('--lr',type=float,default=2e-5)
     p.add_argument('--batch-size',type=int,default=1)
+    p.add_argument('--eval-batch-size',type=int,default=1)
+    p.add_argument('--reuse-frozen-rgb',action='store_true')
     p.add_argument('--anchor-stride',type=int,default=None)
     p.add_argument('--accumulation',type=int,default=8)
     p.add_argument('--cap',type=int,default=8)
@@ -91,7 +93,7 @@ def main():
     p.add_argument('--teacher-references', type=Path)
     a=p.parse_args()
     if a.anchor_stride is None:a.anchor_stride=2 if a.rgb_mode==2 else 1
-    if min(a.batch_size,a.anchor_stride,a.epochs,a.accumulation,a.cap,a.lora_rank,a.lora_alpha,a.max_length)<1 or a.lr<=0:
+    if min(a.eval_batch_size,a.batch_size,a.anchor_stride,a.epochs,a.accumulation,a.cap,a.lora_rank,a.lora_alpha,a.max_length)<1 or a.lr<=0:
         p.error('invalid training parameters')
     data,manifest=load_dataset(a.dataset,rgb_mode=a.rgb_mode,require_trainable=False,
                                require_complete_coverage=a.require_complete_coverage)
@@ -129,7 +131,7 @@ def main():
         dist.init_process_group('nccl' if device.type=='cuda' else 'gloo')
     random.seed(a.seed)
     torch.manual_seed(a.seed)
-    config={k:getattr(a,k) for k in ('batch_size','anchor_stride','lr','accumulation','cap','epoch_samples','seed','max_length','lora_rank','lora_alpha','vision_scope','require_complete_coverage','sampling_policy','max_question_repeat')}
+    config={k:getattr(a,k) for k in ('eval_batch_size','reuse_frozen_rgb','batch_size','anchor_stride','lr','accumulation','cap','epoch_samples','seed','max_length','lora_rank','lora_alpha','vision_scope','require_complete_coverage','sampling_policy','max_question_repeat')}
     config['paired_training']=dict(policy='same_student_view_membership',
                                   selected_ids=manifest['student_view']['selected_ids'])
     config['evaluation']=evaluation
@@ -207,7 +209,11 @@ def main():
             update=(j+1)%a.accumulation==0 or j+1==len(batches)
             cm=bundle.model.no_sync() if world>1 and not update else nullcontext()
             with cm:
-                loss=bundle.model(**inputs,use_cache=False).loss
+                from qwen3vl_local.batch_runtime import frozen_rgb_reuse
+                with frozen_rgb_reuse(bundle.model,enabled=a.reuse_frozen_rgb) as reuse:
+                    loss=bundle.model(**inputs,use_cache=False).loss
+                if j==0:
+                    print(f'[visual reuse] rank={rank} epoch={epoch} {reuse}',flush=True)
                 if not torch.isfinite(loss):
                     raise FloatingPointError('nonfinite training loss')
                 (loss/size).backward()
@@ -242,7 +248,8 @@ def main():
             raw=bundle.model.module if world>1 else bundle.model
             raw.eval()
             validation_start=time.perf_counter()
-            report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length)
+            report,cases=evaluate_rows(bundle,data['val'],a.data_root,a.max_length,
+                batch_size=a.eval_batch_size,reuse_rgb=a.reuse_frozen_rgb)
             validation_seconds=time.perf_counter()-validation_start
             # Selection consumes the source-bound fixed ten-event subset.
             report.update(score_cases(cases,a.selection_mode,evaluation['plans']['val']['selected_ids']))

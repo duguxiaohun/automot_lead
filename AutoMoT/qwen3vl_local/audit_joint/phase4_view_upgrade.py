@@ -18,12 +18,14 @@ def inspect_view(view):
     saved=descriptor['source'];normalized=deepcopy(saved);changes=[]
     versions=['release_sources_v61_batch_audit_20261015.json',
               'release_sources_v70_selected_b2_20261016.json',
-              'release_sources_v71_sampling_runtime_20261016.json']
+              'release_sources_v71_sampling_runtime_20261016.json',
+              'release_sources_v72_action_exposure_20261017.json',
+              'release_sources_v73_epoch_recovery_20261017.json']
     releases=[json.loads(Path(__file__).with_name(v).read_text())['files'] for v in versions]
     # Only reviewed runtime/sampling edits, no RGB transformation or label edits.
     names={'../../sequence_batch.py','../../sft_new_loop_phase3/sequence_evaluation.py',
            'contract.py','data.py','train.py','run.sh','run_automatic.sh','batch_sampling.py',
-           'evaluate.py','reload_check.py','runtime_data.py'}
+           'evaluate.py','reload_check.py','runtime_data.py','model.py'}
     root=Path('qwen3vl_local/sft_new_loop_phase4/rgb_short')
     for name in names:
         if name=='runtime_data.py' and name not in normalized.get('sources',{}):continue
@@ -47,6 +49,13 @@ def inspect_view(view):
             raise ValueError('unrecognized historical admission source')
         normalized['automatic_admission_sources'][name]=current['automatic_admission_sources'][name]
         changes.append('automatic_admission_sources/'+name)
+    name='../../batch_runtime.py'
+    if name not in normalized.get('sources',{}):
+        key='qwen3vl_local/sft_new_loop_phase4/rgb_short/contract.py'
+        if saved.get('sources',{}).get('contract.py') not in {r.get(key) for r in releases}:
+            raise ValueError('missing batch runtime binding in nonhistorical view')
+        normalized['sources'][name]=current['sources'][name]
+        changes.append(name+' (added)')
     if normalized!=current:raise ValueError('view differs beyond reviewed runtime/sampling changes')
     return descriptor,current,changes
 

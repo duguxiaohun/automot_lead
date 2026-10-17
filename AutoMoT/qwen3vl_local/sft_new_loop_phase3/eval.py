@@ -1016,19 +1016,26 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             used_history_rgb_paths = select_history_rgb_paths(row.history_rgb_paths, history_rgb_mode)
             rgb_sha256 = [hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
                           for p in used_history_rgb_paths]
-            images = _load_images(used_history_rgb_paths)
             prompt = build_action_prompt(
                 spec=spec, audit=bool(args.audit_prompt), history_rgb_mode=history_rgb_mode, prompt_variant=prompt_variant
             )
-            raw = _generate(
-                bundle,
-                images,
-                spec=spec,
-                audit=bool(args.audit_prompt),
-                history_rgb_mode=history_rgb_mode,
-                max_new_tokens=int(args.max_new_tokens),
-                prompt_variant=prompt_variant,
-            )
+            batch_size = getattr(args, 'batch_size', 1)
+            reuse_rgb = getattr(args, 'reuse_frozen_rgb', False)
+            if batch_size == 1 and not reuse_rgb:
+                images = _load_images(used_history_rgb_paths)
+                raw = _generate(bundle,images,spec=spec,audit=bool(args.audit_prompt),
+                    history_rgb_mode=history_rgb_mode,max_new_tokens=int(args.max_new_tokens),prompt_variant=prompt_variant)
+            else:
+                if local_idx % batch_size == 0:
+                    from qwen3vl_local.batch_runtime import encode_messages, greedy_batch
+                    group = local_cases[local_idx:local_idx+batch_size]
+                    encoded = [encode_messages(bundle, build_action_messages(
+                        images=_load_images(select_history_rgb_paths(x.row.history_rgb_paths,history_rgb_mode)),
+                        spec=x.spec,audit=bool(args.audit_prompt),history_rgb_mode=history_rgb_mode,
+                        prompt_variant=prompt_variant)) for x in group]
+                    pending = greedy_batch(bundle,encoded,max_new_tokens=int(args.max_new_tokens),
+                                           phase3=True,reuse_rgb=reuse_rgb)
+                raw = pending[local_idx % batch_size]
             parsed_bool = parse_action_output(raw, spec=spec, audit=bool(args.audit_prompt))
             answer_only_bool = parse_action_answer_lines(raw, spec=spec)
             parsed = {key: _parsed_text(parsed_bool.get(key)) for key in spec.output_keys}
@@ -1249,6 +1256,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "signature_semantics": "raw evidence signatures; choice exact uses primary-action targets",
         "history_rgb_mode": history_rgb_mode,
         "history_rgb_mode_source": history_rgb_mode_source,
+        "generation_batch_size": getattr(args,"batch_size",1),
+        "frozen_rgb_reuse_requested": getattr(args,"reuse_frozen_rgb",False),
         "history_rgb_count": len(history_rgb_indices(history_rgb_mode)),
         "history_rgb_selected_indices": list(history_rgb_indices(history_rgb_mode)),
         "production_prompt_sha256": action_prompt_sha256(
@@ -1457,6 +1466,8 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="require the evaluated split's INVALID rows to cover R1-R5 and every mismatched context; disable only for smoke subsets",
     )
+    p.add_argument("--batch-size", type=int, default=1)
+    p.add_argument("--reuse-frozen-rgb", action="store_true")
     p.add_argument("--max-new-tokens", type=int, default=256)
     p.add_argument("--prompt-variant", choices=("auto", *PROMPT_VARIANTS), default="auto")
     p.add_argument("--audit-prompt", action=argparse.BooleanOptionalAction, default=False)
@@ -1471,6 +1482,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--expected-excluded-cases", type=int, default=0)
     p.add_argument("--expected-total-cases", type=int, default=0)
     args = p.parse_args()
+    if args.batch_size < 1:
+        p.error("batch-size must be positive")
     if int(args.cases_per_bin) < 0:
         raise ValueError("--cases-per-bin must be >= 0")
     if int(args.expected_excluded_cases) < 0 or int(args.expected_total_cases) < 0:

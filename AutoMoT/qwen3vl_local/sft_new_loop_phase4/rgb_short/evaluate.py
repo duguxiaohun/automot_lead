@@ -8,13 +8,20 @@ from ..identity import digest, write_json
 from ..paired_eval import case_identity
 from .diagnostics import diagnostic_report
 from .data import load_dataset
-from .model import generate, load_for_inference
+from .model import generate, generate_batch, load_for_inference
 
 
-def evaluate_rows(bundle, rows, data_root, max_length=8192):
+def evaluate_rows(bundle, rows, data_root, max_length=8192, *, batch_size=1, reuse_rgb=False):
+    if batch_size < 1:
+        raise ValueError('evaluation batch_size must be positive')
     cases = []
+    pending = []
     for index, row in enumerate(rows):
-        answer, raw = generate(bundle, row, data_root, max_length)
+        if index % batch_size == 0:
+            selected = rows[index:index+batch_size]
+            pending = (generate_batch(bundle, selected, data_root, max_length, reuse_rgb=reuse_rgb)
+                       if batch_size > 1 or reuse_rgb else [generate(bundle, row, data_root, max_length)])
+        answer, raw = pending[index % batch_size]
         original_kind = row.get('student_reference', {}).get('original_reference_kind', row.get('reference_kind', 'reviewed_rgb'))
         cases.append(dict(id=row['id'], target=row['target'], prediction=answer, raw=raw,
                           event=row['episode']['event'], edge=row['edge'], slice=row['slice'],
@@ -30,7 +37,7 @@ def evaluate_rows(bundle, rows, data_root, max_length=8192):
                     malformed=metrics['malformed'], confusion=metrics['confusion'])
     reviewed = agreement([row for row in cases if row['original_reference_kind'] != 'rule_teacher'])
     teacher = agreement([row for row in cases if row['original_reference_kind'] == 'rule_teacher'])
-    return dict(count=len(cases), transferred_reviewed_reference=reviewed, teacher_consistency=teacher,
+    return dict(generation_batch_size=batch_size, frozen_rgb_reuse_requested=reuse_rgb, count=len(cases), transferred_reviewed_reference=reviewed, teacher_consistency=teacher,
                 diagnostics=diagnostic_report(cases),
                 selection_agreement=reviewed['event_macro_agreement_observed'],
                 selection_metric='transferred_reference_event_macro_agreement_v1',
@@ -48,9 +55,13 @@ def main():
     p.add_argument('--output-dir', type=Path, required=True)
     p.add_argument('--split', choices=('val', 'test'), default='val')
     p.add_argument('--max-length', type=int, default=8192)
+    p.add_argument('--batch-size', type=int, default=None, help='Default: recorded training evaluation batch')
+    p.add_argument('--reuse-frozen-rgb', action=argparse.BooleanOptionalAction, default=None)
     p.add_argument('--device', choices=('cpu', 'cuda'), default='cuda')
     p.add_argument('--evaluation-distribution', choices=('equal_events','natural'), default='equal_events')
     a = p.parse_args()
+    if a.batch_size is not None and a.batch_size < 1:
+        p.error("batch-size must be positive")
     import json
     data, manifest = load_dataset(a.dataset, rgb_mode=a.rgb_mode)
     record = json.loads((a.adapter / 'phase4_contract.json').read_text())
@@ -67,7 +78,9 @@ def main():
         os.environ['CUDA_VISIBLE_DEVICES'] = select_gpus(1)
         device = 'cuda:0'
     bundle = load_for_inference(a.model_dir, a.adapter, device)
-    metrics, cases = evaluate_rows(bundle, data[a.split], a.data_root, a.max_length)
+    metrics, cases = evaluate_rows(bundle, data[a.split], a.data_root, a.max_length,
+        batch_size=a.batch_size if a.batch_size is not None else record['training'].get('eval_batch_size',1),
+        reuse_rgb=a.reuse_frozen_rgb if a.reuse_frozen_rgb is not None else record['training'].get('reuse_frozen_rgb',False))
     selection = record['training']['evaluation']
     ids = selection['plans'][a.split]['selected_ids']
     by_id = {r['id']:r for r in cases}
