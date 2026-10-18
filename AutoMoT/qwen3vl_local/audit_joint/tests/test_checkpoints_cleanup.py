@@ -129,6 +129,43 @@ class CleanupTests(unittest.TestCase):
             cleanup.execute(self.root, report, snapshot)
         self.assertTrue((self.cp/'keep').exists())
 
+    def feedback(self):
+        folder = self.cp/'automot_cleanup.example'
+        folder.mkdir()
+        script = folder/'checkpoints_cleanup.py'
+        script.write_text('old_a old_b old_c')
+        (folder/'launch.log').touch()
+        output = folder/'cleanup_report.json'
+        excluded = cleanup.feedback_files(self.root, output, script)
+        output.touch()
+        return folder, excluded
+
+    def test_current_directory_feedback_can_grow_without_self_reference(self):
+        folder, excluded = self.feedback()
+        report, snapshot = self.plan(feedback_files=excluded)
+        (folder/'launch.log').write_text('old_a old_b old_c')
+        self.assertEqual(report['delete'], ['old_a', 'old_b', 'old_c'])
+        cleanup.execute(self.root, report, snapshot)
+        self.assertTrue((folder/'cleanup_report.json').exists())
+
+    def test_current_feedback_cannot_hide_new_reference_file(self):
+        folder, excluded = self.feedback()
+        report, snapshot = self.plan(feedback_files=excluded)
+        (folder/'other.json').write_text('old_a')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            cleanup.execute(self.root, report, snapshot)
+        self.assertTrue((self.cp/'old_a').exists())
+
+    def test_existing_assets_cannot_be_excluded_as_feedback(self):
+        folder, _ = self.feedback()
+        output = folder/'cleanup_report.json'
+        output.unlink()
+        (folder/'unknown.json').write_text('old_a')
+        with self.assertRaisesRegex(ValueError, 'only this script'):
+            cleanup.feedback_files(self.root, output, folder/'checkpoints_cleanup.py')
+        with self.assertRaisesRegex(ValueError, 'fresh automot_cleanup'):
+            cleanup.feedback_files(self.root, self.cp/'old_a/cleanup_report.json', folder/'checkpoints_cleanup.py')
+
 
 if __name__ == '__main__':
     unittest.main()

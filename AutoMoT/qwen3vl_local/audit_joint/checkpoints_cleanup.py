@@ -102,7 +102,7 @@ def live_processes(root):
     return rows
 
 
-def inventory(cp, candidates, deadline, max_bytes):
+def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
     """Scan checkpoint-local references, including compressed text and pickle metadata.
 
     Bare candidate-name matches are conservative: logs can retain a directory even
@@ -139,6 +139,12 @@ def inventory(cp, candidates, deadline, max_bytes):
     def visit(path, owner):
         if time.monotonic() > deadline:
             raise ValueError('reference scan time limit reached; nothing deleted')
+        if path in feedback_files:
+            # Only the three validated files of this invocation are excluded.
+            # The parent directory's membership remains part of the snapshot.
+            if path.is_symlink() or not path.is_file():
+                raise ValueError('feedback file replaced: '+str(path))
+            return
         identity = stamp(path)
         snapshots[str(path)] = identity
         if identity[0] != device or (path != cp and os.path.ismount(path)):
@@ -220,7 +226,7 @@ def inventory(cp, candidates, deadline, max_bytes):
     return edges, snapshots, sizes, consumed
 
 
-def plan(root, *, timeout=600, max_bytes=128*1024**3):
+def plan(root, *, timeout=600, max_bytes=128*1024**3, feedback_files=frozenset()):
     cp = root/'checkpoints'
     present = {n for n in CANDIDATES if (cp/n).exists()}
     if any((cp/n).is_symlink() for n in CANDIDATES):
@@ -228,7 +234,7 @@ def plan(root, *, timeout=600, max_bytes=128*1024**3):
     active = live_processes(root)
     if active:
         raise ValueError('project processes are still running; do not stop them automatically: '+json.dumps(active))
-    edges, snapshots, sizes, count = inventory(cp, present, time.monotonic()+timeout, max_bytes)
+    edges, snapshots, sizes, count = inventory(cp, present, time.monotonic()+timeout, max_bytes, feedback_files)
     protected = set(edges)-present
     pending = list(protected)
     while pending:
@@ -267,6 +273,28 @@ def execute(root, report, snapshots):
         report['deleted'] = deleted.copy()
 
 
+def feedback_files(root, out, script):
+    """Allow a dedicated current-directory handoff without hiding existing assets."""
+    if out.exists() or out.is_symlink():
+        raise ValueError('Use a new output JSON')
+    if not out.resolve().is_relative_to(root):
+        return frozenset()
+    folder = out.parent
+    if (folder.is_symlink() or folder.resolve() != folder
+            or folder.parent not in (root, root/'checkpoints')
+            or not folder.name.startswith('automot_cleanup.')
+            or out.name != 'cleanup_report.json'):
+        raise ValueError('Use a fresh automot_cleanup.* directory directly under the project or checkpoints')
+    source = folder/'checkpoints_cleanup.py'
+    log = folder/'launch.log'
+    if script.resolve() != source or set(folder.iterdir()) != {source, log}:
+        raise ValueError('Feedback directory must contain only this script and launch.log')
+    for path in (source, log):
+        if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
+            raise ValueError('Feedback files must be regular files, not links')
+    return frozenset((source, log, out))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
@@ -284,8 +312,10 @@ def main():
         if not (root/'checkpoints'/name).is_dir():
             parser.error('protected asset missing: '+name)
     out = args.output.absolute()
-    if out.resolve().is_relative_to(root) or out.exists() or out.is_symlink():
-        parser.error('Use a new output JSON outside AutoMoT')
+    try:
+        excluded = feedback_files(root, out, Path(__file__))
+    except ValueError as exc:
+        parser.error(str(exc))
     report = dict(schema='exact_checkpoints_cleanup_v1', root=str(root), hostname=socket.gethostname(),
                   apply=args.apply, deleted=[], backups_created=False, status='checking')
     # Ensure the feedback file is writable before considering any deletion.
@@ -295,7 +325,7 @@ def main():
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         report['free_before'] = shutil.disk_usage(root/'checkpoints').free
         print('[scan] retained references and old outputs; max 600s / 128 GiB decoded metadata', flush=True)
-        selected, snapshots = plan(root)
+        selected, snapshots = plan(root, feedback_files=excluded)
         report.update(selected)
         print(json.dumps(selected, ensure_ascii=False, indent=2), flush=True)
         if args.apply:
