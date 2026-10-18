@@ -4,6 +4,7 @@ No latest-directory guessing, backups, training, source changes or wildcard dele
 Unknown references, scan failures, mounts and live project processes block deletion.
 """
 import argparse
+from collections import deque
 import fcntl
 import gzip
 import json
@@ -102,6 +103,47 @@ def live_processes(root):
     return rows
 
 
+def trace_link(path):
+    """Record every hop, including intermediates, and terminate exact link cycles.
+
+    Unlike Path.resolve(), a cycle is diagnostic rather than an exception. Missing
+    destinations remain references; other I/O errors and excessive depth still fail.
+    """
+    pending = deque(path.parts[1:])
+    current = Path(path.anchor)
+    references = [path]
+    seen = set()
+    while pending:
+        part = pending.popleft()
+        if part == '.':
+            continue
+        if part == '..':
+            current = current.parent
+            continue
+        target = current/part
+        try:
+            is_link = stat.S_ISLNK(target.lstat().st_mode)
+        except FileNotFoundError:
+            is_link = False
+        if not is_link:
+            current = target
+            continue
+        state = (str(target), tuple(pending))
+        if state in seen:
+            return references, str(target)
+        if len(seen) >= 256:
+            raise ValueError('symlink traversal limit: '+str(path))
+        seen.add(state)
+        raw = Path(os.readlink(target))
+        destination = raw if raw.is_absolute() else target.parent/raw
+        # Keep the unnormalised spelling as well: a/../b still traverses a.
+        references.extend((destination, Path(os.path.abspath(destination))))
+        current = Path(raw.anchor) if raw.is_absolute() else target.parent
+        pending.extendleft(reversed(raw.parts[1:] if raw.is_absolute() else raw.parts))
+    references.append(current)
+    return references, None
+
+
 def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
     """Scan checkpoint-local references, including compressed text and pickle metadata.
 
@@ -116,6 +158,7 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
     consumed = 0
     last_progress = time.monotonic()
     device = cp.stat().st_dev
+    cycles = []
 
     def scan(stream, owner):
         nonlocal consumed, last_progress
@@ -150,10 +193,10 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
         if identity[0] != device or (path != cp and os.path.ismount(path)):
             raise ValueError('nested filesystem found; refuse cleanup: '+str(path))
         if path.is_symlink():
-            # Preserve the first hop as well as the final destination: removing
-            # an intermediate directory would otherwise break a surviving link.
-            first = Path(os.path.abspath(path.parent/os.readlink(path)))
-            for link in (first, path.resolve()):
+            references, cycle = trace_link(path)
+            if cycle:
+                cycles.append({'path': str(path), 'cycle_at': cycle})
+            for link in references:
                 edges[owner].update(n for n in candidates
                                    if n in str(link) or (cp/n).is_relative_to(link))
             return
@@ -223,7 +266,7 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
         for path in files[owner]:
             read_references(path, owner)
         pending.extend(edges[owner]-read)
-    return edges, snapshots, sizes, consumed
+    return edges, snapshots, sizes, consumed, cycles
 
 
 def plan(root, *, timeout=600, max_bytes=128*1024**3, feedback_files=frozenset()):
@@ -234,7 +277,7 @@ def plan(root, *, timeout=600, max_bytes=128*1024**3, feedback_files=frozenset()
     active = live_processes(root)
     if active:
         raise ValueError('project processes are still running; do not stop them automatically: '+json.dumps(active))
-    edges, snapshots, sizes, count = inventory(cp, present, time.monotonic()+timeout, max_bytes, feedback_files)
+    edges, snapshots, sizes, count, cycles = inventory(cp, present, time.monotonic()+timeout, max_bytes, feedback_files)
     protected = set(edges)-present
     pending = list(protected)
     while pending:
@@ -246,7 +289,8 @@ def plan(root, *, timeout=600, max_bytes=128*1024**3, feedback_files=frozenset()
     return dict(delete=selected, kept_referenced=sorted(present & protected),
         protected_roots=sorted(set(edges)-present),
         references={k: sorted(v) for k, v in edges.items() if v},
-        estimated_bytes={n: sizes[n] for n in selected}, scanned_bytes=count), snapshots
+        estimated_bytes={n: sizes[n] for n in selected}, scanned_bytes=count,
+        symlink_cycles=cycles), snapshots
 
 
 def execute(root, report, snapshots):

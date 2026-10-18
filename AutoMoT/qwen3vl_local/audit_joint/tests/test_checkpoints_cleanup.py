@@ -56,6 +56,27 @@ class CleanupTests(unittest.TestCase):
         (self.cp/'old_a/link').symlink_to('../old_b')
         self.assertEqual(self.plan()[0]['kept_referenced'], ['old_a', 'old_b'])
 
+    def test_unrelated_baseline_self_link_is_reported_and_preserved(self):
+        loop = self.cp/'keep/run_20260805_181121'
+        loop.symlink_to(loop.name)
+        report, snapshot = self.plan()
+        self.assertEqual(len(report['symlink_cycles']), 1)
+        self.assertEqual(len(report['delete']), 3)
+        cleanup.execute(self.root, report, snapshot)
+        self.assertTrue(loop.is_symlink())
+
+    def test_cycle_through_old_directory_keeps_every_intermediate(self):
+        (self.cp/'keep/link').symlink_to('../old_a/link')
+        (self.cp/'old_a/link').symlink_to('../old_b/link')
+        (self.cp/'old_b/link').symlink_to('../old_a/link')
+        report, _ = self.plan()
+        self.assertEqual(report['kept_referenced'], ['old_a', 'old_b'])
+        self.assertEqual(report['delete'], ['old_c'])
+
+    def test_link_traverses_parent_before_dotdot(self):
+        (self.cp/'keep/link').symlink_to('../old_a/../old_b')
+        self.assertEqual(self.plan()[0]['kept_referenced'], ['old_a', 'old_b'])
+
     def test_candidate_symlink_blocks(self):
         (self.cp/'old_c').rmdir()
         (self.cp/'old_c').symlink_to('keep')
