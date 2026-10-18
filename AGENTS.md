@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-18 v84 发布复核与相邻 RGB
+
+用户再次授权白名单push和并行RGB。fetch确认生产修复c5cba7c41已在origin/main，未重复修改生产代码、teacher、prompt或源码清单。571源匹配，82入口/采样/接续测试6.16秒通过；真实本地label_release_check读取3187历史train、两模式各事件1024并生成33416字节校验ZIP，training_authorized=false，不是新库准入。补发布此前4路线40RGB/1534回归的轻量记录，证据SHA及4项源码SHA仍匹配；多批回归有重叠不相加。
+并行实际新增相邻16RGB/两train路线、48源SHA，与此前140+40目视无重叠；复用已有原生回放，未新重放。UE6 Town06 79–80净空后priorityFalse仍NO，81 identity_lost非完成，83 hazard撤销时实例已结束；8帧无traffic_light actor，RGB灯与ego关联仍有限制。Town03 43–46同样NO，47 RGB不连续非完成，light81 Yellow→Red记录，不从后续净空补YES。无新确证错标，不扩大为全源盲审。
+当前只让cr02同步后运行LABEL_SAMPLING_RELEASE_20261018.md的只读label_release_check，交label_release_report.zip及label_release_package.json，失败也交，不自行重建或训练；cee完成结果保留。报告label_release_followup_verification_20261018.json；原图留checkpoints/v84_followup_rgb_20261018。精确发布文档/轻量回执，保留用户.vscode及其它未跟踪数据，不上传RGB/权重/原始回放。
+
 ### 2026-10-18 关键动作最低曝光与 U-E4/U-E6 RGB 续审
 
 按用户要求本地完善并验证，不安排训练。cee已完成接续暴露UE2return池2YES却本轮0、UE7complete池13YES却2/0；Phase4采样新增v5，对既定6关键边每个有原生自动train/readiness支持的YES/NO单元每轮保留至少1不同题，计入原事件配额。事件1:1/B2/图像窗口不变；缺支持明确报告、不补标签，catchup/reviewed不充当最低支持。保留项历史少者优先、硬重复上限有效；history绑定策略/最低项，不混旧v4。未传最低项的共享调用保持v4索引/报告/history精确一致，但源码SHA改变，旧P3/P4checkpoint仍须原版恢复。清单位于学生绑定模块并与准入清单测试一致。

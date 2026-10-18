@@ -1,0 +1,131 @@
+{
+  "release": "v84_label_sampling_20261018",
+  "production_commit": "c5cba7c41",
+  "production_changed_this_followup": false,
+  "source_status": "matched",
+  "source_files": 571,
+  "tests": {
+    "passed": 82,
+    "seconds": 6.16,
+    "log_sha256": "310b25ec3acf53ff2732a2fa0dd7ca68efaa6409c151be38b6d50b3472352e0e",
+    "overlaps_prior_regressions": true
+  },
+  "local_cli": {
+    "status": "diagnostic_complete",
+    "training_authorized": false,
+    "rows": 3187,
+    "plans": {
+      "2": {
+        "U-E2": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E7": 1024,
+        "U-E4": 1024,
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E3": 1024
+      },
+      "4": {
+        "U-E2": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E7": 1024,
+        "U-E4": 1024,
+        "R-E2": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E3": 1024
+      }
+    },
+    "package": {
+      "status": "verified",
+      "report_status": "diagnostic_complete",
+      "training_authorized": false,
+      "archive": "label_release_report.zip",
+      "bytes": 33416,
+      "sha256": "30142c623bb72a4d9a7ce855c7b17d94a7a7368699a0791d0e758c9ee7e770c4",
+      "members": {
+        "label_release_report.json": "b9a2d91301861515b87cbbdbbb5dae5cdab0bcb62ffca32d5708deaa0cb7adc5"
+      }
+    }
+  },
+  "rgb": {
+    "schema": "v84_rgb_followup_review_v1",
+    "scope": "known_train_routes_development_visual_review_not_blind",
+    "routes": 2,
+    "visual_frames": 16,
+    "visual_source_files": 48,
+    "source_sha_verified": true,
+    "new_visual_frames_relative_to_prior_140_and_40": 16,
+    "prior_visual_overlap": 0,
+    "native_replay_reused": "checkpoints/critical_rgb_followup_20261018/after/production",
+    "new_replay_performed": false,
+    "source_manifest_sha256": "2085a4af2c5ec7c2874814d8ccee9793d939414765ef43b4f861b7e1af2fe986",
+    "windows_sha256": "c31ceda9967e8804ae1b926949cefb7973e5892b327937fcc18b7667eb354859",
+    "windows": [
+      {
+        "route": "Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10",
+        "scenario": "OppositeVehicleRunningRedLight",
+        "split": "train",
+        "frames": [
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86
+        ]
+      },
+      {
+        "route": "Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34",
+        "scenario": "OppositeVehicleRunningRedLight",
+        "split": "train",
+        "frames": [
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "route": "Town06_Rep0_Town06_Scenario8_70_route0_01_08_19_37_10",
+        "facts": "79–80: proceed NO, release_ready/corridor_clear True, priority_satisfied False. 81: identity_lost, completed False. 79–82 light_hazard True; 83–86 False. No traffic_light actor in any of these eight projected frames. No U-E6 question after 80.",
+        "visual": "Crossing police car is already receding into the left road; open ego corridor does not establish priority. Other lamps are visible in RGB but their ego association cannot be independently certified from these frames. Ego moves after the event has already ended.",
+        "interpretation": "Signal metadata association remains an observability limitation. Later hazard withdrawal or ego motion is not a YES/completion for the terminated instance."
+      },
+      {
+        "route": "Town03_Rep0_Town03_Scenario8_107_route0_01_10_08_12_34",
+        "facts": "43–46: proceed NO, release_ready/corridor_clear True, priority_satisfied False. 47: instance_rgb_discontinuity, completed False. light_hazard True through 50; associated traffic_light id81 Yellow 43–48, Red 49–50. No U-E6 question after46.",
+        "visual": "Emergency crossing vehicle has left the foreground; fog limits distant actors and signal attribution. Opposing vehicle and red lamps remain visible. Some center signals appear green by frame50, but their ego association is not established by RGB alone.",
+        "interpretation": "No confirmed label defect; NO is consistent with the stored independent priority veto. Do not infer YES from empty corridor or later motion."
+      }
+    ],
+    "confirmed_label_bugs": 0,
+    "production_code_changed": false,
+    "teacher_changed": false,
+    "thresholds_changed": false,
+    "prompts_changed": false,
+    "gpu": false,
+    "remote": false,
+    "training": false
+  },
+  "server_next_step": {
+    "server": "cr02",
+    "task": "read-only historical label_release_check; return ZIP and package JSON",
+    "dataset": "checkpoints/phase4_labels_20261017_125230_304771113/data4",
+    "cee": "completed continuation preserved; no rerun",
+    "gpu": false
+  },
+  "scope": "Local source, CPU planner and visual development evidence; not new official pool admission or model quality certification."
+}

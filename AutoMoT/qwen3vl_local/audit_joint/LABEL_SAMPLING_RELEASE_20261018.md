@@ -2,11 +2,13 @@
 
 本页替代旧的 cr02 开训建议和 cee 接续命令。cee 两模式首轮、重载、固定 test 已收到并核验，不重复执行。cr02 只有旧正式题库、没有训练和缓存。两台服务器资产不互通。
 
+发布复核：生产修复已在远端 main 的 `c5cba7c41`；随后补充审计记录不改变此版本的571项源码清单。再次执行82项入口/采样/接续回归全部通过，真实本地只读诊断完成并生成校验通过的ZIP。此前4路线40RGB及1534项回归的详细证据见[关键采样与RGB复核](CRITICAL_SAMPLING_RGB_20261018.md)；这些测试有重叠，不累计为独立数量。新增相邻16RGB结果见[发布复核回执](label_release_followup_verification_20261018.json)。
+
 ## 本轮落地
 
 - 发布此前本地验证的教师 v23/v24：U-E1/U-E4 的明确否决不被 UNKNOWN 覆盖；U-E3/U-E5 目标隐藏时仍保留独立阻挡或优先权否决。新 plan39/registry34，旧合同保持原样；不放宽阈值，不修改提示词。
 - Phase4 连续采样升为 v5：在每事件1024预算内，为每个有原生自动 train/readiness 支持的关键边 YES/NO 各预留至少1道不同题。余量继续采用原连续/低曝光优先；逐轮轮换稀少题。缺格如 U-E5/proceed/YES 只报告，不伪造。不是 YES:NO 等量，也不保证一次曝光足以学会。
-- 默认关键边与 `critical_support()` 同源：U-E2 return、U-E3/5/6 proceed、U-E7 complete、R-E5 proceed。catchup、人工复核题不冒充原生关键支持。历史绑定包含新策略和最低曝光；旧 v4 history/checkpoint 不得跨策略恢复。
+- 默认关键边与 `critical_support()` 使用相同清单，由回归测试保证一致：U-E2 return、U-E3/5/6 proceed、U-E7 complete、R-E5 proceed。catchup、人工复核题不冒充原生关键支持。历史绑定包含新策略和最低曝光；旧 v4 history/checkpoint 不得跨策略恢复。
 - Phase3 未请求最低曝光时保持 v4 选择算法；共享源码 SHA 已变化，已有 Phase3 checkpoint 继续保留原版环境，不因此重训或直接跨合同续训。其测试夹具补齐既有 batch 评估所需 tokenizer/device，不改生产训练。
 - 新增 `label_release_check`：只读 manifest 和一次 train.jsonl，验证原始 SHA/数量/读取中漂移，列出当前合同差异，模拟两模式B2/四卡各1024事件预算。自动输出 ZIP 和回执，实际 ZIP 上限30MB；坏输入也产生阻塞报告。它不读取图像、不加载模型、不建立缓存、不改数据、不证明全部标注可靠。
 

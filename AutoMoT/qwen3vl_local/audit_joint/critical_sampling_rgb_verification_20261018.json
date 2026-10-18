@@ -1,0 +1,547 @@
+{
+  "status": "local_verified_not_server_release",
+  "date": "2026-10-18",
+  "policy": "event_equal_critical_then_contiguous_v5",
+  "source_sha256": {
+    "qwen3vl_local/sequence_batch.py": "a2c88e7e404de3663b76a4fd46b47dbc800a153e2fdfe8abb477476f722e31b7",
+    "qwen3vl_local/sft_new_loop_phase4/rgb_short/batch_sampling.py": "04552adb5fdb9ea0d9dd38bc8855720ed7308884ae67442b069fd37b36781c4f",
+    "qwen3vl_local/tests/test_sequence_batch.py": "5ef60c6ed015e781a1abd90b133ee0710d34164419eb236d9db400ffd7dffa64",
+    "qwen3vl_local/sft_new_loop_phase3/test_epoch_consumption.py": "90b2863de69a26248b59fc5e2be6bc057c9db5610e7d5b2632f67b741357cbd6"
+  },
+  "producer_sources_still_match_native_replay": true,
+  "producer_source_count": 61,
+  "tests": {
+    "final_passed": 1534,
+    "skipped": 2,
+    "seconds": 119.93,
+    "skips": "historical production pools unavailable",
+    "targeted_passed": 61,
+    "targeted_seconds": 2.74,
+    "counts_overlap": true
+  },
+  "rgb": {
+    "routes": 4,
+    "replayed_frames": 458,
+    "question_pairs": 214,
+    "prior_v23_to_current_v24_fact_answer_differences": [],
+    "source_files": 1374,
+    "viewed_rgb_frames": 40,
+    "visual_source_files": 120,
+    "overlap_prior_140_rgb": 19,
+    "note": "Nonblind repeated train routes; only 40 frames visually inspected, no val/test exposure, current sampler cannot change raw teacher facts. UE6 observed NO vetoes include metadata-only light_hazard; no new proven label error.",
+    "windows": [
+      {
+        "event": "U-E4",
+        "frames": "59-68",
+        "finding": "pedestrian moves right to left; NO59-64 UNKNOWN65-67 YES68 while still visible"
+      },
+      {
+        "event": "U-E4",
+        "frames": "67-76",
+        "finding": "fog, pedestrian crossing; NO67-72 UNKNOWN73-74 YES75-76 beyond ego corridor"
+      },
+      {
+        "event": "U-E6",
+        "frames": "33-42",
+        "finding": "ambulance crosses; NO throughout; clear/release true42 but priority false with light_hazard"
+      },
+      {
+        "event": "U-E6",
+        "frames": "69-78",
+        "finding": "police vehicle crosses and recedes; clear/release true73-78, light_hazard true prevents permission; current actor association absent"
+      }
+    ]
+  },
+  "sampling": {
+    "historical_rows": 3187,
+    "historical_sha256": "d5fdb28a2df87bcf75a6389e4a545da38c47c4cf1c951263cee50e9ff579ed45",
+    "reports": [
+      {
+        "world": 1,
+        "stride": 1,
+        "old_unique": 2994,
+        "new_unique": 2994,
+        "old_max_repeat": 38,
+        "new_max_repeat": 38,
+        "old_ids_sha256": "f42e7765d8e73a857b978f5219549c05d061f9aee96ddcf332f4d23bf77cdf40",
+        "new_ids_sha256": "ee8c436ba21d6e860501b380f6fa8a7762d4f2a6633fe5ad8c37d74aad5d67ef",
+        "action_minimums": {
+          "R-E2": {},
+          "R-E3": {},
+          "R-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 297,
+              "reserved": 1,
+              "actual": 862,
+              "unique_questions": 297,
+              "physical_groups": 9
+            },
+            "proceed/YES": {
+              "required": 1,
+              "available": 10,
+              "reserved": 1,
+              "actual": 28,
+              "unique_questions": 10,
+              "physical_groups": 2
+            }
+          },
+          "U-E1": {},
+          "U-E2": {},
+          "U-E3": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 24,
+              "reserved": 1,
+              "actual": 910,
+              "unique_questions": 24,
+              "physical_groups": 3
+            }
+          },
+          "U-E4": {},
+          "U-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 23,
+              "reserved": 1,
+              "actual": 872,
+              "unique_questions": 23,
+              "physical_groups": 3
+            }
+          },
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 54,
+              "reserved": 1,
+              "actual": 956,
+              "unique_questions": 54,
+              "physical_groups": 3
+            }
+          },
+          "U-E7": {
+            "complete/NO": {
+              "required": 1,
+              "available": 11,
+              "reserved": 1,
+              "actual": 66,
+              "unique_questions": 11,
+              "physical_groups": 1
+            }
+          }
+        },
+        "unsupported": [
+          "U-E2/return/YES",
+          "U-E2/return/NO",
+          "U-E3/proceed/YES",
+          "U-E5/proceed/YES",
+          "U-E6/proceed/YES",
+          "U-E7/complete/YES"
+        ],
+        "reserved": 6,
+        "segments": 6086,
+        "old_segments": 6082,
+        "generic_v4_exactly_unchanged": true
+      },
+      {
+        "world": 1,
+        "stride": 2,
+        "old_unique": 2994,
+        "new_unique": 2994,
+        "old_max_repeat": 38,
+        "new_max_repeat": 38,
+        "old_ids_sha256": "327ebee7cee088c4f450e8b2f94c83ad731adbe0fc72a891e8b9fbf67e88e3b4",
+        "new_ids_sha256": "fa8c6bd931880c8808190b7fc4fc4c7541d39c78876ca814156ac32134f1f545",
+        "action_minimums": {
+          "R-E2": {},
+          "R-E3": {},
+          "R-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 297,
+              "reserved": 1,
+              "actual": 858,
+              "unique_questions": 297,
+              "physical_groups": 9
+            },
+            "proceed/YES": {
+              "required": 1,
+              "available": 10,
+              "reserved": 1,
+              "actual": 30,
+              "unique_questions": 10,
+              "physical_groups": 2
+            }
+          },
+          "U-E1": {},
+          "U-E2": {},
+          "U-E3": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 24,
+              "reserved": 1,
+              "actual": 910,
+              "unique_questions": 24,
+              "physical_groups": 3
+            }
+          },
+          "U-E4": {},
+          "U-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 23,
+              "reserved": 1,
+              "actual": 872,
+              "unique_questions": 23,
+              "physical_groups": 3
+            }
+          },
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 54,
+              "reserved": 1,
+              "actual": 956,
+              "unique_questions": 54,
+              "physical_groups": 3
+            }
+          },
+          "U-E7": {
+            "complete/NO": {
+              "required": 1,
+              "available": 11,
+              "reserved": 1,
+              "actual": 66,
+              "unique_questions": 11,
+              "physical_groups": 1
+            }
+          }
+        },
+        "unsupported": [
+          "U-E2/return/YES",
+          "U-E2/return/NO",
+          "U-E3/proceed/YES",
+          "U-E5/proceed/YES",
+          "U-E6/proceed/YES",
+          "U-E7/complete/YES"
+        ],
+        "reserved": 6,
+        "segments": 6279,
+        "old_segments": 6276,
+        "generic_v4_exactly_unchanged": true
+      },
+      {
+        "world": 4,
+        "stride": 1,
+        "old_unique": 2994,
+        "new_unique": 2994,
+        "old_max_repeat": 38,
+        "new_max_repeat": 38,
+        "old_ids_sha256": "0407d1be60a39e5442b41d666c0fd760165dc6790cdda27e25600c1778f22c73",
+        "new_ids_sha256": "c9cec60d08d79fdaa2e6fdb7b73a18d03b597088542833d457a5dcc12b8a0bdf",
+        "action_minimums": {
+          "R-E2": {},
+          "R-E3": {},
+          "R-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 297,
+              "reserved": 1,
+              "actual": 858,
+              "unique_questions": 297,
+              "physical_groups": 9
+            },
+            "proceed/YES": {
+              "required": 1,
+              "available": 10,
+              "reserved": 1,
+              "actual": 30,
+              "unique_questions": 10,
+              "physical_groups": 2
+            }
+          },
+          "U-E1": {},
+          "U-E2": {},
+          "U-E3": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 24,
+              "reserved": 1,
+              "actual": 910,
+              "unique_questions": 24,
+              "physical_groups": 3
+            }
+          },
+          "U-E4": {},
+          "U-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 23,
+              "reserved": 1,
+              "actual": 872,
+              "unique_questions": 23,
+              "physical_groups": 3
+            }
+          },
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 54,
+              "reserved": 1,
+              "actual": 956,
+              "unique_questions": 54,
+              "physical_groups": 3
+            }
+          },
+          "U-E7": {
+            "complete/NO": {
+              "required": 1,
+              "available": 11,
+              "reserved": 1,
+              "actual": 66,
+              "unique_questions": 11,
+              "physical_groups": 1
+            }
+          }
+        },
+        "unsupported": [
+          "U-E2/return/YES",
+          "U-E2/return/NO",
+          "U-E3/proceed/YES",
+          "U-E5/proceed/YES",
+          "U-E6/proceed/YES",
+          "U-E7/complete/YES"
+        ],
+        "reserved": 6,
+        "segments": 3108,
+        "old_segments": 3098,
+        "generic_v4_exactly_unchanged": true
+      },
+      {
+        "world": 4,
+        "stride": 2,
+        "old_unique": 2994,
+        "new_unique": 2994,
+        "old_max_repeat": 38,
+        "new_max_repeat": 38,
+        "old_ids_sha256": "8be2e6b4fccdcec81238e5831a44291ddbd436a9f934adc0998fe1b3177a88a0",
+        "new_ids_sha256": "449e4260d0bf12a2ec2456f9786aed8760c3aaaf4ff43ee891c30441907978a7",
+        "action_minimums": {
+          "R-E2": {},
+          "R-E3": {},
+          "R-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 297,
+              "reserved": 1,
+              "actual": 858,
+              "unique_questions": 297,
+              "physical_groups": 9
+            },
+            "proceed/YES": {
+              "required": 1,
+              "available": 10,
+              "reserved": 1,
+              "actual": 30,
+              "unique_questions": 10,
+              "physical_groups": 2
+            }
+          },
+          "U-E1": {},
+          "U-E2": {},
+          "U-E3": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 24,
+              "reserved": 1,
+              "actual": 910,
+              "unique_questions": 24,
+              "physical_groups": 3
+            }
+          },
+          "U-E4": {},
+          "U-E5": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 23,
+              "reserved": 1,
+              "actual": 872,
+              "unique_questions": 23,
+              "physical_groups": 3
+            }
+          },
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 54,
+              "reserved": 1,
+              "actual": 956,
+              "unique_questions": 54,
+              "physical_groups": 3
+            }
+          },
+          "U-E7": {
+            "complete/NO": {
+              "required": 1,
+              "available": 11,
+              "reserved": 1,
+              "actual": 66,
+              "unique_questions": 11,
+              "physical_groups": 1
+            }
+          }
+        },
+        "unsupported": [
+          "U-E2/return/YES",
+          "U-E2/return/NO",
+          "U-E3/proceed/YES",
+          "U-E5/proceed/YES",
+          "U-E6/proceed/YES",
+          "U-E7/complete/YES"
+        ],
+        "reserved": 6,
+        "segments": 3671,
+        "old_segments": 3665,
+        "generic_v4_exactly_unchanged": true
+      }
+    ],
+    "fresh_native": [
+      {
+        "mode": 2,
+        "world": 1,
+        "rows": 92,
+        "events": {
+          "U-E4": 8,
+          "U-E6": 8,
+          "R-E2": 8
+        },
+        "minimums": {
+          "R-E2": {},
+          "U-E4": {},
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 38,
+              "reserved": 1,
+              "actual": 5,
+              "unique_questions": 5,
+              "physical_groups": 2
+            }
+          }
+        },
+        "unsupported": [
+          "U-E6/proceed/YES"
+        ]
+      },
+      {
+        "mode": 2,
+        "world": 4,
+        "rows": 92,
+        "events": {
+          "U-E4": 8,
+          "U-E6": 8,
+          "R-E2": 8
+        },
+        "minimums": {
+          "R-E2": {},
+          "U-E4": {},
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 38,
+              "reserved": 1,
+              "actual": 8,
+              "unique_questions": 8,
+              "physical_groups": 1
+            }
+          }
+        },
+        "unsupported": [
+          "U-E6/proceed/YES"
+        ]
+      },
+      {
+        "mode": 4,
+        "world": 1,
+        "rows": 92,
+        "events": {
+          "U-E4": 8,
+          "U-E6": 8,
+          "R-E2": 8
+        },
+        "minimums": {
+          "R-E2": {},
+          "U-E4": {},
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 38,
+              "reserved": 1,
+              "actual": 5,
+              "unique_questions": 5,
+              "physical_groups": 2
+            }
+          }
+        },
+        "unsupported": [
+          "U-E6/proceed/YES"
+        ]
+      },
+      {
+        "mode": 4,
+        "world": 4,
+        "rows": 92,
+        "events": {
+          "U-E4": 8,
+          "U-E6": 8,
+          "R-E2": 8
+        },
+        "minimums": {
+          "R-E2": {},
+          "U-E4": {},
+          "U-E6": {
+            "proceed/NO": {
+              "required": 1,
+              "available": 38,
+              "reserved": 1,
+              "actual": 7,
+              "unique_questions": 7,
+              "physical_groups": 1
+            }
+          }
+        },
+        "unsupported": [
+          "U-E6/proceed/YES"
+        ]
+      }
+    ],
+    "seconds": 8.229973022011109,
+    "scope": "Historical SHA-bound rows used only for CPU planner comparison; fresh four-route v24 view genuinely built and loaded. No server full-pool or GPU acceptance."
+  },
+  "evidence_directory": "checkpoints/critical_rgb_followup_20261018",
+  "evidence_sha256": {
+    "rgb_verification.json": "d73de2c2acd7ee76c5de6cda02e89b7817b09ccf44d5a5e18ad9ce801696a368",
+    "sampling_comparison.json": "adc96252aa7076efffcd1de76dffcd3bf6c00afb50ea222c5b248cb593141c19",
+    "visual_windows.json": "6a42018d307e8130ec756c8954e044c45cb034beff0c411c8fb057d6c8074d56",
+    "visual_sources.json": "b64f8c2a02b7a8866d10e7795e99b5fc80df54c7b80492c9a106b10e7f646305",
+    "control_probe.json": "8c2ed48d858842bd9fa5faac1ca97150e69ee213e9968e88765ba1488bf8db95",
+    "after/sources.json": "e81214436f68282fbdd355a83f5bd72f6ae1e6f36a3434857a26653a86b888d7",
+    "after/summary.json": "55f97e49dfc0937be41b5b896fb28f261cd22222a7164a5eb8423500c0dd919c",
+    "after/data4/manifest.json": "a8dfe66dc7a48ced5daedff6af10bbe90aac2bb8472969b39042701010bfec3c",
+    "final_regression.log": "560db3b13b05236bfd9c8c2058a4d95a43fa72e4ba34d235c1d3699f510ab180",
+    "final_tests.log": "cac585105e920770a2e64d0ce0200b9cb2ebd53a213eb4f7d92e13da76bc8c41",
+    "compare_sampling.py": "03c49bae6b6038e25d3094113da251cf67d1e7ba2b19755e95c8a15bf87a72b1",
+    "replay.py": "b8ce29700988fe02345d7f0a57c6c88bbb85e4cbc7ca5b019a836d5bb5320b61",
+    "sequence_batch_before.py": "8477a5333b0da3e04ff84366045bd73824a5327e1c824e470c275c1cd254886e",
+    "batch_sampling_before.py": "f9b264d94387aed36478a122e1aa75ec6b44211172fc099ed2911255633422be"
+  },
+  "limitations": [
+    "Known train routes, not blind audit; 19 of 40 viewed RGB overlap earlier 140-frame review.",
+    "No new proven calibration error; no teacher threshold or prompt edits in this iteration.",
+    "UE6 metadata-only signal/priority veto observability remains limited.",
+    "UE5 proceed YES absent; minimum exposure cannot create support or establish accuracy.",
+    "No GPU, remote task, server full-pool acceptance, training, or push.",
+    "Old v4 histories and existing checkpoints cannot be resumed under changed source contracts.",
+    "cee and cr02 are independent; completed cee continuation is not rerun."
+  ]
+}
