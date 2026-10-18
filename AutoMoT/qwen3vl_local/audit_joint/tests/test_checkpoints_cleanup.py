@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 import struct
 import random
+import subprocess
+import sys
+import time
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -215,6 +218,39 @@ class CleanupTests(unittest.TestCase):
             cleanup.feedback_files(self.root, output, folder/'checkpoints_cleanup.py')
         with self.assertRaisesRegex(ValueError, 'fresh automot_cleanup'):
             cleanup.feedback_files(self.root, self.cp/'old_a/cleanup_report.json', folder/'checkpoints_cleanup.py')
+
+    def test_trace_only_selected_owner_and_all_matching_files(self):
+        (self.cp/'keep/config.json').write_text('{"parent":"old_a"}')
+        with gzip.open(self.cp/'keep/log.gz', 'wb') as f:
+            f.write(b'historical old_a was examined')
+        (self.cp/'old_b/unreadable.gz').write_bytes(b'not a gzip')
+        evidence = []
+        edges, _, _, _, _ = cleanup.inventory(self.cp, {'old_a', 'old_b'}, time.monotonic()+10,
+            1024**2, owners=['keep'], reference_trace=evidence)
+        self.assertEqual(edges, {'keep': {'old_a'}})
+        self.assertEqual({x['file'] for x in evidence}, {'keep/config.json', 'keep/log.gz'})
+        self.assertTrue(all('old_a' in x['excerpt'] for x in evidence))
+        self.assertTrue((self.cp/'old_a').exists())
+
+    def test_trace_archive_member_and_symlink(self):
+        (self.cp/'keep/link').symlink_to('../old_a')
+        with zipfile.ZipFile(self.cp/'keep/data.zip', 'w') as z:
+            z.writestr('meta.json', '{"source":"old_b"}')
+            z.writestr('old_c/note', 'no content reference')
+        evidence = []
+        edges, _, _, _, _ = cleanup.inventory(self.cp, {'old_a', 'old_b', 'old_c'}, time.monotonic()+10,
+            1024**2, owners=['keep'], reference_trace=evidence)
+        self.assertEqual(edges['keep'], {'old_a', 'old_b', 'old_c'})
+        self.assertTrue(any(x.get('archive_member') == 'meta.json' and x['candidate'] == 'old_b' for x in evidence))
+        self.assertTrue(any(x.get('evidence_kind') == 'archive_member_name' and x['candidate'] == 'old_c' for x in evidence))
+        self.assertTrue(any('symlink_target' in x and x['candidate'] == 'old_a' for x in evidence))
+
+    def test_trace_cli_cannot_apply_deletion(self):
+        result = subprocess.run([sys.executable, '-S', '-B', cleanup.__file__, '--root', str(self.root),
+            '--output', str(self.root/'trace.json'), '--trace-retained', '--apply'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('not allowed with argument', result.stderr)
+        self.assertTrue((self.cp/'old_a').exists())
 
 
 if __name__ == '__main__':

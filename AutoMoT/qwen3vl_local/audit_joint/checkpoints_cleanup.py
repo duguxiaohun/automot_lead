@@ -73,6 +73,7 @@ REQUIRED = [
         '20261018_034614_519706091_2rgb_short_binary',
         '20261018_095559_213634718_4rgb_choice')],
 ]
+TRACE_OWNERS = ('sft_new_loop_phase3_pipeline', 'label_release_cr02_20261018_114934_308707697')
 
 
 def stamp(path):
@@ -184,14 +185,16 @@ class ReferenceMatcher:
         return found
 
 
-def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
+def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset(),
+              owners=None, reference_trace=None):
     """Scan checkpoint-local references, including compressed text and pickle metadata.
 
     Bare candidate-name matches are conservative: logs can retain a directory even
     when it is no longer needed. No negative match overrides a scan error.
     """
     matcher = ReferenceMatcher(candidates)
-    edges = {p.name: set() for p in cp.iterdir()}
+    entries = sorted(cp.iterdir()) if owners is None else [cp/name for name in owners]
+    edges = {p.name: set() for p in entries}
     snapshots = {str(cp): stamp(cp)}
     files = {owner: [] for owner in edges}
     sizes = {n: 0 for n in candidates}
@@ -200,9 +203,11 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
     device = cp.stat().st_dev
     cycles = []
 
-    def scan(stream, owner):
+    def scan(stream, owner, source, member=None):
         nonlocal consumed, last_progress
         carry = b''
+        seen = set()
+        offset = 0
         while True:
             if time.monotonic() > deadline:
                 raise ValueError('reference scan time limit reached; nothing deleted')
@@ -216,8 +221,20 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
             if consumed > max_bytes:
                 raise ValueError('reference scan byte budget reached; nothing deleted')
             data = carry+chunk
-            edges[owner].update(matcher.find(data, edges[owner]))
+            found = matcher.find(data, edges[owner] if reference_trace is None else seen)
+            edges[owner].update(found)
+            if reference_trace is not None:
+                for name in sorted(found):
+                    if len(reference_trace) >= 2000:
+                        raise ValueError('reference trace limit reached; partial evidence only')
+                    at = data.find(name.encode())
+                    reference_trace.append(dict(owner=owner, candidate=name,
+                        file=str(source.relative_to(cp)), archive_member=member,
+                        decoded_byte_offset=offset-len(carry)+at,
+                        excerpt=data[max(0, at-160):at+len(name)+160].decode(errors='replace')))
+                seen.update(found)
             carry = data[-512:]
+            offset += len(chunk)
 
     def visit(path, owner):
         if time.monotonic() > deadline:
@@ -237,8 +254,14 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
             if cycle:
                 cycles.append({'path': str(path), 'cycle_at': cycle})
             for link in references:
-                edges[owner].update(n for n in candidates
-                                   if n in str(link) or (cp/n).is_relative_to(link))
+                matches = {n for n in candidates if n in str(link) or (cp/n).is_relative_to(link)}
+                edges[owner].update(matches)
+                if reference_trace is not None:
+                    for name in sorted(matches):
+                        if len(reference_trace) >= 2000:
+                            raise ValueError('reference trace limit reached; partial evidence only')
+                        reference_trace.append(dict(owner=owner, candidate=name,
+                            file=str(path.relative_to(cp)), symlink_target=str(link)))
             return
         if path.is_dir():
             for child in sorted(path.iterdir()):
@@ -263,14 +286,22 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
                     raise ValueError('invalid safetensors header: '+str(path))
                 header = stream.read(header_size)
                 json.loads(header)
-                scan(io.BytesIO(header), owner)
+                scan(io.BytesIO(header), owner, path)
         elif path.suffix in ('.zip', '.pt', '.pth', '.bin', '.ckpt', '.npz'):
             if zipfile.is_zipfile(path):
                 with zipfile.ZipFile(path) as archive:
                     torch_archive = any(Path(i.filename).name == 'data.pkl' for i in archive.infolist())
                     for member in archive.infolist():
                         entry = Path(member.filename)
-                        edges[owner].update(n for n in candidates if n in member.filename)
+                        name_matches = {n for n in candidates if n in member.filename}
+                        edges[owner].update(name_matches)
+                        if reference_trace is not None:
+                            for name in sorted(name_matches):
+                                if len(reference_trace) >= 2000:
+                                    raise ValueError('reference trace limit reached; partial evidence only')
+                                reference_trace.append(dict(owner=owner, candidate=name,
+                                    file=str(path.relative_to(cp)), archive_member=member.filename,
+                                    evidence_kind='archive_member_name'))
                         if member.is_dir() or entry.suffix.lower() in ASSETS:
                             continue
                         # PyTorch tensor storage is not a reference. Read all metadata,
@@ -278,21 +309,21 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
                         if torch_archive and path.suffix in ('.pt', '.pth', '.bin', '.ckpt') and entry.parent.name == 'data' and entry.name.isdigit():
                             continue
                         with archive.open(member) as stream:
-                            scan(stream, owner)
+                            scan(stream, owner, path, member.filename)
             else:
                 # Legacy pickle may contain paths; inspect bytes without deserialization.
                 with path.open('rb') as stream:
-                    scan(stream, owner)
+                    scan(stream, owner, path)
         elif path.suffix == '.gz':
             with gzip.open(path, 'rb') as stream:
-                scan(stream, owner)
+                scan(stream, owner, path)
         else:
             with path.open('rb') as stream:
-                scan(stream, owner)
+                scan(stream, owner, path)
         if stamp(path) != identity:
             raise ValueError('file changed during scan: '+str(path))
 
-    for entry in sorted(cp.iterdir()):
+    for entry in entries:
         visit(entry, entry.name)
     # Only retained roots (and their transitive dependencies) need their contents
     # read. Corrupt, unreachable obsolete outputs cannot be dependencies of them.
@@ -305,7 +336,7 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
         read.add(owner)
         for path in files[owner]:
             read_references(path, owner)
-        pending.extend(edges[owner]-read)
+        pending.extend((edges[owner]-read) & edges.keys())
     return edges, snapshots, sizes, consumed, cycles
 
 
@@ -367,7 +398,7 @@ def feedback_files(root, out, script):
     if (folder.is_symlink() or folder.resolve() != folder
             or folder.parent not in (root, root/'checkpoints')
             or not folder.name.startswith('automot_cleanup.')
-            or out.name != 'cleanup_report.json'):
+            or out.name not in ('cleanup_report.json', 'reference_trace.json')):
         raise ValueError('Use a fresh automot_cleanup.* directory directly under the project or checkpoints')
     source = folder/'checkpoints_cleanup.py'
     log = folder/'launch.log'
@@ -383,7 +414,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--apply', action='store_true', help='Permanently delete unreferenced exact historical candidates')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--apply', action='store_true', help='Permanently delete unreferenced exact historical candidates')
+    mode.add_argument('--trace-retained', action='store_true', help='Read-only: locate retained references in the two known source roots')
     args = parser.parse_args()
     root = args.root.resolve(strict=True)
     if root != Path('/home/cruser1/lda/AutoMoT'):
@@ -408,13 +441,28 @@ def main():
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         report['free_before'] = shutil.disk_usage(root/'checkpoints').free
-        print('[scan] retained references and old outputs; max 600s / 128 GiB decoded metadata', flush=True)
-        selected, snapshots = plan(root, feedback_files=excluded)
-        report.update(selected)
-        print(json.dumps(selected, ensure_ascii=False, indent=2), flush=True)
-        if args.apply:
-            execute(root, report, snapshots)
-        report['status'] = 'completed' if args.apply else 'preview'
+        if args.trace_retained:
+            report.update(scope='Read-only reference origins in two roots; not a deletion authorization',
+                          reference_sources=[], trace_roots=list(TRACE_OWNERS))
+            print('[trace] two known reference roots only; max 180s / 16 GiB', flush=True)
+            cp = root/'checkpoints'
+            present = {name for name in CANDIDATES if (cp/name).exists()}
+            edges, snapshots, _, count, cycles = inventory(cp, present, time.monotonic()+180,
+                16*1024**3, excluded, owners=TRACE_OWNERS, reference_trace=report['reference_sources'])
+            for name, expected in snapshots.items():
+                if stamp(Path(name)) != expected:
+                    raise ValueError('inventory changed during reference tracing: '+name)
+            report.update(status='references_collected', scanned_bytes=count, symlink_cycles=cycles,
+                          references={name: sorted(values) for name, values in edges.items()})
+            print(f"[trace] collected {len(report['reference_sources'])} source records; no deletion", flush=True)
+        else:
+            print('[scan] retained references and old outputs; max 600s / 128 GiB decoded metadata', flush=True)
+            selected, snapshots = plan(root, feedback_files=excluded)
+            report.update(selected)
+            print(json.dumps(selected, ensure_ascii=False, indent=2), flush=True)
+            if args.apply:
+                execute(root, report, snapshots)
+            report['status'] = 'completed' if args.apply else 'preview'
     except Exception as exc:
         report.update(status='blocked_or_partial', error=str(exc))
     finally:
@@ -424,7 +472,7 @@ def main():
         output.close()
         print(f"Deleted {len(report['deleted'])} entries; free space now {report['free_after']/1024**3:.2f} GiB", flush=True)
         print('REPORT '+str(out), flush=True)
-    return 0 if report['status'] in ('completed', 'preview') else 2
+    return 0 if report['status'] in ('completed', 'preview', 'references_collected') else 2
 
 
 if __name__ == '__main__':
