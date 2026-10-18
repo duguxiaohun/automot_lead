@@ -2,12 +2,37 @@ import gzip
 import json
 from pathlib import Path
 import struct
+import random
 import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
 
 from qwen3vl_local.audit_joint import checkpoints_cleanup as cleanup
+
+
+class ReferenceMatcherTests(unittest.TestCase):
+    def test_actual_candidate_names_exactly_match_previous_scanner(self):
+        names = cleanup.CANDIDATES
+        matcher = cleanup.ReferenceMatcher(names)
+        rng = random.Random(18)
+        cases = [b'', b'202610'*300, b'phase4_short_smoke_rgb4', b'unknown_20261010']
+        for _ in range(100):
+            parts = [rng.randbytes(100)]
+            for name in rng.sample(names, rng.randrange(len(names)+1)):
+                parts.extend((name.encode(), b'\0', rng.randbytes(150)))
+            cases.append(b''.join(parts))
+        for data in cases:
+            expected = {n for n in names if n.encode() in data}
+            self.assertEqual(matcher.find(data), expected)
+            known = set(names[::2])
+            self.assertEqual(matcher.find(data, known), expected-known)
+
+    def test_general_names_and_overlapping_patterns(self):
+        names = ['a', 'aba', 'baba', 'old_a', 'old_b', 'old_b_long']
+        data = b'ababa old_b_long old_a'
+        self.assertEqual(cleanup.ReferenceMatcher(names).find(data),
+                         {n for n in names if n.encode() in data})
 
 
 class CleanupTests(unittest.TestCase):
@@ -142,6 +167,10 @@ class CleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'time limit'):
             self.plan(timeout=-1)
         self.assertTrue((self.cp/'old_a').exists())
+
+    def test_cross_chunk_boundary_reference_is_preserved(self):
+        (self.cp/'keep/data.jsonl').write_bytes(b'x'*(1024**2-2)+b'old_a')
+        self.assertEqual(self.plan()[0]['kept_referenced'], ['old_a'])
 
     def test_only_candidate_list_can_be_deleted(self):
         report, snapshot = self.plan()

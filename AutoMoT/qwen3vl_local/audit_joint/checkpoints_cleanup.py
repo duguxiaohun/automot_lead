@@ -144,13 +144,53 @@ def trace_link(path):
     return references, None
 
 
+class ReferenceMatcher:
+    """Exact substring matching without scanning large payloads once per name.
+
+    Find a shared literal first, then check full names only at possible starts.
+    Every pattern contains its group's anchor; overlapping matches are preserved.
+    """
+    def __init__(self, names):
+        dated, other = [], []
+        for name in names:
+            needle = name.encode()
+            (dated if b'202610' in needle else other).append((name, needle))
+        self.groups = []
+        if dated:
+            self.groups.append((b'202610', [(n, b, b.index(b'202610')) for n, b in dated]))
+        if other:
+            common = os.path.commonprefix([b for _, b in other])
+            if len(common) >= 4:
+                self.groups.append((common, [(n, b, 0) for n, b in other]))
+            else:
+                self.groups.extend((b, [(n, b, 0)]) for n, b in other)
+
+    def find(self, data, known=frozenset()):
+        found = set()
+        for anchor, patterns in self.groups:
+            remaining = [(n, b, offset) for n, b, offset in patterns if n not in known]
+            if not remaining:
+                continue
+            position = data.find(anchor)
+            while position >= 0:
+                for name, needle, offset in remaining:
+                    start = position-offset
+                    if start >= 0 and data.startswith(needle, start):
+                        found.add(name)
+                remaining = [row for row in remaining if row[0] not in found]
+                if not remaining:
+                    break
+                position = data.find(anchor, position+1)
+        return found
+
+
 def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
     """Scan checkpoint-local references, including compressed text and pickle metadata.
 
     Bare candidate-name matches are conservative: logs can retain a directory even
     when it is no longer needed. No negative match overrides a scan error.
     """
-    needles = {n: n.encode() for n in candidates}
+    matcher = ReferenceMatcher(candidates)
     edges = {p.name: set() for p in cp.iterdir()}
     snapshots = {str(cp): stamp(cp)}
     files = {owner: [] for owner in edges}
@@ -176,7 +216,7 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset()):
             if consumed > max_bytes:
                 raise ValueError('reference scan byte budget reached; nothing deleted')
             data = carry+chunk
-            edges[owner].update(name for name, needle in needles.items() if needle in data)
+            edges[owner].update(matcher.find(data, edges[owner]))
             carry = data[-512:]
 
     def visit(path, owner):
