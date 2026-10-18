@@ -1,4 +1,5 @@
 import gzip
+import io
 import json
 from pathlib import Path
 import struct
@@ -6,6 +7,7 @@ import random
 import subprocess
 import sys
 import time
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -251,6 +253,73 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('not allowed with argument', result.stderr)
         self.assertTrue((self.cp/'old_a').exists())
+
+    def reviewed_manifest(self, **extra):
+        relative = next(name for name in cleanup.REVIEWED_BUNDLES if name.endswith('.json'))
+        bundle, _ = cleanup.REVIEWED_BUNDLES[relative]
+        path = self.cp/relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = dict(phase='sft_new_loop_phase3', bundle_name=bundle,
+            git=dict(commit='test', status_short=['?? checkpoints/old_a']), **extra)
+        path.write_text(json.dumps(payload, indent=2))
+        return path, bundle
+
+    def test_reviewed_git_history_does_not_keep_old_run_but_adapter_does(self):
+        path, _ = self.reviewed_manifest(adapter={'path': 'old_b'})
+        before = path.read_bytes()
+        report, snapshot = self.plan()
+        self.assertEqual(report['delete'], ['old_a', 'old_c'])
+        self.assertEqual(report['kept_referenced'], ['old_b'])
+        self.assertEqual(report['ignored_historical_git_status'][0]['mentioned_candidates'], ['old_a'])
+        cleanup.execute(self.root, report, snapshot)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_archive_projection_keeps_other_members_and_raw_trailing_references(self):
+        path, bundle = self.reviewed_manifest(index='old_b')
+        archive = path.parent.with_suffix('.tar.gz')
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode='w:') as tar:
+            info = tarfile.TarInfo(bundle+'/bundle_manifest.json')
+            raw = path.read_bytes()
+            info.size = len(raw)
+            tar.addfile(info, io.BytesIO(raw))
+            other = tarfile.TarInfo(bundle+'/other.json')
+            other.size = 5
+            tar.addfile(other, io.BytesIO(b'old_c'))
+        archive.write_bytes(gzip.compress(buf.getvalue()+b'trailing old_c'))
+        before = archive.read_bytes()
+        report, snapshot = self.plan()
+        self.assertEqual(report['delete'], ['old_a'])
+        self.assertEqual(len(report['ignored_historical_git_status']), 2)
+        cleanup.execute(self.root, report, snapshot)
+        self.assertEqual(archive.read_bytes(), before)
+
+    def test_unreviewed_git_field_is_not_ignored(self):
+        (self.cp/'keep/bundle_manifest.json').write_text(json.dumps({'git': {'status_short': ['old_a']}}))
+        self.assertEqual(self.plan()[0]['kept_referenced'], ['old_a'])
+
+    def test_reviewed_duplicate_json_keys_block_cleanup(self):
+        path, _ = self.reviewed_manifest()
+        path.write_text(path.read_text()[:-1]+', "extra": "old_a", "extra": null}')
+        with self.assertRaisesRegex(ValueError, 'duplicate key'):
+            self.plan()
+        self.assertTrue((self.cp/'old_a').exists())
+
+    def test_reviewed_identity_change_blocks_cleanup(self):
+        path, _ = self.reviewed_manifest()
+        path.write_text(path.read_text().replace('"sft_new_loop_phase3"', '"unknown"'))
+        with self.assertRaisesRegex(ValueError, 'identity changed'):
+            self.plan()
+
+    def test_legacy_pool_kept_even_without_report_reference(self):
+        legacy = next(iter(cleanup.PINNED_LEGACY))
+        (self.cp/legacy).mkdir()
+        with patch.object(cleanup, 'CANDIDATES', ['old_a', legacy]):
+            report, snapshot = self.plan()
+            self.assertEqual(report['delete'], ['old_a'])
+            self.assertEqual(report['pinned_legacy_pools'], [legacy])
+            cleanup.execute(self.root, report, snapshot)
+        self.assertTrue((self.cp/legacy).is_dir())
 
 
 if __name__ == '__main__':

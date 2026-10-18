@@ -7,6 +7,7 @@ import argparse
 from collections import deque
 import fcntl
 import gzip
+import io
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ import shutil
 import socket
 import stat
 import struct
+import tarfile
 import time
 import zipfile
 
@@ -74,6 +76,14 @@ REQUIRED = [
         '20261018_095559_213634718_4rgb_choice')],
 ]
 TRACE_OWNERS = ('sft_new_loop_phase3_pipeline', 'label_release_cr02_20261018_114934_308707697')
+PINNED_LEGACY = {'phase4_labels_20261017_125230_304771113'}
+REVIEWED_BUNDLES = {}
+for _run in ('20261017_223254_126705688_2rgb_short_choice',
+             '20261018_034614_519706091_2rgb_short_binary'):
+    _bundle = 'sft_new_loop_phase3_'+_run+'_audit_bundle'
+    _parent = 'sft_new_loop_phase3_pipeline/'+_run+'/eval/'
+    REVIEWED_BUNDLES[_parent+_bundle+'/bundle_manifest.json'] = (_bundle, False)
+    REVIEWED_BUNDLES[_parent+_bundle+'.tar.gz'] = (_bundle, True)
 
 
 def stamp(path):
@@ -185,8 +195,34 @@ class ReferenceMatcher:
         return found
 
 
+def historical_git_projection(raw, bundle_name):
+    """Omit only a reviewed provenance field from an in-memory scan projection."""
+    def unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError('duplicate key in reviewed bundle manifest')
+            obj[key] = value
+        return obj
+
+    payload = json.loads(raw, object_pairs_hook=unique_object)
+    if (not isinstance(payload, dict) or payload.get('phase') != 'sft_new_loop_phase3'
+            or payload.get('bundle_name') != bundle_name):
+        raise ValueError('reviewed bundle identity changed')
+    git = payload.get('git')
+    rows = git.get('status_short') if isinstance(git, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(row, str) for row in rows):
+        raise ValueError('reviewed git.status_short schema changed')
+    del git['status_short']
+    projected = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode()
+    if len(projected) > len(raw):
+        raise ValueError('reviewed manifest projection exceeds original span')
+    # Preserve the tar span size; scan all other raw bytes exactly as before.
+    return projected.ljust(len(raw), b' '), rows
+
+
 def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset(),
-              owners=None, reference_trace=None):
+              owners=None, reference_trace=None, historical_records=None):
     """Scan checkpoint-local references, including compressed text and pickle metadata.
 
     Bare candidate-name matches are conservative: logs can retain a directory even
@@ -277,9 +313,34 @@ def inventory(cp, candidates, deadline, max_bytes, feedback_files=frozenset(),
         identity = snapshots[str(path)]
         if path.suffix.lower() in ASSETS or 'events.out.tfevents' in path.name:
             return
-        if path.suffix == '.safetensors':
+        reviewed = REVIEWED_BUNDLES.get(str(path.relative_to(cp))) if reference_trace is None else None
+        if reviewed:
+            bundle_name, is_archive = reviewed
+            if is_archive:
+                with gzip.open(path, 'rb') as stream:
+                    raw = stream.read(128*1024**2+1)
+                if len(raw) > 128*1024**2:
+                    raise ValueError('reviewed archive exceeds 128 MiB decoded limit')
+                with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+                    matches = [m for m in archive if m.name == bundle_name+'/bundle_manifest.json']
+                    if len(matches) != 1 or not matches[0].isfile() or matches[0].size > 2*1024**2:
+                        raise ValueError('reviewed archive manifest missing, duplicated or invalid')
+                    start, size = matches[0].offset_data, matches[0].size
+                    replacement, rows = historical_git_projection(raw[start:start+size], bundle_name)
+                projected = raw[:start]+replacement+raw[start+size:]
+            else:
+                with path.open('rb') as stream:
+                    raw = stream.read(2*1024**2+1)
+                if len(raw) > 2*1024**2:
+                    raise ValueError('reviewed manifest exceeds 2 MiB')
+                projected, rows = historical_git_projection(raw, bundle_name)
+            if historical_records is not None:
+                historical_records.append(dict(file=str(path.relative_to(cp)), field='git.status_short',
+                    mentioned_candidates=sorted(matcher.find(json.dumps(rows).encode())),
+                    reason='Reviewed git status snapshot, not a runtime input; source file unchanged'))
+            scan(io.BytesIO(projected), owner, path)
+        elif path.suffix == '.safetensors':
             # Safetensors may have textual provenance in its header, never in tensor data.
-            import io
             with path.open('rb') as stream:
                 header_size = struct.unpack('<Q', stream.read(8))[0]
                 if header_size > 100_000_000 or header_size > path.stat().st_size-8:
@@ -348,8 +409,10 @@ def plan(root, *, timeout=600, max_bytes=128*1024**3, feedback_files=frozenset()
     active = live_processes(root)
     if active:
         raise ValueError('project processes are still running; do not stop them automatically: '+json.dumps(active))
-    edges, snapshots, sizes, count, cycles = inventory(cp, present, time.monotonic()+timeout, max_bytes, feedback_files)
-    protected = set(edges)-present
+    historical = []
+    edges, snapshots, sizes, count, cycles = inventory(cp, present, time.monotonic()+timeout, max_bytes,
+        feedback_files, historical_records=historical)
+    protected = (set(edges)-present) | (present & PINNED_LEGACY)
     pending = list(protected)
     while pending:
         owner = pending.pop()
@@ -361,7 +424,8 @@ def plan(root, *, timeout=600, max_bytes=128*1024**3, feedback_files=frozenset()
         protected_roots=sorted(set(edges)-present),
         references={k: sorted(v) for k, v in edges.items() if v},
         estimated_bytes={n: sizes[n] for n in selected}, scanned_bytes=count,
-        symlink_cycles=cycles), snapshots
+        symlink_cycles=cycles, ignored_historical_git_status=historical,
+        pinned_legacy_pools=sorted(present & PINNED_LEGACY)), snapshots
 
 
 def execute(root, report, snapshots):
