@@ -1,0 +1,92 @@
+{
+  "release": "v84_label_sampling_20261018",
+  "source_files": 571,
+  "source_status": "matched",
+  "teacher": "ten_event_causal_teacher_v24",
+  "sampling": "event_equal_critical_then_contiguous_v5",
+  "local_replay": {
+    "routes": 3,
+    "frames": 266,
+    "source_files": 798,
+    "seconds": 18.081825737957843
+  },
+  "rgb_review": {
+    "routes": 3,
+    "frames": 27,
+    "kind": "revisit_known_development_windows_not_blind",
+    "windows": {
+      "1176_0": [
+        71,
+        79
+      ],
+      "4591_0": [
+        54,
+        62
+      ],
+      "1378_0": [
+        71,
+        79
+      ]
+    }
+  },
+  "paired_train_rows_per_mode": 130,
+  "prior_v24_rows_identical": true,
+  "tests": [
+    {
+      "passed": 1457,
+      "skipped": 2,
+      "seconds": 115.18
+    },
+    {
+      "passed": 127,
+      "seconds": 6.64,
+      "overlaps_first": true
+    }
+  ],
+  "historical_simulation": {
+    "rows": 3187,
+    "plans": {
+      "2": {
+        "event_counts": {
+          "U-E2": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E3": 1024
+        },
+        "policy": "event_equal_critical_then_contiguous_v5"
+      },
+      "4": {
+        "event_counts": {
+          "U-E2": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E2": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024,
+          "U-E3": 1024
+        },
+        "policy": "event_equal_critical_then_contiguous_v5"
+      }
+    },
+    "training_authorized": false
+  },
+  "cli_package": {
+    "status": "verified",
+    "bytes": 33424,
+    "sha256": "e3c28d659d8aec35225f576b52b265ae9c29238b1806ee26b9c43d0ac48e2523"
+  },
+  "remaining": [
+    "U-E5/proceed/YES remains absent",
+    "new producer official pool not admitted",
+    "no GPU work this turn"
+  ]
+}

@@ -72,3 +72,25 @@ def test_visible_departure_does_not_remove_priority_veto():
     fs,s=departure(True)
     fs[-1]['meta']['stop_sign_hazard']=True
     assert answer(fs,s)=='NO'
+
+
+@pytest.mark.parametrize('event',['U-E3','U-E5'])
+@pytest.mark.parametrize('veto',['visible_blocker','stop','none','hidden_blocker'])
+def test_hidden_decisive_actor_retains_only_independently_known_veto(event,veto):
+    fs=frames(event,True);s=seed(event);ep=episode(event)
+    fs[-1]['image_evidence']['2']['quality_pass']=False
+    if veto in ('visible_blocker','hidden_blocker'):
+        for f in fs:
+            other=deepcopy(f['actors'][1]);other.update(id=3,position=[8.,0.,0.])
+            f['actors'].append(other);f['image_evidence']['3']=deepcopy(f['image_evidence']['2'])
+            f['image_evidence']['3']['quality_pass']=veto=='visible_blocker'
+    elif veto=='stop':fs[-1]['meta']['stop_sign_hazard']=True
+    facts,why=t.facts(fs,ep,s)
+    expected='NO' if veto in ('visible_blocker','stop') else 'UNKNOWN'
+    assert rules.answer(next(e for e in ep.questions() if e.key=='proceed').criteria,facts)==expected
+    assert facts.get('event_restriction_observed') is not True
+    assert facts.get('event_resolved') is not True
+    assert 'decisive_actor_not_visible' in why
+    if expected=='NO':
+        assert facts['stationary_wait_required'] is True
+        assert 'independent_visible_conflict_or_priority_veto' in why

@@ -1,5 +1,33 @@
 # AGENTS.md
 
+### 2026-10-18 关键动作最低曝光与 U-E4/U-E6 RGB 续审
+
+按用户要求本地完善并验证，不安排训练。cee已完成接续暴露UE2return池2YES却本轮0、UE7complete池13YES却2/0；Phase4采样新增v5，对既定6关键边每个有原生自动train/readiness支持的YES/NO单元每轮保留至少1不同题，计入原事件配额。事件1:1/B2/图像窗口不变；缺支持明确报告、不补标签，catchup/reviewed不充当最低支持。保留项历史少者优先、硬重复上限有效；history绑定策略/最低项，不混旧v4。未传最低项的共享调用保持v4索引/报告/history精确一致，但源码SHA改变，旧P3/P4checkpoint仍须原版恢复。清单位于学生绑定模块并与准入清单测试一致。
+本地3187历史行仅CPU投影比较，world1/4×stride1/2每事件1024，6支持单元保留；独立题均2994、最高重复38不变，段数分别6082→6086、6276→6279、3098→3108、3665→3671，不声称连续性完全不变或独立支持增加。4已知train路线原生回放458帧/1374源SHA，当前v24编译92train、无val/test，最终源码新建view两模式真实加载和world1/4计划通过。旧view源变拒绝后新建，未改SHA绕过。214原题事实/答案/状态/实例结束与此前v23无差异。
+实际目视4路线40RGB/120目视来源，其中19与此前140帧重叠，非盲审；UE4行人两段NO→UNKNOWN→YES与离开自车走廊一致。UE6横穿者离开后仍有light_hazard/priority否决，Town06当前信号关联缺失为可观察性限制，不据RGB净空直接改YES。本轮无新确定错标，不改teacher v24/plan39/registry34、阈值或prompt，UE5proceed YES仍缺。最终1534通过2旧池缺失跳过119.93秒，61专项重叠包含；旧P3验证测试补tokenizer/device夹具字段，生产评估未改。未GPU/远程/重建全池/push；cee既有成功不重跑、cr02独立。报告audit_joint/CRITICAL_SAMPLING_RGB_20261018.md与轻量critical_sampling_rgb_verification_20261018.json，完整本地checkpoints/critical_rgb_followup_20261018。保留其它任务和原始数据，未发布工作区不是服务器验收版本。
+
+### 2026-10-18 U-E5 本地通过时序与独立否决修复
+
+按用户要求继续本地代码/标定/RGB，不安排训练。72条train路线109实例截止窗口重读1765不同帧/5295源SHA；截止诊断78几何已在车后但非可见放行、11未观察到、9部分可见未分离、8身份断裂、3无离场证据。侵入后没有可见且分离的观察，不把出画/几何车后变YES。departure_probe新增passage_evidence，yaw-aware完整车体后方间隙、侵入后时序和身份断裂分别报告，明确只诊断不授权，7新增测试。
+原生teacher_events在UE3/UE5隐藏目标时直接返回空事实，确实抹掉其它可见阻挡/STOP否决；现只保留独立False，未知目标不补True、不增放行。8新增原生样例旧版4失败4通过。3完整真实路线266帧新旧回放、582两模式原始题成员/实例结束不变；1176_0 f73-75每模式3个UNKNOWN→NO，已编译入两模式各130train、无val/test，配对重载通过。独立占用者为前方黄色车4753，其lane1与ego lane2不符合既有ordinary_follow豁免；RGB确认前车存在，不等同全部跟随条件独立视觉认证，不据此放宽阈值。实际目视3路线31RGB（1176_0 67-79、4591_0 54-62、1378_0 71-79），93目视源、合并5946源SHA通过。1403回归通过2旧生产池缺失跳过119.79秒；35专项包含其中。教师v24/plan39/registry34，旧合同保留、提示词阈值不变；不改旧服务器SHA，不立即全池重建。UE5 proceed YES仍0，修复成功的是负证据保留而非完整放行能力。报告audit_joint/UE5_PASSAGE_REVIEW_20261018.md、ue5_passage_verification_20261018.json，本地checkpoints/ue5_passage_20261018。未GPU/远程/push，保留其它任务文件。
+
+### 2026-10-18 cee两模式接续结果验收与效果限制
+
+收到6665403字节61成员ZIP，SHA/CRC/成员SHA通过，cee当前phase4_restart_20261017_162511的CPU快照→RGB2test→RGB4首轮/val/reload/test全部exit0。RGB2训练及成功reload复用，禁止再次接续/重训/重载。初始v80清单563源、接续v82清单564源均核对；6额外P3本地Python文件保留、不冒称全机认证。两模式学生/producer合同一致，18学生源码当前匹配；本地待发布v23的teacher_rules/dataset/identity与本次旧合同分开，不能改SHA复用旧池。cr02不混用。
+重新核对每模式10240实际呈现/十事件各1024、B2累积4/四rank各2560/320更新；val各37/test各18、分片计数与SHA通过，1840案例含740重载重复逐条身份/原始文本/指标一致。RGB2 val316/370 YES18/66、test175/180 YES11/16；RGB4 val307/370 YES16/69、test177/180 YES13/16。两模式UE4 val proceed YES均0/29，训练实际262/264次；UE6为4/22与2/26，训练351/377次，不能都归因缺正例。UE2return池2正例但两模式本轮均0曝光，UE7complete池13但本轮2/0；连续采样action软优先未保证关键格，事件1:1不等于全能力。UE5proceed YES仍0，评测YES为restrict/hold。val共享264/370、test110/180，训练独立题共享3981/各10036，stride2/1不同，禁止总分当严格配对胜负。test每模式164NO，物理组仅12/11，多数事件单组；不重选本次test调参。
+本轮只增报告/轻量回执及本地复算脚本，无生产代码、标定、prompt或采样改动，无新RGB目视/GPU/远程/push；不安排新训练，当前流程无需再修执行入口。报告audit_joint/CEE_CONTINUED_REVIEW_20261018.md与cee_continued_verification_20261018.json，完整证据checkpoints/cee_continued_received_20261018。保留用户.vscode和已有本地v23等其它改动。
+
+### 2026-10-17 用户纠正：当前先本地 Phase4 标定，不安排训练
+
+用户明确不需要训练，要求本地产生标定、逐帧 RGB 和原生修复后判断初步质量。此前 cr02 补包通过不等于标签质量验收，不再按该页安排服务器首轮。cr02 只有题库无训练/缓存，cee 独立，历史结果不混用。
+本轮真实 57 条 train 路线/7101 帧，v22、v23 各原生回放+编译+两模式重载约471秒；各3187训练题、无val/test。实际目视19路线20窗口140不同RGB（开发复核非盲审），21303源SHA及420目视来源核验。确认并修复teacher_rules的UE1/UE4明确阻挡False被附加不可见占用覆盖None：三值合取保留NO，原本可放行但未知占用仍UNKNOWN；4新增用例旧版2失败。新teacher v23/producer plan v38/registry v33保留原阈值、提示词及未认证状态，旧合同不改。57路线没有命中该分支，10662原始两模式问题事实/答案/实例结束精确无变化，不宣称修正了真实错标。1382回归通过2跳过171.84秒，teacher60包含其中。B2/world1和4各模式每事件1024CPU计划通过，同world两模式同序、跨world不同，最多38次重复不是补支持。
+UE5 proceed YES仍0；极暗InvadingTurn Town12_1450_1 f51-57局部亮裁剪通过但学生难辨车体，作为可观察性限制，非几何错标确证。不宣称十事件全条件/全源视觉通过。本地其它关键YES缺格不外推cr02全池（UE2return2、UE3proceed277、UE6proceed708、UE7complete13）；本地STOP带完成回执proceedYES10。新合同不能给旧服务器池/缓存/view改SHA复用，先确定全池影响再安排更新，不让用户立即20小时重建。未GPU/远程/push；完整产物checkpoints/label_rule_closure_20261017，报告audit_joint/LOCAL_LABEL_CLOSURE_20261017.md及轻量local_label_closure_20261017.json。保留用户.vscode及其它任务文件。
+
+### 2026-10-17 cr02完整准入补包通过
+
+收到1476055字节13成员新fullflow包，SHA/CRC通过；14.97MB automatic_admission与上轮缺失记录SHA一致，v83打包修复服务器已验证。构建558源仍为v78历史，collector当前v83；不能把历史源码回执当565项最新全机检查。8626输入身份及data4/view/reference摘要关联一致，原始全池未在本地重开。cr02训练298770纯自动规则题；两模式报告计划B1下十事件各1024、固定val各37/test各18，通过逐字段核对。实际推荐B2/四卡/累积4由正式入口重新准入重算，不称本包已有B2实际消费。最终关键YES为UE2return2/2组、UE3proceed277/95、UE5proceed0、UE6proceed708/97、UE7complete13/13、RE5proceed759/182。多数评测事件仅1物理组，RGB2/4评测成员不同；不强求YES:NO等量、不宣布独立准确率或联合G0。116相关回归14.96秒通过，无新生产代码/标签/提示词修改、无新RGB目视、未训练或push。可推进cr02限定范围首轮，不重建库；用户随后明确确认cr02只有本次题库，尚未训练且没有路线缓存：按首次训练新建本机路线缓存，不寻找或引用cee权重/缓存。命令audit_joint/CR02_ADMISSION_ACCEPTANCE_20261017.md；冷缓存+v78view升级仍有CPU耗时和900秒上限，不承诺首轮耗时，不自动重试。预算仅30.30GiB空闲/26.20GiB声明需求，保留20GiB守护。交新P4_OUT/handoff两epoch文件；cee现有训练及Phase3不用重跑。
+
+
 ### 2026-10-17 双服务器约定与cr02标定包接收
 
 用户明确说明有两台独立服务器cr02和cee，数据、权重、缓存、运行目录不互通，也不保证每次在哪台执行。后续每份报告和命令必须先确定服务器，使用该机AutoMoT工作目录和已核验资产；不得把cee的checkpoint/view/cache路径或成功结论直接套给cr02，反之亦然。源码可用既有sync_automot.sh流程分别同步，数据不会随源码同步。AUTOMOT_SERVER=cr02/cee作为用户声明标识，配合记录真实hostname和本机绝对路径；不能凭容器hostname猜机器、不能自动复制大数据或重建缺失资产。跨机器搬迁已有绝对路径绑定产物需显式重新核验，不能改SHA绕过。
@@ -2825,3 +2853,9 @@ longitudinal_decision 内部只使用当前至+2s的九个采样，窗外尾部�
 未全量重建/训练；必须按新prompt/规则源码/mapping合同重建并新训，旧adapter要原源码。
 6条负例保留旧prompt冻结时的盲审SHA，不倒写历史，也不声称它们在最终v9冻结后新增。
 详见 `AutoMoT/qwen3vl_local/sft_new_loop_phase3/TEMPORAL_REFINEMENT_20260916.md`。
+
+### 2026-10-18 v84 标定修复与关键格曝光发布
+
+用户授权完善/白名单push及本地RGB；发布教师v23/v24已验证否决保留、plan39/registry34与诊断，不修改旧合同或阈值提示词。Phase4采样v5在每事件1024内对已有原生自动train/readiness关键边YES/NO各预留至少1不同题，再填连续低曝光段；缺格只报、history绑定拒绝旧v4混用。P3无minimum仍v4算法，但共享源码SHA变化，旧checkpoint保留原版，不安排重训。P3测试夹具补齐tokenizer/device，非生产改动。
+本轮再原生回放3路线266帧/798源SHA，两模式各130train与前v24逐字段一致，无val/test；实际复看27既有RGB（1176_0 71–79、4591_0 54–62、1378_0 71–79），非新增独立盲审。1457回归通过2旧池缺失跳过，另127入口/采样/分布式通过有重叠。57路线旧3187题两模式CPU各事件1024模拟，缺格不外推全池。新label_release_check只读历史manifest/train SHA及版本差异、CPU采样，自动<=30MB ZIP；本机真实CLI通过，571源码匹配，不授予训练准入。
+当前服务器只cr02按LABEL_SAMPLING_RELEASE_20261018.md同步后检查既有phase4_labels_20261017_125230_304771113/data4，交label_release_report.zip及label_release_package.json；无RGB/模型/缓存/回放/训练。cee已收两模式最终结果，不重跑phase4_continue或RGB2/4。UE5正例仍0，新正式池迁移未验收；禁止修改旧SHA越过合同。不上传数据/RGB/权重，保留用户.vscode等其它任务。

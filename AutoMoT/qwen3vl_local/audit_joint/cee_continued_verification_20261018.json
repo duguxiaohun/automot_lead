@@ -1,0 +1,1565 @@
+{
+  "server": "cee",
+  "server_identity_basis": "user supplied cee command and recorded absolute paths",
+  "zip_sha256": "f5cbd541b6f0d0d33c448bffd14bf85d31aa9735ec955e00dac3545b368f978a",
+  "modes": {
+    "2": {
+      "consumption": {
+        "status": "matched_recorded_plan",
+        "presentations": 10240,
+        "event_counts_from_recorded_plan": {
+          "U-E2": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E3": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024
+        },
+        "scope": "All four step logs match the hashed plan. Event labels are inherited from that plan; no fresh dataset, optimizer or label-quality certification."
+      },
+      "metrics": {
+        "val": {
+          "count": 370,
+          "correct": 316,
+          "yes": 66,
+          "yes_correct": 18,
+          "confusion": {
+            "NO->NO": 298,
+            "YES->NO": 48,
+            "YES->YES": 18,
+            "NO->YES": 6
+          },
+          "physical_groups": 18,
+          "yes_physical_groups": 13,
+          "by_event": {
+            "R-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E1": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E4": {
+              "count": 37,
+              "correct": 8,
+              "yes": 29,
+              "yes_correct": 0,
+              "confusion": {
+                "YES->NO": 29,
+                "NO->NO": 8
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 1
+            },
+            "U-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 10,
+              "yes_correct": 10,
+              "confusion": {
+                "YES->YES": 10,
+                "NO->NO": 27
+              },
+              "physical_groups": 3,
+              "yes_physical_groups": 3
+            },
+            "U-E6": {
+              "count": 37,
+              "correct": 19,
+              "yes": 22,
+              "yes_correct": 4,
+              "confusion": {
+                "YES->YES": 4,
+                "NO->NO": 15,
+                "YES->NO": 18
+              },
+              "physical_groups": 5,
+              "yes_physical_groups": 5
+            },
+            "U-E7": {
+              "count": 37,
+              "correct": 30,
+              "yes": 3,
+              "yes_correct": 2,
+              "confusion": {
+                "NO->NO": 28,
+                "YES->YES": 2,
+                "NO->YES": 6,
+                "YES->NO": 1
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 2
+            }
+          },
+          "error_event_edge": {
+            "U-E4/proceed/YES->NO": 29,
+            "U-E6/proceed/YES->NO": 18,
+            "U-E7/renewed_restriction/NO->YES": 2,
+            "U-E7/stable/YES->NO": 1,
+            "U-E7/restrict/NO->YES": 2,
+            "U-E7/hold/NO->YES": 2
+          },
+          "event_edge_targets": {
+            "U-E1/proceed/NO": 37,
+            "U-E2/depart/NO": 37,
+            "U-E3/proceed/NO": 37,
+            "U-E4/proceed/YES": 29,
+            "U-E4/proceed/NO": 8,
+            "U-E5/restrict/YES": 5,
+            "U-E5/proceed/NO": 27,
+            "U-E5/hold/YES": 5,
+            "U-E6/restrict/YES": 3,
+            "U-E6/proceed/NO": 15,
+            "U-E6/proceed/YES": 18,
+            "U-E6/hold/YES": 1,
+            "U-E7/proceed/NO": 24,
+            "U-E7/restrict/YES": 2,
+            "U-E7/renewed_restriction/NO": 2,
+            "U-E7/stable/YES": 1,
+            "U-E7/restrict/NO": 2,
+            "U-E7/hold/NO": 2,
+            "U-E7/recover_follow/NO": 2,
+            "U-E7/stable/NO": 2,
+            "R-E2/hold/YES": 1,
+            "R-E2/enter/NO": 19,
+            "R-E2/release/NO": 17,
+            "R-E3/hold/YES": 1,
+            "R-E3/enter/NO": 36,
+            "R-E5/proceed/NO": 37
+          },
+          "consumed_per_rank": [
+            94,
+            92,
+            92,
+            92
+          ]
+        },
+        "reload": {
+          "count": 370,
+          "correct": 316,
+          "yes": 66,
+          "yes_correct": 18,
+          "confusion": {
+            "NO->NO": 298,
+            "YES->NO": 48,
+            "YES->YES": 18,
+            "NO->YES": 6
+          },
+          "physical_groups": 18,
+          "yes_physical_groups": 13,
+          "by_event": {
+            "R-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E1": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E4": {
+              "count": 37,
+              "correct": 8,
+              "yes": 29,
+              "yes_correct": 0,
+              "confusion": {
+                "YES->NO": 29,
+                "NO->NO": 8
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 1
+            },
+            "U-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 10,
+              "yes_correct": 10,
+              "confusion": {
+                "YES->YES": 10,
+                "NO->NO": 27
+              },
+              "physical_groups": 3,
+              "yes_physical_groups": 3
+            },
+            "U-E6": {
+              "count": 37,
+              "correct": 19,
+              "yes": 22,
+              "yes_correct": 4,
+              "confusion": {
+                "YES->YES": 4,
+                "NO->NO": 15,
+                "YES->NO": 18
+              },
+              "physical_groups": 5,
+              "yes_physical_groups": 5
+            },
+            "U-E7": {
+              "count": 37,
+              "correct": 30,
+              "yes": 3,
+              "yes_correct": 2,
+              "confusion": {
+                "NO->NO": 28,
+                "YES->YES": 2,
+                "NO->YES": 6,
+                "YES->NO": 1
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 2
+            }
+          },
+          "error_event_edge": {
+            "U-E4/proceed/YES->NO": 29,
+            "U-E6/proceed/YES->NO": 18,
+            "U-E7/renewed_restriction/NO->YES": 2,
+            "U-E7/stable/YES->NO": 1,
+            "U-E7/restrict/NO->YES": 2,
+            "U-E7/hold/NO->YES": 2
+          },
+          "event_edge_targets": {
+            "U-E1/proceed/NO": 37,
+            "U-E2/depart/NO": 37,
+            "U-E3/proceed/NO": 37,
+            "U-E4/proceed/YES": 29,
+            "U-E4/proceed/NO": 8,
+            "U-E5/restrict/YES": 5,
+            "U-E5/proceed/NO": 27,
+            "U-E5/hold/YES": 5,
+            "U-E6/restrict/YES": 3,
+            "U-E6/proceed/NO": 15,
+            "U-E6/proceed/YES": 18,
+            "U-E6/hold/YES": 1,
+            "U-E7/proceed/NO": 24,
+            "U-E7/restrict/YES": 2,
+            "U-E7/renewed_restriction/NO": 2,
+            "U-E7/stable/YES": 1,
+            "U-E7/restrict/NO": 2,
+            "U-E7/hold/NO": 2,
+            "U-E7/recover_follow/NO": 2,
+            "U-E7/stable/NO": 2,
+            "R-E2/hold/YES": 1,
+            "R-E2/enter/NO": 19,
+            "R-E2/release/NO": 17,
+            "R-E3/hold/YES": 1,
+            "R-E3/enter/NO": 36,
+            "R-E5/proceed/NO": 37
+          },
+          "consumed_per_rank": [
+            94,
+            92,
+            92,
+            92
+          ]
+        },
+        "test": {
+          "count": 180,
+          "correct": 175,
+          "yes": 16,
+          "yes_correct": 11,
+          "confusion": {
+            "YES->YES": 11,
+            "NO->NO": 164,
+            "YES->NO": 5
+          },
+          "physical_groups": 12,
+          "yes_physical_groups": 7,
+          "by_event": {
+            "R-E2": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "R-E3": {
+              "count": 18,
+              "correct": 13,
+              "yes": 6,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 12,
+                "YES->NO": 5
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E5": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E1": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 17
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E2": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E3": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 0
+            },
+            "U-E4": {
+              "count": 18,
+              "correct": 18,
+              "yes": 2,
+              "yes_correct": 2,
+              "confusion": {
+                "YES->YES": 2,
+                "NO->NO": 16
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 2
+            },
+            "U-E5": {
+              "count": 18,
+              "correct": 18,
+              "yes": 6,
+              "yes_correct": 6,
+              "confusion": {
+                "NO->NO": 12,
+                "YES->YES": 6
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 2
+            },
+            "U-E6": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 17
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E7": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            }
+          },
+          "error_event_edge": {
+            "R-E3/release/YES->NO": 5
+          },
+          "event_edge_targets": {
+            "U-E1/hold/YES": 1,
+            "U-E1/proceed/NO": 17,
+            "U-E2/depart/NO": 18,
+            "U-E3/proceed/NO": 18,
+            "U-E4/restrict/YES": 1,
+            "U-E4/proceed/NO": 16,
+            "U-E4/hold/YES": 1,
+            "U-E5/proceed/NO": 12,
+            "U-E5/restrict/YES": 3,
+            "U-E5/hold/YES": 3,
+            "U-E6/hold/YES": 1,
+            "U-E6/proceed/NO": 17,
+            "U-E7/proceed/NO": 18,
+            "R-E2/enter/NO": 18,
+            "R-E3/renewed_restriction/YES": 1,
+            "R-E3/release/NO": 11,
+            "R-E3/release/YES": 5,
+            "R-E3/stable/NO": 1,
+            "R-E5/proceed/NO": 18
+          },
+          "consumed_per_rank": [
+            46,
+            46,
+            44,
+            44
+          ]
+        }
+      },
+      "unique_train_questions": 10036,
+      "max_question_repeat": 2,
+      "train_targets": {
+        "YES": 2999,
+        "NO": 7241
+      },
+      "train_action_exposure": {
+        "R-E2": {
+          "release/NO": 152,
+          "hold/YES": 39,
+          "enter/NO": 141,
+          "enter/YES": 122,
+          "renewed_restriction/YES": 57,
+          "hold/NO": 97,
+          "renewed_restriction/NO": 73,
+          "release/YES": 84,
+          "stable/NO": 74,
+          "recover_follow/NO": 73,
+          "stable/YES": 4,
+          "complete/YES": 74,
+          "complete/NO": 32,
+          "recover_follow/YES": 2
+        },
+        "R-E3": {
+          "hold/NO": 154,
+          "hold/YES": 51,
+          "enter/NO": 298,
+          "complete/NO": 5,
+          "stable/NO": 5,
+          "release/NO": 144,
+          "release/YES": 135,
+          "recover_follow/YES": 3,
+          "renewed_restriction/YES": 16,
+          "renewed_restriction/NO": 4,
+          "complete/YES": 6,
+          "recover_follow/NO": 3,
+          "enter/YES": 200
+        },
+        "R-E5": {
+          "proceed/YES": 221,
+          "release/YES": 38,
+          "release/NO": 13,
+          "proceed/NO": 444,
+          "hold/YES": 38,
+          "recover_follow/YES": 50,
+          "renewed_restriction/YES": 19,
+          "renewed_restriction/NO": 45,
+          "complete/NO": 44,
+          "complete/YES": 1,
+          "stable/YES": 14,
+          "stable/NO": 39,
+          "re_yield/NO": 10,
+          "hold/NO": 10,
+          "recover_follow/NO": 33,
+          "re_yield/YES": 5
+        },
+        "U-E1": {
+          "stable/NO": 36,
+          "release/YES": 4,
+          "recover_follow/NO": 155,
+          "re_yield/YES": 6,
+          "proceed/NO": 620,
+          "recover_follow/YES": 8,
+          "complete/NO": 45,
+          "renewed_restriction/YES": 6,
+          "hold/NO": 27,
+          "re_yield/NO": 20,
+          "renewed_restriction/NO": 20,
+          "complete/YES": 1,
+          "hold/YES": 76
+        },
+        "U-E2": {
+          "hold/YES": 35,
+          "depart/NO": 234,
+          "return/NO": 20,
+          "renewed_restriction/YES": 42,
+          "hold/NO": 81,
+          "release/NO": 160,
+          "release/YES": 83,
+          "pass/NO": 70,
+          "complete/YES": 14,
+          "renewed_restriction/NO": 44,
+          "depart/YES": 83,
+          "stable/NO": 35,
+          "stable/YES": 9,
+          "recover_follow/NO": 19,
+          "pass/YES": 31,
+          "complete/NO": 64
+        },
+        "U-E3": {
+          "hold/YES": 62,
+          "proceed/NO": 650,
+          "proceed/YES": 90,
+          "recover_follow/NO": 28,
+          "stable/YES": 2,
+          "release/NO": 1,
+          "recover_follow/YES": 53,
+          "renewed_restriction/YES": 3,
+          "re_yield/YES": 5,
+          "complete/NO": 15,
+          "stable/NO": 45,
+          "complete/YES": 11,
+          "re_yield/NO": 25,
+          "renewed_restriction/NO": 17,
+          "hold/NO": 17
+        },
+        "U-E4": {
+          "re_yield/NO": 18,
+          "complete/NO": 18,
+          "hold/NO": 20,
+          "proceed/YES": 262,
+          "proceed/NO": 625,
+          "hold/YES": 81
+        },
+        "U-E5": {
+          "hold/YES": 109,
+          "proceed/NO": 915
+        },
+        "U-E6": {
+          "hold/YES": 161,
+          "proceed/NO": 512,
+          "proceed/YES": 351
+        },
+        "U-E7": {
+          "hold/YES": 73,
+          "re_yield/YES": 2,
+          "stable/YES": 16,
+          "complete/NO": 66,
+          "complete/YES": 2,
+          "proceed/NO": 574,
+          "stable/NO": 45,
+          "hold/NO": 12,
+          "re_yield/NO": 9,
+          "renewed_restriction/YES": 3,
+          "renewed_restriction/NO": 48,
+          "recover_follow/NO": 38,
+          "proceed/YES": 136
+        }
+      },
+      "train_seconds": 4416.448540739002,
+      "validation_seconds": 32.84971827499976,
+      "reload_seconds": 384.9605602630036,
+      "train_loss": 0.21754805275598985,
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 2,
+          "physical_groups": 2
+        },
+        "U-E2/return/NO": {
+          "rows": 62,
+          "physical_groups": 17
+        },
+        "U-E3/proceed/YES": {
+          "rows": 277,
+          "physical_groups": 95
+        },
+        "U-E3/proceed/NO": {
+          "rows": 14703,
+          "physical_groups": 685
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 711,
+          "physical_groups": 72
+        },
+        "U-E6/proceed/YES": {
+          "rows": 708,
+          "physical_groups": 97
+        },
+        "U-E6/proceed/NO": {
+          "rows": 1903,
+          "physical_groups": 269
+        },
+        "U-E7/complete/YES": {
+          "rows": 13,
+          "physical_groups": 13
+        },
+        "U-E7/complete/NO": {
+          "rows": 201,
+          "physical_groups": 31
+        },
+        "R-E5/proceed/YES": {
+          "rows": 760,
+          "physical_groups": 182
+        },
+        "R-E5/proceed/NO": {
+          "rows": 32451,
+          "physical_groups": 1124
+        }
+      }
+    },
+    "4": {
+      "consumption": {
+        "status": "matched_recorded_plan",
+        "presentations": 10240,
+        "event_counts_from_recorded_plan": {
+          "U-E2": 1024,
+          "R-E5": 1024,
+          "U-E1": 1024,
+          "R-E2": 1024,
+          "U-E3": 1024,
+          "U-E7": 1024,
+          "U-E4": 1024,
+          "R-E3": 1024,
+          "U-E5": 1024,
+          "U-E6": 1024
+        },
+        "scope": "All four step logs match the hashed plan. Event labels are inherited from that plan; no fresh dataset, optimizer or label-quality certification."
+      },
+      "metrics": {
+        "val": {
+          "count": 370,
+          "correct": 307,
+          "yes": 69,
+          "yes_correct": 16,
+          "confusion": {
+            "NO->NO": 291,
+            "YES->YES": 16,
+            "YES->NO": 53,
+            "NO->YES": 10
+          },
+          "physical_groups": 15,
+          "yes_physical_groups": 11,
+          "by_event": {
+            "R-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E1": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E4": {
+              "count": 37,
+              "correct": 8,
+              "yes": 29,
+              "yes_correct": 0,
+              "confusion": {
+                "YES->NO": 29,
+                "NO->NO": 8
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 1
+            },
+            "U-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 10,
+              "yes_correct": 10,
+              "confusion": {
+                "YES->YES": 10,
+                "NO->NO": 27
+              },
+              "physical_groups": 3,
+              "yes_physical_groups": 3
+            },
+            "U-E6": {
+              "count": 37,
+              "correct": 13,
+              "yes": 26,
+              "yes_correct": 2,
+              "confusion": {
+                "NO->NO": 11,
+                "YES->NO": 24,
+                "YES->YES": 2
+              },
+              "physical_groups": 3,
+              "yes_physical_groups": 3
+            },
+            "U-E7": {
+              "count": 37,
+              "correct": 27,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 26,
+                "NO->YES": 10
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            }
+          },
+          "error_event_edge": {
+            "U-E4/proceed/YES->NO": 29,
+            "U-E6/proceed/YES->NO": 24,
+            "U-E7/renewed_restriction/NO->YES": 4,
+            "U-E7/hold/NO->YES": 4,
+            "U-E7/re_yield/NO->YES": 2
+          },
+          "event_edge_targets": {
+            "U-E1/proceed/NO": 37,
+            "U-E2/restrict/YES": 1,
+            "U-E2/depart/NO": 36,
+            "U-E3/proceed/NO": 37,
+            "U-E4/proceed/YES": 29,
+            "U-E4/proceed/NO": 8,
+            "U-E5/hold/YES": 5,
+            "U-E5/proceed/NO": 27,
+            "U-E5/restrict/YES": 5,
+            "U-E6/proceed/NO": 11,
+            "U-E6/proceed/YES": 24,
+            "U-E6/restrict/YES": 1,
+            "U-E6/hold/YES": 1,
+            "U-E7/restrict/YES": 1,
+            "U-E7/proceed/NO": 19,
+            "U-E7/renewed_restriction/NO": 4,
+            "U-E7/hold/NO": 4,
+            "U-E7/recover_follow/NO": 2,
+            "U-E7/stable/NO": 5,
+            "U-E7/re_yield/NO": 2,
+            "R-E2/hold/YES": 1,
+            "R-E2/enter/NO": 36,
+            "R-E3/hold/YES": 1,
+            "R-E3/enter/NO": 36,
+            "R-E5/proceed/NO": 37
+          },
+          "consumed_per_rank": [
+            94,
+            92,
+            92,
+            92
+          ]
+        },
+        "reload": {
+          "count": 370,
+          "correct": 307,
+          "yes": 69,
+          "yes_correct": 16,
+          "confusion": {
+            "NO->NO": 291,
+            "YES->YES": 16,
+            "YES->NO": 53,
+            "NO->YES": 10
+          },
+          "physical_groups": 15,
+          "yes_physical_groups": 11,
+          "by_event": {
+            "R-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E1": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E2": {
+              "count": 37,
+              "correct": 37,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 36
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E3": {
+              "count": 37,
+              "correct": 37,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 37
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E4": {
+              "count": 37,
+              "correct": 8,
+              "yes": 29,
+              "yes_correct": 0,
+              "confusion": {
+                "YES->NO": 29,
+                "NO->NO": 8
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 1
+            },
+            "U-E5": {
+              "count": 37,
+              "correct": 37,
+              "yes": 10,
+              "yes_correct": 10,
+              "confusion": {
+                "YES->YES": 10,
+                "NO->NO": 27
+              },
+              "physical_groups": 3,
+              "yes_physical_groups": 3
+            },
+            "U-E6": {
+              "count": 37,
+              "correct": 13,
+              "yes": 26,
+              "yes_correct": 2,
+              "confusion": {
+                "NO->NO": 11,
+                "YES->NO": 24,
+                "YES->YES": 2
+              },
+              "physical_groups": 3,
+              "yes_physical_groups": 3
+            },
+            "U-E7": {
+              "count": 37,
+              "correct": 27,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 26,
+                "NO->YES": 10
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            }
+          },
+          "error_event_edge": {
+            "U-E4/proceed/YES->NO": 29,
+            "U-E6/proceed/YES->NO": 24,
+            "U-E7/renewed_restriction/NO->YES": 4,
+            "U-E7/hold/NO->YES": 4,
+            "U-E7/re_yield/NO->YES": 2
+          },
+          "event_edge_targets": {
+            "U-E1/proceed/NO": 37,
+            "U-E2/restrict/YES": 1,
+            "U-E2/depart/NO": 36,
+            "U-E3/proceed/NO": 37,
+            "U-E4/proceed/YES": 29,
+            "U-E4/proceed/NO": 8,
+            "U-E5/hold/YES": 5,
+            "U-E5/proceed/NO": 27,
+            "U-E5/restrict/YES": 5,
+            "U-E6/proceed/NO": 11,
+            "U-E6/proceed/YES": 24,
+            "U-E6/restrict/YES": 1,
+            "U-E6/hold/YES": 1,
+            "U-E7/restrict/YES": 1,
+            "U-E7/proceed/NO": 19,
+            "U-E7/renewed_restriction/NO": 4,
+            "U-E7/hold/NO": 4,
+            "U-E7/recover_follow/NO": 2,
+            "U-E7/stable/NO": 5,
+            "U-E7/re_yield/NO": 2,
+            "R-E2/hold/YES": 1,
+            "R-E2/enter/NO": 36,
+            "R-E3/hold/YES": 1,
+            "R-E3/enter/NO": 36,
+            "R-E5/proceed/NO": 37
+          },
+          "consumed_per_rank": [
+            94,
+            92,
+            92,
+            92
+          ]
+        },
+        "test": {
+          "count": 180,
+          "correct": 177,
+          "yes": 16,
+          "yes_correct": 13,
+          "confusion": {
+            "YES->YES": 13,
+            "NO->NO": 164,
+            "YES->NO": 3
+          },
+          "physical_groups": 11,
+          "yes_physical_groups": 10,
+          "by_event": {
+            "R-E2": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 17
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E3": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "NO->NO": 17,
+                "YES->YES": 1
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "R-E5": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E1": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 17
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E2": {
+              "count": 18,
+              "correct": 18,
+              "yes": 0,
+              "yes_correct": 0,
+              "confusion": {
+                "NO->NO": 18
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 0
+            },
+            "U-E3": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 17
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E4": {
+              "count": 18,
+              "correct": 15,
+              "yes": 4,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 14,
+                "YES->NO": 3
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 2
+            },
+            "U-E5": {
+              "count": 18,
+              "correct": 18,
+              "yes": 6,
+              "yes_correct": 6,
+              "confusion": {
+                "NO->NO": 12,
+                "YES->YES": 6
+              },
+              "physical_groups": 2,
+              "yes_physical_groups": 2
+            },
+            "U-E6": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "YES->YES": 1,
+                "NO->NO": 17
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            },
+            "U-E7": {
+              "count": 18,
+              "correct": 18,
+              "yes": 1,
+              "yes_correct": 1,
+              "confusion": {
+                "NO->NO": 17,
+                "YES->YES": 1
+              },
+              "physical_groups": 1,
+              "yes_physical_groups": 1
+            }
+          },
+          "error_event_edge": {
+            "U-E4/proceed/YES->NO": 3
+          },
+          "event_edge_targets": {
+            "U-E1/hold/YES": 1,
+            "U-E1/proceed/NO": 17,
+            "U-E2/depart/NO": 18,
+            "U-E3/restrict/YES": 1,
+            "U-E3/proceed/NO": 17,
+            "U-E4/hold/YES": 1,
+            "U-E4/proceed/NO": 14,
+            "U-E4/proceed/YES": 3,
+            "U-E5/proceed/NO": 12,
+            "U-E5/restrict/YES": 3,
+            "U-E5/hold/YES": 3,
+            "U-E6/hold/YES": 1,
+            "U-E6/proceed/NO": 17,
+            "U-E7/proceed/NO": 17,
+            "U-E7/hold/YES": 1,
+            "R-E2/hold/YES": 1,
+            "R-E2/enter/NO": 17,
+            "R-E3/stable/NO": 1,
+            "R-E3/renewed_restriction/YES": 1,
+            "R-E3/release/NO": 16,
+            "R-E5/proceed/NO": 18
+          },
+          "consumed_per_rank": [
+            46,
+            46,
+            44,
+            44
+          ]
+        }
+      },
+      "unique_train_questions": 10036,
+      "max_question_repeat": 2,
+      "train_targets": {
+        "YES": 3080,
+        "NO": 7160
+      },
+      "train_action_exposure": {
+        "R-E2": {
+          "release/NO": 99,
+          "hold/YES": 38,
+          "enter/NO": 191,
+          "renewed_restriction/YES": 42,
+          "enter/YES": 109,
+          "release/YES": 85,
+          "renewed_restriction/NO": 74,
+          "hold/NO": 85,
+          "stable/NO": 76,
+          "recover_follow/NO": 78,
+          "stable/YES": 12,
+          "recover_follow/YES": 2,
+          "complete/NO": 54,
+          "complete/YES": 79
+        },
+        "R-E3": {
+          "enter/NO": 315,
+          "stable/NO": 8,
+          "complete/NO": 8,
+          "complete/YES": 6,
+          "release/YES": 134,
+          "recover_follow/NO": 6,
+          "enter/YES": 178,
+          "stable/YES": 1,
+          "renewed_restriction/YES": 14,
+          "release/NO": 136,
+          "renewed_restriction/NO": 2,
+          "recover_follow/YES": 2,
+          "hold/NO": 163,
+          "hold/YES": 51
+        },
+        "R-E5": {
+          "hold/YES": 40,
+          "proceed/YES": 185,
+          "recover_follow/YES": 59,
+          "release/YES": 45,
+          "release/NO": 14,
+          "proceed/NO": 267,
+          "renewed_restriction/YES": 21,
+          "complete/NO": 65,
+          "complete/YES": 2,
+          "renewed_restriction/NO": 65,
+          "stable/YES": 30,
+          "re_yield/YES": 9,
+          "stable/NO": 60,
+          "recover_follow/NO": 57,
+          "hold/NO": 53,
+          "re_yield/NO": 52
+        },
+        "U-E1": {
+          "stable/NO": 77,
+          "recover_follow/YES": 48,
+          "release/YES": 17,
+          "recover_follow/NO": 122,
+          "hold/NO": 77,
+          "complete/NO": 50,
+          "complete/YES": 7,
+          "re_yield/NO": 77,
+          "renewed_restriction/NO": 77,
+          "re_yield/YES": 8,
+          "renewed_restriction/YES": 8,
+          "proceed/NO": 397,
+          "proceed/YES": 8,
+          "release/NO": 5,
+          "hold/YES": 46
+        },
+        "U-E2": {
+          "return/NO": 30,
+          "depart/NO": 194,
+          "renewed_restriction/YES": 44,
+          "hold/YES": 30,
+          "hold/NO": 77,
+          "release/YES": 104,
+          "release/NO": 127,
+          "stable/YES": 19,
+          "complete/NO": 71,
+          "depart/YES": 83,
+          "pass/NO": 79,
+          "pass/YES": 36,
+          "complete/YES": 25,
+          "renewed_restriction/NO": 45,
+          "stable/NO": 37,
+          "recover_follow/NO": 23
+        },
+        "U-E3": {
+          "proceed/YES": 96,
+          "recover_follow/NO": 33,
+          "stable/YES": 1,
+          "re_yield/YES": 5,
+          "proceed/NO": 615,
+          "recover_follow/YES": 40,
+          "release/NO": 1,
+          "renewed_restriction/YES": 6,
+          "complete/NO": 47,
+          "complete/YES": 24,
+          "stable/NO": 32,
+          "hold/YES": 65,
+          "re_yield/NO": 22,
+          "release/YES": 19,
+          "renewed_restriction/NO": 9,
+          "hold/NO": 9
+        },
+        "U-E4": {
+          "complete/NO": 16,
+          "re_yield/NO": 16,
+          "hold/NO": 16,
+          "proceed/YES": 264,
+          "hold/YES": 87,
+          "proceed/NO": 625
+        },
+        "U-E5": {
+          "hold/YES": 109,
+          "proceed/NO": 915
+        },
+        "U-E6": {
+          "hold/YES": 128,
+          "proceed/NO": 519,
+          "proceed/YES": 377
+        },
+        "U-E7": {
+          "proceed/NO": 454,
+          "proceed/YES": 115,
+          "stable/YES": 25,
+          "re_yield/YES": 4,
+          "recover_follow/NO": 62,
+          "hold/YES": 85,
+          "renewed_restriction/YES": 3,
+          "complete/NO": 71,
+          "stable/NO": 67,
+          "renewed_restriction/NO": 68,
+          "hold/NO": 36,
+          "re_yield/NO": 34
+        }
+      },
+      "train_seconds": 7054.575910730986,
+      "validation_seconds": 50.851270489016315,
+      "reload_seconds": 403.7488964810036,
+      "train_loss": 0.20195368925545204,
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 2,
+          "physical_groups": 2
+        },
+        "U-E2/return/NO": {
+          "rows": 62,
+          "physical_groups": 17
+        },
+        "U-E3/proceed/YES": {
+          "rows": 277,
+          "physical_groups": 95
+        },
+        "U-E3/proceed/NO": {
+          "rows": 14703,
+          "physical_groups": 685
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 711,
+          "physical_groups": 72
+        },
+        "U-E6/proceed/YES": {
+          "rows": 708,
+          "physical_groups": 97
+        },
+        "U-E6/proceed/NO": {
+          "rows": 1903,
+          "physical_groups": 269
+        },
+        "U-E7/complete/YES": {
+          "rows": 13,
+          "physical_groups": 13
+        },
+        "U-E7/complete/NO": {
+          "rows": 201,
+          "physical_groups": 31
+        },
+        "R-E5/proceed/YES": {
+          "rows": 760,
+          "physical_groups": 182
+        },
+        "R-E5/proceed/NO": {
+          "rows": 32451,
+          "physical_groups": 1124
+        }
+      }
+    }
+  },
+  "source_checks": {
+    "source_check.json": {
+      "files": 563,
+      "manifest": "release_sources_v80_epoch_continuation_20261017.json",
+      "extra_files_preserved_not_hashed": [
+        "qwen3vl_local/sft_new_loop_phase3/capacity_diagnostic.py",
+        "qwen3vl_local/sft_new_loop_phase3/invalid_capacity.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_invalid_capacity.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_training_pool_audit.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_v24_near_stop.py"
+      ]
+    },
+    "continuation_source_check.json": {
+      "files": 564,
+      "manifest": "release_sources_v82_continuation_guard_20261017.json",
+      "extra_files_preserved_not_hashed": [
+        "qwen3vl_local/sft_new_loop_phase3/capacity_diagnostic.py",
+        "qwen3vl_local/sft_new_loop_phase3/invalid_capacity.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_capacity_diagnostic.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_invalid_capacity.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_training_pool_audit.py",
+        "qwen3vl_local/sft_new_loop_phase3/test_v24_near_stop.py"
+      ]
+    }
+  },
+  "cross_mode": {
+    "val": {
+      "shared_ids": 264,
+      "rgb2_only": 106,
+      "rgb4_only": 106,
+      "shared_target_disagreements": 0,
+      "exact_input_identities_equal": 0,
+      "paired_comparison_valid": false
+    },
+    "test": {
+      "shared_ids": 110,
+      "rgb2_only": 70,
+      "rgb4_only": 70,
+      "shared_target_disagreements": 0,
+      "exact_input_identities_equal": 0,
+      "paired_comparison_valid": false
+    }
+  },
+  "training_cross_mode": {
+    "same_order": false,
+    "shared_unique_ids": 3981
+  },
+  "continuation": {
+    "status": "completed_execution_not_audited",
+    "original_workflow_sha256": "1de2d5b2953f50ab1944ccae93fca513d6a6639aa9b115415071e8bda5590a01",
+    "rgb2_training_reused": true,
+    "rgb2_reload_reused": true,
+    "stages": [
+      {
+        "stage": "snapshot_check",
+        "status": "finished",
+        "log": "continuation_snapshot_check.log",
+        "exit_code": 0,
+        "elapsed_seconds": 10.109090972007834
+      },
+      {
+        "stage": "rgb2_test",
+        "status": "finished",
+        "log": "continuation_rgb2_test.log",
+        "exit_code": 0,
+        "elapsed_seconds": 381.78162259100645
+      },
+      {
+        "stage": "rgb4",
+        "status": "finished",
+        "log": "rgb4.log",
+        "exit_code": 0,
+        "elapsed_seconds": 10467.539572256996
+      }
+    ],
+    "training_accepted": false,
+    "command_exit_code": 0
+  },
+  "scope": "Received evidence consistency only; no GPU, raw full pool, optimizer tensor or new RGB inspection. Event labels in train step logs inherited from bound sampling plan.",
+  "package_bytes": 6665403,
+  "package_members": 61,
+  "zip_crc_and_all_member_sha_verified": true,
+  "student_producer_contracts_equal_between_modes": true,
+  "current_student_source_items_matched": 18,
+  "pending_local_v23_producer_differences": [
+    "teacher_rules.py",
+    "dataset.py",
+    "identity.py"
+  ],
+  "pending_local_v23_changes_not_applied_to_received_run": true,
+  "new_rgb_frames_viewed": 0,
+  "production_code_modified": false,
+  "remote_or_gpu_executed_locally": false,
+  "local_audit_script_sha256": "e237657bd504f6df9543511362244a690ab9feaa199ce135f85d6a2aafba02d8",
+  "local_audit_result_sha256": "58403c866f7bdbddba0f7fd9405c98a5cb9605d7fefdbc73da23cb3c72b1d3be"
+}

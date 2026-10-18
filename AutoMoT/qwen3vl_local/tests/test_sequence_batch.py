@@ -5,6 +5,78 @@ import pytest
 from qwen3vl_local.sequence_batch import plan, rank_batches, collate
 
 
+def critical_rows():
+    rows=[dict(id=f'common/{i}',event='U-E2',sequence='common',frame=i,
+               action='depart/NO',split='train',group='common') for i in range(40)]
+    rows += [dict(id=f'rare/{i}',event='U-E2',sequence=f'rare/{i}',frame=100+i,
+                  action='return/YES',split='train',group=f'rare/{i}') for i in range(2)]
+    return rows
+
+
+def test_critical_training_policy_agrees_with_admission():
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import CRITICAL_EDGES
+    from qwen3vl_local.audit_joint.rule_baseline import CRITICAL_EDGES as admission_edges
+    assert CRITICAL_EDGES == admission_edges
+
+
+@pytest.mark.parametrize('stride',[1,2])
+@pytest.mark.parametrize('world',[1,4])
+def test_critical_minimum_keeps_isolated_positive_with_exact_quota(stride,world):
+    rows=critical_rows();required={'U-E2':{'return/YES':1}}
+    before=deepcopy(rows);history=None;rare=[]
+    for epoch in range(3):
+        order,a=plan(rows,per_event=8,world_size=world,batch_size=2,stride=stride,
+                     epoch=epoch,history=history,action_minimums=required,max_question_repeat=1)
+        assert len(order)==len(set(order))==8
+        assert Counter(rows[i]['action'] for i in order)['return/YES']>=1
+        assert a['action_minimums']['U-E2']['return/YES']['reserved']==1
+        assert a['action_minimums']['U-E2']['return/YES']['actual']>=1
+        assert a['action_minimums']['U-E2']['return/YES']['unique_questions']>=1
+        assert a['action_minimums']['U-E2']['return/YES']['physical_groups']>=1
+        rare.append([rows[i]['id'] for i in order if rows[i]['action']=='return/YES'])
+        history=a['next_history']
+        reverse=list(reversed(rows))
+        reverse_order,_=plan(reverse,per_event=8,world_size=world,batch_size=2,stride=stride,
+                             epoch=epoch,action_minimums=required,max_question_repeat=1)
+        assert [rows[i]['id'] for i in order]==[reverse[i]['id'] for i in reverse_order]
+    assert rare[0]!=rare[1] and rows==before
+
+
+def test_critical_minimum_binding_capacity_and_eligible_evidence():
+    rows=critical_rows();required={'U-E2':{'return/YES':1}}
+    rows[-1]['reserve_eligible']=False
+    order,a=plan(rows,per_event=8,action_minimums=required)
+    assert rows[-2]['id'] in [rows[i]['id'] for i in order]
+    for changed in (None,{}, {'U-E2':{'return/YES':2}}):
+        with pytest.raises(ValueError):
+            plan(rows,per_event=8,epoch=1,history=a['next_history'],action_minimums=changed)
+    for invalid in ({'U-E2':{'return/YES':2}}, {'U-E2':{'missing':1}},
+                    {'U-E2':{'return/YES':True}}, {'unknown':{'x':1}}):
+        with pytest.raises(ValueError):plan(rows,per_event=8,action_minimums=invalid)
+    with pytest.raises(ValueError):
+        plan(critical_rows(),per_event=1,action_minimums={'U-E2':{'return/YES':2}})
+
+
+@pytest.mark.parametrize('stride',[1,2])
+def test_phase4_reserves_native_readiness_not_catchup_or_reviewed(stride):
+    from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import plan as p4_plan
+    rows=[]
+    for r in critical_rows():
+        edge,target=r['action'].split('/')
+        rows.append(dict(id=r['id'],episode={'event':r['event'],'instance_id':r['sequence']},
+            scenario='scenario',route_id=r['sequence'],physical_group=r['group'],split='train',
+            observation={'frame_id':r['frame']},edge=edge,target=target,slice='readiness',label_basis='weak_rule_teacher'))
+    rows[-1]['slice']='catchup'
+    _,a=p4_plan(rows,epoch=0,budget=8,world_size=4,batch_size=2,anchor_stride=stride)
+    cell=a['action_minimums']['U-E2']['return/YES']
+    assert cell['available']==1 and cell['reserved']==1
+    assert 'U-E2/return/NO' in a['unsupported_critical_cells']
+    rows[-2]['label_basis']='reviewed_rgb'
+    _,a=p4_plan(rows,epoch=0,budget=8,world_size=4,batch_size=2,anchor_stride=stride)
+    assert 'U-E2/return/YES' in a['unsupported_critical_cells']
+    assert not a['action_minimums'].get('U-E2',{})
+
+
 def pool(events=10,n=80):
     return [dict(id=f'{e}/{i}',event=str(e),sequence=f'{e}/route',frame=i,
         action='STOP' if i<60 else 'RESUME',split='train',group=f'{e}/route')

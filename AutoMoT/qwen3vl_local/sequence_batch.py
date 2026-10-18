@@ -8,6 +8,7 @@ import hashlib
 import json
 
 POLICY = 'event_equal_contiguous_unseen_first_v4'
+MINIMUM_POLICY = 'event_equal_critical_then_contiguous_v5'
 
 
 def digest(value):
@@ -39,13 +40,16 @@ def tail_piece_length(by_length, remaining):
 
 
 def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
-         stride=2, history=None, max_question_repeat=None):
+         stride=2, history=None, max_question_repeat=None, action_minimums=None):
     """Records contain id/event/sequence/frame/action/split/group, no model tensors.
 
     Equal events are hard. Exposure is lexicographically first, then longest
     pieces at batch starts and complete-piece packing for batch tails, then soft
     action deficit. Short pieces join independent sequences WITHOUT fake history.
     Both parity streams are eligible when stride=2, so odd frames are not lost.
+    Explicit action_minimums reserve distinct eligible questions first, within
+    the same event quota. Only this bounded reserve precedes exposure/continuity.
+    Unrequested callers retain v4 behavior and history bindings exactly.
     """
     if not records or any(type(n) is not int or n < 1 for n in (world_size, batch_size, stride)):
         raise ValueError('invalid batch/stride/world or empty sampling pool')
@@ -72,17 +76,35 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
             raise ValueError('max_question_repeat must be a positive integer or None')
         if any(targets[e]>len(pool)*max_question_repeat for e,pool in pools.items()):
             raise ValueError('event-equal quota exceeds max_question_repeat capacity')
-    binding = dict(policy=POLICY, pool_sha256=digest(sorted(records, key=lambda r:r['id'])),
+    minimums = {}
+    if action_minimums is not None:
+        if not isinstance(action_minimums,dict) or not set(action_minimums)<=set(pools):
+            raise ValueError('invalid action minimum event mapping')
+        for event, actions in sorted(action_minimums.items()):
+            if not isinstance(actions,dict):raise ValueError('invalid action minimum mapping')
+            minimums[event]={}
+            for action,n in sorted(actions.items()):
+                if not isinstance(action,str) or type(n) is not int or n<1:
+                    raise ValueError('action minimum must be a positive integer')
+                available=sum(records[i]['action']==action and records[i].get('reserve_eligible',True) is True for i in pools[event])
+                if n>available:raise ValueError('action minimum exceeds distinct eligible support')
+                minimums[event][action]=n
+            if sum(actions.values())>targets[event]:raise ValueError('action minimum exceeds event quota')
+    effective_policy=POLICY if action_minimums is None else MINIMUM_POLICY
+    binding = dict(policy=effective_policy, pool_sha256=digest(sorted(records, key=lambda r:r['id'])),
                    seed=seed, targets=targets, world_size=world_size, batch_size=batch_size, stride=stride)
+    if action_minimums is not None:binding['action_minimums']=minimums
     if max_question_repeat is not None:binding['max_question_repeat_limit']=max_question_repeat
     if history is None:
         history = dict(**binding, next_epoch=0, counts=dict.fromkeys(ids, 0))
         for previous in range(epoch):
             _, prior = plan(records, per_event=targets, epoch=previous, seed=seed,
-                world_size=world_size, batch_size=batch_size, stride=stride, history=history, max_question_repeat=max_question_repeat)
+                world_size=world_size, batch_size=batch_size, stride=stride, history=history,
+                max_question_repeat=max_question_repeat, action_minimums=action_minimums)
             history = prior['next_history']
     if (not isinstance(history, dict) or any(history.get(k) != v for k,v in binding.items())
             or history.get('max_question_repeat_limit') != max_question_repeat
+            or history.get('action_minimums') != (None if action_minimums is None else minimums)
             or history.get('next_epoch') != epoch or set(history.get('counts', {})) != set(ids)):
         raise ValueError('sampling history pool/config/epoch mismatch')
     counts = dict(history['counts'])
@@ -93,15 +115,29 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
     frame_keys=[(r['event'],r['sequence'],r['frame']) for r in records]
     frame_counts=Counter()
     for i,ident in enumerate(ids):frame_counts[frame_keys[i]]+=counts[ident]
-    queues, pieces_report, action_report, packing_report = {}, {}, {}, {}
+    queues, pieces_report, action_report, packing_report, minimum_report = {}, {}, {}, {}, {}
     for event, pool in sorted(pools.items()):
         selected, segments = [], []
         packing = Counter()
         actions = Counter(records[i]['action'] for i in pool)
-        # Soft action targets; no label editing or rare-action repetition before coverage.
+        # Soft targets guide the remainder after any explicit critical reserve.
         from qwen3vl_local.sft_new_loop_phase3.sampling import support_aware_quota
         desired = support_aware_quota(actions, targets[event])
         actual = Counter()
+        minimum_report[event]={}
+        for action,n in minimums.get(event,{}).items():
+            eligible=[i for i in pool if records[i]['action']==action and records[i].get('reserve_eligible',True) is True]
+            available=len(eligible)
+            # Deterministic, least-used identities rotate across epochs; no
+            # rare question is duplicated to manufacture distinct support.
+            for _ in range(n):
+                i=min(eligible,key=lambda i:(counts[ids[i]],frame_counts[frame_keys[i]],
+                    digest([seed,epoch,ids[i]])))
+                eligible.remove(i)
+                segments.append(dict(offset=len(selected),length=1,sequence=records[i]['sequence'],
+                    first_frame=records[i]['frame'],last_frame=records[i]['frame'],reason='critical_action_reserve'))
+                selected.append(i);counts[ids[i]]+=1;frame_counts[frame_keys[i]]+=1;actual[action]+=1
+            minimum_report[event][action]=dict(required=n,available=available,reserved=n)
         while len(selected) < targets[event]:
             eligible=[i for i in pool if max_question_repeat is None or counts[ids[i]]-before[ids[i]]<max_question_repeat]
             if not eligible:raise ValueError('max_question_repeat capacity exhausted')
@@ -185,6 +221,11 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
         queues[event] = selected
         pieces_report[event] = segments
         action_report[event] = dict(target=desired, actual=dict(actual))
+        for action,cell in minimum_report[event].items():
+            chosen=[i for i in selected if records[i]['action']==action and records[i].get('reserve_eligible',True) is True]
+            cell.update(actual=len(chosen),unique_questions=len(set(chosen)),
+                        physical_groups=len({records[i]['group'] for i in chosen}))
+            if cell['actual']<cell['required']:raise RuntimeError('critical action reserve lost')
         packing_report[event] = dict(whole_piece_tail_choices=packing['whole_piece_tail_choices'],
                                      truncated_pieces=packing['truncated_pieces'])
     # Contiguous global blocks; contiguous per-rank chunks within each block.
@@ -194,7 +235,7 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
         for event in events:
             result.extend(queues[event][offset:offset+block])
     repeats=Counter(result)
-    return result, dict(policy=POLICY, epoch=epoch, presentations=len(result), event_counts=targets,
+    audit = dict(policy=effective_policy, epoch=epoch, presentations=len(result), event_counts=targets,
         per_event_quota=next(iter(targets.values())) if len(set(targets.values()))==1 else None,
         batch_size=batch_size, world_size=world_size, anchor_stride=stride,
         max_question_repeat_limit=max_question_repeat, repeat_limit_scope='per question per epoch; None means unlimited',
@@ -209,6 +250,10 @@ def plan(records, *, per_event, epoch=0, seed=0, world_size=1, batch_size=1,
         overlap='real causal histories may overlap within split; no synthetic cross-route windows',
         ordered_ids_sha256=digest([ids[i] for i in result]),
         next_history=dict(**binding, next_epoch=epoch+1, counts=counts))
+    if action_minimums is not None:
+        audit['action_minimums']=minimum_report
+        audit['priority']='distinct eligible critical-action minimum; '+audit['priority']
+    return result,audit
 
 
 def rank_batches(indices, *, rank, world_size, batch_size):

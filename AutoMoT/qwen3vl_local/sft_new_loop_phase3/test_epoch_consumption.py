@@ -51,7 +51,8 @@ def test_validation_does_not_score_an_incomplete_fixed_list(monkeypatch):
     monkeypatch.setattr(train, '_load_images', lambda *a, **kw: [])
     monkeypatch.setattr(train, '_build_inputs', lambda *a, **kw: None)
     with pytest.raises(ValueError, match='fixed validation cannot skip'):
-        train.evaluate_loss(SimpleNamespace(model=model), work, history_rgb_mode='4rgb',
+        train.evaluate_loss(SimpleNamespace(model=model, tokenizer=None, device=torch.device('cpu')),
+                            work, history_rgb_mode='4rgb',
                             max_length=1, format_loss_weight=.25, device=torch.device('cpu'), world_size=1)
     assert model.training
 

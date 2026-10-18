@@ -1,0 +1,216 @@
+{
+  "full_replay": {
+    "routes": 3,
+    "frames": 266,
+    "source_files": 798,
+    "seconds": 18.08251218899386
+  },
+  "raw_questions": 582,
+  "target_changes": [
+    {
+      "key": [
+        "InvadingTurn",
+        "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+        74,
+        "teacher/InvadingTurn/Town13_Rep0_1176_0_route0_01_10_07_33_32/U-E5/4765/69",
+        "proceed",
+        2
+      ],
+      "old": "UNKNOWN",
+      "new": "NO",
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "reasons": [
+        "decisive_actor_not_visible",
+        "independent_visible_conflict_or_priority_veto"
+      ]
+    },
+    {
+      "key": [
+        "InvadingTurn",
+        "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+        75,
+        "teacher/InvadingTurn/Town13_Rep0_1176_0_route0_01_10_07_33_32/U-E5/4765/69",
+        "proceed",
+        2
+      ],
+      "old": "UNKNOWN",
+      "new": "NO",
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "reasons": [
+        "decisive_actor_not_visible",
+        "independent_visible_conflict_or_priority_veto"
+      ]
+    },
+    {
+      "key": [
+        "InvadingTurn",
+        "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+        73,
+        "teacher/InvadingTurn/Town13_Rep0_1176_0_route0_01_10_07_33_32/U-E5/4765/69",
+        "proceed",
+        4
+      ],
+      "old": "UNKNOWN",
+      "new": "NO",
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "reasons": [
+        "decisive_actor_not_visible",
+        "independent_visible_conflict_or_priority_veto"
+      ]
+    },
+    {
+      "key": [
+        "InvadingTurn",
+        "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+        74,
+        "teacher/InvadingTurn/Town13_Rep0_1176_0_route0_01_10_07_33_32/U-E5/4765/69",
+        "proceed",
+        4
+      ],
+      "old": "UNKNOWN",
+      "new": "NO",
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "reasons": [
+        "decisive_actor_not_visible",
+        "independent_visible_conflict_or_priority_veto"
+      ]
+    },
+    {
+      "key": [
+        "InvadingTurn",
+        "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+        73,
+        "teacher/InvadingTurn/Town13_Rep0_1176_0_route0_01_10_07_33_32/U-E5/4765/69",
+        "proceed",
+        2
+      ],
+      "old": "UNKNOWN",
+      "new": "NO",
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "reasons": [
+        "decisive_actor_not_visible",
+        "independent_visible_conflict_or_priority_veto"
+      ]
+    },
+    {
+      "key": [
+        "InvadingTurn",
+        "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+        75,
+        "teacher/InvadingTurn/Town13_Rep0_1176_0_route0_01_10_07_33_32/U-E5/4765/69",
+        "proceed",
+        4
+      ],
+      "old": "UNKNOWN",
+      "new": "NO",
+      "facts": {
+        "release_ready": false,
+        "corridor_clear": false,
+        "priority_satisfied": null
+      },
+      "reasons": [
+        "decisive_actor_not_visible",
+        "independent_visible_conflict_or_priority_veto"
+      ]
+    }
+  ],
+  "field_changes": {
+    "reasons": 10,
+    "facts": 6,
+    "rule_target": 6,
+    "state_rule_target": 6
+  },
+  "same_question_keys": true,
+  "same_instance_ends": true,
+  "same_dispositions": true,
+  "compiled_counts": {
+    "train": 130,
+    "val": 0,
+    "test": 0
+  },
+  "compiled_repaired_no_ids": [
+    "c1ebf18f1c78c865dfba7247dc51496e90c16796c43174f99051f3e5c2d783a4",
+    "71af6651fe3a8c37f4bb70139b3bfdd8d87f6d50503e5a5c19ad3cc02989a1e1",
+    "c3353dee47d91c41e8f1d0b3b8a3ab5002981d7e85e32285994866a00fa2f201"
+  ],
+  "paired_load_passed": true,
+  "probe_windows": 109,
+  "probe_routes": 72,
+  "probe_source_files": 5295,
+  "probe_unique_frames": 1765,
+  "final_source_sha_verified": 5946,
+  "visual_source_files": 93,
+  "visual_frames": 31,
+  "ue5_proceed_yes": 0,
+  "formal_ten_event_admission": false,
+  "gpu_training": false,
+  "schema": "ue5_passage_review_v1",
+  "teacher_version": "ten_event_causal_teacher_v24",
+  "status": "negative_evidence_fix_verified_positive_support_unresolved",
+  "diagnostic_status_counts": {
+    "geometrically_passed_not_visual_release": 78,
+    "decisive_actor_unobserved": 11,
+    "identity_discontinuity": 8,
+    "partial_view_without_separation_evidence": 9,
+    "no_observed_post_restriction_separation": 3
+  },
+  "tests": {
+    "passed": 1403,
+    "skipped": 2,
+    "seconds": 119.79,
+    "skip_reason": "previous production pool unavailable",
+    "native_new_cases": 8,
+    "before_failed": 4,
+    "before_passed": 4,
+    "diagnostic_new_cases": 7
+  },
+  "evidence_files": {
+    "checkpoints/ue5_passage_20261018/probe.py": "e115de0fc6838cfe1c49483903f914c0f5ab5131d43cfbbdc304de91f0b1727f",
+    "checkpoints/ue5_passage_20261018/probe.json": "a06b68e08b172e782bdd8d3494c6cdb2e12233bec186a342d87589601f456912",
+    "checkpoints/ue5_passage_20261018/replay.py": "b8ce29700988fe02345d7f0a57c6c88bbb85e4cbc7ca5b019a836d5bb5320b61",
+    "checkpoints/ue5_passage_20261018/before/summary.json": "5e28be6f513a96c3e89604e0e7dfa7c6cc99dd69ca4edcff499c9a78390ca9df",
+    "checkpoints/ue5_passage_20261018/before/sources.json": "5519374812a50192b2212db3cfaa4402366b389144d4ea5a2f35114461e4f13a",
+    "checkpoints/ue5_passage_20261018/after/summary.json": "a04acd0da75d6d5fab17289bfcb7e65688b9db4674f056a92547fd82b8fececf",
+    "checkpoints/ue5_passage_20261018/after/sources.json": "5519374812a50192b2212db3cfaa4402366b389144d4ea5a2f35114461e4f13a",
+    "checkpoints/ue5_passage_20261018/after/counts.json": "e0ba23097ccaccfa7ce27cb8d725777b947ffa96d5830c8df6a7538a87837025",
+    "checkpoints/ue5_passage_20261018/visual_windows.json": "fb96e959c859781a0d6e195499c1542c55b24f82c6a724cd6dd1e2a878764005",
+    "checkpoints/ue5_passage_20261018/visual_sources.json": "51a8e94c42b5c451eff909501a8a0c75c0d30c2b97bbc71816996ce679af22d7",
+    "checkpoints/ue5_passage_20261018/bound_departure_diagnostics.json": "8dc8d10debb9451c2ead89d630ce802c98a9b5a6c4e17bc433825744ae735d6e",
+    "checkpoints/ue5_passage_20261018/independent_blockers.json": "095a759f53861e192b105bff193fd2a496117f1c97ac3073cd7e46355b2b8581",
+    "checkpoints/ue5_passage_20261018/verification.json": "a6dd86303cf6874577b5c92313e159d9dfaa4549656491f370caeaf7cba431ab",
+    "checkpoints/ue5_passage_20261018/target_changes.json": "fb04f471fb77cc59bbf1efeffbfad4122eb5c581031897af4fe0322ef4e70ef8",
+    "checkpoints/ue5_passage_20261018/tests.log": "8d77c500c181c2b5ed3a3f4b7b651607e67036a7fb7c5822b29a4aa0010b3421",
+    "checkpoints/ue5_passage_20261018/regression_before.log": "ae2dcf3212be27226d862e6ca47797f8df9f46a3b2e3341a6c1a997a8f46267b"
+  },
+  "source_files": {
+    "qwen3vl_local/sft_new_loop_phase4/teacher_events.py": "52dc20453a27f38900693a1c1bb4e9ad6455838397018d7d1429a61c457dd54f",
+    "qwen3vl_local/sft_new_loop_phase4/teacher_rules.py": "1678a54aea467e5ef75daf1127f9ae78bc9c0240adf0b7b57957fe16607c3f04",
+    "qwen3vl_local/sft_new_loop_phase4/identity.py": "0f1c265c4adf9caad8a28175170f5ba64ff5417c7a04c9f5a6f0f77f34e56255",
+    "qwen3vl_local/sft_new_loop_phase4/dataset.py": "47c9405daef287c5b9b38b8ea6b01359eb01da950504d69a6939697165d00f16",
+    "qwen3vl_local/sft_new_loop_phase4/producer_manual_check_plan_v39_20261018.json": "311938ab9cdd6dbcbd7f26b0985e67f375accb1de1a6bdf5faf7230a2e172db1",
+    "qwen3vl_local/sft_new_loop_phase4/teacher_registry_v34.json": "05ee258ba0162341d2b13a3c24608fc1644eab5178c05982eff2c92b8f77e488",
+    "qwen3vl_local/sft_new_loop_phase4/tests/test_teacher_v53.py": "a41f50dcfd9bb246545d602b03c0d4e424ddff3a457b2e9a1e9a9b68aa7b8397",
+    "qwen3vl_local/audit_joint/departure_probe.py": "744b64bc67e5d353f617b21e464fc112f98888b261a0bc5a90d86cf6eb65d351",
+    "qwen3vl_local/audit_joint/tests/test_departure_probe.py": "437222f616232e98e9dcd5fbce5e8f7514cb1dbebf9ce0d449d641a4e08fa29f"
+  }
+}

@@ -71,3 +71,36 @@ def test_raw_source_mutation_rejected_before_loading_metadata(tmp_path, monkeypa
                    frame_window_sources=[dict(frame_id=10, sources=sources)])
     with pytest.raises(ValueError, match='raw source changed'):
         probe.inspect_example(example, tmp_path)
+
+
+def test_metadata_passage_is_not_a_visible_release():
+    fs=frames('U-E5',True)
+    for f in fs:f['actors'][1]['position']=[-12.,-3.,0.]
+    result=probe.passage_evidence(fs,dict(frozen_seed(),restriction_frame=4))
+    assert result['status']=='geometrically_passed_not_visual_release'
+    assert result['observations'][-1]['wholly_behind'] is True
+    assert not any(r['visible_separation'] for r in result['observations'])
+    assert 'answer' not in result and 'permission' not in result
+
+
+def test_passing_uses_rotated_whole_footprint_not_center_or_length():
+    import math
+    fs=frames('U-E5',True)
+    for f in fs:
+        f['actors'][0]['position']=[0.,0.,0.];f['actors'][0]['extent']=[2.,1.,1.]
+        f['actors'][1].update(position=[-4.,0.,0.],extent=[1.,3.,1.],yaw=math.pi/2)
+    last=probe.passage_evidence(fs,dict(frozen_seed(),restriction_frame=4))['observations'][-1]
+    assert last['rear_gap_m']==pytest.approx(-1.) and last['wholly_behind'] is False
+
+
+@pytest.mark.parametrize('restriction',[None,-1,10,11])
+def test_pre_restriction_separation_cannot_be_reported_as_departure(restriction):
+    result=probe.passage_evidence(frames('U-E5'),dict(frozen_seed(),restriction_frame=restriction))
+    assert not any(r['visible_separation'] for r in result['observations'])
+
+
+def test_missing_identity_and_frame_gaps_do_not_claim_passage():
+    fs=frames('U-E5');fs[-1]['actors']=fs[-1]['actors'][:1]
+    assert probe.passage_evidence(fs,frozen_seed())['status']=='identity_discontinuity'
+    with pytest.raises(ValueError,match='continuous'):
+        probe.passage_evidence(fs[::2],frozen_seed())

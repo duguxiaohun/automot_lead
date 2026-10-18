@@ -1,0 +1,175 @@
+{
+  "server": "cr02",
+  "zip_sha256": "da1aa9f5f0596fa83591d9fcf896a920d09554753f00cbd60049c6393e39a39f",
+  "zip_bytes": 1476055,
+  "members_verified": 13,
+  "build_source_files_verified": 558,
+  "build_source_release": "v78",
+  "collector_matches_current": true,
+  "automatic_admission_sha256": "5d76e18cc8586f89ede5a58d5402666bcd9e6a023b567912882cc153c5eacce8",
+  "status": "accepted_for_existing_data_development",
+  "training_started": false,
+  "input_binding_records": 8626,
+  "bindings_scope": "received report hashes agree; original server files not available locally",
+  "source_train_rows": 298770,
+  "all_automatic": true,
+  "train_membership_equal_between_modes": true,
+  "report_batch_per_card": 1,
+  "launch_batch_per_card": 2,
+  "launch_recomputes_schedule": true,
+  "train_presentations_per_event": 1024,
+  "val_unique_per_event": 37,
+  "test_unique_per_event": 18,
+  "critical_support": {
+    "U-E2/return/YES": {
+      "rows": 2,
+      "physical_groups": 2
+    },
+    "U-E2/return/NO": {
+      "rows": 62,
+      "physical_groups": 17
+    },
+    "U-E3/proceed/YES": {
+      "rows": 277,
+      "physical_groups": 95
+    },
+    "U-E3/proceed/NO": {
+      "rows": 14705,
+      "physical_groups": 685
+    },
+    "U-E5/proceed/YES": {
+      "rows": 0,
+      "physical_groups": 0
+    },
+    "U-E5/proceed/NO": {
+      "rows": 711,
+      "physical_groups": 72
+    },
+    "U-E6/proceed/YES": {
+      "rows": 708,
+      "physical_groups": 97
+    },
+    "U-E6/proceed/NO": {
+      "rows": 1903,
+      "physical_groups": 269
+    },
+    "U-E7/complete/YES": {
+      "rows": 13,
+      "physical_groups": 13
+    },
+    "U-E7/complete/NO": {
+      "rows": 201,
+      "physical_groups": 31
+    },
+    "R-E5/proceed/YES": {
+      "rows": 759,
+      "physical_groups": 182
+    },
+    "R-E5/proceed/NO": {
+      "rows": 32449,
+      "physical_groups": 1124
+    }
+  },
+  "modes": {
+    "2": {
+      "selected_counts": {
+        "train": 298770,
+        "val": 370,
+        "test": 180
+      },
+      "evaluation": {
+        "val": {
+          "answers": {
+            "NO": 304,
+            "YES": 66
+          },
+          "physical_groups": {
+            "U-E1": 1,
+            "U-E2": 1,
+            "U-E3": 1,
+            "U-E4": 2,
+            "U-E5": 3,
+            "U-E6": 5,
+            "U-E7": 2,
+            "R-E2": 1,
+            "R-E3": 1,
+            "R-E5": 1
+          },
+          "membership_sha256": "f360b0dc9e955554be849bd0edfe7ed0842631977fe0978451349e17708ee985"
+        },
+        "test": {
+          "answers": {
+            "YES": 16,
+            "NO": 164
+          },
+          "physical_groups": {
+            "U-E1": 1,
+            "U-E2": 1,
+            "U-E3": 2,
+            "U-E4": 2,
+            "U-E5": 2,
+            "U-E6": 1,
+            "U-E7": 1,
+            "R-E2": 1,
+            "R-E3": 1,
+            "R-E5": 1
+          },
+          "membership_sha256": "899678565bbac1eb988708cbef244848c9516519d8bce895b26079dd5f97bc64"
+        }
+      }
+    },
+    "4": {
+      "selected_counts": {
+        "train": 298770,
+        "val": 370,
+        "test": 180
+      },
+      "evaluation": {
+        "val": {
+          "answers": {
+            "NO": 301,
+            "YES": 69
+          },
+          "physical_groups": {
+            "U-E1": 1,
+            "U-E2": 1,
+            "U-E3": 1,
+            "U-E4": 2,
+            "U-E5": 3,
+            "U-E6": 3,
+            "U-E7": 1,
+            "R-E2": 1,
+            "R-E3": 1,
+            "R-E5": 1
+          },
+          "membership_sha256": "c287ec64f3cf3b3440044de3d9b8fe3a502bcb356c448959e0fa0d6a71dee063"
+        },
+        "test": {
+          "answers": {
+            "YES": 16,
+            "NO": 164
+          },
+          "physical_groups": {
+            "U-E1": 1,
+            "U-E2": 1,
+            "U-E3": 1,
+            "U-E4": 2,
+            "U-E5": 2,
+            "U-E6": 1,
+            "U-E7": 1,
+            "R-E2": 1,
+            "R-E3": 1,
+            "R-E5": 1
+          },
+          "membership_sha256": "493e23d4f6c042ba69e7b2377e1b6b8dbe7bb3ded1a417bc0d5f77cefa82e2de"
+        }
+      }
+    }
+  },
+  "tests": {
+    "passed": 116,
+    "seconds": 14.96
+  },
+  "new_rgb_visual_review": false,
+  "joint_g0_certified": false
+}

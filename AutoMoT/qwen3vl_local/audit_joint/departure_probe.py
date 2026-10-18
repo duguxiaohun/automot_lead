@@ -6,6 +6,44 @@ ablations do not establish priority, readiness, catchup, or completed execution.
 from pathlib import Path
 
 
+def passage_evidence(frames, seed):
+    """Separate privileged passing geometry from observed departure evidence.
+
+    This never grants permission or revives a censored episode. In particular,
+    an actor entirely behind ego in metadata is not a visible separation.
+    """
+    from qwen3vl_local.sft_new_loop_phase4 import privileged_geometry as g, teacher_events as t
+    from qwen3vl_local.sft_new_loop_phase4.teacher_rules import actor
+    if seed.get('event')!='U-E5':raise ValueError('U-E5 instance required')
+    if not frames or not g.history_valid(frames,len(frames)):
+        raise ValueError('continuous same-route observations required')
+    restriction=seed.get('restriction_frame');observations=[]
+    for f in frames:
+        obj=actor(f,seed['actor_id']);nav=t.instance_navigation(f,seed)
+        r=dict(frame_id=f['frame_id'],present=obj is not None,
+               after_restriction=type(restriction) is int and restriction>=0 and f['frame_id']>restriction,
+               visible_separation=False)
+        if obj is not None and nav is not None and not f.get('source_geometry_issues'):
+            separated=t.route_intersection(obj,nav,margin=t.PARAMS['separation_m']) is False
+            visible=g.visible(obj,f)
+            # Yaw-aware footprint, not center position or unrotated length.
+            gap=g.aabb(t.ego(f))[0]-g.aabb(obj)[1]
+            partial=f.get('image_evidence',{}).get(str(obj['id']),{}).get('partial_quality_pass')
+            r.update(visible=visible,partial_quality=partial,separated=separated,
+                rear_gap_m=gap,wholly_behind=gap>0,
+                visible_separation=r['after_restriction'] and visible is True and separated)
+        observations.append(r)
+    anomalies=t.anomalies(frames,seed);current=observations[-1]
+    if anomalies or not current['present']:status='identity_discontinuity'
+    elif current.get('wholly_behind'):status='geometrically_passed_not_visual_release'
+    elif any(x['visible_separation'] for x in observations):status='observed_separation_requires_current_checks'
+    elif current.get('partial_quality') is True:status='partial_view_without_separation_evidence'
+    elif current.get('visible') is not True:status='decisive_actor_unobserved'
+    else:status='no_observed_post_restriction_separation'
+    return dict(status=status,observations=observations,anomalies=anomalies,
+        scope='diagnostic_only_not_a_supervised_answer_or_permission')
+
+
 def geometry(frames, seed):
     from qwen3vl_local.sft_new_loop_phase4 import privileged_geometry as g, teacher_events as t
     from qwen3vl_local.sft_new_loop_phase4.teacher_rules import actor
@@ -34,6 +72,7 @@ def geometry(frames, seed):
     valid = enough and not any(f.get('source_geometry_issues') for f in frames) and not anomalies
     result = dict(observations=observations, history_valid=enough, anomalies=anomalies,
                   valid_causal_geometry=valid, labels_changed=False,
+                  passage=passage_evidence(frames,seed),
                   intersection_margin_m=t.PARAMS['separation_m'],
                   scope='diagnostic geometry only; priority and lifecycle are not replayed; no inferred answer')
     if valid:

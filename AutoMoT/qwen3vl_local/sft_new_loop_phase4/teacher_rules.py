@@ -9,7 +9,7 @@ from . import privileged_geometry as g
 from .event_scope import local_navigation
 from .automatic_context import route_intersection
 
-VERSION='ten_event_causal_teacher_v22'
+VERSION='ten_event_causal_teacher_v24'
 PARAMS=dict(local_horizon_m=18.,seed_horizon_m=30.,vru_margin_m=1.,boundary_band_m=.25,
             lead_growth_m=1.,lead_min_gap_m=3.,min_pixel_change=6.,
             stationary_lead_displacement_m=.75,stationary_ego_displacement_m=.25,
@@ -442,7 +442,11 @@ def facts(frames,episode,ident):
         # A moving cyclist calls for reduced progress, not an automatic STOP.
         event_restriction=(clear is not True and gaps[-1]<max(8.,m['speed']*1.2))
     if other_block:clear=False;why.append('additional_local_conflict')
-    elif other_unknown:clear=None;why.append('unknown_occupancy_in_conflict_region')
+    if other_unknown:
+        # A visible decisive blocker still disproves clearance. Unknown extra
+        # occupancy only removes an otherwise positive/unresolved permission.
+        clear=conjunction(clear,None)
+        why.append('unknown_occupancy_in_conflict_region')
     restriction=True if blocked or other_block else False if clear is True else None
     wait=True if blocked or other_block or priority is False else False if clear is True and priority is True else None
     # Stable ordinary following is not unrestricted driving; no simultaneous
@@ -463,7 +467,7 @@ def facts(frames,episode,ident):
     release=False if episode.state=='PROCEED' and episode.longitudinal=='FOLLOW' and follow else clear
     return dict(event_restriction_observed=event_restriction,release_ready=release,corridor_clear=clear,priority_satisfied=priority,
         restriction_present=restriction,stationary_wait_required=wait,
-        restricted_progress_established=follow if not other_unknown else None,
+        restricted_progress_established=follow,
         stable_progress_established=follow if episode.state=='PROCEED' and episode.longitudinal=='FOLLOW' else unrestricted,
         event_resolved=resolved),why
 

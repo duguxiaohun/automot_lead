@@ -545,7 +545,19 @@ def facts(frames,ep,seed):
         resolved=bool(seed.get('junction_seen') and m.get('is_junction') is False and position[0]<-ego(f)['extent'][0]-2)
     elif ep.event in ('U-E3','U-E5'):
         if g.visible(a,f) is not True and not visible_departure(frames,seed,nav):
-            return {},['decisive_actor_not_visible']
+            why.append('decisive_actor_not_visible')
+            # The hidden instance actor cannot establish release or completion.
+            # An independently visible conflict or a known control obligation
+            # still disproves permission; losing the actor must not erase it.
+            if clear is not False and priority is not False:return {},why
+            known_clear=False if clear is False else None
+            why.append('independent_visible_conflict_or_priority_veto')
+            return dict(event_restriction_observed=None,release_ready=known_clear,
+                corridor_clear=known_clear,priority_satisfied=priority,
+                restriction_present=True,stationary_wait_required=True,
+                restricted_progress_established=conjunction(None,known_clear,priority),
+                stable_progress_established=conjunction(None,known_clear,priority),
+                event_resolved=conjunction(None,known_clear)),why
         restricted=route_intersection(a,nav) is True and not (ep.event=='U-E3' and ordinary_lead(frames,a['id']))
         if ep.event=='U-E3' and ordinary_lead(frames,a['id']):follow=True
         resolved=clear is True and (follow or route_intersection(a,nav,margin=PARAMS['separation_m']) is False)

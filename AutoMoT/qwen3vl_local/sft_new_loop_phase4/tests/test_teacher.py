@@ -359,3 +359,20 @@ def test_conflicting_instances_are_excluded_before_compilation(tmp_path,monkeypa
 def test_old_question_cannot_be_rebound_to_new_rule_sources():
     q=question();q['teacher_sha256']='old_source_digest';seal(q)
     with pytest.raises(ValueError,match='stale teacher'):r.validate_question(q)
+
+
+@pytest.mark.parametrize('kind,event',[('lead','U-E1'),('vru','U-E4')])
+@pytest.mark.parametrize('releasing',[False,True])
+def test_unknown_additional_occupancy_preserves_established_blocker(kind,event,releasing):
+    """A hidden second participant cannot erase a visible first blocker."""
+    fs=frames(kind,releasing)
+    fs[-1]['actors'].append(actor(3,**{'class':'static'},position=[9.,0.,0.],visible_pixels=0))
+    values,why=t.facts(fs,Episode(event,'visible_blocker',longitudinal='HOLD'),2)
+    expected=None if releasing else False
+    assert values['corridor_clear'] is expected
+    assert values['release_ready'] is expected
+    assert t.answer(('release_ready','corridor_clear','priority_satisfied'),values)==('UNKNOWN' if releasing else 'NO')
+    if not releasing:
+        assert values['restricted_progress_established'] is False
+        assert values['event_resolved'] is False
+    assert 'unknown_occupancy_in_conflict_region' in why
