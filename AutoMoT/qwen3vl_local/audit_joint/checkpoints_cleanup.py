@@ -1,0 +1,317 @@
+"""Delete only explicitly listed obsolete outputs after conservative reference checks.
+
+No latest-directory guessing, backups, training, source changes or wildcard deletes.
+Unknown references, scan failures, mounts and live project processes block deletion.
+"""
+import argparse
+import fcntl
+import gzip
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import stat
+import struct
+import time
+import zipfile
+
+
+# User requested removal of old outputs while preserving the current experiments.
+# Exact names from the verified cr02 report; never apply by prefix or date alone.
+CANDIDATES = '''phase3_epoch_20261013_100331_732771255
+phase3_epoch_recovery_20261013_121248_683529276
+phase3_index_handoff_20261012_222651_851882451
+phase3_labels_20261017_122537_843240561
+phase3_prepare_20261012_231356_193369568
+phase3_three_epochs_20261013_174517_669756526
+phase3_three_epochs_new_20261014_234529_372181097
+phase4_existing_20261014_080623_118281694
+phase4_full_epoch1_handoff_20261009.audit
+phase4_full_epoch1_handoff_20261009.audit.zip
+phase4_full_epoch1_rgb2_20261009
+phase4_full_epoch1_rgb4_20261009
+phase4_labels_20261017_125230_304771113
+phase4_recovery_check_20261009.json
+phase4_short_observed_20261009
+phase4_short_rgb_20261009
+phase4_short_smoke
+phase4_short_smoke_handoff_20261009.audit.zip
+phase4_short_smoke_rgb4
+phase4_support_review_20261010
+phase4_train_fit_20261010_rgb2
+phase4_train_fit_20261010_rgb4
+phase4_train_fit_20261010_rgb4_failed_by_tool_error
+phase4_train_fit_handoff_20261010.audit.zip
+phase4_ue7_fit_20261011_rgb2_complete
+phase4_ue7_fit_20261011_rgb2_proceed
+phase4_ue7_fit_20261011_rgb4_complete
+phase4_ue7_fit_20261011_rgb4_proceed
+phase4_ue7_fit_handoff_20261011.audit.zip'''.splitlines()
+CANDIDATES += '''p3_batch8_gc_20261015_174830
+p3_batch_benchmark_20261015_194054
+p3_batch_e2e_20261015_204857
+p3_batch_probe_20261015_163611
+p3_batch_probe_20261015_165901
+p3_batch_probe_gc_20261015_171811
+p4_batch_measure_20261015_222211_961641529
+p4_batch_measure_20261016_091655_046884216
+server_readiness_v50_20261011_212253_659194867
+server_readiness_v50_20261012_000640_435016189
+server_readiness_v50_20261012_082405_720782054
+epoch1_rgb_train_20261009.log
+train_fit_20261010.log
+train_fit_rgb4_retry_20261010.log
+ue7_fit_20261011.log'''.splitlines()
+ASSETS = {'.jpg', '.jpeg', '.png', '.webp', '.mp4'}
+REQUIRED = [
+    'Qwen3.5-4B', 'phase3_four_data_20261017_223254_120427458',
+    'phase4_teacher_v24_20261018_121758_779650998',
+    *['sft_new_loop_phase3_pipeline/'+name for name in (
+        '20261017_223254_126705688_2rgb_short_choice',
+        '20261018_034614_519706091_2rgb_short_binary',
+        '20261018_095559_213634718_4rgb_choice')],
+]
+
+
+def stamp(path):
+    s = path.lstat()
+    # Some filesystems expose coarse directory timestamps: compare membership too.
+    members = tuple(sorted(os.listdir(path))) if stat.S_ISDIR(s.st_mode) else None
+    return (s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns, s.st_ctime_ns, members)
+
+
+def live_processes(root):
+    rows = []
+    for p in Path('/proc').iterdir():
+        if not p.name.isdigit() or int(p.name) in (os.getpid(), os.getppid()):
+            continue
+        try:
+            if p.stat().st_uid != os.getuid():
+                continue
+            cmd = (p/'cmdline').read_bytes().decode(errors='replace')
+            if not any(x in cmd for x in ('python', 'torchrun', 'server_phase', 'train.sh', 'eval.sh', 'sync_automot')):
+                continue
+            cwd = Path(os.readlink(p/'cwd'))
+            if cwd.is_relative_to(root) or str(root) in cmd:
+                rows.append({'pid': int(p.name), 'cwd': str(cwd)})
+        except FileNotFoundError:
+            continue
+        except PermissionError as exc:
+            raise ValueError('cannot inspect own process: '+str(p)) from exc
+    return rows
+
+
+def inventory(cp, candidates, deadline, max_bytes):
+    """Scan checkpoint-local references, including compressed text and pickle metadata.
+
+    Bare candidate-name matches are conservative: logs can retain a directory even
+    when it is no longer needed. No negative match overrides a scan error.
+    """
+    needles = {n: n.encode() for n in candidates}
+    edges = {p.name: set() for p in cp.iterdir()}
+    snapshots = {str(cp): stamp(cp)}
+    files = {owner: [] for owner in edges}
+    sizes = {n: 0 for n in candidates}
+    consumed = 0
+    last_progress = time.monotonic()
+    device = cp.stat().st_dev
+
+    def scan(stream, owner):
+        nonlocal consumed, last_progress
+        carry = b''
+        while True:
+            if time.monotonic() > deadline:
+                raise ValueError('reference scan time limit reached; nothing deleted')
+            chunk = stream.read(1024**2)
+            if not chunk:
+                break
+            consumed += len(chunk)
+            if time.monotonic()-last_progress > 20:
+                print(f'[scan] {owner}: {consumed / 1024**3:.2f} GiB read', flush=True)
+                last_progress = time.monotonic()
+            if consumed > max_bytes:
+                raise ValueError('reference scan byte budget reached; nothing deleted')
+            data = carry+chunk
+            edges[owner].update(name for name, needle in needles.items() if needle in data)
+            carry = data[-512:]
+
+    def visit(path, owner):
+        if time.monotonic() > deadline:
+            raise ValueError('reference scan time limit reached; nothing deleted')
+        identity = stamp(path)
+        snapshots[str(path)] = identity
+        if identity[0] != device or (path != cp and os.path.ismount(path)):
+            raise ValueError('nested filesystem found; refuse cleanup: '+str(path))
+        if path.is_symlink():
+            # Preserve the first hop as well as the final destination: removing
+            # an intermediate directory would otherwise break a surviving link.
+            first = Path(os.path.abspath(path.parent/os.readlink(path)))
+            for link in (first, path.resolve()):
+                edges[owner].update(n for n in candidates
+                                   if n in str(link) or (cp/n).is_relative_to(link))
+            return
+        if path.is_dir():
+            for child in sorted(path.iterdir()):
+                visit(child, owner)
+            return
+        if not path.is_file():
+            raise ValueError('special file found; refuse cleanup: '+str(path))
+        if owner in sizes:
+            sizes[owner] += path.stat().st_blocks*512
+        files[owner].append(path)
+
+    def read_references(path, owner):
+        identity = snapshots[str(path)]
+        if path.suffix.lower() in ASSETS or 'events.out.tfevents' in path.name:
+            return
+        if path.suffix == '.safetensors':
+            # Safetensors may have textual provenance in its header, never in tensor data.
+            import io
+            with path.open('rb') as stream:
+                header_size = struct.unpack('<Q', stream.read(8))[0]
+                if header_size > 100_000_000 or header_size > path.stat().st_size-8:
+                    raise ValueError('invalid safetensors header: '+str(path))
+                header = stream.read(header_size)
+                json.loads(header)
+                scan(io.BytesIO(header), owner)
+        elif path.suffix in ('.zip', '.pt', '.pth', '.bin', '.ckpt', '.npz'):
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    torch_archive = any(Path(i.filename).name == 'data.pkl' for i in archive.infolist())
+                    for member in archive.infolist():
+                        entry = Path(member.filename)
+                        edges[owner].update(n for n in candidates if n in member.filename)
+                        if member.is_dir() or entry.suffix.lower() in ASSETS:
+                            continue
+                        # PyTorch tensor storage is not a reference. Read all metadata,
+                        # including extensionless members, without loading pickle code.
+                        if torch_archive and path.suffix in ('.pt', '.pth', '.bin', '.ckpt') and entry.parent.name == 'data' and entry.name.isdigit():
+                            continue
+                        with archive.open(member) as stream:
+                            scan(stream, owner)
+            else:
+                # Legacy pickle may contain paths; inspect bytes without deserialization.
+                with path.open('rb') as stream:
+                    scan(stream, owner)
+        elif path.suffix == '.gz':
+            with gzip.open(path, 'rb') as stream:
+                scan(stream, owner)
+        else:
+            with path.open('rb') as stream:
+                scan(stream, owner)
+        if stamp(path) != identity:
+            raise ValueError('file changed during scan: '+str(path))
+
+    for entry in sorted(cp.iterdir()):
+        visit(entry, entry.name)
+    # Only retained roots (and their transitive dependencies) need their contents
+    # read. Corrupt, unreachable obsolete outputs cannot be dependencies of them.
+    pending = list(sorted(set(edges)-set(candidates)))
+    read = set()
+    while pending:
+        owner = pending.pop()
+        if owner in read:
+            continue
+        read.add(owner)
+        for path in files[owner]:
+            read_references(path, owner)
+        pending.extend(edges[owner]-read)
+    return edges, snapshots, sizes, consumed
+
+
+def plan(root, *, timeout=600, max_bytes=128*1024**3):
+    cp = root/'checkpoints'
+    present = {n for n in CANDIDATES if (cp/n).exists()}
+    if any((cp/n).is_symlink() for n in CANDIDATES):
+        raise ValueError('candidate is a symlink; refuse cleanup')
+    active = live_processes(root)
+    if active:
+        raise ValueError('project processes are still running; do not stop them automatically: '+json.dumps(active))
+    edges, snapshots, sizes, count = inventory(cp, present, time.monotonic()+timeout, max_bytes)
+    protected = set(edges)-present
+    pending = list(protected)
+    while pending:
+        owner = pending.pop()
+        for target in edges[owner]-protected:
+            protected.add(target)
+            pending.append(target)
+    selected = sorted(present-protected)
+    return dict(delete=selected, kept_referenced=sorted(present & protected),
+        protected_roots=sorted(set(edges)-present),
+        references={k: sorted(v) for k, v in edges.items() if v},
+        estimated_bytes={n: sizes[n] for n in selected}, scanned_bytes=count), snapshots
+
+
+def execute(root, report, snapshots):
+    if live_processes(root):
+        raise ValueError('project process started after scan; nothing deleted')
+    for name, expected in snapshots.items():
+        if stamp(Path(name)) != expected:
+            raise ValueError('inventory changed after scan; nothing deleted: '+name)
+    if not shutil.rmtree.avoids_symlink_attacks:
+        raise ValueError('platform lacks fd-based safe rmtree')
+    deleted = []
+    for name in report['delete']:
+        if name not in CANDIDATES or '/' in name:
+            raise ValueError('not an exact authorized candidate')
+        path = root/'checkpoints'/name
+        if path.is_symlink() or stamp(path) != snapshots[str(path)]:
+            raise ValueError('candidate replaced or changed')
+        print('[delete] '+str(path), flush=True)
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        deleted.append(name)
+        report['deleted'] = deleted.copy()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', required=True, type=Path)
+    parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--apply', action='store_true', help='Permanently delete unreferenced exact historical candidates')
+    args = parser.parse_args()
+    root = args.root.resolve(strict=True)
+    if root != Path('/home/cruser1/lda/AutoMoT'):
+        parser.error('This explicit cleanup list is authorized only for /home/cruser1/lda/AutoMoT on cr02')
+    if socket.gethostname().split('.')[0] != 'szh-gpu-cr02':
+        parser.error('This list was reviewed for szh-gpu-cr02 only')
+    if (root/'checkpoints').is_symlink():
+        parser.error('checkpoints must not be a symlink')
+    for name in REQUIRED:
+        if not (root/'checkpoints'/name).is_dir():
+            parser.error('protected asset missing: '+name)
+    out = args.output.absolute()
+    if out.resolve().is_relative_to(root) or out.exists() or out.is_symlink():
+        parser.error('Use a new output JSON outside AutoMoT')
+    report = dict(schema='exact_checkpoints_cleanup_v1', root=str(root), hostname=socket.gethostname(),
+                  apply=args.apply, deleted=[], backups_created=False, status='checking')
+    # Ensure the feedback file is writable before considering any deletion.
+    output = out.open('x')
+    fd = os.open(root/'checkpoints', os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        report['free_before'] = shutil.disk_usage(root/'checkpoints').free
+        print('[scan] retained references and old outputs; max 600s / 128 GiB decoded metadata', flush=True)
+        selected, snapshots = plan(root)
+        report.update(selected)
+        print(json.dumps(selected, ensure_ascii=False, indent=2), flush=True)
+        if args.apply:
+            execute(root, report, snapshots)
+        report['status'] = 'completed' if args.apply else 'preview'
+    except Exception as exc:
+        report.update(status='blocked_or_partial', error=str(exc))
+    finally:
+        os.close(fd)
+        report['free_after'] = shutil.disk_usage(root/'checkpoints').free
+        json.dump(report, output, ensure_ascii=False, indent=2)
+        output.close()
+        print(f"Deleted {len(report['deleted'])} entries; free space now {report['free_after']/1024**3:.2f} GiB", flush=True)
+        print('REPORT '+str(out), flush=True)
+    return 0 if report['status'] in ('completed', 'preview') else 2
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
