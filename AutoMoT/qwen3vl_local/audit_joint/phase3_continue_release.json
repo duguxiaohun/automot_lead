@@ -1,0 +1,12 @@
+{
+  "schema": "phase3_continue_standalone_release_v1",
+  "files": {
+    "phase3_continue.py": "d1f4c9108a11dd1d8baf14f7c0dc3743a1682aa44f163970969b8955901206b1",
+    "phase3_legacy_sequence.py": "8477a5333b0da3e04ff84366045bd73824a5327e1c824e470c275c1cd254886e",
+    "phase3_legacy_epoch_fixture.py": "07eed103948a457671bc36cbd160fc643dd9970214728c83b4ebc9149903c8d7",
+    "dataset_catalog.py": "afce1999063fc5aa10e80523772fdb6273b8b0c444d674c599737965ef7e9fc4"
+  },
+  "historical_source_commit": "69c1a18a4",
+  "modifies_original_source": false,
+  "rebuilds_dataset": false
+}
