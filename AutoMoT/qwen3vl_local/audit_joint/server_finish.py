@@ -32,7 +32,7 @@ def raw_training_support(index):
                 scope='necessary raw train/readiness/RGB4 support only; final filtered admission still required')
 
 
-def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'):
+def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict', reuse_complete_replay=False):
     from qwen3vl_local.sft_new_loop_phase4 import candidate_pool, teacher_replay, dataset, teacher_data, teacher_evaluation
     from qwen3vl_local.sft_new_loop_phase4.full_pipeline import default_registry
     from qwen3vl_local.sft_new_loop_phase4.rgb_short.data import create
@@ -48,6 +48,7 @@ def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'
         pending.replace(output/'build_result.json')
     def stage(name):
         result['stage'] = name; save()
+        print(json.dumps(dict(stage=name,elapsed_seconds=round(time.monotonic()-started,1))),flush=True)
     try:
         coverage_decision([],coverage_policy)
         pilot = Path(pilot).absolute(); output = Path(output).absolute()
@@ -57,13 +58,20 @@ def build(pilot, root, output, model_dir, workers=4, *, coverage_policy='strict'
             raise ValueError('pilot replay and output must share the guarded filesystem')
         pool = candidate_pool.validate(json.loads((pilot/'candidates.json').read_text()))
         result['candidate_pool_sha256'] = file_sha(pilot/'candidates.json')
+        from .server_context import context
+        result['server_context'] = context(pilot=pilot,output=output,data_root=root,model_dir=model_dir)
+        result['reuse_complete_replay'] = reuse_complete_replay
         # Budget topology first, so a missing model config cannot waste a full build.
         stage('checkpoint_budget_profile')
         budget_profile = profile(model_dir)
         write_json(output/'model_budget_profile.json',budget_profile)
         stage('complete_replay')
-        replay = teacher_replay.produce(
-            pool,root,pilot/'production',workers=workers,compression='gzip')
+        if reuse_complete_replay:
+            from .replay_recovery import recover
+            replay = recover(pool,pilot/'production')
+        else:
+            replay = teacher_replay.produce(
+                pool,root,pilot/'production',workers=workers,compression='gzip')
         ambiguous=replay.get('history_ambiguous_question_ids',[])
         result['stages']['complete_replay'] = {k:v for k,v in replay.items() if k!='history_ambiguous_question_ids'}
         result['stages']['complete_replay'].update(history_ambiguous_count=len(ambiguous),
@@ -130,7 +138,7 @@ def package(output, exit_code, *, destination=None):
         raise FileExistsError(f'preserve existing handoff; choose a fresh destination: {target}')
     if destination is not None and output.resolve().is_relative_to(target.resolve()):
         raise ValueError('handoff destination must not contain the original output')
-    names = ('source_check.json','build_result.json','model_budget_profile.json','raw_training_support.json','first_epoch_budget.json','automatic_admission.json')
+    names = ('build_storage.json','source_check.json','build_result.json','model_budget_profile.json','raw_training_support.json','first_epoch_budget.json','automatic_admission.json')
     members, diagnostics = {}, []
     # JSON can compress well below 30MB; bound decoded memory separately.
     # Keep the final ZIP's existing 30MB hard limit in make_package.
@@ -249,6 +257,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('command',choices=('build','prepare','package'))
     p.add_argument('--pilot',type=Path)
+    p.add_argument('--reuse-complete-replay',action='store_true',
+                   help='build only: validate complete existing replay; never recompute routes')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--data-root',type=Path,default=Path('lead_data'))
     p.add_argument('--model-dir',type=Path,default=Path('checkpoints/Qwen3.5-4B'))
@@ -257,6 +267,8 @@ def main():
     p.add_argument('--handoff-output',type=Path,help='package only: fresh destination; preserve original receipt/handoff')
     p.add_argument('--coverage-policy',choices=COVERAGE_POLICIES,default='strict')
     a=p.parse_args()
+    if a.reuse_complete_replay and a.command!='build':
+        p.error('--reuse-complete-replay requires build --pilot')
     if a.command=='package':
         print(json.dumps(package(a.output,a.exit_code,destination=a.handoff_output)));return 0
     if a.handoff_output:p.error('--handoff-output is only valid with package')
@@ -280,7 +292,7 @@ def main():
                 errors=[f'{type(ex).__name__}: {ex}']))
             return 2
     elif not a.pilot:p.error('--pilot required')
-    r=build(a.pilot,a.data_root,a.output,a.model_dir,a.workers,coverage_policy=a.coverage_policy)
+    r=build(a.pilot,a.data_root,a.output,a.model_dir,a.workers,coverage_policy=a.coverage_policy,reuse_complete_replay=a.reuse_complete_replay)
     print(json.dumps(dict(status=r['status'],stage=r['stage'],errors=r['errors']),ensure_ascii=False))
     return 0 if r['status'] in ADMITTED else 2
 

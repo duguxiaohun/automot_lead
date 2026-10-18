@@ -2,6 +2,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import hashlib
+import subprocess
+import sys
+import zipfile
 
 from qwen3vl_local.audit_joint import phase3_recovery_inspect as inspect
 
@@ -71,6 +76,75 @@ class InspectionTests(unittest.TestCase):
         (self.run.parent/'pipeline_manifest.json').write_text(json.dumps(dict(run_root=str(self.run))))
         value = inspect.collect(self.root, self.run.parent)
         self.assertEqual(value['runs'][0]['run'], str(self.run))
+
+    def test_extra_checkpoint_file_and_bad_receipt_are_not_accepted(self):
+        (self.ckpt/'unexpected.pt').write_bytes(b'extra')
+        item = inspect.checkpoint_metadata(self.root, self.ckpt, False)
+        self.assertEqual(item['extra_files'], ['unexpected.pt'])
+        (self.ckpt/'receipt.json').write_text('{"binding":null,"files":[]}')
+        item = inspect.checkpoint_metadata(self.root, self.ckpt, False)
+        self.assertTrue(item['metadata_errors'])
+
+    def test_checkpoint_link_outside_tree_is_rejected(self):
+        (self.ckpt/'training_state.pt').unlink()
+        outside = self.root/'private.pt'
+        outside.write_bytes(b'not a checkpoint')
+        (self.ckpt/'training_state.pt').symlink_to(outside)
+        item = inspect.checkpoint_metadata(self.root, self.ckpt, True)
+        self.assertEqual(item['file_hash_errors'][0]['error'], 'outside checkpoint')
+
+    def test_failure_handoff_preserves_good_run_and_reports_missing_run(self):
+        with tempfile.TemporaryDirectory() as destination:
+            output = Path(destination)/'handoff'
+            before = {str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+            with patch.object(inspect, 'process_inventory', return_value={'processes': []}):
+                code = inspect.package_inspection(self.root, [self.run, Path('checkpoints/missing')], output)
+            self.assertEqual(code, 2)
+            receipt = json.loads((output/'phase3_recovery_package.json').read_text())
+            archive = output/'phase3_recovery_report.zip'
+            self.assertEqual(receipt['archive_sha256'], inspect.digest(archive))
+            with zipfile.ZipFile(archive) as bundle:
+                self.assertIsNone(bundle.testzip())
+                self.assertEqual(bundle.namelist(), ['phase3_recovery_report.json'])
+                data = bundle.read('phase3_recovery_report.json')
+                self.assertEqual(hashlib.sha256(data).hexdigest(), receipt['members']['phase3_recovery_report.json']['sha256'])
+            report = json.loads(data)
+            self.assertEqual(len(report['runs']), 1)
+            self.assertEqual(len(report['errors']), 1)
+            self.assertFalse(receipt['deletion_authorized'])
+            self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file()})
+            with self.assertRaises(FileExistsError):
+                inspect.package_inspection(self.root, [self.run], output)
+
+    def test_output_cannot_modify_project_or_follow_dangling_link(self):
+        with self.assertRaises(ValueError):
+            inspect.package_inspection(self.root, [self.run], self.root/'new_report')
+        self.assertFalse((self.root/'new_report').exists())
+        with tempfile.TemporaryDirectory() as destination:
+            alias = Path(destination)/'alias'
+            alias.symlink_to(Path(destination)/'missing')
+            with self.assertRaises(FileExistsError):
+                inspect.package_inspection(self.root, [self.run], alias)
+
+    def test_real_child_timeout_and_independent_process_survives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory)/'slow.py'
+            script.write_text('import time; time.sleep(30)')
+            unrelated = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+            try:
+                with patch.object(inspect, '__file__', str(script)):
+                    result = inspect.bounded_run(self.root, self.run, timeout=0.1)
+                self.assertEqual(result['inspection_error'], 'inspection timeout')
+                self.assertIsNone(unrelated.poll())
+            finally:
+                unrelated.terminate()
+                unrelated.wait(timeout=5)
+
+    def test_cli_requires_runs_for_package_and_rejects_bad_timeout(self):
+        for flags in (['--output', str(self.root/'new')], ['--run-timeout', '0']):
+            result = subprocess.run([sys.executable, '-B', inspect.__file__, '--root', str(self.root), *flags],
+                                    text=True, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 2)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-18 v86 磁盘写入额度修复与完整回放恢复
+
+用户日志8614/8614、15854.8秒后guard低空间。确认旧CPU入口max(20,free-12)人为限制约12GiB新增写入；两个CPU入口改绝对20GiB保留（可提高），记录free/reserve/writeable及完整需求未知，guard日志打印实际字节。不能认定服务器磁盘已满/空间必够。新增RESUME_FROM本机旧输出＋新OUTPUT_DIR：全部原生gzip路线核验通过才复用，缺索引原子独占恢复，已存在索引只核验；缺失/坏文件/旧合同/部分索引/发布后索引丢失明确阻塞，绝不退回重新计算。旧回放永久作为新库引用，不删除；两机任选但不混路径。不改teacher v24/学生/prompt/采样/评估，UE5能力限制保留。
+116相关测试11.08秒通过；真实2路线231帧副本恢复索引字节一致、路线SHA不变、0重算。CPU CLI恢复后正确在局部池覆盖不足门阻塞；本机shell被既有piped core保护拒绝，前置/576源码/空间报告/失败包通过，不称完整服务器验证。未GPU/远程/新RGB目视。原始副本checkpoints/v86_recovery_verification_20261018，轻量回执随白名单。服务器同步后按BUILD_DISK_RECOVERY_20261018.md只续接本机本次v24旧输出，交新handoff两fullflow文件，缺目录交launch.log；不再readiness/盘点/全量回放。保留.vscode/paper等其它任务。
+
+
 ### 2026-10-18 v85 白名单发布与本地连续RGB
 
 用户明确授权完善/push白名单并行RGB。发布local_paths及机器无关入口，不指定机器，服务器步骤为同步后后台一次v24正式池更新，非重复label_release_check/readiness；保留两机独立数据/权重/缓存，使用本机DATA_ROOT/MODEL_DIR、新OUTPUT_DIR。文档LABEL_RELEASE_RECEIVED_20261018.md含nohup/进度/交包，前置失败交launch.log；正常或中途失败交handoff两fullflow文件。不看到teacher完成就中止。

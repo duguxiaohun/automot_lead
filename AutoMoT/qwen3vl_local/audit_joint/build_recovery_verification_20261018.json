@@ -1,0 +1,22 @@
+{
+  "processed_routes": 2,
+  "processed_frames": 231,
+  "dispositions": {
+    "abstained": 191,
+    "questions": 40
+  },
+  "complete_causal_production": true,
+  "index_sha256": "94b6e9cd9452549c0cf3ee8c9dc56674e3d7eb4b085d2aa04412f1da646f92b1",
+  "scope": "Two real train routes; no new label computation or RGB visual inspection",
+  "recovery": "recovered_complete_index",
+  "recomputed_routes": 0,
+  "original_index_exact": true,
+  "original_routes_unchanged": true,
+  "release": "v86_build_recovery_20261018",
+  "tests": {
+    "passed": 116,
+    "seconds": 11.08
+  },
+  "native_contract_changed": false,
+  "remote_executed": false
+}

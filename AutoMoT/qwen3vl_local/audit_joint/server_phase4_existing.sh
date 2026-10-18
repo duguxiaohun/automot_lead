@@ -18,23 +18,24 @@ set +e
 import json,os
 from pathlib import Path
 from qwen3vl_local.audit_joint.server_readiness import source_check
-r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v85_local_paths_20261018.json'))
+r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v86_build_recovery_20261018.json'))
 (Path(os.environ['P4_EXISTING_OUT'])/'source_check.json').write_text(json.dumps(r,indent=2)+'\n')
 if r['status']!='matched':raise SystemExit('Source mismatch; synchronize this release before building')
 PY
 P4_EXISTING_RC=$?
 if [[ "$P4_EXISTING_RC" == 0 ]]; then
-  P4_EXISTING_RESERVE=$("$P4_EXISTING_PYTHON" - <<'PY'
-import os,shutil
-print(max(20.,shutil.disk_usage(os.environ['P4_EXISTING_OUT']).free/2**30-12.))
-PY
-  )
+  P4_EXISTING_RESERVE=$("$P4_EXISTING_PYTHON" -m qwen3vl_local.audit_joint.build_storage \
+    --output "$P4_EXISTING_OUT" --min-free-gib "${MIN_FREE_GIB:-20}")
   P4_EXISTING_RC=$?
   if [[ "$P4_EXISTING_RC" == 0 ]]; then
+    P4_BUILD_ARGS=(prepare)
+    if [[ -n "${RESUME_FROM:-}" ]]; then
+      P4_BUILD_ARGS=(build --pilot "$RESUME_FROM/inputs" --reuse-complete-replay)
+    fi
     OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
       PYTHON="$P4_EXISTING_PYTHON" bash qwen3vl_local/audit_joint/run_guarded.sh \
       --space-path "$P4_EXISTING_OUT" --min-free-gib "$P4_EXISTING_RESERVE" -- \
-      nice -n 10 "$P4_EXISTING_PYTHON" -m qwen3vl_local.audit_joint.server_finish prepare \
+      nice -n 10 "$P4_EXISTING_PYTHON" -m qwen3vl_local.audit_joint.server_finish "${P4_BUILD_ARGS[@]}" \
       --output "$P4_EXISTING_OUT" --data-root "${DATA_ROOT:-lead_data}" \
       --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" --workers "${REPLAY_WORKERS:-2}" \
       --coverage-policy existing_data_development > "$P4_EXISTING_OUT/build.log" 2>&1

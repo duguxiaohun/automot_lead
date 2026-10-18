@@ -61,8 +61,10 @@ def run(command, space_path, min_free_bytes=2 * GIB, poll_seconds=1):
             if interrupted:
                 stop_group(process)
                 return 128 + interrupted[0]
-            if shutil.disk_usage(location).free < min_free_bytes:
+            free = shutil.disk_usage(location).free
+            if free < min_free_bytes:
                 print('[audit guard] low disk space; stopping this process group. '
+                      f'free_bytes={free} reserve_bytes={min_free_bytes} filesystem={location}. '
                       'Existing files retained; no successful completion claimed.', file=sys.stderr, flush=True)
                 stop_group(process)
                 return 75
