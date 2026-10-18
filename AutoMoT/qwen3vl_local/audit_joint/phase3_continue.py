@@ -24,6 +24,7 @@ POLICY = 'phase3_explicit_continuation_v1'
 LEGACY_SHA = '8477a5333b0da3e04ff84366045bd73824a5327e1c824e470c275c1cd254886e'
 LEGACY_TEST_SHA = '07eed103948a457671bc36cbd160fc643dd9970214728c83b4ebc9149903c8d7'
 SOURCE_SUFFIXES = {'.py', '.sh', '.json', '.yaml', '.yml', '.txt', '.jinja', '.md'}
+RULE_JSONL_PACKAGES = ('sft_new_loop_phase2', 'sft_new_loop_phase3')
 
 
 def sha(path):
@@ -97,9 +98,11 @@ def sources(runtime):
 def prepare_runtime(root, runtime, binding, pipeline):
     runtime.mkdir()
     source = root/'qwen3vl_local'
+    rule_directories = {source/name for name in RULE_JSONL_PACKAGES}
     # Preserve server-only source files, not just files present in a Git commit.
     for p in source.rglob('*'):
-        if not p.is_file() or p.suffix not in SOURCE_SUFFIXES or '__pycache__' in p.parts:
+        rule_asset = p.suffix == '.jsonl' and p.parent in rule_directories
+        if not p.is_file() or not (p.suffix in SOURCE_SUFFIXES or rule_asset) or '__pycache__' in p.parts:
             continue
         if p.stat().st_size > 16*1024**2:
             raise ValueError('unexpected oversized source file: ' + str(p))
@@ -184,11 +187,30 @@ def execute(command, *, cwd, env, log):
         raise RuntimeError(f'{log.stem} exited {code}; see {log}')
 
 
+def validate_dataset(job):
+    """Run the native full index/semantic contract checks before any GPU worker.
+
+    Check both output modes without building data, changing hashes or loading
+    Qwen. This also resolves non-Python dependencies of the frozen mapping code.
+    """
+    from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+    config = job['binding']['configuration']
+    reports = {}
+    for mode in ('choice', 'binary'):
+        reports[mode] = check_index(config['index'], action_output_mode=mode,
+                                   prompt_variant=config.get('prompt_variant', 'baseline'))
+    print(json.dumps(dict(status='native_dataset_preflight_passed', modes=reports)), flush=True)
+    return reports
+
+
 def worker(job_path, preflight=False):
     job = read(job_path)
     runtime = Path(job['runtime'])
     os.chdir(runtime)
     sys.path.insert(0, str(runtime))
+    for name, expected in job.get('runtime_rule_assets', {}).items():
+        if sha(member(runtime, name)) != expected:
+            raise ValueError('runtime rule asset changed: '+name)
     from qwen3vl_local.sft_new_loop_phase3 import training_state as recovery
     from argparse import Namespace
     original = job['binding']
@@ -200,6 +222,7 @@ def worker(job_path, preflight=False):
         state = recovery.read(Path(job['checkpoint']), original)
         print(json.dumps(dict(status='native_checkpoint_read_passed', next_epoch=state['next_epoch'],
                               global_step=state['global_step'])), flush=True)
+        validate_dataset(job)
         return
     from qwen3vl_local.sft_new_loop_phase3 import train
     sys.argv = [sys.argv[0]]
@@ -319,7 +342,8 @@ def run(args):
                 continuation_source=str(failed), resume_from=str(checkpoint) if mode == 'choice' else None)
             write(group/'pipeline_manifest.json', group_state)
             job = dict(runtime=str(runtime), binding=binding, checkpoint=str(checkpoint), mode=mode,
-                       output=str(group/'train'))
+                       output=str(group/'train'), runtime_rule_assets={
+                           k:v for k,v in state['runtime_sources'].items() if k.endswith('.jsonl')})
             job_path = group/'job.json'; write(job_path, job)
             if mode == 'choice':
                 stage('checkpoint_cpu_verify', [sys.executable, script, '--worker', str(job_path), '--preflight'])

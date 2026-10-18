@@ -95,6 +95,22 @@ class ContinuationTests(unittest.TestCase):
         self.assertEqual((runtime/'checkpoints').resolve(), self.root/'checkpoints')
         self.assertTrue((runtime/'qwen3vl_local/sft_new_loop_phase3/server_only.py').exists())
 
+    def test_runtime_copies_rule_jsonl_but_not_generated_nested_datasets(self):
+        binding, pipeline, _ = self.fixture()
+        rules = self.root/'qwen3vl_local/sft_new_loop_phase3/mapping_rgb_decisions_v18_20260920.jsonl'
+        rules.write_text('{"decision":"preserved"}\n')
+        phase2 = self.root/'qwen3vl_local/sft_new_loop_phase2'; phase2.mkdir()
+        (phase2/'highway_ue3_rgb_decisions_v1.jsonl').write_text('{}\n')
+        generated = rules.parent/'probe_output/generated/frame_index.jsonl'
+        generated.parent.mkdir(parents=True); generated.write_text('not a source dependency')
+        runtime = self.root.parent/'runtime'
+        snapshot = c.prepare_runtime(self.root, runtime, binding, pipeline)
+        key = str(rules.relative_to(self.root))
+        self.assertEqual(snapshot[key], c.sha(rules))
+        self.assertEqual((runtime/key).read_bytes(), rules.read_bytes())
+        self.assertTrue((runtime/'qwen3vl_local/sft_new_loop_phase2'/ 'highway_ue3_rgb_decisions_v1.jsonl').is_file())
+        self.assertFalse((runtime/generated.relative_to(self.root)).exists())
+
     def test_runtime_rejects_unrelated_drift(self):
         binding, pipeline, _ = self.fixture()
         (self.root/'qwen3vl_local/sft_v2/__init__.py').write_text('changed')
@@ -150,6 +166,12 @@ class ContinuationTests(unittest.TestCase):
             self.assertIn('choice_train.log', z.namelist())
             self.assertFalse(any(name.endswith('.pt') for name in z.namelist()))
 
+    def test_cpu_admission_failure_never_launches_torchrun(self):
+        result, calls = self.run_fixture('checkpoint_cpu_verify')
+        self.assertEqual(result, 2)
+        self.assertEqual([r[0] for r in calls], ['checkpoint_cpu_verify'])
+        self.assertFalse((self.output/'4rgb_choice/train').exists())
+
     def test_actual_owned_subprocess_and_nonzero(self):
         log = self.root/'process.log'
         c.execute([sys.executable, '-c', 'print("done")'], cwd=self.root, env=os.environ.copy(), log=log)
@@ -164,6 +186,12 @@ class ContinuationTests(unittest.TestCase):
         from qwen3vl_local.sft_new_loop_phase3 import training_state
         target = self.root/'qwen3vl_local/sft_new_loop_phase3/training_state.py'
         target.write_bytes(Path(training_state.__file__).read_bytes())
+        # Only this tensor-reader fixture uses a small admission stand-in. The
+        # independent real-runtime test below exercises the native full checker.
+        target.with_name('preflight.py').write_text(
+            'def check_index(path, action_output_mode, prompt_variant):\n'
+            '    assert action_output_mode in ("choice", "binary")\n'
+            '    return {"mode": action_output_mode}\n')
         # Construct a real small checkpoint with native RNG/optimizer/scheduler.
         seed = self.root/'seed.py'
         seed.write_text('''import json, torch
@@ -192,11 +220,44 @@ torch.save(v,p/'training_state.pt')
                                 env=env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"global_step": 2560', result.stdout)
+        self.assertIn('native_dataset_preflight_passed', result.stdout)
         with (checkpoint/'training_state.pt').open('ab') as stream: stream.write(b'damage')
         bad = subprocess.run([sys.executable, str(Path(c.__file__).resolve()), '--worker', str(job), '--preflight'],
                              env=env, text=True, capture_output=True)
         self.assertNotEqual(bad.returncode, 0)
         self.assertIn('changed or incomplete', bad.stderr)
+
+    @unittest.skipUnless(importlib.util.find_spec('torch'), 'native fixture construction requires torch')
+    def test_real_isolated_native_admission_and_missing_or_changed_jsonl(self):
+        from qwen3vl_local.sft_new_loop_phase3.test_entry_admission import fixture
+        actual_root = Path(c.__file__).resolve().parents[2]
+        p3 = actual_root/'qwen3vl_local/sft_new_loop_phase3'
+        dataset = self.root/'dataset'; dataset.mkdir()
+        index = fixture(dataset, 'valid')
+        runtime = self.root.parent/'native_runtime'
+        c.prepare_runtime(actual_root, runtime, dict(sources=c.sources(actual_root)),
+                          dict(source_sha256={p.name:c.sha(p) for p in p3.iterdir() if p.suffix in ('.py','.sh','.json')}))
+        job = self.root/'admission_job.json'
+        c.write(job, dict(binding=dict(configuration=dict(index=str(index),prompt_variant='baseline'))))
+        command = [sys.executable, '-c',
+                   'import json,sys; from qwen3vl_local.audit_joint.phase3_continue import validate_dataset; '
+                   'validate_dataset(json.load(open(sys.argv[1])))', str(job)]
+        env = dict(os.environ, PYTHONPATH=str(runtime), CUDA_VISIBLE_DEVICES='', PYTHONDONTWRITEBYTECODE='1')
+        def run(): return subprocess.run(command, cwd=runtime, env=env, text=True, capture_output=True)
+        good = run()
+        self.assertEqual(good.returncode, 0, good.stderr)
+        self.assertIn('native_dataset_preflight_passed', good.stdout)
+        dependency = runtime/'qwen3vl_local/sft_new_loop_phase3/mapping_rgb_decisions_v18_20260920.jsonl'
+        original = dependency.read_bytes()
+        dependency.unlink()
+        missing = run()
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn('mapping_rgb_decisions_v18_20260920.jsonl', missing.stderr)
+        dependency.write_bytes(original+b'\n')
+        changed = run()
+        self.assertNotEqual(changed.returncode, 0)
+        self.assertIn('mapping contract mismatch', changed.stderr)
+        self.assertEqual((p3/dependency.name).read_bytes(), original)
 
     @unittest.skipUnless(importlib.util.find_spec('torch'), 'torchrun requires torch')
     def test_real_four_worker_dispatch_keeps_script_arguments(self):

@@ -3,10 +3,10 @@
   "date": "2026-10-18",
   "scope": "local CPU and explicit cr02 received metadata; no new remote/GPU execution",
   "tests": {
-    "passed": 78,
-    "deselected": 2,
-    "reason": "two existing real Qwen batch tests cannot run: local pvi environment lacks transformers",
-    "command": "PYTHONPATH=AutoMoT /home/codon/anaconda3/envs/pvi/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_continue.py AutoMoT/qwen3vl_local/audit_joint/tests/test_dataset_catalog.py AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_training_state.py AutoMoT/qwen3vl_local/tests/test_sequence_batch.py AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_recovery_inspect.py -k 'not real_qwen_multimodal_batch_logits_and_gradients'"
+    "passed": 53,
+    "seconds": 9.41,
+    "command": "PYTHONPATH=AutoMoT /home/codon/anaconda3/envs/pvi/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_continue.py AutoMoT/qwen3vl_local/audit_joint/tests/test_dataset_catalog.py AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_training_state.py AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_entry_admission.py",
+    "overlaps_previous_tests": true
   },
   "evidence": [
     "real four CPU torchrun workers",
@@ -34,17 +34,63 @@
   },
   "limits": [
     "NCCL root cause unconfirmed",
-    "GPU/server checkpoint tensor contents still require native on-server validation",
     "no cross-teacher event-level production reuse enabled",
     "old generation Git/hostname not fabricated",
-    "no historical-success regression in original workflow"
+    "no historical-success regression in original workflow",
+    "native checkpoint tensor read passed on cr02; resumed GPU training still unverified"
   ],
   "files": {
+    "phase3_continue.py": "82ac7e3ca309fcad3d9c4a43157345d1206fb502440fd81e97aed6cee16ce034",
+    "phase3_legacy_sequence.py": "8477a5333b0da3e04ff84366045bd73824a5327e1c824e470c275c1cd254886e",
+    "phase3_legacy_epoch_fixture.py": "07eed103948a457671bc36cbd160fc643dd9970214728c83b4ebc9149903c8d7",
+    "dataset_catalog.py": "afce1999063fc5aa10e80523772fdb6273b8b0c444d674c599737965ef7e9fc4",
+    "tests/test_phase3_continue.py": "9fe53dbbc44e0470fc4508847efd749fe7c578675f272f4753b90dd6da88f38b",
+    "tests/test_dataset_catalog.py": "786e4b35d1be2308571924f64bb40cd67057ba72a6f7eb366f31338596a15627"
+  },
+  "jsonl_dependency_followup": {
+    "received_archive_bytes": 83344,
+    "received_archive_sha256": "126c819abfd91ba444c31ff043ef33c35a93ca4629e511380ec818a012b25188",
+    "checkpoint_native_read": "passed on cr02, next_epoch=2/global_step=2560, elapsed=2.62 seconds",
+    "failure": "private runtime omitted JSONL mapping evidence; all four workers stopped at native check_index before model/NCCL/training updates",
+    "fix": "copy top-level Phase2/Phase3 JSONL rule assets; bind SHA per worker; native full choice/binary index admission before torchrun",
+    "tests": {
+      "passed": 53,
+      "seconds": 9.41,
+      "command": "PYTHONPATH=AutoMoT /home/codon/anaconda3/envs/pvi/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_continue.py AutoMoT/qwen3vl_local/audit_joint/tests/test_dataset_catalog.py AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_training_state.py AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_entry_admission.py",
+      "overlaps_previous_tests": true
+    },
+    "verified": [
+      "actual copied runtime runs native full-index admission in both modes",
+      "missing JSONL rejected",
+      "changed JSONL rejected by native mapping SHA",
+      "generated nested JSONL datasets not copied",
+      "CPU admission failure stops before torchrun"
+    ],
+    "new_training_updates": 0,
+    "original_source_modified": false,
+    "data_rebuilt": false,
+    "new_gpu_training_verified": false,
+    "files": {
+      "phase3_continue.py": "82ac7e3ca309fcad3d9c4a43157345d1206fb502440fd81e97aed6cee16ce034",
+      "phase3_legacy_sequence.py": "8477a5333b0da3e04ff84366045bd73824a5327e1c824e470c275c1cd254886e",
+      "phase3_legacy_epoch_fixture.py": "07eed103948a457671bc36cbd160fc643dd9970214728c83b4ebc9149903c8d7",
+      "dataset_catalog.py": "afce1999063fc5aa10e80523772fdb6273b8b0c444d674c599737965ef7e9fc4",
+      "tests/test_phase3_continue.py": "9fe53dbbc44e0470fc4508847efd749fe7c578675f272f4753b90dd6da88f38b",
+      "tests/test_dataset_catalog.py": "786e4b35d1be2308571924f64bb40cd67057ba72a6f7eb366f31338596a15627"
+    }
+  },
+  "initial_release_files": {
     "phase3_continue.py": "d1f4c9108a11dd1d8baf14f7c0dc3743a1682aa44f163970969b8955901206b1",
     "phase3_legacy_sequence.py": "8477a5333b0da3e04ff84366045bd73824a5327e1c824e470c275c1cd254886e",
     "phase3_legacy_epoch_fixture.py": "07eed103948a457671bc36cbd160fc643dd9970214728c83b4ebc9149903c8d7",
     "dataset_catalog.py": "afce1999063fc5aa10e80523772fdb6273b8b0c444d674c599737965ef7e9fc4",
     "tests/test_phase3_continue.py": "f114fd9635a012f53066a982a9ee68d84c5da403dc2042acfa44690e6aa1b666",
     "tests/test_dataset_catalog.py": "786e4b35d1be2308571924f64bb40cd67057ba72a6f7eb366f31338596a15627"
+  },
+  "initial_release_tests": {
+    "passed": 78,
+    "deselected": 2,
+    "reason": "two existing real Qwen batch tests cannot run: local pvi environment lacks transformers",
+    "command": "PYTHONPATH=AutoMoT /home/codon/anaconda3/envs/pvi/bin/python -m pytest -q AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_continue.py AutoMoT/qwen3vl_local/audit_joint/tests/test_dataset_catalog.py AutoMoT/qwen3vl_local/sft_new_loop_phase3/test_training_state.py AutoMoT/qwen3vl_local/tests/test_sequence_batch.py AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_recovery_inspect.py -k 'not real_qwen_multimodal_batch_logits_and_gradients'"
   }
 }

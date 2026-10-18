@@ -2,6 +2,14 @@
 
 本页取代 PHASE3_RECOVERY_HANDOFF_20261018.md 的首次诊断步骤。用户已停止清理；本入口没有删除操作，不再收集同一份只读诊断，不重新生成原题库。
 
+## 21:19 接续回包：规则依赖遗漏已修复
+
+收到cr02的83344字节ZIP，CRC、ZIP SHA及全部成员SHA核验通过。输出为 `phase3_continue_20261018_211943_895233955/result`。原生CPU断点读取2.62秒通过，确认next_epoch=2、global_step=2560。随后四个worker均在最开始的原生 `check_index` 报缺少 `mapping_rgb_decisions_v18_20260920.jsonl`；尚未加载训练模型、建立NCCL或执行新训练步，不是原NCCL超时再次复现。
+
+原因是接续器复制源码时遗漏JSONL规则资产。修正版复制Phase2/Phase3包顶层的JSONL证据文件，并将其SHA纳入runtime快照与worker检查；不递归复制 `probe_output` 等生成数据。CPU断点读取后，先在同一隔离runtime中调用原生 `check_index` 校验choice/binary两模式，成功后才启动torchrun。原生mapping合同、数据SHA和训练源码均不改，不补造缺失规则文件或重新生成题库。
+
+旧失败输出保留，使用新发布工具和新输出目录，仍接续原epoch_0002。两图两组不重跑，四图binary仍在choice成功后执行。反馈文件名和下面的流程保持一致。53项相关测试通过，含真实隔离runtime的完整原生索引准入、JSONL缺失/改动拒绝、CPU失败不启动torchrun，以及原断点恢复测试；未进行本次服务器GPU训练验证。
+
 ## 已收到的证据与本次执行范围
 
 cr02 报告对应应用根 `/home/cruser1/lda/AutoMoT`：
