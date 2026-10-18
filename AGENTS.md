@@ -1,5 +1,16 @@
 # AGENTS.md
 
+### 2026-10-18 v85 白名单发布与本地连续RGB
+
+用户明确授权完善/push白名单并行RGB。发布local_paths及机器无关入口，不指定机器，服务器步骤为同步后后台一次v24正式池更新，非重复label_release_check/readiness；保留两机独立数据/权重/缓存，使用本机DATA_ROOT/MODEL_DIR、新OUTPUT_DIR。文档LABEL_RELEASE_RECEIVED_20261018.md含nohup/进度/交包，前置失败交launch.log；正常或中途失败交handoff两fullflow文件。不看到teacher完成就中止。
+162回归再次10.12秒通过，573源码匹配；原生teacher、学生、prompt、采样及两模式窗口不改。2完整train路线231帧重放/693源SHA、两模式各48train/无valtest，questions/instance_ends与前v24逐字段相同。实际目视24RGB/72源SHA，相对前140+40+16集合新增10；UE4 65–67UNKNOWN→68YES，69不连续终止非完成；UE6 61–68实例前/69–72横穿仍NO，信号关联可观察性限制不扩大为确证错误。未发现新必修改标依据，不调整阈值提示词；UE5proceed YES仍0，不作完整能力认证。RGB/回放留checkpoints/v85_release_rgb_20261018，轻量v85_release_rgb_verification随白名单。未GPU/远程任务，保留.vscode/论文及其它产物。
+
+### 2026-10-18 用户最终机器选择约定与正式历史池采样包
+
+用户明确禁止指定必须去哪台服务器执行：以后用户任选cr02/cee，名称仅报告元数据，命令必须基于当前机器实际路径，不假设数据/权重/缓存互通，不猜最新目录，不自动迁移。新指令覆盖此前“只让cr02运行”的限制。
+收到label_release_report.zip 33796字节，CRC/成员SHA/独立JSON及v84的571源码一致；173.637秒诊断完成，最后多粘贴右括号发生在程序完成后，无需重跑。298770纯自动规则题，manifest/train SHA与原完整准入一致；v5两模式十事件各1024，独立10036/单题最多2次，UE2returnYES1/1、UE7completeYES3/2，UE5proceedYES仍0。八合同差异是两处teacher修复、dataset/identity指针及plan/registry更替，旧SHA全匹配v83，不是8新缺陷。training_authorized false是只读工具固定属性。旧val37/test18每事件只引用此前已核验包，本包未重读holdout。
+本轮新增local_paths检查本机显式数据/模型配置/输出，build/train脚本从自身定位AutoMoT根，缺资产/危险输出先于扫描拒绝；取消label_release_check强制机器标签。162回归5.46秒通过、实际无AUTOMOT_SERVER本地CLI通过、v85清单573源码。teacher v24/plan39/registry34、学生、采样、eval、prompt均未改，不引入新标签版本。未新增RGB目视/训练/push。当前不再跑readiness/盘点/旧诊断；下一步发布后任选有原始数据机器，一次新v24正式池更新与准入，再新实验首轮。不存在已验证的旧teacher免回放迁移，不改SHA绕过，不承诺重建耗时或现有空间够。命令和完整边界在audit_joint/LABEL_RELEASE_RECEIVED_20261018.md，交新输出handoff两个fullflow文件；保留所有旧数据/权重与.vscode。
+
 ### 2026-10-18 v84 发布复核与相邻 RGB
 
 用户再次授权白名单push和并行RGB。fetch确认生产修复c5cba7c41已在origin/main，未重复修改生产代码、teacher、prompt或源码清单。571源匹配，82入口/采样/接续测试6.16秒通过；真实本地label_release_check读取3187历史train、两模式各事件1024并生成33416字节校验ZIP，training_authorized=false，不是新库准入。补发布此前4路线40RGB/1534回归的轻量记录，证据SHA及4项源码SHA仍匹配；多批回归有重叠不相加。

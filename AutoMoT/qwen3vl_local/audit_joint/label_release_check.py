@@ -22,7 +22,7 @@ from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import plan
 from qwen3vl_local.sft_new_loop_phase4.taxonomy import EVENTS
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v84_label_sampling_20261018.json')
+RELEASE = Path(__file__).with_name('release_sources_v85_local_paths_20261018.json')
 FIELDS = ('id', 'episode', 'scenario', 'route_id', 'physical_group', 'split',
           'observation', 'edge', 'target', 'slice', 'label_basis')
 
@@ -140,8 +140,8 @@ def main():
     parser.add_argument('--dataset', type=Path, required=True, help='native data4 directory on THIS server')
     parser.add_argument('--output', type=Path, required=True, help='new small diagnostic directory')
     args = parser.parse_args()
-    if os.environ.get('AUTOMOT_SERVER') not in ('cr02', 'cee', 'local'):
-        parser.error('set AUTOMOT_SERVER=cr02 or cee (local only for local diagnostics)')
+    # The real hostname and local paths are recorded by context(). A caller's
+    # optional server label must not decide whether this machine may run.
     raise SystemExit(run(args.dataset, args.output))
 
 

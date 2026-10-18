@@ -1,0 +1,398 @@
+{
+  "archive": {
+    "status": "verified",
+    "report_status": "diagnostic_complete",
+    "training_authorized": false,
+    "archive": "label_release_report.zip",
+    "bytes": 33796,
+    "sha256": "404693a8710eb250a44c51d3f862e785c24b98c46a917a91a97056cc5219ec03",
+    "members": {
+      "label_release_report.json": "b0d56315a2f85290ffa8111bdbaf2d98c838208ca9f7104ce2b7a58f6774693e"
+    }
+  },
+  "source_files_verified": 571,
+  "elapsed_seconds": 173.63743386603892,
+  "received_machine": {
+    "server_label": "cr02",
+    "hostname": "szh-gpu-cr02",
+    "project_root": "/home/cruser1/lda/AutoMoT",
+    "paths": {
+      "dataset": {
+        "logical": "/home/cruser1/lda/AutoMoT/checkpoints/phase4_labels_20261017_125230_304771113/data4",
+        "resolved": "/home/cruser1/lda/AutoMoT/checkpoints/phase4_labels_20261017_125230_304771113/data4",
+        "exists": true
+      },
+      "output": {
+        "logical": "/home/cruser1/lda/AutoMoT/checkpoints/label_release_cr02_20261018_114934_308707697",
+        "resolved": "/home/cruser1/lda/AutoMoT/checkpoints/label_release_cr02_20261018_114934_308707697",
+        "exists": true
+      }
+    },
+    "scope": "Local execution/collection location only; cr02 and cee do not share assets. A user-supplied server label is not identity authentication or data admission."
+  },
+  "status": "diagnostic_complete",
+  "errors": [],
+  "train_rows": 298770,
+  "label_basis_counts": {
+    "weak_rule_teacher": 298770
+  },
+  "train_manifest_sha256": "2c055bf78443227f179d06313f4d08218a6f37699b8bf7aaf4938f88b4d64c24",
+  "train_jsonl_sha256": "03031513d895982f6c0876e88d90d2fb1ab1db537aafc61bc58bd72fe0f05e0d",
+  "previous_bundle_same_manifest_and_train": true,
+  "critical_support": {
+    "U-E2/return/YES": {
+      "rows": 2,
+      "physical_groups": 2
+    },
+    "U-E2/return/NO": {
+      "rows": 62,
+      "physical_groups": 17
+    },
+    "U-E3/proceed/YES": {
+      "rows": 277,
+      "physical_groups": 95
+    },
+    "U-E3/proceed/NO": {
+      "rows": 14705,
+      "physical_groups": 685
+    },
+    "U-E5/proceed/YES": {
+      "rows": 0,
+      "physical_groups": 0
+    },
+    "U-E5/proceed/NO": {
+      "rows": 711,
+      "physical_groups": 72
+    },
+    "U-E6/proceed/YES": {
+      "rows": 708,
+      "physical_groups": 97
+    },
+    "U-E6/proceed/NO": {
+      "rows": 1903,
+      "physical_groups": 269
+    },
+    "U-E7/complete/YES": {
+      "rows": 13,
+      "physical_groups": 13
+    },
+    "U-E7/complete/NO": {
+      "rows": 201,
+      "physical_groups": 31
+    },
+    "R-E5/proceed/YES": {
+      "rows": 759,
+      "physical_groups": 182
+    },
+    "R-E5/proceed/NO": {
+      "rows": 32449,
+      "physical_groups": 1124
+    }
+  },
+  "plans": {
+    "2": {
+      "policy": "event_equal_critical_then_contiguous_v5",
+      "event_counts": {
+        "U-E2": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "R-E2": 1024,
+        "U-E3": 1024,
+        "U-E7": 1024,
+        "U-E4": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024
+      },
+      "ordered_ids_sha256": "516094257ebab60d4e9f9f0e1a14f092beaf29c7c18516e7ae832622957d0ca2",
+      "unique_questions": 10036,
+      "max_question_repeat": 2,
+      "action_minimums": {
+        "R-E2": {},
+        "R-E3": {},
+        "R-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 32449,
+            "reserved": 1,
+            "actual": 453,
+            "unique_questions": 453,
+            "physical_groups": 74
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 759,
+            "reserved": 1,
+            "actual": 213,
+            "unique_questions": 213,
+            "physical_groups": 52
+          }
+        },
+        "U-E1": {},
+        "U-E2": {
+          "return/NO": {
+            "required": 1,
+            "available": 62,
+            "reserved": 1,
+            "actual": 24,
+            "unique_questions": 24,
+            "physical_groups": 5
+          },
+          "return/YES": {
+            "required": 1,
+            "available": 2,
+            "reserved": 1,
+            "actual": 1,
+            "unique_questions": 1,
+            "physical_groups": 1
+          }
+        },
+        "U-E3": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 14705,
+            "reserved": 1,
+            "actual": 644,
+            "unique_questions": 644,
+            "physical_groups": 101
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 277,
+            "reserved": 1,
+            "actual": 91,
+            "unique_questions": 91,
+            "physical_groups": 32
+          }
+        },
+        "U-E4": {},
+        "U-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 711,
+            "reserved": 1,
+            "actual": 915,
+            "unique_questions": 711,
+            "physical_groups": 72
+          }
+        },
+        "U-E6": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 1903,
+            "reserved": 1,
+            "actual": 510,
+            "unique_questions": 510,
+            "physical_groups": 129
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 708,
+            "reserved": 1,
+            "actual": 354,
+            "unique_questions": 354,
+            "physical_groups": 73
+          }
+        },
+        "U-E7": {
+          "complete/NO": {
+            "required": 1,
+            "available": 201,
+            "reserved": 1,
+            "actual": 66,
+            "unique_questions": 66,
+            "physical_groups": 16
+          },
+          "complete/YES": {
+            "required": 1,
+            "available": 13,
+            "reserved": 1,
+            "actual": 3,
+            "unique_questions": 3,
+            "physical_groups": 3
+          }
+        }
+      },
+      "unsupported_critical_cells": [
+        "U-E5/proceed/YES"
+      ]
+    },
+    "4": {
+      "policy": "event_equal_critical_then_contiguous_v5",
+      "event_counts": {
+        "U-E2": 1024,
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "R-E2": 1024,
+        "U-E3": 1024,
+        "U-E7": 1024,
+        "U-E4": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024
+      },
+      "ordered_ids_sha256": "4d929e1f49a62d0ed6f41e22936a98cf46e5117e2e0a70a20125595214beda4d",
+      "unique_questions": 10036,
+      "max_question_repeat": 2,
+      "action_minimums": {
+        "R-E2": {},
+        "R-E3": {},
+        "R-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 32449,
+            "reserved": 1,
+            "actual": 257,
+            "unique_questions": 257,
+            "physical_groups": 64
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 759,
+            "reserved": 1,
+            "actual": 191,
+            "unique_questions": 191,
+            "physical_groups": 67
+          }
+        },
+        "U-E1": {},
+        "U-E2": {
+          "return/NO": {
+            "required": 1,
+            "available": 62,
+            "reserved": 1,
+            "actual": 33,
+            "unique_questions": 33,
+            "physical_groups": 9
+          },
+          "return/YES": {
+            "required": 1,
+            "available": 2,
+            "reserved": 1,
+            "actual": 1,
+            "unique_questions": 1,
+            "physical_groups": 1
+          }
+        },
+        "U-E3": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 14705,
+            "reserved": 1,
+            "actual": 609,
+            "unique_questions": 609,
+            "physical_groups": 100
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 277,
+            "reserved": 1,
+            "actual": 97,
+            "unique_questions": 97,
+            "physical_groups": 37
+          }
+        },
+        "U-E4": {},
+        "U-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 711,
+            "reserved": 1,
+            "actual": 915,
+            "unique_questions": 711,
+            "physical_groups": 72
+          }
+        },
+        "U-E6": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 1903,
+            "reserved": 1,
+            "actual": 523,
+            "unique_questions": 523,
+            "physical_groups": 122
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 708,
+            "reserved": 1,
+            "actual": 373,
+            "unique_questions": 373,
+            "physical_groups": 79
+          }
+        },
+        "U-E7": {
+          "complete/NO": {
+            "required": 1,
+            "available": 201,
+            "reserved": 1,
+            "actual": 71,
+            "unique_questions": 71,
+            "physical_groups": 21
+          },
+          "complete/YES": {
+            "required": 1,
+            "available": 13,
+            "reserved": 1,
+            "actual": 2,
+            "unique_questions": 2,
+            "physical_groups": 2
+          }
+        }
+      },
+      "unsupported_critical_cells": [
+        "U-E5/proceed/YES"
+      ]
+    }
+  },
+  "contract_differences": [
+    "calibration_assets/producer_manual_check_plan_v37_20261014.json: recorded=7019c6c4d7565e29fefbd155bf107bb0c5a5504ed9e257ce76d0c49dee797f4e, current=None",
+    "calibration_assets/producer_manual_check_plan_v39_20261018.json: recorded=None, current=311938ab9cdd6dbcbd7f26b0985e67f375accb1de1a6bdf5faf7230a2e172db1",
+    "calibration_assets/teacher_registry_v32.json: recorded=54ccbddb9a781efe452e08561a02ea41ba2077d90d0ecca24e806e01e0b31e9a, current=None",
+    "calibration_assets/teacher_registry_v34.json: recorded=None, current=05ee258ba0162341d2b13a3c24608fc1644eab5178c05982eff2c92b8f77e488",
+    "sources/dataset.py: recorded=552c1cdb8b80edec9f2f849d1dc7c7a4e1a0f2171397ce76903aa315403ebfef, current=47c9405daef287c5b9b38b8ea6b01359eb01da950504d69a6939697165d00f16",
+    "sources/identity.py: recorded=b0506c2e17a3423a0835e65357e94a3897f043cf5ce0213de69138f82a5ea826, current=0f1c265c4adf9caad8a28175170f5ba64ff5417c7a04c9f5a6f0f77f34e56255",
+    "sources/teacher_events.py: recorded=697d1e90902a39752ff261621c119aa1b37452107fea10bfe8b4b37818b43ad9, current=52dc20453a27f38900693a1c1bb4e9ad6455838397018d7d1429a61c457dd54f",
+    "sources/teacher_rules.py: recorded=404f32dfc36e3fa71b99a688e935e81e3ddf49c7a24394a1851914b6c5521177, current=1678a54aea467e5ef75daf1127f9ae78bc9c0240adf0b7b57957fe16607c3f04"
+  ],
+  "previous_evaluation": {
+    "2": {
+      "val": {
+        "per_event": 37,
+        "membership_sha256": "f360b0dc9e955554be849bd0edfe7ed0842631977fe0978451349e17708ee985",
+        "pool_sha256": "cfcd5900c67a22e132632527555725fc82656428a4c0688c4b4cbd156a8f50c0"
+      },
+      "test": {
+        "per_event": 18,
+        "membership_sha256": "899678565bbac1eb988708cbef244848c9516519d8bce895b26079dd5f97bc64",
+        "pool_sha256": "5443d2d2d325961a21059d50c2c1c16c30822212378fe10ad184068587a4fedc"
+      }
+    },
+    "4": {
+      "val": {
+        "per_event": 37,
+        "membership_sha256": "c287ec64f3cf3b3440044de3d9b8fe3a502bcb356c448959e0fa0d6a71dee063",
+        "pool_sha256": "cfcd5900c67a22e132632527555725fc82656428a4c0688c4b4cbd156a8f50c0"
+      },
+      "test": {
+        "per_event": 18,
+        "membership_sha256": "493e23d4f6c042ba69e7b2377e1b6b8dbe7bb3ded1a417bc0d5f77cefa82e2de",
+        "pool_sha256": "5443d2d2d325961a21059d50c2c1c16c30822212378fe10ad184068587a4fedc"
+      }
+    }
+  },
+  "previous_evaluation_scope": "Already received old producer evidence; this package did not rehash holdout files on server.",
+  "tests": {
+    "passed": 162,
+    "seconds": 5.46,
+    "scope": "local path portability, preparation, sampling and workflow CPU regressions; not server GPU execution"
+  },
+  "user_machine_preference": "User freely chooses server. Labels optional; hostname and explicit local paths recorded. Never force cr02/cee or borrow assets.",
+  "no_new_rgb_review": true,
+  "no_training": true,
+  "no_push": true,
+  "local_release": "v85_local_paths_20261018",
+  "local_source_files": 573,
+  "portable_cli_no_machine_label": "diagnostic_complete",
+  "core_teacher_student_prompt_sampling_unchanged": true
+}

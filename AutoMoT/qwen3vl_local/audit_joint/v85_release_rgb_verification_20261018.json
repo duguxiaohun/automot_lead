@@ -1,0 +1,33 @@
+{
+  "release": "v85_local_paths_20261018",
+  "tests": {
+    "passed": 162,
+    "seconds": 10.12
+  },
+  "replay": {
+    "routes": 2,
+    "frames": 231,
+    "source_files": 693,
+    "seconds": 13.497110133001115
+  },
+  "paired_rows": {
+    "train": 48,
+    "val": 0,
+    "test": 0
+  },
+  "raw_questions_and_instance_ends_exactly_equal_prior_v24": true,
+  "rgb_frames": 24,
+  "new_relative_to_prior_140_40_16": 10,
+  "visual_source_files": 72,
+  "visual_source_shas_verified": true,
+  "source_manifest": "release_sources_v85_local_paths_20261018.json",
+  "source_files": 573,
+  "teacher_prompt_sampling_unchanged": true,
+  "notes": [
+    "UE4 f65-67 UNKNOWN, f68 YES: pedestrian moves left of ego corridor; f69 discontinuity ends instance, not completion.",
+    "UE6 f61-68 before instance, vehicle enters view at f67-68; f69-72 crossing vehicle yields NO, priority is independent veto when light_hazard is true.",
+    "Signal actor/ego association remains a known observability limit, not newly established mislabel.",
+    "No new threshold or prompt modification evidence; UE5 proceed YES remains absent."
+  ],
+  "scope": "Local development RGB review; no whole-pool or independent accuracy certification; no remote/GPU execution"
+}

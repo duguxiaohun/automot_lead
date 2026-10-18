@@ -2,17 +2,23 @@
 # CPU relabel/build from existing lead_data only. No CARLA, new capture or GPU training.
 set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
+P4_APP_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd -- "$P4_APP_ROOT"
 P4_EXISTING_PYTHON="${PYTHON:-python}"
 P4_EXISTING_OUT="${OUTPUT_DIR:-checkpoints/phase4_existing_$(date +%Y%m%d_%H%M%S_%N)}"
 [[ $# == 0 ]] || { echo 'Use environment variables for this fixed entry.' >&2; exit 2; }
-mkdir "$P4_EXISTING_OUT"
+"$P4_EXISTING_PYTHON" -m qwen3vl_local.audit_joint.local_paths \
+  --data-root "${DATA_ROOT:-lead_data}" --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" \
+  --output "$P4_EXISTING_OUT"
+mkdir -p -- "$(dirname -- "$P4_EXISTING_OUT")"
+mkdir -- "$P4_EXISTING_OUT"
 export P4_EXISTING_OUT
 set +e
 "$P4_EXISTING_PYTHON" - <<'PY'
 import json,os
 from pathlib import Path
 from qwen3vl_local.audit_joint.server_readiness import source_check
-r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v84_label_sampling_20261018.json'))
+r=source_check(Path('.'),Path('qwen3vl_local/audit_joint/release_sources_v85_local_paths_20261018.json'))
 (Path(os.environ['P4_EXISTING_OUT'])/'source_check.json').write_text(json.dumps(r,indent=2)+'\n')
 if r['status']!='matched':raise SystemExit('Source mismatch; synchronize this release before building')
 PY

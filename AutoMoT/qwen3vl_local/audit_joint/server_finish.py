@@ -268,8 +268,10 @@ def main():
         a.pilot=a.output/'inputs'
         try:
             # Fail before even scanning the existing dataset when assets are absent.
-            if not (a.model_dir/'config.json').is_file():
-                raise FileNotFoundError('model config missing')
+            from .local_paths import check_inputs
+            local = check_inputs(a.data_root, a.model_dir, a.output, require_fresh_output=False)
+            if local['errors']:
+                raise ValueError('; '.join(local['errors']))
             a.pilot.mkdir(exist_ok=False)
             candidate_pool.scan(a.data_root,a.pilot/'candidates.json')
         except Exception as ex:
