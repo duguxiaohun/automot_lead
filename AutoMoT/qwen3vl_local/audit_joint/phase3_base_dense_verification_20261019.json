@@ -1,0 +1,32 @@
+{
+  "schema": "phase3_base_dense_local_verification_v1",
+  "date": "2026-10-19",
+  "source_manifest_sha256": "7e826f3d9db2819ee8a2c172945d39346e2e8f1fe32568ab58718459cfbe8d06",
+  "source_files": 236,
+  "tests": {
+    "passed": 101,
+    "failed": 0,
+    "seconds": 12.37,
+    "scope": "seven selected test modules; CPU and real small Qwen fixtures"
+  },
+  "historical_comparison_commit": "71cc49636eb367c1e1c06743953f48e61fd17f4c",
+  "verified": [
+    "three epoch independent selection equals historical function",
+    "single example loss and gradients equal historical function",
+    "epoch optimizer recovery equals uninterrupted 120-update CPU fixture",
+    "real Qwen processor pack/backward for future, stream and strict windows",
+    "later RGB cannot affect earlier causal query in real small Qwen",
+    "strict-window reused-vision loss and language gradients equal independent computation",
+    "inference erases targets and predictions invariant to supplied ground-truth answers",
+    "native trainer consumes dense inputs and saves full optimizer state",
+    "missing targets masked, cross-split groups and noncontiguous histories rejected",
+    "unchanged native production sources match earlier v88 release"
+  ],
+  "server_training_executed": false,
+  "H20_memory_measured": false,
+  "full_pool_dense_coverage_verified": false,
+  "performance_recovered": false,
+  "old_models_evaluated": false,
+  "raw_data_rebuilt": false,
+  "conclusion": "Implementation validated locally; base quality, dense coverage and H20 acceptance await user-run reports"
+}
