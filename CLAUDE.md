@@ -1,5 +1,23 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-19 v88统一接续与十事件相邻RGB发布
+
+用户授权完善代码、白名单push及具体远程步骤。新增phase4_resume.sh/py按用户明确本机目录选择：已有data4/references4/view仅准入；缺view才新建；缺库才v86严格复用完整回放。损坏元数据拒绝、不猜最新/机器、不自动重算、目录锁防同入口重复、原退出码保留，20GiBguard与30MB包沿用。两机任选且不混资产，交handoff两fullflow文件；前置失败交launch.log。v88清单585源，v87原578不变，无原生teacher/学生/prompt/采样合同改动。
+新增instance_lifecycle只读结构校验，拒绝退场后旧题/实例绑定漂移/非完成原因标完成/两四图不配对。当前原生已有UE5 passed-behind非完成退出，无需强补YES；ue5_handoff诊断一并发布，不称在线接管已接线。新9路线627帧/1881源SHA、两模式各197train无valtest，578原始问题与结束逐字段不变；实际看十事件60RGB/180源，与前十事件重叠4、UE5专项重叠6，非盲审。生命周期合并旧证据17份扫描去重16路线1468帧，48结束（47非完成1完成）通过。CPU两模式world1/4 B2每事件1024；正式新val/test仍待准入。
+347相关45.87秒＋52采样/固定评估/分布式评估4.78秒通过，文件集合不重叠。实际新shell选择admission_only/源码匹配/失败打包通过；本机piped-core保护拒绝worker，未绕过或称服务器执行通过。无新确定改标签/阈值/提示词依据，不GPU、不安排重新回放/Phase3/readiness。报告PHASE4_V88_CONTINUE_20261019.md、v88_resume_lifecycle_verification_20261019.json；完整证据checkpoints/v88_release_rgb_20261019。UE5proceedYES缺失仍按既定开发政策限制，不声称全能力或全流程验收。按用户授权发布上述及前两轮未发布白名单，保留.vscode/论文/原始数据等其它工作。
+
+### 2026-10-19 U-E5实例退场与场景接管本地实验
+
+用户提出用Phase1/2重新分类结束旧UE5，要求本地代码/RGB验证，不安排训练。核对Phase2 RE是剩余分类，含红灯/静态阻挡，不能当正常行驶许可；Phase4十事件不含RE1，空循环UNCOND非KEEP。原生老师已有passed-behind非完成退场，在线runtime尚无相同安全接管协议。新增独立ue5_handoff诊断：连续身份、旋转完整车体两观察后方非靠近才提议旧实例退场；当前全部车辆/STOP/信号与导航独立重算，连续3次因果条件满足才背景重分类候选。全部permission/training=false，不产生RE或proceedYES标签、不修改原生合同。
+8真实train路线913帧从起点重放、2739源SHA；实际目视120不同RGB/360目视源，已知开发例非盲审。11截止窗口184帧实例观察：63未通过、44未解决、40重观察、35仍有约束、2背景候选（1464_1 f89、1535_0 f124）。1150后续来车/STOP、1176黄前车必须保留；1535旧RE时白SUV仍侵入，19历史RE/nativeNO差异非19确证错标/当前模型预测。20新测试，177相关8.22秒通过，v87原578源不变，新工具另SHA绑定。报告UE5_HANDOFF_REVIEW_20261019.md与ue5_handoff_verification_20261019.json；原图/重放留checkpoints/ue5_handoff_20261019。此为任务退出实验，UE5proceedYES缺失限制未消除；不改提示词阈值/事件1:1、不GPU/远程/push，不为此要求重新建库。保留上轮v87未发布及用户其它工作。
+
+### 2026-10-19 三份v85中断包与只做准入接续
+
+用户交三组Phase4包并确认v86尚未启动。三ZIP整体/成员SHA/CRC、各573源码逐项匹配v85；均CPU磁盘guard退出75，无训练无automatic_admission。cr02无后缀121758停rgb4_rule_dataset，guard实际20GiB，不能归因为12GiB额度；cee路径(1)121925已完成300694train/自动留出/view，停automatic_admission，(2)130500已同SHA题库/留出，停view。两cee guard约2.52TiB确受旧free-12保留公式影响。三包8614路线1062401帧；val28226/test26355是原池非最终等额。UE5proceedYES0，UE2return2、UE7complete18/13组是过滤前；不能拿旧37/18替代新准入。
+新增phase4_admission_only：已有view只准入，显式complete-view才新建view，绝不回放/原生建库/导出留出，旧输入保留，新输出，B2两模式world1/4/固定评测/完整隔离沿原生门禁，刷新预算、绝对20GiBguard、30MB包。v87清单578源，不改原生teacher/student/prompt/采样。234测试7.43秒；真实局部原生worker因关键格/空holdout正确阻塞，32旧文件SHA不变，包通过；外层CLI源码/空间/打包通过但本机piped core保护拒绝worker，不称服务器全流程已验证。尚未push。
+本地9完整train路线627帧/1881源SHA，两模式各197train无valtest；实际看十事件56不同RGB/168目视源，已知开发例非盲审/非均新增。B2/world1/4各模式每事件1024，stride不同题序不同，不称GPU实际消费。无新确定改标签阈值prompt依据，UE5侵入后可见离场仍无正例。报告PHASE4_THREE_RUN_REVIEW_20261019.md/轻量phase4_three_run_verification_20261019.json；完整收包/回放只留checkpoints。用户任选两机，优先其本机完成最多的显式资产，不猜最新不混路径、不要求跑三次。发布后已有完整库/view只做准入；仅cr02这份缺库才按v86复用回放续建。交新handoff两fullflow文件，Phase3/readiness/旧训练不重跑。保留.vscode及其它任务。
+
+
 ### 2026-10-18 v86 磁盘写入额度修复与完整回放恢复
 
 用户日志8614/8614、15854.8秒后guard低空间。确认旧CPU入口max(20,free-12)人为限制约12GiB新增写入；两个CPU入口改绝对20GiB保留（可提高），记录free/reserve/writeable及完整需求未知，guard日志打印实际字节。不能认定服务器磁盘已满/空间必够。新增RESUME_FROM本机旧输出＋新OUTPUT_DIR：全部原生gzip路线核验通过才复用，缺索引原子独占恢复，已存在索引只核验；缺失/坏文件/旧合同/部分索引/发布后索引丢失明确阻塞，绝不退回重新计算。旧回放永久作为新库引用，不删除；两机任选但不混路径。不改teacher v24/学生/prompt/采样/评估，UE5能力限制保留。

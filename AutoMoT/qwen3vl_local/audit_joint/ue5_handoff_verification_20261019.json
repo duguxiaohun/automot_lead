@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-19",
+  "native_routes": 8,
+  "native_frames": 913,
+  "unique_raw_source_files": 2739,
+  "final_replay_seconds": 67.07101374404738,
+  "actual_visual_unique_rgb": 120,
+  "visual_source_files": 360,
+  "visual_blind": false,
+  "upstream_source_sha256": "8324393e2f0d069249fecc823bad19c49ccc6569379d8e60562bf37b6fdf7a24",
+  "upstream_is_current_model_prediction": false,
+  "window_count": 11,
+  "frame_instance_counts": {
+    "retain_or_reobserve/unresolved": 63,
+    "passed_instance_handoff_candidate/handoff_requires_reobservation": 40,
+    "passed_instance_handoff_candidate/handoff_with_remaining_restriction": 35,
+    "unresolved/unresolved": 44,
+    "passed_instance_handoff_candidate/background_reclassification_candidate": 2
+  },
+  "retirement_candidates": [
+    {
+      "route": "Town12_Rep0_1150_0_route0_01_09_20_35_02",
+      "actor": 3772,
+      "native_old_end": 182,
+      "first_geometric_retirement": 182
+    },
+    {
+      "route": "Town12_Rep0_1150_0_route0_01_09_20_35_02",
+      "actor": 3773,
+      "native_old_end": 195,
+      "first_geometric_retirement": 195
+    },
+    {
+      "route": "Town12_Rep0_1150_0_route0_01_09_20_35_02",
+      "actor": 3774,
+      "native_old_end": 212,
+      "first_geometric_retirement": 212
+    },
+    {
+      "route": "Town12_Rep0_1450_1_route0_01_10_14_16_16",
+      "actor": 3752,
+      "native_old_end": 64,
+      "first_geometric_retirement": 64
+    },
+    {
+      "route": "Town12_Rep0_1450_1_route0_01_10_14_16_16",
+      "actor": 3754,
+      "native_old_end": 92,
+      "first_geometric_retirement": 92
+    },
+    {
+      "route": "Town12_Rep0_1464_1_route0_01_09_20_30_51",
+      "actor": 3751,
+      "native_old_end": 85,
+      "first_geometric_retirement": 85
+    },
+    {
+      "route": "Town12_Rep0_1535_0_route0_01_08_01_01_48",
+      "actor": 3757,
+      "native_old_end": 119,
+      "first_geometric_retirement": 121
+    },
+    {
+      "route": "Town12_Rep0_4591_0_route0_01_08_05_48_25",
+      "actor": 3750,
+      "native_old_end": 60,
+      "first_geometric_retirement": 60
+    },
+    {
+      "route": "Town13_Rep0_1148_0_route0_01_08_19_01_21",
+      "actor": 4765,
+      "native_old_end": 64,
+      "first_geometric_retirement": 64
+    },
+    {
+      "route": "Town13_Rep0_1176_0_route0_01_10_07_33_32",
+      "actor": 4765,
+      "native_old_end": 76,
+      "first_geometric_retirement": 76
+    },
+    {
+      "route": "Town13_Rep0_1378_0_route0_01_10_03_55_26",
+      "actor": 4763,
+      "native_old_end": 77,
+      "first_geometric_retirement": null
+    }
+  ],
+  "background_candidates": [
+    {
+      "route": "Town12_Rep0_1464_1_route0_01_09_20_30_51",
+      "frame": 89
+    },
+    {
+      "route": "Town12_Rep0_1535_0_route0_01_08_01_01_48",
+      "frame": 124
+    }
+  ],
+  "all_v87_registered_sources_unchanged": 578,
+  "production_labels_changed": false,
+  "training_started": false,
+  "permission_to_move": false,
+  "published": false,
+  "files": {
+    "checkpoints/ue5_handoff_20261019/results.json": "f4bc5151fa6eae4c4dbcf2e1b62d1b192278539d3d21be0784dedf7e1b0955eb",
+    "checkpoints/ue5_handoff_20261019/visual_sources.json": "47d9405459a3a98b469a741de09b8073d88a0508ae00d5453f762b874eb0d09a",
+    "checkpoints/ue5_handoff_20261019/visual_manifest.json": "c920f6e7d810a6a412806ccb95fff6114892dd1163f220c27e5d979478a837f8",
+    "checkpoints/ue5_handoff_20261019/source_label_disagreements.json": "7e83a29ab0d15320cf7fe47a6af7310c14baeda3660a83445f4ea0be14537b41",
+    "checkpoints/ue5_handoff_20261019/run.py": "d0c4df42151a13ea9e1e2fc39f5efb1fed474c02840b226275fdb952f250d5b8",
+    "checkpoints/ue5_handoff_20261019/render.py": "e7234eea933cd7ee27b1177802487949626a717837443771217ff87c87c7dd8c",
+    "qwen3vl_local/audit_joint/ue5_handoff.py": "ac1efc54330fdc02a127967a75e322e565e1e36729b92ac0f6d6873a78d56172",
+    "qwen3vl_local/audit_joint/tests/test_ue5_handoff.py": "8607df927f10a9149e5e2a5461cc8de9a9db1096f921276918f18473c2b41af8"
+  },
+  "regression": {
+    "passed": 177,
+    "seconds": 8.22,
+    "new_test_instances": 20,
+    "scope": "handoff, departure_probe, runtime_data, teacher, teacher_v54, ten_event_teacher"
+  }
+}

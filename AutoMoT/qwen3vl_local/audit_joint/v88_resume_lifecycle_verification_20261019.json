@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-19",
+  "regression": {
+    "passed": 347,
+    "seconds": 45.87,
+    "additional_evaluation_sampling": {
+      "passed": 52,
+      "seconds": 4.78,
+      "files_disjoint": true
+    },
+    "total_passed": 399
+  },
+  "new_replay": {
+    "routes": 9,
+    "frames": 627,
+    "source_files": 1881,
+    "seconds": 42.05140593199758,
+    "native_question_rows_unchanged": 578,
+    "train_per_mode": 197,
+    "val_per_mode": 0,
+    "test_per_mode": 0
+  },
+  "actual_visual_rgb": 60,
+  "visual_source_files": 180,
+  "overlap_previous_ten_event_rgb": 4,
+  "overlap_previous_ue5_rgb": 6,
+  "visual_blind": false,
+  "lifecycle": {
+    "route_scans": 17,
+    "unique_routes": 16,
+    "unique_frames": 1468,
+    "ends": 48,
+    "censored": 47,
+    "finished": 1,
+    "structure_verified": true
+  },
+  "sampling": {
+    "modes": [
+      2,
+      4
+    ],
+    "worlds": [
+      1,
+      4
+    ],
+    "batch_size": 2,
+    "events": 10,
+    "presentations_per_event": 1024,
+    "cpu_plan_only": true
+  },
+  "formal_new_holdout_admission_verified": false,
+  "production_labels_changed": false,
+  "prompt_changed": false,
+  "training_started": false,
+  "old_v87_source_files_unchanged": 578,
+  "current_release_sources": 585,
+  "local_cli": {
+    "selected_stage": "admission_only",
+    "exit_code": 2,
+    "reason": "existing piped-core protection; no worker launched",
+    "package_verified": true,
+    "zip_bytes": 33325
+  },
+  "files": {
+    "checkpoints/v88_release_rgb_20261019/after/summary.json": "ec37355d022bdebdbcf6190bf695f82b899205119897c19f43ba345b8018b5a5",
+    "checkpoints/v88_release_rgb_20261019/after/sources.json": "7f2d22b033f51babafd6e605fc121133a4443d62b7431a3c1a221234aa33eb59",
+    "checkpoints/v88_release_rgb_20261019/windows.json": "947737da0928d5b5ea48d67b6936aae476523f56c5391cff8b2880dd4bfb168c",
+    "checkpoints/v88_release_rgb_20261019/visual_sources.json": "57728ea8ee04afe7b98e9fd7a7796437af39365cf811fe99b04dd3ac3e8aec44",
+    "checkpoints/v88_release_rgb_20261019/lifecycle.json": "0519941c0a80ead273e672d0722b26072e620cbcfeebffdef1eb0cf2b23bb13d",
+    "checkpoints/v88_release_rgb_20261019/sampling.json": "1177cc8e84e3a43ba73488eecff05848464a8c897e831977263aa993c087ab3b",
+    "checkpoints/v88_release_rgb_20261019/cli.log": "696366400b50366879a05c599e364d2afdcf5e1572229ab295a1dfeac782eea2",
+    "checkpoints/v88_release_rgb_20261019/cli_output/handoff/fullflow_package.json": "4f52cddc2f7bdb5376ddf6c217d9eda44407a7a18fa95b4394f3ffe1feb9ca8c"
+  }
+}

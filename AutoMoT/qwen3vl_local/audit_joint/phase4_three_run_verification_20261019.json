@@ -1,0 +1,158 @@
+{
+  "date": "2026-10-19",
+  "packages": {
+    "0": {
+      "zip_bytes": 40523,
+      "zip_sha256": "e826677862b1e803c281aa36287629ba53c055356b9ead74e9b9130364b9a2af",
+      "source_files": 573,
+      "members": 7,
+      "stage": "rgb4_rule_dataset",
+      "exit": 75
+    },
+    "1": {
+      "zip_bytes": 46919,
+      "zip_sha256": "191f1604fd8beb0679cfe8c2b9e5209344bce1ea919d335553677bfafb3e3c65",
+      "source_files": 573,
+      "members": 12,
+      "stage": "automatic_admission",
+      "exit": 75
+    },
+    "2": {
+      "zip_bytes": 41706,
+      "zip_sha256": "b9340914a4fb6c361d9a8a55e4eadcca50836d6bad3cbbcad60d4934eedf3f10",
+      "source_files": 573,
+      "members": 9,
+      "stage": "student_view",
+      "exit": 75
+    }
+  },
+  "current_vs_received_changed_sources": [
+    "qwen3vl_local/audit_joint/guard.py",
+    "qwen3vl_local/audit_joint/label_release_check.py",
+    "qwen3vl_local/audit_joint/phase4_first_epoch.py",
+    "qwen3vl_local/audit_joint/server_finish.py",
+    "qwen3vl_local/audit_joint/server_finish.sh",
+    "qwen3vl_local/audit_joint/server_phase4_existing.sh"
+  ],
+  "native_student_sources_unchanged": true,
+  "local_replay": {
+    "routes": 9,
+    "frames": 627,
+    "source_files": 1881,
+    "seconds": 43.19552439398831
+  },
+  "local_counts": {
+    "train": 197,
+    "val": 0,
+    "test": 0
+  },
+  "visual_review": {
+    "unique_rgb": 56,
+    "source_files": 168,
+    "events": 10,
+    "blind": false,
+    "all_conditions_certified": false,
+    "note": "Known train windows; repeated viewing is not added to unique count."
+  },
+  "sampling": {
+    "rgb2_world1": {
+      "event_counts": {
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E7": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E3": 1024,
+        "U-E2": 1024,
+        "U-E4": 1024,
+        "R-E2": 1024
+      },
+      "ordered_ids_sha256": "d2dcae43097babd76af6eaf6d00b437be6ee0f37b4d6301bfc66b702fee0afd2"
+    },
+    "rgb2_world4": {
+      "event_counts": {
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E7": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E3": 1024,
+        "U-E2": 1024,
+        "U-E4": 1024,
+        "R-E2": 1024
+      },
+      "ordered_ids_sha256": "490594ecc49e848433420643fcdaf1a37dfe2592b019c9d677ff37e4590c78e5"
+    },
+    "rgb4_world1": {
+      "event_counts": {
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E7": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E3": 1024,
+        "U-E2": 1024,
+        "U-E4": 1024,
+        "R-E2": 1024
+      },
+      "ordered_ids_sha256": "3aff4b87880a2a6da86a5bad015b005889c82f3a0643344c96832ba103c8b30c"
+    },
+    "rgb4_world4": {
+      "event_counts": {
+        "R-E5": 1024,
+        "U-E1": 1024,
+        "U-E7": 1024,
+        "R-E3": 1024,
+        "U-E5": 1024,
+        "U-E6": 1024,
+        "U-E3": 1024,
+        "U-E2": 1024,
+        "U-E4": 1024,
+        "R-E2": 1024
+      },
+      "ordered_ids_sha256": "35d7884bd4be9481efaa137dc8088357d7464abbe8ef7182530c8bd31fb3fa0b"
+    }
+  },
+  "native_admission_exercise": {
+    "exit_code": 2,
+    "stage": "finished_cpu",
+    "errors": [
+      "RGB2 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E6/proceed/YES', 'U-E7/complete/YES', 'U-E7/complete/NO', 'R-E5/proceed/YES']",
+      "RGB2: ValueError: selection input admission failed: test: empty split; val: empty split",
+      "RGB4 source missing automatic critical support: ['U-E2/return/YES', 'U-E2/return/NO', 'U-E3/proceed/YES', 'U-E6/proceed/YES', 'U-E7/complete/YES', 'U-E7/complete/NO', 'R-E5/proceed/YES']",
+      "RGB4: ValueError: selection input admission failed: test: empty split; val: empty split"
+    ],
+    "input_files_unchanged": 32,
+    "uses_real_native_readers": true,
+    "model": "tiny config/meta topology only",
+    "scope": "Expected rejection: train-only local subset has no heldout events and missing critical cells; direct CPU worker, guard not bypassed for server entry"
+  },
+  "cli": {
+    "source_files_matched": 578,
+    "status": "blocked_before_worker_by_existing_piped_core_guard",
+    "package_verified": true,
+    "server_execution_tested": false
+  },
+  "regression": {
+    "passed": 234,
+    "seconds": 7.43,
+    "scope": "admission-only, recovery, packaging, rule baseline, teacher, STOP position/scope, ten-event teacher"
+  },
+  "artifacts": {
+    "checkpoints/phase4_three_rgb_20261019/windows.json": "07789891bbc67a055b49c52545a29fa255b93117ecdb3276735d5578eba9a26f",
+    "checkpoints/phase4_three_rgb_20261019/visual_sources.json": "88d2b2db2dfa57de6089f8eecb447c39fba30c91363aaf51b3694da3c4d189ea",
+    "checkpoints/phase4_three_rgb_20261019/after/sources.json": "7f2d22b033f51babafd6e605fc121133a4443d62b7431a3c1a221234aa33eb59",
+    "checkpoints/phase4_three_rgb_20261019/after/summary.json": "6c192769c447f38064f4ece9e5791a7d1f25a27de6363e372377dcb7da81db58",
+    "checkpoints/phase4_three_rgb_20261019/sampling.json": "a22cc183e76fc559e44f351bf4adb06f900fbd1145399218a91444678351cc03",
+    "checkpoints/phase4_three_received_20261019/verification.json": "60ecc7fcb3a8af3fdcf164253316f6aa9cf37a24af178992c464cad0d8000902"
+  },
+  "unsupported_capabilities": [
+    "U-E5/proceed/YES"
+  ],
+  "server_admission_completed": false,
+  "gpu_training_started": false,
+  "published": false
+}
