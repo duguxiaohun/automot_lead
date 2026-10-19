@@ -79,23 +79,30 @@ def preflight(job,pool):
 
 def probe_record(bundle,record,packed,optimizer):
     lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
-    if record.get('usage')=='evaluation':
-        # Holdout is used only for allocation/shape checks: no CE or optimizer.
-        was_training=bundle.model.training
-        bundle.model.eval()
-        try:
-            with torch.no_grad():
-                if isinstance(packed,list):objectives.window_logits(bundle,packed)
-                else:objectives.readout_logits(bundle.model,packed,bundle.device)
-        finally:bundle.model.train(was_training)
-        return [dict(tokens=sum(lengths),phase='evaluation_forward_only')]
+    windows=isinstance(packed,list)
+    variants=(True,False) if windows else (True,)
     results=[]
-    for _ in range(2):
-        loss,stats=(objectives.window_loss(bundle,packed) if isinstance(packed,list)
-                    else objectives.readout_loss(bundle.model,packed,bundle.device))
-        if not torch.isfinite(loss):raise ValueError('Nonfinite loss in distributed memory probe')
-        loss.backward();optimizer.step();optimizer.zero_grad(set_to_none=True)
-        results.append(dict(loss=float(loss.detach()),tokens=stats['tokens'],phase='train_optimizer_step'))
+    for reuse in variants:
+        policy=('actual_reuse' if reuse else 'no_dedup_20_image_upper_workload') if windows else 'no_reuse_nonwindow'
+        if record.get('usage')=='evaluation':
+            # Holdout allocation checks never compute CE, gradients or updates.
+            was_training=bundle.model.training
+            bundle.model.eval()
+            try:
+                with torch.no_grad():
+                    if windows:_,visual=objectives.window_logits(bundle,packed,reuse_vision=reuse)
+                    else:objectives.readout_logits(bundle.model,packed,bundle.device);visual=None
+            finally:bundle.model.train(was_training)
+            results.append(dict(tokens=sum(lengths),phase='evaluation_forward_only',
+                                vision_policy=policy,visual_reuse=visual))
+            continue
+        for _ in range(2):
+            loss,stats=(objectives.window_loss(bundle,packed,reuse_vision=reuse) if windows
+                        else objectives.readout_loss(bundle.model,packed,bundle.device))
+            if not torch.isfinite(loss):raise ValueError('Nonfinite loss in distributed memory probe')
+            loss.backward();optimizer.step();optimizer.zero_grad(set_to_none=True)
+            results.append(dict(loss=float(loss.detach()),tokens=stats['tokens'],phase='train_optimizer_step',
+                                vision_policy=policy,visual_reuse=stats.get('visual_reuse')))
     return results
 
 
@@ -125,7 +132,10 @@ def probe(job,pool):
             record=records[identity]
             packed=objectives.pack(bundle,record,train._load_images(record['images']),max_batch_tokens=job.get('max_batch_tokens',16384))
             lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
-            if lengths!=audit['shapes'][identity]['sequence_tokens']:raise ValueError('Processor tokens differ from full-plan shape audit')
+            positions=[p['positions'] for p in packed] if isinstance(packed,list) else [packed['positions']]
+            if (lengths!=audit['shapes'][identity]['sequence_tokens'] or
+                    positions!=audit['shapes'][identity]['query_positions']):
+                raise ValueError('Processor tokens/query positions differ from full-plan shape audit')
             results.extend(dict(id=identity,**r) for r in probe_record(bundle,record,packed,optimizer))
         torch.cuda.synchronize(device)
         free,total=torch.cuda.mem_get_info(device);peak=torch.cuda.max_memory_reserved(device)
@@ -139,7 +149,7 @@ def probe(job,pool):
                 world_size=4,ranks=gathered,probe_ids=audit['probe_ids'],model_saved=False,
                 shape_audit_sha256=trial.file_sha(Path(job['output'])/'dense_input_shapes.json'),
                 contract_sha256=baseline.digest(runtime.contract(job)),
-                scope='Training shapes: four-rank DDP/AdamW/backward; fixed evaluation shapes: forward only, no scores; no future OOM guarantee'))
+                scope='Training shapes: four-rank DDP/AdamW/backward; fixed evaluation shapes: forward only, no scores; windows additionally probe all 20 vision presentations without deduplication; no future OOM guarantee'))
         if not passed:raise ValueError('Insufficient GPU headroom; no automatic batch/context changes')
     finally:torch.distributed.destroy_process_group()
 

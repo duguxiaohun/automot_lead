@@ -8,6 +8,22 @@ import torch
 import torch.nn.functional as F
 from .data import ACTIONS, LETTERS
 from qwen3vl_local.sft_new_loop_phase3.prompts import SPEED_ACTION_RULES, LANE_ACTION_RULES, PRIMARY_CHOICE_RULES
+from qwen3vl_local.sft_new_loop_phase3 import trajectory_action as rule
+
+QUERY_TIME_RULES = (
+    'Each query has its own prediction origin T = its latest visible image time + its offset. '
+    'Reset all action rules at T: speed comparisons use ego speed at T, lane direction uses ego heading at T. '
+    'For future T, that state must be predicted; observed speed and scene premises are not future measurements. '
+    f'From T, the immediate window is {rule.IMMEDIATE_HORIZON_FRAMES*rule.FRAME_DT_SECONDS:g}s, '
+    f'the speed window {rule.LONGITUDINAL_HORIZON_FRAMES*rule.FRAME_DT_SECONDS:g}s, '
+    f'and the lane-crossing window {rule.LATERAL_HORIZON_FRAMES*rule.FRAME_DT_SECONDS:g}s. '
+    'Ignore return crossings only after the first crossing within this query window. '
+    'A return after T can itself be the first crossing when the outward crossing was before T. ')
+QUERY_SPEED_RULES = SPEED_ACTION_RULES.replace('current speed', 'speed at T')
+QUERY_LANE_RULES = (LANE_ACTION_RULES.replace('after the newest frame', 'after T within this query window')
+    .replace('Ignore later return crossings and crossings already in the input.',
+             'Ignore crossings at or before T and returns after this query\'s first crossing.')
+    .replace('current lane/obstacle positions', 'lane/obstacle positions at T'))
 
 INSTRUCTION = ('Images are chronological, sampled every 0.25 seconds. At each action query, '
     'choose the appropriate driving action using only images before that query. '
@@ -15,7 +31,7 @@ INSTRUCTION = ('Images are chronological, sampled every 0.25 seconds. At each ac
     'KEEP means none of the listed actions qualifies. No previous or current ground-truth action is supplied. '
     'Predict the recorded ego behavior, not a recommended safe action. '
     'An action query asks for a choice at its stated time, not the duration of a token. '
-    +SPEED_ACTION_RULES+' '+LANE_ACTION_RULES+' '+PRIMARY_CHOICE_RULES)
+    +QUERY_TIME_RULES+QUERY_SPEED_RULES+' '+QUERY_LANE_RULES+' '+PRIMARY_CHOICE_RULES)
 
 
 def choice_ids(tokenizer):
@@ -26,7 +42,8 @@ def choice_ids(tokenizer):
 
 
 def query(i, offset=0):
-    return f'\nChoose the action at +{offset:g} seconds from the latest image.\n[ACTION_QUERY_{i}]\n'
+    return (f'\nPrediction origin T: +{offset:g} seconds from the latest image visible to this query. '
+            f'Apply all action rules starting at this T.\n[ACTION_QUERY_{i}]\n')
 
 
 def messages(record, images):
@@ -131,7 +148,7 @@ def readout_loss(model,packed,device):
                     tokens=packed['tokens'],images=packed['images'])
 
 
-def window_logits(bundle,packed):
+def window_logits(bundle,packed,*,reuse_vision=True):
     """Five language contexts in parallel, eight unique frozen vision encodings.
 
     Right padding uses Qwen's native 2-D padding mask. Each query is gathered at
@@ -144,17 +161,24 @@ def window_logits(bundle,packed):
     rows=[p['inputs'] for p in packed]
     batch={k:v.to(bundle.device) for k,v in collate(rows,bundle.tokenizer.pad_token_id).items()}
     positions=sorted(set(p['positions'][0] for p in packed))
-    with frozen_rgb_reuse(bundle.model,enabled=True) as reuse:
+    with frozen_rgb_reuse(bundle.model,enabled=reuse_vision) as reuse:
         out=bundle.model(**batch,logits_to_keep=torch.tensor(positions,device=bundle.device),
                         use_cache=False,return_dict=True)
-    if not (1<=reuse.get('encoded_images',0)<=8) or reuse.get('images')!=20 or reuse.get('encoded_images',0)+reuse.get('reused_images',0)!=20:
+    if tuple(out.logits.shape[:2])!=(5,len(positions)):
+        raise ValueError('Window model logit shape differs from admitted query union')
+    reuse['model_logit_rows']=5*len(positions)
+    if not reuse_vision:
+        # Probe-only upper workload: all twenty presented images reach the tower,
+        # even when pixels are identical. Production calls keep reuse enabled.
+        reuse.update(images=20,encoded_images=20,reused_images=0,reason='probe_no_dedup_upper_workload')
+    elif not (1<=reuse.get('encoded_images',0)<=8) or reuse.get('images')!=20 or reuse.get('encoded_images',0)+reuse.get('reused_images',0)!=20:
         raise ValueError('Strict window vision reuse did not share the eight-image source')
     logits=torch.stack([out.logits[i,positions.index(p['positions'][0])] for i,p in enumerate(packed)]).float()
     return logits,dict(reuse)
 
 
-def window_loss(bundle,packed):
-    logits,reuse=window_logits(bundle,packed)
+def window_loss(bundle,packed,*,reuse_vision=True):
+    logits,reuse=window_logits(bundle,packed,reuse_vision=reuse_vision)
     labels=torch.tensor([p['targets'][0] for p in packed],device=bundle.device)
     weights=torch.tensor([p.get('query_weights',[1.])[0] for p in packed],device=bundle.device)
     valid=labels.ne(-100)&weights.gt(0)

@@ -1,0 +1,35 @@
+{
+  "schema": "phase3_dense_query_origins_probe_verification_v4",
+  "date": "2026-10-19",
+  "source_files": 245,
+  "source_manifest_sha256": "3baddecc34ce36d6bf78fd2efd31837307df468ed906269b7123a12f3e6becf0",
+  "tests": {
+    "passed": 152,
+    "failed": 0,
+    "seconds": 110.99,
+    "new_counterexamples": 7
+  },
+  "verified": [
+    "query-specific origins reset speed reference and first-crossing/return rules without future ground-truth input",
+    "native synthetic trajectory: left crossing at 1s and right return at 4s produce left at t0 and right at t+3s",
+    "exact processor-expanded query positions and 5x1 versus 5x5 logits shape distinguish otherwise equal old probe costs",
+    "real small Qwen outputs confirm both logit tensor shapes",
+    "real small Qwen tensor reuse encodes 1 or 8 images; no-dedup probe actually encodes 20 in both cases",
+    "loss and language gradients match between reused and no-dedup window forwards",
+    "holdout window probes both paths without optimizer/gradient/parameter changes",
+    "training window probe both paths allocates AdamW state and performs four probe-only updates",
+    "independent base, matched controls, raw provenance, coverage, checkpoint resume and actual query accounting regressions pass"
+  ],
+  "scope": "CPU tests, real small Qwen and official processor implementation fixtures; synthetic native trajectory only",
+  "H20_memory_measured": false,
+  "full_server_pool_coverage_verified": false,
+  "performance_recovered": false,
+  "old_models_evaluated": false,
+  "server_training_run": false,
+  "native_phase3_phase4_or_shared_reuse_modified": false,
+  "limitations": [
+    "strict sliding window with shared language state remains unimplemented",
+    "no-dedup twenty-image probe is conservative workload admission, not a universal memory bound; may reject feasible reused workloads",
+    "actual four-H20 admission and matched model quality still require server results"
+  ]
+}

@@ -37,6 +37,8 @@ def load_pool(job,*,recompute_aux=False):
 def contract(job):
     return dict(policy=POLICY,mode=job['mode'],output='A-F existing vocabulary, external parallel readouts',
         current_action_in_prompt=False,ground_truth_in_input=False,
+        query_time_semantics='all_native_rule_windows_reset_at_each_prediction_origin_v1',
+        resource_probe_policy='exact_query_positions_and_no_dedup_window_upper_workload_v1',
         forecast_contract=planning.options(job),aux_index=job.get('aux_index'),aux_binding=job.get('aux_binding'),
         auxiliary_provenance='native_meta_recomputed_and_split_preserved_v1',
         evaluation_policy='fixed_anchor_matched_readout_primary_four_frame_transfer_secondary_v1',

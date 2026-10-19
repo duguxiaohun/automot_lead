@@ -8,7 +8,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import FRAME_DT_SECONDS
 
 ACTIONS = ('DECELERATE', 'STOP', 'RESUME', 'LANE_CHANGE_LEFT', 'LANE_CHANGE_RIGHT', 'KEEP')
 LETTERS = tuple('ABCDEF')
-POLICY = 'phase3_dense_verified_targets_v3'
+POLICY = 'phase3_dense_query_origins_v4'
 
 
 def premise(row, *, history=True):

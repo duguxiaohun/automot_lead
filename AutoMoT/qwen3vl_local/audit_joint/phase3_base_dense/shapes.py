@@ -1,6 +1,7 @@
 """Exact processor-expanded token counts, without loading model weights or RGB arrays."""
 from pathlib import Path
 from PIL import Image
+import torch
 from . import objectives, baseline
 
 
@@ -14,8 +15,9 @@ def sequence_shape(processor, record, sizes):
         patches.append(n)
         text=text.replace(processor.image_token,'<|placeholder|>'*(n//processor.image_processor.merge_size**2),1)
     text=text.replace('<|placeholder|>',processor.image_token)
-    tokens=len(processor.tokenizer(text,add_special_tokens=False)['input_ids'])
-    return dict(tokens=tokens,patches=sum(patches))
+    ids=processor.tokenizer(text,add_special_tokens=False)['input_ids']
+    positions=objectives.locate_queries(processor.tokenizer,torch.tensor(ids),len(record['actions']))
+    return dict(tokens=len(ids),patches=sum(patches),query_positions=positions)
 
 
 def measure(processor,record,sizes):
@@ -27,13 +29,20 @@ def measure(processor,record,sizes):
             children.append(sequence_shape(processor,one,sizes[i:i+4]))
     else:children=[sequence_shape(processor,record,sizes)]
     lengths=[s['tokens'] for s in children]
+    positions=[s['query_positions'] for s in children]
+    kept=len(set(p for row in positions for p in row))
     return dict(sequence_tokens=lengths,max_sequence_tokens=max(lengths),
+        query_positions=positions,distinct_query_positions=kept,
+        model_logit_rows=len(children)*kept,
         padded_batch_tokens=len(lengths)*max(lengths),unpadded_batch_tokens=sum(lengths),
-        vision_patch_presentations=sum(s['patches'] for s in children))
+        vision_patch_presentations=sum(s['patches'] for s in children),
+        vision_encoding_upper_images=20 if record['mode']=='windows' else len(sizes),
+        vision_encoding_upper_patches=sum(s['patches'] for s in children))
 
 
 def cost(shape):
-    return tuple(shape[k] for k in ('max_sequence_tokens','padded_batch_tokens','vision_patch_presentations'))
+    return tuple(shape[k] for k in ('max_sequence_tokens','padded_batch_tokens',
+        'vision_patch_presentations','model_logit_rows','vision_encoding_upper_images','vision_encoding_upper_patches'))
 
 
 def scan(processor,records,max_batch_tokens):
@@ -67,4 +76,5 @@ def scan(processor,records,max_batch_tokens):
         shapes=shapes,probe_ids=[x for group in sorted(frontiers) for x in frontiers[group]],
         probe_groups=frontiers,input_usage_counts=usage_counts,header_manifest_sha256=baseline.digest(headers),
         per_sequence_limit=8192,padded_batch_limit=max_batch_tokens,
+        window_probe_policy='actual_reuse_and_no_dedup_20_image_upper_workload',
         note='Exact token shape audit; CUDA/DDP memory measured separately. Not a future OOM guarantee.')

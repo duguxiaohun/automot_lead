@@ -245,7 +245,8 @@ def test_holdout_probe_has_no_loss_backward_or_optimizer(model):
     def forbidden(*a,**kw):pytest.fail('holdout probe performed an optimizer update')
     bundle=SimpleNamespace(model=model,device='cpu')
     report=worker.probe_record(bundle,dict(usage='evaluation'),packed,SimpleNamespace(step=forbidden,zero_grad=forbidden))
-    assert report==[dict(tokens=packed['tokens'],phase='evaluation_forward_only')]
+    assert report==[dict(tokens=packed['tokens'],phase='evaluation_forward_only',
+                        vision_policy='no_reuse_nonwindow',visual_reuse=None)]
     for name,param in model.named_parameters():
         torch.testing.assert_close(param,before[name],rtol=0,atol=0)
         assert param.grad is None
