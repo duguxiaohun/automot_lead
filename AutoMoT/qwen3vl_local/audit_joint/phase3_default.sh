@@ -3,10 +3,19 @@
 set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
 P3_DEFAULT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+P3_DEFAULT_CHECK=()
+for P3_CHECK_KEY in SKIP_TRAIN PIPELINE_CHECK_ONLY; do
+  case "${!P3_CHECK_KEY:-0}" in
+    0) ;;
+    1) P3_DEFAULT_CHECK=(--prepare-only) ;;
+    *) echo "$P3_CHECK_KEY must be 0 or 1; refusing ambiguous training intent." >&2; exit 2 ;;
+  esac
+done
 if [[ $# -gt 0 && "$1" == --* ]]; then
-  exec bash "$P3_DEFAULT_DIR/phase3_base_trial.sh" "$@"
+  exec bash "$P3_DEFAULT_DIR/phase3_base_trial.sh" "$@" "${P3_DEFAULT_CHECK[@]}"
 fi
-[[ $# -le 1 && "${1:-ddp}" == ddp ]] || {
+[[ "${1:-ddp}" != check ]] || P3_DEFAULT_CHECK=(--prepare-only)
+[[ $# -le 1 && ( "${1:-ddp}" == ddp || "${1:-ddp}" == check ) ]] || {
   echo 'Default base uses four ranks. Use CLI flags, or LEGACY_PHASE3_SEQUENCE=1 for a historical profile.' >&2; exit 2;
 }
 for P3_DEFAULT_PAIR in 'HISTORY_RGB_MODE:4rgb' 'ACTION_OUTPUT_MODE:choice' 'BATCH_SIZE:1' 'GRAD_ACCUM:1' 'NUM_EPOCHS:3'; do
@@ -21,4 +30,4 @@ P3_DEFAULT_ARGS=(--index "$INDEX" --output "$OUTPUT_DIR" --stage "${P3_STAGE:-qu
 [[ -z "${DATA_ROOT:-}" ]] || P3_DEFAULT_ARGS+=(--data-root "$DATA_ROOT")
 [[ -z "${MODEL_DIR:-}" ]] || P3_DEFAULT_ARGS+=(--model-dir "$MODEL_DIR")
 [[ -z "${RESUME_FROM:-}" ]] || P3_DEFAULT_ARGS+=(--resume "$RESUME_FROM")
-exec bash "$P3_DEFAULT_DIR/phase3_base_trial.sh" "${P3_DEFAULT_ARGS[@]}"
+exec bash "$P3_DEFAULT_DIR/phase3_base_trial.sh" "${P3_DEFAULT_ARGS[@]}" "${P3_DEFAULT_CHECK[@]}"

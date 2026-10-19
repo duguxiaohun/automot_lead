@@ -137,9 +137,10 @@ def build_job(args, output):
     if mode!='base':
         from .phase3_base_dense.planning import options
         for name,default in [('supervision','all'),('forecast_span_seconds',6.),('forecast_step_seconds','auto'),
-                             ('min_future_coverage',.8),('max_batch_tokens',16384)]:
+                             ('min_future_coverage',.8),('min_eval_coverage',.8),('max_batch_tokens',16384)]:
             job[name]=getattr(args,name,default)
         job['forecast_contract']=options(job)
+        if not .5<=job['min_eval_coverage']<=1:raise ValueError('min-eval-coverage must be in [0.5,1]')
         if not 8192<=job['max_batch_tokens']<=32768:
             raise ValueError('max-batch-tokens must be in [8192,32768]')
         aux=getattr(args,'aux_index',None)
@@ -258,7 +259,9 @@ def package(output, state):
              'train_eval_metrics.jsonl', 'final_generation.json', 'dense_val_cases.json',
              'dense_test_cases.json', 'dense_val_summary.json', 'dense_test_summary.json',
              'dense_val_sequence_metrics.json', 'dense_test_sequence_metrics.json',
-             'dense_coverage.json', 'dense_probe.json', 'dense_input_shapes.json', 'dense_admission_failure.json'}
+             'dense_coverage.json', 'dense_probe.json', 'dense_input_shapes.json', 'dense_admission_failure.json',
+             'dense_aux_summary.json','dense_evaluation_plan.json','dense_val_transfer_summary.json',
+             'dense_test_transfer_summary.json','dense_val_transfer_cases.json','dense_test_transfer_cases.json'}
     for p in sorted(output.rglob('*')):
         if not p.is_file() or 'handoff' in p.relative_to(output).parts or 'training_states' in p.parts:
             continue
@@ -302,11 +305,12 @@ def main():
     p.add_argument('--resume', type=Path)
     p.add_argument('--experiment', choices=['base','future','stream','windows'], default='base')
     p.add_argument('--init-adapter', type=Path)
-    p.add_argument('--aux-index', type=Path, help='Separately validated native label index; only matching train routes can supplement labels')
+    p.add_argument('--aux-index', type=Path, help='Separately validated native labels; matching base routes/splits only, raw meta recomputation required')
     p.add_argument('--supervision', choices=['all','single'], default='all')
     p.add_argument('--forecast-span-seconds', type=float, default=6.)
     p.add_argument('--forecast-step-seconds', default='auto')
     p.add_argument('--min-future-coverage',type=float,default=.8)
+    p.add_argument('--min-eval-coverage',type=float,default=.8)
     p.add_argument('--max-batch-tokens',type=int,default=16384)
     p.add_argument('--prepare-only',action='store_true',help='Run CPU admission and full planned input shape audit; no GPU selection or training')
     p.add_argument('--gpu-ids', default=os.environ.get('GPU_IDS', ''))

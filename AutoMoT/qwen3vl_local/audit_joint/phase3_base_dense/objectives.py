@@ -172,7 +172,7 @@ def window_loss(bundle,packed):
 
 
 @torch.no_grad()
-def predict(bundle,record,images,*,max_batch_tokens=16384):
+def predict(bundle,record,images,*,max_batch_tokens=16384,expected_tokens=None):
     """Label-free inference for the exact training protocol; no generate() swap.
 
     Caller supplies the same observed premises and image order. Targets are
@@ -181,6 +181,9 @@ def predict(bundle,record,images,*,max_batch_tokens=16384):
     count=len(record['offsets_seconds']) if record['mode']=='future' else 5
     unlabeled=dict(record,actions=[None]*count)
     packed=pack(bundle,unlabeled,images,max_batch_tokens=max_batch_tokens)
+    lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
+    if expected_tokens is not None and lengths!=expected_tokens:
+        raise ValueError('Evaluation input changed since resource admission')
     logits,_=window_logits(bundle,packed) if isinstance(packed,list) else (
         readout_logits(bundle.model,packed,bundle.device),None)
     ids=choice_ids(bundle.tokenizer)

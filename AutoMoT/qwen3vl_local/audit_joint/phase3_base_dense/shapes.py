@@ -37,7 +37,7 @@ def cost(shape):
 
 
 def scan(processor,records,max_batch_tokens):
-    headers={};shapes={};frontier=[]
+    headers={};shapes={};frontiers={};usage_counts={}
     for identity,rec in sorted(records.items()):
         sizes=[]
         for path in rec['images']:
@@ -53,13 +53,18 @@ def scan(processor,records,max_batch_tokens):
         if shape['max_sequence_tokens']>8192 or shape['padded_batch_tokens']>max_batch_tokens:
             raise ValueError(f'Planned input {identity} exceeds per-sequence/total padded token budget: {shape}')
         shapes[identity]=shape
+        group=rec.get('usage','training')+'/'+rec['mode']
+        usage_counts[group]=usage_counts.get(group,0)+1
+        frontier=frontiers.setdefault(group,[])
         # Probe all nondominated cost shapes. Equal shapes need only one witness.
         value=cost(shape)
         if any(all(a>=b for a,b in zip(cost(shapes[x]),value)) for x in frontier):continue
-        frontier=[x for x in frontier if not all(a>=b for a,b in zip(value,cost(shapes[x])))]
+        frontier[:]=[x for x in frontier if not all(a>=b for a,b in zip(value,cost(shapes[x])))]
         frontier.append(identity)
     if not shapes:raise ValueError('Empty planned input shape audit')
-    return dict(status='all_planned_inputs_checked',unique_planned_anchors=len(shapes),
-        shapes=shapes,probe_ids=frontier,header_manifest_sha256=baseline.digest(headers),
+    return dict(status='all_planned_inputs_checked',unique_planned_inputs=len(shapes),
+        unique_training_anchors=sum(n for k,n in usage_counts.items() if k.startswith('training/')),
+        shapes=shapes,probe_ids=[x for group in sorted(frontiers) for x in frontiers[group]],
+        probe_groups=frontiers,input_usage_counts=usage_counts,header_manifest_sha256=baseline.digest(headers),
         per_sequence_limit=8192,padded_batch_limit=max_batch_tokens,
         note='Exact token shape audit; CUDA/DDP memory measured separately. Not a future OOM guarantee.')

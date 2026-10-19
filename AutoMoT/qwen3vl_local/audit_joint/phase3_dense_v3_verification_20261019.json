@@ -1,0 +1,51 @@
+{
+  "schema": "phase3_dense_second_review_verification_v3",
+  "date": "2026-10-19",
+  "source_manifest_sha256": "deca447d43809282debc27e0a0adf70bde546ad3b8af4b4ee85f8c9daf34d94e",
+  "source_files": 244,
+  "tests": {
+    "current_suite": {
+      "passed": 144,
+      "failed": 0,
+      "seconds": 108.23
+    },
+    "additional_boundary": {
+      "passed": 1,
+      "failed": 0,
+      "seconds": 2.01
+    },
+    "legacy_behavior": {
+      "passed": 9,
+      "failed": 0,
+      "seconds": 2.54,
+      "deselected": 1,
+      "exclusion": "Historical immutable-source assertion belongs to its original pinned checkout; no old manifest rewritten"
+    }
+  },
+  "verified": [
+    "SKIP_TRAIN and PIPELINE_CHECK_ONLY preserve prepare-only intent through three public entries and CLI/environment routing",
+    "single/all input plans and per-event/action total loss mass match for all three modes and epochs",
+    "zero-weight extra labels cannot satisfy effective dense coverage",
+    "primary matched input/readout metrics separated from four-frame transfer metrics",
+    "new auxiliary train/val/test targets recomputed from exact native meta/action evidence and RGB histories",
+    "copied labels or old RGB shifted to a new frame are rejected",
+    "invalid original identity cannot exempt a new valid target from source recomputation",
+    "fixed anchors unchanged; holdout query coverage admitted before training",
+    "shape scan and probe witnesses include fixed loss and both holdout protocols",
+    "holdout probe forward causes no optimizer step or gradient/parameter change",
+    "full raw-source receipt stays local; only compact summary is packaged"
+  ],
+  "scope": "CPU regression, real small Qwen and processor fixtures, synthetic routes through native meta/rule implementation",
+  "H20_memory_measured": false,
+  "full_server_pool_coverage_verified": false,
+  "performance_recovered": false,
+  "old_models_evaluated": false,
+  "server_training_run": false,
+  "raw_data_rebuilt": false,
+  "unresolved": [
+    "actual server train/val/test auxiliary support and raw sources",
+    "four-H20 memory admission",
+    "restored base and paired dense model quality",
+    "strict sliding window with shared language state remains unimplemented; stream/windows semantics stay distinct"
+  ]
+}

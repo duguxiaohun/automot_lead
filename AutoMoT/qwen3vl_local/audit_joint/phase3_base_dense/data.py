@@ -8,7 +8,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import FRAME_DT_SECONDS
 
 ACTIONS = ('DECELERATE', 'STOP', 'RESUME', 'LANE_CHANGE_LEFT', 'LANE_CHANGE_RIGHT', 'KEEP')
 LETTERS = tuple('ABCDEF')
-POLICY = 'phase3_dense_external_labels_v2'
+POLICY = 'phase3_dense_verified_targets_v3'
 
 
 def premise(row, *, history=True):
@@ -46,14 +46,13 @@ class Pool:
             self.by_key[k] = r
         if any(len(s)>1 for s in split_groups.values()):
             raise ValueError('Physical route group crosses dataset splits')
-        train_routes={(r.scenario,r.route_id) for r in rows if r.split=='train'}
+        routes={(r.scenario,r.route_id,r.split) for r in rows}
         self.aux_added=0
         for r in auxiliary:
             item=train._make_item(r,seed=20260904,action_output_mode='choice')
             group=physical_group_for_item(item)
-            if (r.split!='train' or (r.scenario,r.route_id) not in train_routes
-                    or split_groups.get(group)!={'train'}):
-                raise ValueError('Auxiliary labels must belong to an existing base train route/group')
+            if ((r.scenario,r.route_id,r.split) not in routes or split_groups.get(group)!={r.split}):
+                raise ValueError('Auxiliary labels must belong to an existing base route/group in the same split')
             if train.choice_rejection_reason(item.spec) is not None:continue
             k=(*key(r),r.frame_id)
             if k in self.by_key:

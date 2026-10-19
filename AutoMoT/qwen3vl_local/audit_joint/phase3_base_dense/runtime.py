@@ -13,7 +13,7 @@ from qwen3vl_local.sft_new_loop_phase3 import train
 from qwen3vl_local.audit_joint import phase3_base_trial as trial, phase3_base_trial_worker as base_worker
 
 
-def load_pool(job):
+def load_pool(job,*,recompute_aux=False):
     rows=[]
     for split in ('train','val','test'):
         rows.extend(train._read_rows(Path(job['index']),split,data_root=Path(job['data_root'])))
@@ -21,17 +21,27 @@ def load_pool(job):
     if job.get('aux_index'):
         from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
         check_index(job['aux_index'],action_output_mode='choice',prompt_variant=trial.reference()['prompt_variant'])
-        auxiliary=train._read_rows(Path(job['aux_index']),'train',data_root=Path(job['data_root']))
+        for split in ('train','val','test'):
+            auxiliary.extend(train._read_rows(Path(job['aux_index']),split,data_root=Path(job['data_root'])))
         p=Path(job['aux_index'])
         if job['aux_binding']!=dict(index_sha256=trial.file_sha(p),manifest_sha256=trial.file_sha(p.with_name('manifest.json'))):
             raise ValueError('Auxiliary labels changed while loading')
-    return Pool(rows,auxiliary,offsets=planning.options(job)['offset_frames'])
+    pool=Pool(rows,auxiliary,offsets=planning.options(job)['offset_frames'])
+    if auxiliary:
+        from . import provenance
+        if recompute_aux:provenance.recompute(job)
+        else:provenance.verify_cached(job)
+    return pool
 
 
 def contract(job):
     return dict(policy=POLICY,mode=job['mode'],output='A-F existing vocabulary, external parallel readouts',
         current_action_in_prompt=False,ground_truth_in_input=False,
         forecast_contract=planning.options(job),aux_index=job.get('aux_index'),aux_binding=job.get('aux_binding'),
+        auxiliary_provenance='native_meta_recomputed_and_split_preserved_v1',
+        evaluation_policy='fixed_anchor_matched_readout_primary_four_frame_transfer_secondary_v1',
+        native_validation_loss_role='secondary_four_frame_transfer_diagnostic',
+        min_eval_coverage=job.get('min_eval_coverage',.8),
         observation='4 frames' if job['mode']=='future' else
             ('causal prefixes of 4,5,6,7,8 frames' if job['mode']=='stream' else 'five strict four-frame windows'),
         language_cache_shared=job['mode']=='stream',
@@ -88,18 +98,19 @@ def install(job,pool,shape_audit=None):
         return work,audit
     def pack(bundle,**kwargs):
         row=by_seed[kwargs['spec'].seed_key]
+        from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
+        identity=baseline.digest(case_identity(train._make_item(row,seed=20260904)))
         if row.split=='train':
-            from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
-            identity=baseline.digest(case_identity(train._make_item(row,seed=20260904)))
             record=state['records'][identity]
         else:record=common_record(row,job['mode'])
         if record is None:
             raise ValueError('Dense training eligibility changed')
         images=train._load_images(record['images'])
         packed=objectives.pack(bundle,record,images,max_length=kwargs['max_length'],max_batch_tokens=job.get('max_batch_tokens',16384))
-        if row.split=='train' and shape_audit is not None:
+        if shape_audit is not None:
             lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
-            if shape_audit['shapes'][record['id']]['sequence_tokens']!=lengths:
+            shape_key=record['id'] if row.split=='train' else f'eval/{row.split}/loss/{identity}'
+            if shape_audit['shapes'][shape_key]['sequence_tokens']!=lengths:
                 raise ValueError('Training input changed since admitted shape audit/probe')
         (packed[0] if isinstance(packed,list) else packed)['consumption_record']=record if row.split=='train' else None
         return packed
@@ -191,7 +202,14 @@ def create_bundle(job,device):
 @torch.no_grad()
 def evaluate(job,split='val'):
     from qwen3vl_local.sft_new_loop_phase3 import training_state
+    from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
+    from . import evaluation
     root=Path(job['output'])
+    pool=load_pool(job)
+    eval_plan,_=evaluation.split_plan(job,pool,split)
+    if trial.read(root/'dense_evaluation_plan.json')[split]!=eval_plan:
+        raise ValueError('Evaluation coverage/membership changed since admission')
+    input_shapes=trial.read(root/'dense_input_shapes.json')['shapes']
     # Quick checkpoint holds trainable tensors, not an inference adapter.
     bundle=create_bundle(job,torch.device('cuda:0'))
     checkpoint=root/'train/training_states'/f'epoch_{1 if job["stage"]=="quick" else 3:04d}'
@@ -208,15 +226,15 @@ def evaluate(job,split='val'):
     for name,value in state['trainable'].items():
         params[name].copy_(value.to(params[name].device))
     bundle.model.eval()
-    rows=train._read_rows(Path(job['index']),split,data_root=Path(job['data_root']))
-    work=[train._make_item(r,seed=20260904,action_output_mode='choice') for r in rows]
-    work=[x for x in work if train.choice_rejection_reason(x.spec) is None]
-    selected,_=trial.select_reference(work,trial.reference(),seed=20260904,limit=32 if split=='val' else 0,split=split)
+    selected=evaluation.selected(pool,split)
     reports=[];correct=0;constrained_correct=0
-    pool=load_pool(job);dense_records=[];dense_totals=Counter()
+    dense_records=[];dense_totals=Counter()
     for item in selected:
+        identity=baseline.digest(case_identity(item))
         record=common_record(item.row,job['mode'])
         packed=objectives.pack(bundle,record,train._load_images(record['images']))
+        if [packed['tokens']]!=input_shapes[f'eval/{split}/transfer/{identity}']['sequence_tokens']:
+            raise ValueError('Transfer evaluation input changed since admission')
         _,report=objectives.readout_loss(bundle.model,packed,bundle.device)
         correct+=report['correct']
         constrained_correct+=report['constrained_correct']
@@ -226,8 +244,9 @@ def evaluate(job,split='val'):
         if dense is None:
             dense_totals['missing_complete_segment']+=1
             continue
-        predictions=objectives.predict(bundle,dense,train._load_images(dense['images']),max_batch_tokens=job.get('max_batch_tokens',16384))
-        dense_records.append(dict(frame=item.row.frame_id,event=item.row.context_id,
+        predictions=objectives.predict(bundle,dense,train._load_images(dense['images']),max_batch_tokens=job.get('max_batch_tokens',16384),
+            expected_tokens=input_shapes[f'eval/{split}/matched/{identity}']['sequence_tokens'])
+        dense_records.append(dict(id=identity,frame=item.row.frame_id,event=item.row.context_id,
             scenario=item.row.scenario,route=item.row.route_id,frames=dense['frames'],
             targets=dense['actions'],predictions=predictions))
         for i,(target,pred) in enumerate(zip(dense['actions'],predictions)):
@@ -240,10 +259,16 @@ def evaluate(job,split='val'):
                 dense_totals[prefix+'/constrained_correct']+=int(target==pred['constrained_action'])
                 dense_totals[f'{prefix}/{target}/support']+=1
                 dense_totals[f'{prefix}/{target}/correct']+=int(target==pred['action'])
-    trial.write(root/f'dense_{split}_cases.json',reports)
-    trial.write(root/f'dense_{split}_summary.json',dict(correct=correct,total=len(reports),exact=correct/len(reports),
+    trial.write(root/f'dense_{split}_transfer_cases.json',reports)
+    trial.write(root/f'dense_{split}_cases.json',dense_records)
+    matched=evaluation.score_matched(dense_records,eval_plan['primary_query'])
+    trial.write(root/f'dense_{split}_summary.json',dict(**matched,contract=contract(job),
+        metric_role='primary_matched_training_readout',evaluation_plan=eval_plan,
+        observation=contract(job)['observation'],fixed_anchor_total=len(selected),old_models_evaluated=False))
+    trial.write(root/f'dense_{split}_transfer_summary.json',dict(correct=correct,total=len(reports),exact=correct/len(reports),
         constrained_correct=constrained_correct,constrained_exact=constrained_correct/len(reports),
-        contract=contract(job),comparison='fixed historical identities, new unified prompt and A-F readout',
+        contract=contract(job),metric_role='secondary_four_frame_transfer',
+        comparison='not the matched dense-supervision comparison; stream single trains query 4 after eight images',
         common_observation='four frames, one current-action query; no additional past or future images',
         old_models_evaluated=False))
     trial.write(root/f'dense_{split}_sequence_metrics.json',dict(counts=dense_totals,cases=dense_records,

@@ -4,7 +4,7 @@ from datetime import timedelta
 import os
 from pathlib import Path
 import torch
-from . import runtime, objectives, baseline, planning, shapes
+from . import runtime, objectives, baseline, planning, shapes, evaluation
 from qwen3vl_local.sft_new_loop_phase3 import train
 from qwen3vl_local.audit_joint import phase3_base_trial as trial, phase3_base_trial_worker as base
 
@@ -60,6 +60,9 @@ def preflight(job,pool):
                     restored['sampling_history']!=dict(policy=baseline.POLICY,next_epoch=job['resume_epoch'])):
                 raise ValueError('Dense resume epoch/history mismatch')
         plans,records=planned_epochs(job,pool,args)
+        eval_plan,eval_records=evaluation.build(job,pool)
+        trial.write(root/'dense_evaluation_plan.json',eval_plan)
+        records.update(eval_records)
         trial.write(root/'dense_coverage.json',dict(status='planned_not_consumed',contract=runtime.contract(job),
             epoch_plans=plans,auxiliary_labels_added=pool.aux_added,
             update_budget=7680,labels_rebuilt=False,RGB_copied=False))
@@ -74,6 +77,28 @@ def preflight(job,pool):
         raise
 
 
+def probe_record(bundle,record,packed,optimizer):
+    lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
+    if record.get('usage')=='evaluation':
+        # Holdout is used only for allocation/shape checks: no CE or optimizer.
+        was_training=bundle.model.training
+        bundle.model.eval()
+        try:
+            with torch.no_grad():
+                if isinstance(packed,list):objectives.window_logits(bundle,packed)
+                else:objectives.readout_logits(bundle.model,packed,bundle.device)
+        finally:bundle.model.train(was_training)
+        return [dict(tokens=sum(lengths),phase='evaluation_forward_only')]
+    results=[]
+    for _ in range(2):
+        loss,stats=(objectives.window_loss(bundle,packed) if isinstance(packed,list)
+                    else objectives.readout_loss(bundle.model,packed,bundle.device))
+        if not torch.isfinite(loss):raise ValueError('Nonfinite loss in distributed memory probe')
+        loss.backward();optimizer.step();optimizer.zero_grad(set_to_none=True)
+        results.append(dict(loss=float(loss.detach()),tokens=stats['tokens'],phase='train_optimizer_step'))
+    return results
+
+
 def probe(job,pool):
     if not torch.cuda.is_available() or os.environ.get('WORLD_SIZE')!='4':
         raise ValueError('Memory/backward probe requires the same four CUDA/DDP ranks as training')
@@ -86,6 +111,10 @@ def probe(job,pool):
         bundle.model=torch.nn.parallel.DistributedDataParallel(bundle.model,device_ids=[local_rank],find_unused_parameters=False)
         bundle.model.train()
         _,records=planned_epochs(job,pool,runtime.make_args(job))
+        eval_plan,eval_records=evaluation.build(job,pool)
+        if eval_plan!=trial.read(Path(job['output'])/'dense_evaluation_plan.json'):
+            raise ValueError('Fixed evaluation plan changed since admission')
+        records.update(eval_records)
         audit=trial.read(Path(job['output'])/'dense_input_shapes.json')
         if set(audit['shapes'])!=set(records):raise ValueError('Shape audit no longer matches planned anchors')
         optimizer=torch.optim.AdamW([p for p in bundle.model.parameters() if p.requires_grad],
@@ -97,17 +126,12 @@ def probe(job,pool):
             packed=objectives.pack(bundle,record,train._load_images(record['images']),max_batch_tokens=job.get('max_batch_tokens',16384))
             lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
             if lengths!=audit['shapes'][identity]['sequence_tokens']:raise ValueError('Processor tokens differ from full-plan shape audit')
-            for _ in range(2):
-                loss,stats=(objectives.window_loss(bundle,packed) if isinstance(packed,list)
-                            else objectives.readout_loss(bundle.model,packed,bundle.device))
-                if not torch.isfinite(loss):raise ValueError('Nonfinite loss in distributed memory probe')
-                loss.backward();optimizer.step();optimizer.zero_grad(set_to_none=True)
-                results.append(dict(id=identity,loss=float(loss.detach()),tokens=stats['tokens']))
+            results.extend(dict(id=identity,**r) for r in probe_record(bundle,record,packed,optimizer))
         torch.cuda.synchronize(device)
         free,total=torch.cuda.mem_get_info(device);peak=torch.cuda.max_memory_reserved(device)
         local=dict(rank=rank,GPU=torch.cuda.get_device_name(device),free_bytes=free,total_bytes=total,
             peak_reserved_bytes=peak,peak_allocated_bytes=torch.cuda.max_memory_allocated(device),
-            optimizer_steps=len(results),results=results,passed=free>=8*1024**3 and peak<=.85*total)
+            optimizer_steps=sum(r['phase']=='train_optimizer_step' for r in results),results=results,passed=free>=8*1024**3 and peak<=.85*total)
         gathered=[None]*4;torch.distributed.all_gather_object(gathered,local)
         passed=all(r['passed'] for r in gathered)
         if rank==0:
@@ -115,7 +139,7 @@ def probe(job,pool):
                 world_size=4,ranks=gathered,probe_ids=audit['probe_ids'],model_saved=False,
                 shape_audit_sha256=trial.file_sha(Path(job['output'])/'dense_input_shapes.json'),
                 contract_sha256=baseline.digest(runtime.contract(job)),
-                scope='All Pareto-maximal planned shapes, real four-rank DDP/AdamW/backward; no future OOM guarantee'))
+                scope='Training shapes: four-rank DDP/AdamW/backward; fixed evaluation shapes: forward only, no scores; no future OOM guarantee'))
         if not passed:raise ValueError('Insufficient GPU headroom; no automatic batch/context changes')
     finally:torch.distributed.destroy_process_group()
 
@@ -131,7 +155,12 @@ def main():
             trial.verify_training(job)
             runtime.evaluate(job,'test' if a.operation=='test' else 'val')
         return
-    pool=runtime.load_pool(job)
+    try:
+        pool=runtime.load_pool(job,recompute_aux=a.operation=='preflight')
+    except Exception as exc:
+        trial.write(Path(job['output'])/'dense_admission_failure.json',dict(status='blocked',
+            stage='auxiliary_raw_provenance',error=f'{type(exc).__name__}: {exc}',training_started=False))
+        raise
     if a.operation=='preflight':preflight(job,pool)
     elif a.operation=='probe':probe(job,pool)
     else:

@@ -6,7 +6,7 @@ from . import baseline
 from .data import Pool
 from qwen3vl_local.sft_new_loop_phase3 import train
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
-from qwen3vl_local.sft_new_loop_phase3.sampling import route_diverse_sample, support_aware_quota
+from qwen3vl_local.sft_new_loop_phase3.sampling import route_diverse_sample
 
 
 def options(job):
@@ -60,13 +60,14 @@ def make_plan(pool,args,job,epoch,world_size=4,history=None):
         work.extend(route_diverse_sample(items,target=n,rng=rng))
     rng.shuffle(work)
     if len(work)%world_size:raise ValueError('Incomplete independent global batch')
-    records={};counts=Counter();available=Counter();missing=Counter();query_support=defaultdict(set);raw_queries=Counter()
+    records={};counts=Counter();available=Counter();missing=Counter();query_support=defaultdict(set);raw_queries=Counter();supervisable=Counter()
     for x in work:
         rec=pool.record(x.row,job['mode']);records[rec['id']]=rec
         active=set(active_indices(rec,opts['supervision']))
         for i,a in enumerate(rec['actions']):
             raw_queries[f'{x.row.context_id}/{i}/{a or "MISSING"}']+=1
             available[x.row.context_id,i]+=1
+            if a is not None and quotas.get((x.row.context_id,a),0)>0:supervisable[x.row.context_id,i]+=1
             if a is None:missing[x.row.context_id,i]+=1
             elif i in active:
                 counts[x.row.context_id,a]+=1
@@ -77,14 +78,17 @@ def make_plan(pool,args,job,epoch,world_size=4,history=None):
         bad={f'{e}/{i}':1-missing[e,i]/n for (e,i),n in available.items()
              if i and 1-missing[e,i]/n<opts['min_future_coverage']}
         if bad:raise ValueError('Future supervision coverage below per-event/per-position threshold: '+str(bad))
-    query_quotas={};weights={}
-    for event in train.CONTEXT_IDS:
-        capacities={a:len(ids) for (e,a),ids in query_support.items() if e==event}
-        desired=support_aware_quota(capacities,sum(n for (e,a),n in quotas.items() if e==event))
-        for action,n in desired.items():
-            if n and not counts[event,action]:raise ValueError('Query action has no selected support')
-            query_quotas[event,action]=n
-            weights[event,action]=n/counts[event,action] if counts[event,action] else 0.
+    effective_bad={f'{e}/{i}':supervisable[e,i]/n for (e,i),n in available.items()
+                   if supervisable[e,i]/n<opts['min_future_coverage']}
+    if effective_bad:
+        raise ValueError('Matched-action effective query coverage below per-event/per-position threshold: '+str(effective_bad))
+    # Both arms use the SAME original anchor action quotas. Never recompute
+    # target mass from the queries enabled by this arm. Auxiliary-only actions
+    # have zero mass in BOTH arms and are explicitly reported, not redistributed.
+    query_quotas=dict(quotas);weights={}
+    for cell,n in query_quotas.items():
+        if n and not counts[cell]:raise ValueError('Matched action mass has no active query support')
+        weights[cell]=n/counts[cell] if counts[cell] else 0.
     planned_queries=Counter();mass=Counter()
     for rec in records.values():
         active=set(active_indices(rec,opts['supervision']))
@@ -103,6 +107,8 @@ def make_plan(pool,args,job,epoch,world_size=4,history=None):
         planned_query_exposure=dict(planned_queries),planned_query_loss_mass=expected_mass,
         planned_available_query_labels=dict(raw_queries),
         query_weight_by_event_action={f'{e}/{a}':w for (e,a),w in weights.items()},
+        action_mass_policy='frozen_original_anchor_quotas_shared_by_single_and_all',
+        zero_mass_query_actions=sorted(f'{e}/{a}' for e,a in counts if not query_quotas.get((e,a),0)),
         unique_active_query_targets={f'{e}/{a}':len(ids) for (e,a),ids in query_support.items()},
         planned_supervised_queries=sum(planned_queries.values()),
         anchor_unique=len(records),unique_cases=len(records),phase='plan_not_consumption',
@@ -112,4 +118,5 @@ def make_plan(pool,args,job,epoch,world_size=4,history=None):
         premises=records[baseline.digest(case_identity(x))]['premises'],
         offsets=records[baseline.digest(case_identity(x))]['offsets_seconds']) for x in work])
     audit['future_label_coverage']={f'{e}/{i}':1-missing[e,i]/n for (e,i),n in available.items()}
+    audit['effective_query_coverage']={f'{e}/{i}':supervisable[e,i]/n for (e,i),n in available.items()}
     return work,audit,records

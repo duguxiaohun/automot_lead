@@ -45,6 +45,7 @@ def test_original_anchor_quotas_and_query_mass_with_matched_control(tmp_path):
     _,control,one=planning.make_plan(pool,cfg,settings(supervision='single'),epoch=0)
     assert audit['ordered_ids']==control['ordered_ids']
     assert audit['input_plan_sha256']==control['input_plan_sha256']
+    assert audit['planned_query_loss_mass']==control['planned_query_loss_mass']==audit['anchor_action_quotas']
     assert audit['planned_supervised_queries']==5*len(work)
     assert control['planned_supervised_queries']==len(work)
     mass=Counter()
@@ -63,13 +64,13 @@ def test_auxiliary_labels_are_not_new_anchors_and_conflicts_rejected():
     assert pool.aux_added==1 and pool.at(anchor,100)==extra and pool.anchor_rows==source
     assert extra not in pool.eligible('future','train')[0]
     for invalid in (replace(extra,split='val'),replace(extra,route_id='unknown'),replace(anchor,current_speed_mps=99)):
-        with pytest.raises(ValueError,match='train route/group|conflicts'):data.Pool(source,[invalid])
+        with pytest.raises(ValueError,match='route/group|conflicts'):data.Pool(source,[invalid])
     assert data.Pool(source,[anchor]).aux_added==0
 
 
 def test_future_coverage_every_event_every_position_and_same_control_gate(tmp_path):
     cfg=args(tmp_path);cfg.focus_balance_count=16
-    source=rows();anchors=[r for r in source if r.frame_id==4]
+    source=[force_action(r,"KEEP") for r in rows()];anchors=[r for r in source if r.frame_id==4]
     aux=[r for r in source if r.frame_id!=4]
     pool=data.Pool(anchors,aux)
     for supervision in ('all','single'):
@@ -113,7 +114,7 @@ def test_full_scan_selects_largest_later_candidate(tmp_path,processor):
     base=dict(mode='future',images=[str(path)]*4,actions=['KEEP'],offsets_seconds=[0])
     records={'first':dict(base,premises=['short']),'later':dict(base,premises=['much longer '*50])}
     audit=shapes.scan(processor,records,16384)
-    assert audit['unique_planned_anchors']==2 and audit['probe_ids']==['later']
+    assert audit['unique_planned_inputs']==2 and audit['probe_ids']==['later']
 
 
 def test_single_query_masked_targets_have_zero_gradient(model):
@@ -128,7 +129,7 @@ def test_single_query_masked_targets_have_zero_gradient(model):
 
 
 def test_resume_plans_only_remaining_epochs(tmp_path):
-    source=rows();anchors=[r for r in source if r.frame_id==4]
+    source=[force_action(r,"KEEP") for r in rows()];anchors=[r for r in source if r.frame_id==4]
     pool=data.Pool(anchors,[r for r in source if r.frame_id!=4])
     cfg=args(tmp_path)
     plans,_=worker.planned_epochs(settings('future',resume_epoch=1),pool,cfg)
@@ -169,7 +170,7 @@ def _consume_rank(rank,root,corrupt):
     os.environ['RANK']=str(rank)
     dist.init_process_group('gloo',init_method='file://'+str(Path(root)/'rendezvous'),rank=rank,world_size=4)
     try:
-        source=rows();anchors=[r for r in source if r.frame_id==4]
+        source=[force_action(r,"KEEP") for r in rows()];anchors=[r for r in source if r.frame_id==4]
         pool=data.Pool(anchors,[r for r in source if r.frame_id!=4])
         j=job(Path(root));j.update(settings('future'),init_adapter='fixture',init_adapter_files={})
         runtime.install(j,pool)
@@ -232,21 +233,9 @@ def test_new_aux_index_native_admission_without_replacing_frozen_base(tmp_path,m
     j=trial.build_job(cfg,tmp_path/'out')
     assert j['index_sha256']!=j['aux_binding']['index_sha256']
     worker.validate(j)
-    pool=runtime.load_pool(j)
-    assert pool.aux_added==20
-    assert len(pool.anchor_rows)==len(original)
-    anchors=[r for r in pool.anchor_rows if r.split=='train' and data.Pool.action(r) is not None]
-    assert all(len(pool.record(r,'future')['actions'])==3 and None not in pool.record(r,'future')['actions'] for r in anchors)
-    from qwen3vl_local.sft_new_loop_phase3 import preflight
-    from qwen3vl_local.qwen35.backend import LocalProcessor
-    Image.new('RGB',(32,32)).save(base_dir/'unused.jpg')
-    monkeypatch.setattr(preflight,'check_model',lambda *a: {'scope':'CPU fixture'})
-    monkeypatch.setattr(LocalProcessor,'from_pretrained',lambda *a,**kw:processor)
-    worker.preflight(j,pool)
-    report=trial.read(Path(j['output'])/'dense_coverage.json')
-    assert report['status']=='planned_not_consumed' and set(report['epoch_plans'])=={'0','1','2'}
-    assert all(p['planned_supervised_queries']==30720 for p in report['epoch_plans'].values())
-    assert trial.read(Path(j['output'])/'dense_input_shapes.json')['unique_planned_anchors']==10
+    # The former fixture merely shifted frame IDs. It must now fail without raw provenance.
+    with pytest.raises((FileNotFoundError,ValueError)):
+        runtime.load_pool(j,recompute_aux=True)
 
 
 def test_dense_final_verifier_requires_actual_query_receipt(tmp_path):
