@@ -38,7 +38,7 @@ def contract(job):
     return dict(policy=POLICY,mode=job['mode'],output='A-F existing vocabulary, external parallel readouts',
         current_action_in_prompt=False,ground_truth_in_input=False,
         query_time_semantics='all_native_rule_windows_reset_at_each_prediction_origin_v1',
-        resource_probe_policy='exact_query_positions_and_no_dedup_window_upper_workload_v1',
+        resource_probe_policy='exact_query_positions_and_eight_source_slot_upper_workload_v2',
         forecast_contract=planning.options(job),aux_index=job.get('aux_index'),aux_binding=job.get('aux_binding'),
         auxiliary_provenance='native_meta_recomputed_and_split_preserved_v1',
         evaluation_policy='fixed_anchor_matched_readout_primary_four_frame_transfer_secondary_v1',
@@ -46,7 +46,16 @@ def contract(job):
         min_eval_coverage=job.get('min_eval_coverage',.8),
         observation='4 frames' if job['mode']=='future' else
             ('causal prefixes of 4,5,6,7,8 frames' if job['mode']=='stream' else 'five strict four-frame windows'),
-        language_cache_shared=job['mode']=='stream',
+        frame_position_stride=512 if job['mode']=='windows_bank' else None,
+        query_recurrence='text_prefix_only' if job['mode']=='windows_bank' else 'native',
+        architecture_protocol=('independent_frame_kv_query_prefix_recurrence_v1' if job['mode']=='windows_bank' else 'native_causal'),
+        language_cache_shared=job['mode'] in ('stream','windows_prefix','windows_bank'),
+        language_cache_scope=('text_before_first_image_only' if job['mode']=='windows_prefix' else
+            'independent_frames_with_strict_four_frame_readout' if job['mode']=='windows_bank' else
+            'growing_prefix' if job['mode']=='stream' else 'none'),
+        image_language_states_shared=job['mode'] in ('stream','windows_bank'),
+        lora_dropout=0. if job['mode'] in ('windows_prefix','windows_bank') else .05,
+        gradient_checkpointing=job['mode'] not in ('windows_prefix','windows_bank'),
         cache_scope='one optimizer forward only; no stale cache across updates',
         max_length_per_sequence=8192,max_padded_batch_tokens=job.get('max_batch_tokens',16384),max_pixels_per_image=442368,
         loss_normalization='event/action quota-weighted query CE sum per anchor; average anchors across ranks',
@@ -57,6 +66,9 @@ def contract(job):
 def make_args(job):
     args=base_worker.make_args(job)
     args.dense_contract=contract(job)
+    if job['mode'] in ('windows_prefix','windows_bank'):
+        args.lora_dropout=0.
+        args.gradient_checkpointing=False
     # Generation uses a separate explicit A-F readout evaluator, not the native
     # action-phrase parser. Native loss validation is retained on fixed 160 IDs.
     args.generation_eval_steps=0
@@ -127,7 +139,8 @@ def install(job,pool,shape_audit=None):
         stats=dict(denom=len(valid),token_acc=report['correct']/report['supervised'],
                    value_token_acc=report['correct']/report['supervised'],
                    choice_action_exact=float(valid[index][0]==valid[index][1]),
-                   supervised_queries=report['supervised'],input_tokens=report['tokens'])
+                   supervised_queries=report['supervised'],
+                   input_tokens=report.get('visual_reuse',{}).get('language_tokens_computed',report['tokens']))
         rec=(p[0] if isinstance(p,list) else p).get('consumption_record')
         if bundle.model.training and rec is not None:
             state['pending']=(rec,report)
@@ -140,6 +153,11 @@ def install(job,pool,shape_audit=None):
             value=dict(value,dense_query_event=rec['event'],dense_query_actions=rec['actions'],
                        dense_query_weights=report['query_weights'],
                        query_record_phase='backward_completed_before_optimizer_step')
+            if report.get('visual_reuse'):
+                value['dense_compute']={k:report['visual_reuse'][k] for k in
+                    ('protocol','encoded_images','frame_language_encodings','shared_prefix_tokens',
+                     'language_tokens_computed','live_cache_token_slots','image_language_states_shared')
+                    if k in report['visual_reuse']}
             state['positions'].extend(value['positions'])
             for i,(action,w) in enumerate(zip(rec['actions'],report['query_weights'])):
                 if w>0 and action is not None:
@@ -198,7 +216,7 @@ def create_bundle(job,device):
     args=make_args(job)
     return initialize(train.load_model_with_lora(Path(job['model_dir']),device=device,
         lora_rank=args.lora_rank,lora_alpha=args.lora_alpha,lora_dropout=args.lora_dropout,
-        lora_vision_scope='off',strict_vision_scope=True,gradient_checkpointing=True),job)
+        lora_vision_scope='off',strict_vision_scope=True,gradient_checkpointing=args.gradient_checkpointing),job)
 
 
 @torch.no_grad()

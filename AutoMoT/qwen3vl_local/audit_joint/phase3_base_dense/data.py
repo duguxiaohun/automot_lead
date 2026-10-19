@@ -8,7 +8,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import FRAME_DT_SECONDS
 
 ACTIONS = ('DECELERATE', 'STOP', 'RESUME', 'LANE_CHANGE_LEFT', 'LANE_CHANGE_RIGHT', 'KEEP')
 LETTERS = tuple('ABCDEF')
-POLICY = 'phase3_dense_query_origins_v4'
+POLICY = 'phase3_dense_strict_frame_bank_v5'
 
 
 def premise(row, *, history=True):
@@ -84,7 +84,7 @@ class Pool:
             source_ids=[digest(case_identity(train._make_item(r,seed=20260904))) if r else None for r in targets])
 
     def windows(self, row, mode='stream'):
-        if mode not in ('stream','windows'):
+        if mode not in ('stream','windows','windows_prefix','windows_bank'):
             raise ValueError(mode)
         targets = [self.at(row, f) for f in range(row.frame_id-4, row.frame_id+1)]
         if any(r is None for r in targets):

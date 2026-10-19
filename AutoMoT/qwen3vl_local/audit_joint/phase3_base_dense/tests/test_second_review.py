@@ -45,7 +45,7 @@ def test_check_mode_and_ambiguous_boolean(tmp_path):
     assert r.returncode==2 and 'ambiguous' in r.stderr
 
 
-@pytest.mark.parametrize('mode',['future','stream','windows'])
+@pytest.mark.parametrize('mode',['future','stream','windows','windows_prefix','windows_bank'])
 def test_every_action_mass_identical_between_arms_all_epochs(tmp_path,mode):
     source=rows();anchors=source
     extra=[replace(r,frame_id=r.frame_id+offset) for r in source for offset in (100,200)] if mode=='future' else []
@@ -82,7 +82,7 @@ def frozen_pool(monkeypatch,mode='future',missing=False):
     return pool
 
 
-@pytest.mark.parametrize('mode',['future','stream','windows'])
+@pytest.mark.parametrize('mode',['future','stream','windows','windows_prefix','windows_bank'])
 def test_frozen_evaluation_targets_and_coverage_gate(monkeypatch,mode):
     pool=frozen_pool(monkeypatch);job=dict(mode=mode,forecast_span_seconds=2,forecast_step_seconds='1')
     report,records=evaluation.build(job,pool)

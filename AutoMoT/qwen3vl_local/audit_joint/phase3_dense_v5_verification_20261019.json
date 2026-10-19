@@ -1,0 +1,52 @@
+{
+  "schema": "phase3_dense_v5_local_verification_v1",
+  "date": "2026-10-19",
+  "source_release": {
+    "path": "phase3_base_trial_sources.json",
+    "files": 250,
+    "sha256": "7eee011c7bea69f4e0d809a09ad83026db9aff9661f3052f300cd28adc6e199b"
+  },
+  "regression": {
+    "passed": 171,
+    "elapsed_seconds": 179.06,
+    "environment": "/tmp/automot_batch_env/bin/python; torch 2.5.1+cu124; transformers 5.3; CPU",
+    "test_paths": [
+      "phase3_base_dense/tests",
+      "tests/test_phase3_base_trial.py",
+      "../tests/test_batch_runtime.py",
+      "../sft_new_loop_phase3/test_training_state.py",
+      "../sft_new_loop_phase3/test_validation_balance.py",
+      "../qwen35/tests/test_processor.py"
+    ]
+  },
+  "verified": [
+    "Strict four-frame readouts exclude both old and future outside frames",
+    "Eight shared frame language encodings match twenty recomputed encodings of the same new protocol in logits and all parameter gradients",
+    "Four CPU DDP ranks and two LoRA optimizer updates match recomputation reference",
+    "Image-free shared text-prefix windows match native deterministic windows in logits and gradients",
+    "Actual content reuse and eight-source-slot visual encoding paths tested",
+    "Official processor fixtures and small native Qwen3.5 model agree on cache/token/logit geometry",
+    "Single/all input plans and event/action loss mass remain paired",
+    "Holdout probe does not backpropagate or update parameters; target changes do not affect input predictions"
+  ],
+  "protocol": {
+    "name": "independent_frame_kv_query_prefix_recurrence_v1",
+    "native_four_image_equivalence": false,
+    "image_language_shared_state": "full-attention KV of independently encoded frames",
+    "query_recurrence": "text prefix only",
+    "frame_position_stride": 512,
+    "cache_lifetime": "one forward with autograd; no reuse across optimizer steps",
+    "cache_mode_lora_dropout": 0,
+    "cache_mode_gradient_checkpointing": false
+  },
+  "not_verified": [
+    "H20 four-GPU resource admission",
+    "Full server dataset admission",
+    "Historical accuracy recovery",
+    "Dense supervision quality improvement",
+    "Wall-clock speedup or memory reduction",
+    "Closed-loop driving success"
+  ],
+  "remote_assets_modified": false,
+  "historical_model_inference_repeated": false
+}

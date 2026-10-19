@@ -90,16 +90,28 @@ def locate_queries(tokenizer, input_ids, count):
 def pack(bundle,record,images,*,max_length=8192,max_pixels=442368,max_batch_tokens=16384):
     if len(images)!=(4 if record['mode']=='future' else 8):
         raise ValueError('Wrong number of images')
-    if record['mode']=='windows':
+    if record['mode'] in ('windows','windows_prefix','windows_bank'):
         rows=[]
         for i in range(5):
             one=dict(record,mode='future',actions=record['actions'][i:i+1],offsets_seconds=[0])
             if record.get('premises'):one['premises']=record['premises'][i:i+1]
             if 'query_weights' in record:one['query_weights']=record['query_weights'][i:i+1]
-            rows.append(pack(bundle,one,images[i:i+4],max_length=max_length,max_pixels=max_pixels))
+            child=pack(bundle,one,images[i:i+4],max_length=max_length,max_pixels=max_pixels)
+            if record['mode']=='windows_prefix':
+                marker=bundle.tokenizer.convert_tokens_to_ids('<|vision_start|>')
+                child['shared_prefix_tokens']=int((child['inputs']['input_ids'][0]==marker).nonzero()[0])
+            if record['mode']=='windows_bank':child['frame_bank']=True
+            rows.append(child)
         # Real right-padded tensor footprint, not just the unpadded sum.
         if len(rows)*max(p['tokens'] for p in rows)>max_batch_tokens:
             raise ValueError('Strict windows exceed total padded batch token budget')
+        if record['mode']=='windows_bank':
+            from .frame_bank import describe
+            shape=describe(rows,bundle.tokenizer.convert_tokens_to_ids('<|vision_start|>'),
+                bundle.tokenizer.convert_tokens_to_ids('<|vision_end|>'))
+            if shape['live_cache_token_slots']>max_batch_tokens or shape['max_rotary_position']>=8192:
+                raise ValueError('Frame bank exceeds cache-token/rotary-position budget')
+            rows[0]['bank_shape']=shape
         return rows
     msg=messages(record,images)
     text=bundle.processor.apply_chat_template(msg,tokenize=False,add_generation_prompt=False)
@@ -148,7 +160,7 @@ def readout_loss(model,packed,device):
                     tokens=packed['tokens'],images=packed['images'])
 
 
-def window_logits(bundle,packed,*,reuse_vision=True):
+def window_logits(bundle,packed,*,reuse_vision=True,source_slots=False):
     """Five language contexts in parallel, eight unique frozen vision encodings.
 
     Right padding uses Qwen's native 2-D padding mask. Each query is gathered at
@@ -158,15 +170,30 @@ def window_logits(bundle,packed,*,reuse_vision=True):
     from qwen3vl_local.batch_runtime import frozen_rgb_reuse
     if len(packed)!=5 or any(len(p['positions'])!=1 for p in packed):
         raise ValueError('Expected five strict windows')
+    if any(p.get('frame_bank') for p in packed):
+        if not all(p.get('frame_bank') for p in packed):raise ValueError('Mixed window protocols')
+        if not reuse_vision:raise ValueError('Frame bank probe uses eight source slots, not twenty encodings')
+        from .frame_bank import forward
+        return forward(bundle,packed,source_slots=source_slots)
     rows=[p['inputs'] for p in packed]
     batch={k:v.to(bundle.device) for k,v in collate(rows,bundle.tokenizer.pad_token_id).items()}
     positions=sorted(set(p['positions'][0] for p in packed))
-    with frozen_rgb_reuse(bundle.model,enabled=reuse_vision) as reuse:
-        out=bundle.model(**batch,logits_to_keep=torch.tensor(positions,device=bundle.device),
-                        use_cache=False,return_dict=True)
+    from .vision_slots import source_slot_reuse
+    if source_slots and not reuse_vision:raise ValueError('Incompatible vision probe policies')
+    context=source_slot_reuse(bundle.model) if source_slots else frozen_rgb_reuse(bundle.model,enabled=reuse_vision)
+    with context as reuse:
+        prefixes=[p.get('shared_prefix_tokens',0) for p in packed]
+        if any(prefixes):
+            if len(set(prefixes))!=1:raise ValueError('Different shared prefix boundaries')
+            from . import prefix_cache
+            out,language=prefix_cache.forward(bundle.model,batch,positions,prefixes[0])
+            reuse.update(language)
+        else:
+            out=bundle.model(**batch,logits_to_keep=torch.tensor(positions,device=bundle.device),
+                            use_cache=False,return_dict=True)
     if tuple(out.logits.shape[:2])!=(5,len(positions)):
         raise ValueError('Window model logit shape differs from admitted query union')
-    reuse['model_logit_rows']=5*len(positions)
+    reuse['model_logit_rows']=5*len(positions)+int(any(prefixes))
     if not reuse_vision:
         # Probe-only upper workload: all twenty presented images reach the tower,
         # even when pixels are identical. Production calls keep reuse enabled.
@@ -177,8 +204,8 @@ def window_logits(bundle,packed,*,reuse_vision=True):
     return logits,dict(reuse)
 
 
-def window_loss(bundle,packed,*,reuse_vision=True):
-    logits,reuse=window_logits(bundle,packed,reuse_vision=reuse_vision)
+def window_loss(bundle,packed,*,reuse_vision=True,source_slots=False):
+    logits,reuse=window_logits(bundle,packed,reuse_vision=reuse_vision,source_slots=source_slots)
     labels=torch.tensor([p['targets'][0] for p in packed],device=bundle.device)
     weights=torch.tensor([p.get('query_weights',[1.])[0] for p in packed],device=bundle.device)
     valid=labels.ne(-100)&weights.gt(0)

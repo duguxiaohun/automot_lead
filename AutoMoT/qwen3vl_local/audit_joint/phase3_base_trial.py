@@ -303,7 +303,7 @@ def main():
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--stage', choices=['quick', 'complete'], default='quick')
     p.add_argument('--resume', type=Path)
-    p.add_argument('--experiment', choices=['base','future','stream','windows'], default='base')
+    p.add_argument('--experiment', choices=['base','future','stream','windows','windows_prefix','windows_bank'], default='base')
     p.add_argument('--init-adapter', type=Path)
     p.add_argument('--aux-index', type=Path, help='Separately validated native labels; matching base routes/splits only, raw meta recomputation required')
     p.add_argument('--supervision', choices=['all','single'], default='all')

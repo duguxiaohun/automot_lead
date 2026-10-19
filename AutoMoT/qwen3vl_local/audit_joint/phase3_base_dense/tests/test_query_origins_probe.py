@@ -97,7 +97,7 @@ def test_holdout_window_probe_checks_both_vision_paths_without_updates(model):
     def forbidden(*a,**kw):pytest.fail('holdout optimizer called')
     reports=worker.probe_record(bundle,dict(usage='evaluation'),windows(identical=True),
                                 SimpleNamespace(step=forbidden,zero_grad=forbidden))
-    assert [r['visual_reuse']['encoded_images'] for r in reports]==[1,20]
+    assert [r['visual_reuse']['encoded_images'] for r in reports]==[1,8]
     assert all(r['phase']=='evaluation_forward_only' for r in reports)
     assert all(p.grad is None and torch.equal(p,before[n]) for n,p in model.named_parameters())
 
@@ -107,6 +107,6 @@ def test_training_window_probe_checks_both_paths_with_adam_state(model):
     bundle=SimpleNamespace(model=model,tokenizer=tokenizer(),device='cpu')
     optimizer=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=1e-5)
     reports=worker.probe_record(bundle,{},windows(identical=True),optimizer)
-    assert [r['visual_reuse']['encoded_images'] for r in reports]==[1,1,20,20]
+    assert [r['visual_reuse']['encoded_images'] for r in reports]==[1,1,8,8]
     assert all(r['phase']=='train_optimizer_step' for r in reports)
     assert all(int(state['step'])==4 for state in optimizer.state.values())
