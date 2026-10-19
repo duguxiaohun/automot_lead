@@ -1,0 +1,45 @@
+{
+  "schema": "phase3_sequence_trial_local_verification_v1",
+  "release_sha256": "653d65260a6159262f90d8780a7c7353ded5aa5d6d0a4baef54c7d03aceef4da",
+  "source_files": 225,
+  "tests": {
+    "passed": 122,
+    "seconds": 5.85,
+    "device": "CPU",
+    "scope": "new coordinator/worker, native epoch recovery, consumed events, validation, sequence and minibatch generation"
+  },
+  "historical_prediction_parser_fixture": {
+    "source_package_sha256": "566f7cf85ffe4af0eca5ea99883a25f499f71757924e3cab9b47860d982cb6dc",
+    "cases": 320,
+    "correct": 242,
+    "fixed_identity_order_verified": true,
+    "actions_and_raw_predictions_recomputed": true,
+    "new_inference": false
+  },
+  "native_production_changed": false,
+  "new_four_b_model_trained": false,
+  "remote_execution": false,
+  "ssh_used": false,
+  "preserved_sequence_policy": "event_equal_contiguous_unseen_first_v4",
+  "profile": {
+    "world_size": 4,
+    "batch_size": 1,
+    "grad_accum": 1,
+    "num_epochs": 3,
+    "focus_balance_count": 1024,
+    "presentations_per_epoch": 10240,
+    "steps_per_epoch": 2560,
+    "optimizer_updates": 7680,
+    "total_presentations": 30720,
+    "warmup_steps": 2000,
+    "learning_rate": 1e-05,
+    "anchor_stride": 1,
+    "history_rgb_mode": "4rgb",
+    "action_output_mode": "choice",
+    "sequence_policy": "event_equal_contiguous_unseen_first_v4",
+    "augmentation": "fixed_per_item_as_current_sequence_baseline",
+    "data_rebuilt": false,
+    "old_models_evaluated": false
+  },
+  "limitation": "CPU fixtures and archived-output parser checks do not establish recovery in the new cr02 experiment"
+}

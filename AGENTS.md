@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-19 Phase3 sequence四图choice恢复预算实验
+
+用户要求保留sequence并恢复7680次更新，明确cr02、只验证新模型、不重跑旧模型、不能SSH。新增audit_joint独立phase3_sequence_trial入口：复用已核验同SHA题库，world4/B1/累积1/十事件各1024/三轮30720呈现=7680更新，warmup2000；quick停首轮2560但保留三轮计划及optimizer/scheduler/RNG/曝光完整断点，complete仅续剩余轮。固定历史160loss/320generation成员；原单题KV生成四rank独立执行，禁视觉复用；完整预算后才新模型test380。保留当前sequence v4软动作配额及跨轮固定题序增强；本轮不加数据、不改原生P3/P4/标定/规则/提示词/共享源码，不冒充已恢复性能。
+独立225项发布依赖（含规则JSONL及外部实验适配器）绑定；旧B2断点拒绝套用，已有数据/权重不清理。日志在当前根目录新实验目录、绝对20GiB守护/30MiB交包。122相关CPU测试5.85秒通过，小Qwen真实四图解码与原生小模型120更新接续通过；旧320已收预测仅离线解析器回归242/320及全动作一致，无旧模型推理。不是cr02 GPU验收。文档PHASE3_SEQUENCE_7680_20261019.md；本轮按持续白名单发布授权精确push，不用SSH、不包含.vscode、原始数据/权重/历史库或其它工作。远程先新quick一次，交handoff/phase3_sequence_report.zip和phase3_sequence_package.json；前置失败交launch.log。完整7680仍待用户执行新实验后验收。
+
+
 ### 2026-10-19 v88统一接续与十事件相邻RGB发布
 
 用户授权完善代码、白名单push及具体远程步骤。新增phase4_resume.sh/py按用户明确本机目录选择：已有data4/references4/view仅准入；缺view才新建；缺库才v86严格复用完整回放。损坏元数据拒绝、不猜最新/机器、不自动重算、目录锁防同入口重复、原退出码保留，20GiBguard与30MB包沿用。两机任选且不混资产，交handoff两fullflow文件；前置失败交launch.log。v88清单585源，v87原578不变，无原生teacher/学生/prompt/采样合同改动。
