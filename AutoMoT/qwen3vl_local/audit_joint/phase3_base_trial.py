@@ -135,6 +135,21 @@ def build_job(args, output):
     mode=getattr(args,'experiment','base')
     job['mode']=mode
     if mode!='base':
+        from .phase3_base_dense.planning import options
+        for name,default in [('supervision','all'),('forecast_span_seconds',6.),('forecast_step_seconds','auto'),
+                             ('min_future_coverage',.8),('max_batch_tokens',16384)]:
+            job[name]=getattr(args,name,default)
+        job['forecast_contract']=options(job)
+        if not 8192<=job['max_batch_tokens']<=32768:
+            raise ValueError('max-batch-tokens must be in [8192,32768]')
+        aux=getattr(args,'aux_index',None)
+        job['aux_index']=str(aux.resolve(strict=True)) if aux else None
+        job['aux_binding']=None
+        if aux:
+            manifest=aux.resolve().with_name('manifest.json')
+            if not manifest.is_file():raise ValueError('Auxiliary index requires its native manifest.json')
+            if output.resolve().is_relative_to(aux.resolve().parent):raise ValueError('Output overlaps auxiliary labels')
+            job['aux_binding']=dict(index_sha256=file_sha(aux),manifest_sha256=file_sha(manifest))
         if not getattr(args,'init_adapter',None):
             raise ValueError('Dense routes require the explicitly selected restored base adapter')
         init=args.init_adapter.resolve(strict=True)
@@ -146,6 +161,8 @@ def build_job(args, output):
             for p in sorted(init.rglob('*')) if p.is_file()})
     elif getattr(args,'init_adapter',None):
         raise ValueError('The restored base starts from Qwen; init-adapter is only for dense routes')
+    elif getattr(args,'aux_index',None) or getattr(args,'supervision','all')!='all':
+        raise ValueError('Auxiliary labels/supervision controls are only for dense experiments')
     return job
 
 
@@ -204,6 +221,18 @@ def verify_training(job):
         expected['INVALID'] = 0
         if record['status'] != 'verified' or record['actual'] != expected:
             raise ValueError('Actual event consumption mismatch')
+        if job.get('mode','base')!='base':
+            from .phase3_base_dense.baseline import digest
+            import math
+            plan=read(Path(job['output'])/'dense_coverage.json')['epoch_plans'][str(epoch-1)]
+            queries=read(root/f'balance/query_consumed_epoch_{epoch:04d}.json')
+            if (queries['status']!='verified_after_backward' or queries['plan_sha256']!=digest(plan)
+                    or queries['actual_query_exposure']!=plan['planned_query_exposure']
+                    or queries['anchor_presentations']!=10240 or queries['ranks']!=4
+                    or set(queries['actual_query_loss_mass'])!=set(plan['planned_query_loss_mass'])
+                    or any(not math.isclose(queries['actual_query_loss_mass'][k],v,rel_tol=1e-5,abs_tol=1e-4)
+                           for k,v in plan['planned_query_loss_mass'].items())):
+                raise ValueError('Actual dense query consumption mismatch')
         consumed.append(epoch)
     if job['stage'] == 'quick':
         progress = read(root/'training_progress.json')
@@ -229,14 +258,14 @@ def package(output, state):
              'train_eval_metrics.jsonl', 'final_generation.json', 'dense_val_cases.json',
              'dense_test_cases.json', 'dense_val_summary.json', 'dense_test_summary.json',
              'dense_val_sequence_metrics.json', 'dense_test_sequence_metrics.json',
-             'dense_coverage.json', 'dense_probe.json'}
+             'dense_coverage.json', 'dense_probe.json', 'dense_input_shapes.json', 'dense_admission_failure.json'}
     for p in sorted(output.rglob('*')):
         if not p.is_file() or 'handoff' in p.relative_to(output).parts or 'training_states' in p.parts:
             continue
         relative = str(p.relative_to(output))
-        if (p.name in names or p.parent.name == 'balance' and p.name.startswith(('epoch_', 'consumed_', 'plan_'))
+        if (p.name in names or p.parent.name == 'balance' and p.name.startswith(('epoch_', 'consumed_', 'plan_', 'query_consumed_'))
                 or re.fullmatch(r'epoch_\d+_rank\d+_batches\.jsonl',p.name)):
-            if p.stat().st_size > 4*1024**2:
+            if p.stat().st_size > (32 if p.name in ('dense_coverage.json','dense_input_shapes.json') else 4)*1024**2:
                 raise ValueError('Oversized report: '+relative)
             files[relative] = p.read_bytes()
         elif p.name in ('generation_val_cases.jsonl', 'final_generation_val_cases.jsonl') or (p.parent.name == 'test' and p.name.startswith('cases') and p.suffix == '.jsonl'):
@@ -273,6 +302,13 @@ def main():
     p.add_argument('--resume', type=Path)
     p.add_argument('--experiment', choices=['base','future','stream','windows'], default='base')
     p.add_argument('--init-adapter', type=Path)
+    p.add_argument('--aux-index', type=Path, help='Separately validated native label index; only matching train routes can supplement labels')
+    p.add_argument('--supervision', choices=['all','single'], default='all')
+    p.add_argument('--forecast-span-seconds', type=float, default=6.)
+    p.add_argument('--forecast-step-seconds', default='auto')
+    p.add_argument('--min-future-coverage',type=float,default=.8)
+    p.add_argument('--max-batch-tokens',type=int,default=16384)
+    p.add_argument('--prepare-only',action='store_true',help='Run CPU admission and full planned input shape audit; no GPU selection or training')
     p.add_argument('--gpu-ids', default=os.environ.get('GPU_IDS', ''))
     p.add_argument('--plan-only', action='store_true')
     p.add_argument('--timeout-seconds', type=int, default=86400)
@@ -283,7 +319,7 @@ def main():
         raise ValueError('Output already exists; use a fresh directory')
     if args.timeout_seconds <= 0 or args.reserve_gib < 20:
         raise ValueError('Positive timeout and >=20 GiB reserve required')
-    ids = gpu_ids(args.gpu_ids)
+    ids = '' if args.prepare_only or args.plan_only else gpu_ids(args.gpu_ids)
     job = build_job(args, output)
     if args.plan_only:
         print(json.dumps(job, ensure_ascii=False, indent=2))
@@ -316,29 +352,34 @@ def main():
                 '--max_restarts=0', '--module', worker, '--job', str(output/'job.json'), '--operation', 'train']),
             ('summarize', [sys.executable, '-m', worker, '--job', str(output/'job.json'), '--operation', 'summarize'])]
         if job['mode']!='base':
-            commands.insert(1,('probe',[sys.executable,'-m',worker,'--job',str(output/'job.json'),'--operation','probe']))
+            commands.insert(1,('probe',[sys.executable,'-m','torch.distributed.run','--standalone',
+                '--nproc_per_node=4','--max_restarts=0','--module',worker,'--job',str(output/'job.json'),'--operation','probe']))
+        if args.prepare_only:commands=commands[:1]
         for name, command in commands:
             state['active_stage'] = name
             write(output/'workflow.json', state)
             result = run_stage(command, output/f'{name}.log', env,
-                timeout=min(args.timeout_seconds, 900) if name != 'train' else args.timeout_seconds,
+                timeout=args.timeout_seconds if name in ('train','preflight','probe') else min(args.timeout_seconds,3600),
                 reserve_bytes=args.reserve_gib*1024**3)
             state['stages'].append(dict(stage=name, **result))
             if result['exit_code']:
                 code = result['exit_code']
                 raise RuntimeError(f'{name} exited {code}')
-        state['training'] = verify_training(job)
-        if job['stage'] == 'complete':
-            result = run_stage([sys.executable, '-m', 'torch.distributed.run', '--standalone',
-                '--nproc_per_node=4', '--max_restarts=0', '--module', worker, '--job', str(output/'job.json'),
-                '--operation', 'test'], output/'test.log', env, timeout=min(args.timeout_seconds, 3600),
-                reserve_bytes=args.reserve_gib*1024**3)
-            state['stages'].append(dict(stage='test', **result))
-            if result['exit_code']:
-                code = result['exit_code']
-                raise RuntimeError(f'Test exited {code}')
-        state['status'] = 'quick_epoch_completed_quality_pending' if job['stage'] == 'quick' else 'planned_training_completed_quality_pending'
-        state['active_stage'] = None
+        if args.prepare_only:
+            state.update(status='prepared_cpu_no_training',active_stage=None)
+        else:
+            state['training'] = verify_training(job)
+            if job['stage'] == 'complete':
+                result = run_stage([sys.executable, '-m', 'torch.distributed.run', '--standalone',
+                    '--nproc_per_node=4', '--max_restarts=0', '--module', worker, '--job', str(output/'job.json'),
+                    '--operation', 'test'], output/'test.log', env, timeout=min(args.timeout_seconds, 3600),
+                    reserve_bytes=args.reserve_gib*1024**3)
+                state['stages'].append(dict(stage='test', **result))
+                if result['exit_code']:
+                    code = result['exit_code']
+                    raise RuntimeError(f'Test exited {code}')
+            state['status'] = 'quick_epoch_completed_quality_pending' if job['stage'] == 'quick' else 'planned_training_completed_quality_pending'
+            state['active_stage'] = None
     except BaseException as exc:
         state.update(status='failed_or_interrupted', error=f'{type(exc).__name__}: {exc}')
         print(state['error'], file=sys.stderr, flush=True)

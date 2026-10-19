@@ -1,10 +1,13 @@
 """Opt-in dense objectives over the independent event/action training schedule."""
 import json
+import math
+import re
+import os
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 import torch
-from . import baseline, objectives
+from . import baseline, objectives, planning
 from .data import Pool, POLICY, premise
 from qwen3vl_local.sft_new_loop_phase3 import train
 from qwen3vl_local.audit_joint import phase3_base_trial as trial, phase3_base_trial_worker as base_worker
@@ -14,19 +17,27 @@ def load_pool(job):
     rows=[]
     for split in ('train','val','test'):
         rows.extend(train._read_rows(Path(job['index']),split,data_root=Path(job['data_root'])))
-    return Pool(rows)
+    auxiliary=[]
+    if job.get('aux_index'):
+        from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
+        check_index(job['aux_index'],action_output_mode='choice',prompt_variant=trial.reference()['prompt_variant'])
+        auxiliary=train._read_rows(Path(job['aux_index']),'train',data_root=Path(job['data_root']))
+        p=Path(job['aux_index'])
+        if job['aux_binding']!=dict(index_sha256=trial.file_sha(p),manifest_sha256=trial.file_sha(p.with_name('manifest.json'))):
+            raise ValueError('Auxiliary labels changed while loading')
+    return Pool(rows,auxiliary,offsets=planning.options(job)['offset_frames'])
 
 
 def contract(job):
     return dict(policy=POLICY,mode=job['mode'],output='A-F existing vocabulary, external parallel readouts',
         current_action_in_prompt=False,ground_truth_in_input=False,
-        future_offsets_seconds=[0,1,2] if job['mode']=='future' else None,
+        forecast_contract=planning.options(job),aux_index=job.get('aux_index'),aux_binding=job.get('aux_binding'),
         observation='4 frames' if job['mode']=='future' else
             ('causal prefixes of 4,5,6,7,8 frames' if job['mode']=='stream' else 'five strict four-frame windows'),
         language_cache_shared=job['mode']=='stream',
         cache_scope='one optimizer forward only; no stale cache across updates',
-        max_length=8192,max_pixels_per_image=442368,
-        loss_normalization='mean supported query CE per independent anchor; mean anchors across ranks',
+        max_length_per_sequence=8192,max_padded_batch_tokens=job.get('max_batch_tokens',16384),max_pixels_per_image=442368,
+        loss_normalization='event/action quota-weighted query CE sum per anchor; average anchors across ranks',
         init_adapter=job['init_adapter'],init_adapter_files=job['init_adapter_files'],
         release_sha256=job['release_sha256'])
 
@@ -57,40 +68,92 @@ def initialize(bundle,job):
     return bundle
 
 
-def install(job,pool):
+def install(job,pool,shape_audit=None):
     baseline.install_baseline()
     original_item=train._make_item
     original_load=train.load_model_with_lora
     original_save=train._save_adapter
     original_metadata=train._write_run_metadata
+    original_append=train._append_jsonl
+    original_verify=train.verify_epoch_consumption
     by_seed={}
+    state={}
     def make_item(row,**kwargs):
         item=original_item(row,**kwargs)
         by_seed[item.spec.seed_key]=row
         return item
     def select(rows,args,**kwargs):
-        valid,_=pool.eligible(job['mode'],'train')
-        return baseline.independent_work(valid,args,**kwargs)
+        work,audit,records=planning.make_plan(pool,args,job,**kwargs)
+        state.clear();state.update(audit=audit,records=records,counts=Counter(),mass=Counter(),positions=[])
+        return work,audit
     def pack(bundle,**kwargs):
         row=by_seed[kwargs['spec'].seed_key]
-        record=pool.record(row,job['mode']) if row.split=='train' else common_record(row,job['mode'])
+        if row.split=='train':
+            from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity
+            identity=baseline.digest(case_identity(train._make_item(row,seed=20260904)))
+            record=state['records'][identity]
+        else:record=common_record(row,job['mode'])
         if record is None:
             raise ValueError('Dense training eligibility changed')
         images=train._load_images(record['images'])
-        return objectives.pack(bundle,record,images,max_length=kwargs['max_length'])
+        packed=objectives.pack(bundle,record,images,max_length=kwargs['max_length'],max_batch_tokens=job.get('max_batch_tokens',16384))
+        if row.split=='train' and shape_audit is not None:
+            lengths=[p['tokens'] for p in packed] if isinstance(packed,list) else [packed['tokens']]
+            if shape_audit['shapes'][record['id']]['sequence_tokens']!=lengths:
+                raise ValueError('Training input changed since admitted shape audit/probe')
+        (packed[0] if isinstance(packed,list) else packed)['consumption_record']=record if row.split=='train' else None
+        return packed
     def loss(bundle,packed,specs):
         if len(packed)!=1:
             raise ValueError('Dense schedule uses one independent anchor per rank')
         p=packed[0]
         value,report=(objectives.window_loss(bundle,p) if isinstance(p,list)
                       else objectives.readout_loss(bundle.model,p,bundle.device))
-        valid=[(a,b) for a,b in zip(report['predictions'],report['targets']) if b!=-100]
+        valid=[(a,b) for a,b,w in zip(report['predictions'],report['targets'],report['query_weights']) if b!=-100 and w>0]
         index=-1 if job['mode']!='future' and len(valid)>1 else 0
         stats=dict(denom=len(valid),token_acc=report['correct']/report['supervised'],
                    value_token_acc=report['correct']/report['supervised'],
                    choice_action_exact=float(valid[index][0]==valid[index][1]),
                    supervised_queries=report['supervised'],input_tokens=report['tokens'])
+        rec=(p[0] if isinstance(p,list) else p).get('consumption_record')
+        if bundle.model.training and rec is not None:
+            state['pending']=(rec,report)
         return value,[stats]
+    def append(path,value):
+        match=re.fullmatch(r'epoch_(\d+)_rank(\d+)_batches.jsonl',Path(path).name)
+        if match:
+            rec,report=state.pop('pending')
+            if value['ids']!=[rec['id']]:raise ValueError('Actual dense batch does not match loss record')
+            value=dict(value,dense_query_event=rec['event'],dense_query_actions=rec['actions'],
+                       dense_query_weights=report['query_weights'],
+                       query_record_phase='backward_completed_before_optimizer_step')
+            state['positions'].extend(value['positions'])
+            for i,(action,w) in enumerate(zip(rec['actions'],report['query_weights'])):
+                if w>0 and action is not None:
+                    state['counts'][f'{rec["event"]}/{i}/{action}']+=1
+                    state['mass'][f'{rec["event"]}/{action}']+=w
+        original_append(path,value)
+    def verify(work,consumed,*,device,world_size):
+        result=original_verify(work,consumed,device=device,world_size=world_size)
+        rank=int(os.environ.get('RANK','0'));audit=state['audit']
+        expected_positions=list(range(rank,len(work),world_size))
+        local=dict(counts=dict(state['counts']),mass=dict(state['mass']),
+                   positions_verified=state['positions']==expected_positions)
+        gathered=[None]*world_size
+        if world_size>1:torch.distributed.all_gather_object(gathered,local)
+        else:gathered=[local]
+        counts=Counter();mass=Counter()
+        for item in gathered:counts.update(item['counts']);mass.update(item['mass'])
+        if (not all(x['positions_verified'] for x in gathered) or dict(counts)!=audit['planned_query_exposure']
+                or any(not math.isclose(mass[k],v,rel_tol=1e-5,abs_tol=1e-4)
+                       for k,v in audit['planned_query_loss_mass'].items())):
+            raise ValueError('Actual post-backward query consumption differs from epoch plan')
+        if rank==0:
+            trial.write(Path(job['output'])/f'train/balance/query_consumed_epoch_{audit["epoch"]+1:04d}.json',
+                dict(status='verified_after_backward',epoch=audit['epoch'],actual_query_exposure=dict(counts),
+                     actual_query_loss_mass=dict(mass),supervised_queries=sum(counts.values()),
+                     anchor_presentations=len(work),plan_sha256=baseline.digest(audit),ranks=world_size))
+        return result
     def save(*args,**kwargs):
         path=original_save(*args,**kwargs)
         p=path/'sft_new_loop_phase3_adapter_config.json'
@@ -113,6 +176,8 @@ def install(job,pool):
     train.load_model_with_lora=lambda *a,**kw:initialize(original_load(*a,**kw),job)
     train._save_adapter=save
     train._write_run_metadata=metadata
+    train._append_jsonl=append
+    train.verify_epoch_consumption=verify
     base_worker.install_reference(trial.reference())
 
 
@@ -161,7 +226,7 @@ def evaluate(job,split='val'):
         if dense is None:
             dense_totals['missing_complete_segment']+=1
             continue
-        predictions=objectives.predict(bundle,dense,train._load_images(dense['images']))
+        predictions=objectives.predict(bundle,dense,train._load_images(dense['images']),max_batch_tokens=job.get('max_batch_tokens',16384))
         dense_records.append(dict(frame=item.row.frame_id,event=item.row.context_id,
             scenario=item.row.scenario,route=item.row.route_id,frames=dense['frames'],
             targets=dense['actions'],predictions=predictions))

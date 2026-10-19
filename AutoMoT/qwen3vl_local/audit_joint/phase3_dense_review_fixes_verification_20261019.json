@@ -1,0 +1,48 @@
+{
+  "schema": "phase3_dense_review_fixes_verification_v2",
+  "date": "2026-10-19",
+  "source_manifest_sha256": "c7909ffd3abce5e840352460f54d70d21738cad0ae4b00e25381e324b83dbe94",
+  "source_files": 241,
+  "tests": {
+    "current": {
+      "passed": 111,
+      "failed": 0,
+      "seconds": 30.89
+    },
+    "legacy_behavior": {
+      "passed": 9,
+      "failed": 0,
+      "seconds": 2.59,
+      "deselected": 1,
+      "exclusion": "Historical immutable-source assertion belongs to its pinned original checkout; no old manifest rewritten"
+    }
+  },
+  "verified": [
+    "window filtering cannot erase original STOP/action support",
+    "anchor event/action quotas retained and query loss mass audited independently",
+    "single/all input plan hashes match; inactive targets do not contribute loss",
+    "native separately bound auxiliary index supplies train-only labels without replacing base index",
+    "per-event per-time future coverage rejects deficient cells",
+    "configured rule-derived horizon and query count",
+    "all remaining epoch shape audit agrees with real processor token lengths",
+    "actual four CPU gloo/DDP ranks backward/optimizer/query consumption; corrupted positions rejected",
+    "native dense optimizer checkpoint resumes epochs 2 and 3 without epoch-0 consumption reuse",
+    "real small Qwen causal readouts and strict-window reuse gradient equality",
+    "legacy shell defaults route independent base and reject B2 carryover",
+    "direct legacy Python CLI requires opt-in",
+    "native training computational function AST unchanged"
+  ],
+  "scope": "selected CPU tests and real small model/processor fixtures; no remote GPU execution",
+  "H20_memory_measured": false,
+  "full_server_pool_coverage_verified": false,
+  "performance_recovered": false,
+  "old_models_evaluated": false,
+  "raw_data_rebuilt": false,
+  "unresolved": [
+    "full server native auxiliary coverage",
+    "actual H20 four-rank memory admission",
+    "restored base val/test accuracy",
+    "paired single/all effect at equal extra update budget",
+    "strict sliding-window language-state sharing is not implemented; modes remain explicitly distinct"
+  ]
+}

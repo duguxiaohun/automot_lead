@@ -1,6 +1,6 @@
 """Derived references only: no RGB copies, relabeling or inferred missing targets."""
 from collections import Counter, defaultdict
-from dataclasses import replace
+from dataclasses import replace, asdict
 from .baseline import digest
 from qwen3vl_local.sft_new_loop_phase3 import train
 from qwen3vl_local.sft_new_loop_phase3.invalid_balance import case_identity, physical_group_for_item
@@ -8,7 +8,7 @@ from qwen3vl_local.sft_new_loop_phase3.trajectory_action import FRAME_DT_SECONDS
 
 ACTIONS = ('DECELERATE', 'STOP', 'RESUME', 'LANE_CHANGE_LEFT', 'LANE_CHANGE_RIGHT', 'KEEP')
 LETTERS = tuple('ABCDEF')
-POLICY = 'phase3_dense_external_labels_v1'
+POLICY = 'phase3_dense_external_labels_v2'
 
 
 def premise(row, *, history=True):
@@ -29,8 +29,10 @@ def key(row):
 
 
 class Pool:
-    def __init__(self, rows):
+    def __init__(self, rows, auxiliary=(), offsets=(0,4,8)):
         self.rows = list(rows)
+        self.anchor_rows=list(rows)
+        self.offsets=tuple(offsets)
         self.by_key = {}
         split_groups = defaultdict(set)
         for r in rows:
@@ -44,6 +46,21 @@ class Pool:
             self.by_key[k] = r
         if any(len(s)>1 for s in split_groups.values()):
             raise ValueError('Physical route group crosses dataset splits')
+        train_routes={(r.scenario,r.route_id) for r in rows if r.split=='train'}
+        self.aux_added=0
+        for r in auxiliary:
+            item=train._make_item(r,seed=20260904,action_output_mode='choice')
+            group=physical_group_for_item(item)
+            if (r.split!='train' or (r.scenario,r.route_id) not in train_routes
+                    or split_groups.get(group)!={'train'}):
+                raise ValueError('Auxiliary labels must belong to an existing base train route/group')
+            if train.choice_rejection_reason(item.spec) is not None:continue
+            k=(*key(r),r.frame_id)
+            if k in self.by_key:
+                if asdict(r)!=asdict(self.by_key[k]):
+                    raise ValueError('Auxiliary label conflicts with frozen base observation/label')
+            else:
+                self.by_key[k]=r;self.aux_added+=1
 
     def at(self, row, frame):
         return self.by_key.get((*key(row), frame))
@@ -90,13 +107,14 @@ class Pool:
             source_ids=[digest(case_identity(train._make_item(r,seed=20260904))) for r in targets])
 
     def record(self, row, mode):
-        return self.future(row) if mode=='future' else self.windows(row,mode)
+        return self.future(row,self.offsets) if mode=='future' else self.windows(row,mode)
 
     def eligible(self, mode, split):
         selected=[]; coverage=Counter(); targets=Counter()
-        for row in self.by_key.values():
+        for row in self.anchor_rows:
             if row.split != split:
                 continue
+            if (*key(row),row.frame_id) not in self.by_key:continue
             record=self.record(row,mode)
             coverage['candidate/'+row.context_id]+=1
             if record is None:

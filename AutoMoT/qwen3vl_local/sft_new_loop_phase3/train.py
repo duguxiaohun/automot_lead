@@ -2365,4 +2365,10 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    if os.environ.get("LEGACY_PHASE3_SEQUENCE") != "1":
+        raise SystemExit(
+            "Direct legacy sequence training is disabled. Use audit_joint/phase3_base_trial.sh "
+            "for the restored base, or explicitly set LEGACY_PHASE3_SEQUENCE=1 "
+            "with the original pinned checkout for old recovery."
+        )
     train(parse_args())

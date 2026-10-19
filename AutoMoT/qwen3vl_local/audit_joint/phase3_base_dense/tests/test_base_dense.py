@@ -252,7 +252,7 @@ def test_dense_real_processor_enters_native_training_and_checkpoint(tmp_path,mon
     from qwen3vl_local.sft_new_loop_phase3.test_entry_admission import fixture
     index=fixture(tmp_path,'valid');base=tmp_path/'base';base.mkdir();(base/'config.json').write_text('{}')
     for name in ('_make_item','_contiguous_work','_loss_batch','SEQUENCE_POLICY','_build_inputs',
-                 'load_model_with_lora','_save_adapter','_write_run_metadata'):
+                 'load_model_with_lora','_save_adapter','_write_run_metadata','_append_jsonl','verify_epoch_consumption'):
         monkeypatch.setattr(train,name,getattr(train,name))
     monkeypatch.setattr(preflight,'check_model',lambda *a:None)
     class Tiny(torch.nn.Module):
@@ -267,7 +267,13 @@ def test_dense_real_processor_enters_native_training_and_checkpoint(tmp_path,mon
     from PIL import Image
     monkeypatch.setattr(train,'_load_images',lambda paths,**kw:[Image.new('RGB',(32,32)) for _ in paths])
     j=job(tmp_path);j.update(index=str(index),model_dir=str(base),mode='future',init_adapter='fixture',init_adapter_files={})
-    pool=runtime.load_pool(j);runtime.install(j,pool)
+    pool=runtime.load_pool(j)
+    aux=[replace(r,frame_id=r.frame_id+offset) for r in pool.anchor_rows if r.split=='train' for offset in (12,24)]
+    pool=data.Pool(pool.anchor_rows,aux,offsets=(0,12,24))
+    hook_names=('_make_item','_contiguous_work','_loss_batch','SEQUENCE_POLICY','_build_inputs',
+                'load_model_with_lora','_save_adapter','_write_run_metadata','_append_jsonl','verify_epoch_consumption')
+    originals={n:getattr(train,n) for n in hook_names}
+    runtime.install(j,pool)
     cfg=runtime.make_args(j);cfg.device='cpu';cfg.focus_balance_count=1;cfg.warmup_steps=2
     cfg.prompt_variant='baseline';cfg.eval_steps=cfg.generation_eval_steps=0;cfg.save_final=False
     train.train(cfg)
@@ -275,3 +281,19 @@ def test_dense_real_processor_enters_native_training_and_checkpoint(tmp_path,mon
     assert state['global_step']==10 and state['trainable']['values'].abs().sum()>0
     manifest=json.loads((Path(cfg.output_dir)/'train_run_manifest.json').read_text())
     assert manifest['dense_contract']['ground_truth_in_input'] is False
+    consumed=json.loads((Path(cfg.output_dir)/'balance/query_consumed_epoch_0001.json').read_text())
+    assert consumed['supervised_queries']==30 and consumed['anchor_presentations']==10
+
+    # Resume into a fresh process-equivalent set of hooks; no epoch-0 report reuse.
+    for name,value in originals.items():setattr(train,name,value)
+    checkpoint=Path(cfg.output_dir)/'training_states/epoch_0001'
+    resumed=dict(j,output=str(tmp_path/'resumed_dense'),resume=str(checkpoint),resume_epoch=1,stage='complete')
+    runtime.install(resumed,pool)
+    cfg.output_dir=str(Path(resumed['output'])/'train');cfg.resume=str(checkpoint);cfg.stop_after_epoch=None
+    train.train(cfg)
+    final=torch.load(Path(cfg.output_dir)/'training_states/epoch_0003/training_state.pt',weights_only=True)
+    assert final['global_step']==30
+    assert not (Path(cfg.output_dir)/'balance/query_consumed_epoch_0001.json').exists()
+    for epoch in (2,3):
+        report=json.loads((Path(cfg.output_dir)/f'balance/query_consumed_epoch_{epoch:04d}.json').read_text())
+        assert report['epoch']==epoch-1 and report['supervised_queries']==30

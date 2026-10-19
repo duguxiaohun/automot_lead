@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Current default: restored independent 4rgb choice base (B1/acc1, 7680 updates).
+# The historical usage notes below apply only with LEGACY_PHASE3_SEQUENCE=1.
 # v23 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # sft_new_loop_phase3 训练 launcher：单轮 high-level 动作问答 + 可选 torch DDP。
 #
@@ -13,6 +15,11 @@
 set -euo pipefail
 
 ulimit -S -c 0 2>/dev/null || true
+
+# Default entry is the restored independent base; the code below is legacy-only.
+if [[ "${LEGACY_PHASE3_SEQUENCE:-0}" != 1 ]]; then
+  exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../audit_joint/phase3_default.sh" "$@"
+fi
 
 MODE="${1:-${MODE:-ddp}}"
 if [[ "${MODE}" != "single" && "${MODE}" != "ddp" && "${MODE}" != "check" && "${MODE}" != "sampling" ]]; then

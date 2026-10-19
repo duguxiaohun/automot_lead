@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Current default: restored independent 4rgb choice base (B1/acc1, 7680 updates).
+# The historical usage notes below apply only with LEGACY_PHASE3_SEQUENCE=1.
 # v23 choice：一个主要动作或 KEEP；STOP > 首次跨线 > 纵向，需新索引和新训练。
 # 默认 RGB-stage 候选：隔离建库 -> 完整训练 -> test评测 -> 结果打包；无需历史审计包。
 # PROMPT_VARIANT=baseline 可显式运行冻结 v23；标签/阈值不随候选更改。
@@ -22,6 +24,11 @@
 set -euo pipefail
 
 ulimit -S -c 0 2>/dev/null || true
+
+# Default entry is the restored independent base; the code below is legacy-only.
+if [[ "${LEGACY_PHASE3_SEQUENCE:-0}" != 1 ]]; then
+  exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../audit_joint/phase3_default.sh" "$@"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUTOMOT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"

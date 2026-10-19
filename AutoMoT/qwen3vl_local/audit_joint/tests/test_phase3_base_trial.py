@@ -238,4 +238,10 @@ def test_published_sources_reference_and_native_production_unchanged():
     prior=trial.read(Path(trial.__file__).with_name('release_sources_v88_resume_lifecycle_20261019.json'))
     for name,sha in prior['files'].items():
         if name.startswith(('qwen3vl_local/sft_new_loop_phase3/','qwen3vl_local/sft_v2/','qwen3vl_local/qwen35/')) or name in ('qwen3vl_local/sequence_batch.py','qwen3vl_local/batch_runtime.py'):
+            if name.endswith(('/train.py','/train.sh','/run_full_pipeline.sh')) and '/sft_new_loop_phase3/' in '/'+name:
+                continue  # CLI routing/guard changed; computational functions checked below.
             assert trial.file_sha(trial.APP/name)==sha,name
+    import ast, subprocess
+    old=subprocess.check_output(['git','show','06cda13d36a91253d9f81bba71299f825723ed9e:AutoMoT/qwen3vl_local/sft_new_loop_phase3/train.py'],text=True)
+    functions=lambda text:[ast.dump(n) for n in ast.parse(text).body if isinstance(n,(ast.FunctionDef,ast.ClassDef))]
+    assert functions(old)==functions((trial.APP/'qwen3vl_local/sft_new_loop_phase3/train.py').read_text())

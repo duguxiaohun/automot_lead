@@ -2,7 +2,7 @@
 
 stream: one causal sequence, eight images, five readouts (prefixes 4..8).
 windows: five independent four-image contexts; only frozen vision is shared.
-future: current four images, simultaneous forecasts at 0/1/2 seconds.
+future: current four images, simultaneous forecasts at configured time anchors.
 """
 import torch
 import torch.nn.functional as F
@@ -70,7 +70,7 @@ def locate_queries(tokenizer, input_ids, count):
     return positions
 
 
-def pack(bundle,record,images,*,max_length=8192,max_pixels=442368):
+def pack(bundle,record,images,*,max_length=8192,max_pixels=442368,max_batch_tokens=16384):
     if len(images)!=(4 if record['mode']=='future' else 8):
         raise ValueError('Wrong number of images')
     if record['mode']=='windows':
@@ -78,7 +78,11 @@ def pack(bundle,record,images,*,max_length=8192,max_pixels=442368):
         for i in range(5):
             one=dict(record,mode='future',actions=record['actions'][i:i+1],offsets_seconds=[0])
             if record.get('premises'):one['premises']=record['premises'][i:i+1]
+            if 'query_weights' in record:one['query_weights']=record['query_weights'][i:i+1]
             rows.append(pack(bundle,one,images[i:i+4],max_length=max_length,max_pixels=max_pixels))
+        # Real right-padded tensor footprint, not just the unpadded sum.
+        if len(rows)*max(p['tokens'] for p in rows)>max_batch_tokens:
+            raise ValueError('Strict windows exceed total padded batch token budget')
         return rows
     msg=messages(record,images)
     text=bundle.processor.apply_chat_template(msg,tokenize=False,add_generation_prompt=False)
@@ -94,8 +98,10 @@ def pack(bundle,record,images,*,max_length=8192,max_pixels=442368):
     positions=locate_queries(bundle.tokenizer,inputs['input_ids'][0],len(record['actions']))
     token_ids=choice_ids(bundle.tokenizer)
     targets=[-100 if x is None else token_ids[ACTIONS.index(x)] for x in record['actions']]
-    return dict(inputs=inputs,positions=positions,targets=targets,choices=token_ids,
+    result=dict(inputs=inputs,positions=positions,targets=targets,choices=token_ids,
                 tokens=int(inputs['input_ids'].shape[1]),images=len(images))
+    if 'query_weights' in record:result['query_weights']=record['query_weights']
+    return result
 
 
 def readout_logits(model,packed,device):
@@ -108,15 +114,18 @@ def readout_logits(model,packed,device):
 def readout_loss(model,packed,device):
     logits=readout_logits(model,packed,device)
     labels=torch.tensor(packed['targets'],device=device)
-    valid=labels.ne(-100)
+    weights=torch.tensor(packed.get('query_weights',[1.]*len(labels)),device=device,dtype=torch.float32)
+    valid=labels.ne(-100)&weights.gt(0)
     if not valid.any():
         raise ValueError('Dense sample has no supported target')
-    loss=F.cross_entropy(logits[valid],labels[valid])
+    losses=F.cross_entropy(logits[valid],labels[valid],reduction='none')
+    loss=(losses*weights[valid]).sum() if 'query_weights' in packed else losses.mean()
     choices=torch.tensor(packed['choices'],device=device)
     constrained=choices[logits[:,choices].argmax(-1)]
     predicted=logits.argmax(-1)
     return loss,dict(supervised=int(valid.sum()),correct=int((predicted[valid]==labels[valid]).sum()),
                     predictions=predicted.detach().cpu().tolist(),targets=packed['targets'],
+                    query_weights=weights.tolist(),loss_mass=float(weights[valid].sum()),
                     constrained_correct=int((constrained[valid]==labels[valid]).sum()),
                     valid_vocabulary=int(torch.isin(logits.argmax(-1),choices)[valid].sum()),
                     tokens=packed['tokens'],images=packed['images'])
@@ -147,19 +156,23 @@ def window_logits(bundle,packed):
 def window_loss(bundle,packed):
     logits,reuse=window_logits(bundle,packed)
     labels=torch.tensor([p['targets'][0] for p in packed],device=bundle.device)
-    if labels.lt(0).any():
-        raise ValueError('Strict windows require all five native targets')
+    weights=torch.tensor([p.get('query_weights',[1.])[0] for p in packed],device=bundle.device)
+    valid=labels.ne(-100)&weights.gt(0)
+    if not valid.any():raise ValueError('No supported window target')
     choices=torch.tensor(packed[0]['choices'],device=bundle.device)
     constrained=choices[logits[:,choices].argmax(-1)]
     predicted=logits.argmax(-1)
-    return F.cross_entropy(logits,labels),dict(supervised=5,correct=int((predicted==labels).sum()),
+    losses=F.cross_entropy(logits[valid],labels[valid],reduction='none')
+    loss=(losses*weights[valid]).sum() if 'query_weights' in packed[0] else losses.mean()
+    return loss,dict(supervised=int(valid.sum()),correct=int((predicted[valid]==labels[valid]).sum()),
         predictions=predicted.detach().cpu().tolist(),targets=labels.cpu().tolist(),
-        constrained_correct=int((constrained==labels).sum()),
+        query_weights=weights.tolist(),loss_mass=float(weights[valid].sum()),
+        constrained_correct=int((constrained[valid]==labels[valid]).sum()),
         tokens=sum(p['tokens'] for p in packed),images=8,visual_reuse=dict(reuse))
 
 
 @torch.no_grad()
-def predict(bundle,record,images):
+def predict(bundle,record,images,*,max_batch_tokens=16384):
     """Label-free inference for the exact training protocol; no generate() swap.
 
     Caller supplies the same observed premises and image order. Targets are
@@ -167,7 +180,7 @@ def predict(bundle,record,images):
     """
     count=len(record['offsets_seconds']) if record['mode']=='future' else 5
     unlabeled=dict(record,actions=[None]*count)
-    packed=pack(bundle,unlabeled,images)
+    packed=pack(bundle,unlabeled,images,max_batch_tokens=max_batch_tokens)
     logits,_=window_logits(bundle,packed) if isinstance(packed,list) else (
         readout_logits(bundle.model,packed,bundle.device),None)
     ids=choice_ids(bundle.tokenizer)

@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
+# Current default: restored independent 4rgb choice base (B1/acc1, 7680 updates).
+# The historical usage notes below apply only with LEGACY_PHASE3_SEQUENCE=1.
 # Four-H20 Phase3 profile selected by fixed-sample end-to-end measurements.
 # Run from AutoMoT/. The generic train.sh remains available for other profiles.
 set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
+
+# Default entry is the restored independent base; the code below is legacy-only.
+if [[ "${LEGACY_PHASE3_SEQUENCE:-0}" != 1 ]]; then
+  exec bash "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/phase3_default.sh" "$@"
+fi
 : "${INDEX:?Set INDEX to the existing Phase3 frame_index.jsonl}"
 [[ $# -le 1 ]] || { echo 'Use train_phase3_batch.sh [ddp|sampling]' >&2; exit 2; }
 P3_BATCH_MODE="${1:-ddp}"
