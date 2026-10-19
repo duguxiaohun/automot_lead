@@ -1,0 +1,52 @@
+{
+  "schema": "phase3_base_a_b_suite_verification_v1",
+  "date": "2026-10-19",
+  "user_selected_initialization": "same_qwen_three_epochs_each_no_base_adapter_finetuning",
+  "historical_best": {
+    "history_rgb_mode": "4rgb",
+    "action_output_mode": "choice",
+    "val_correct": 242,
+    "val_total": 320,
+    "test_correct": 274,
+    "test_total": 380,
+    "reference_source": "phase3_three_epoch_acceptance_verification_20261014.json"
+  },
+  "source_release": {
+    "path": "phase3_base_trial_sources.json",
+    "files": 255,
+    "sha256": "00302cfd7c2d78ebd16c3e59409c87554fa780abf5a97d691bc0811dddf2f3eb"
+  },
+  "test_runs": [
+    {
+      "scope": "existing regressions plus first 15 suite tests",
+      "passed": 186,
+      "seconds": 180.77
+    },
+    {
+      "scope": "final 17 suite tests after additional cases and exception/Git handling fixes; overlaps previous run",
+      "passed": 17,
+      "seconds": 2.59
+    }
+  ],
+  "unique_test_cases": 188,
+  "verified": [
+    "Three arms have independent Qwen initialization and fixed three-epoch/7680-update schedule",
+    "Shared supplemental labels generated once, frozen base bytes preserved, source/context/split filters and reuse integrity checked",
+    "All CPU admissions and dense DDP probes scheduled before any training; failure stops subsequent stages",
+    "Public prepare-only coordinator and legacy shell check-only switches do not select GPUs or train",
+    "Model file mutation detected by content SHA before subsequent stages",
+    "Three independent audit archives exclude weights, retain workflow/job and checksums",
+    "Offline comparison reads native rank files and correct dense query positions, reports missing coverage and common support",
+    "Pure whitelist deployment without Git metadata remains supported with source SHA binding"
+  ],
+  "limitations": [
+    "No server full-pool auxiliary generation/coverage admission in this local test",
+    "No H20 four-GPU training or resource admission",
+    "No new model accuracy, improvement or recovery established",
+    "Native data generation test uses synthetic raw-meta fixtures and supplied candidate stream; not full collection audit",
+    "Three methods differ in prompts/output/protocol; this is not a pure supervision-density ablation"
+  ],
+  "server_training_executed": false,
+  "old_models_evaluated": false,
+  "raw_assets_deleted": false
+}

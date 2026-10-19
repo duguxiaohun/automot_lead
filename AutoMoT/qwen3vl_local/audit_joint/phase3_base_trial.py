@@ -151,15 +151,24 @@ def build_job(args, output):
             if not manifest.is_file():raise ValueError('Auxiliary index requires its native manifest.json')
             if output.resolve().is_relative_to(aux.resolve().parent):raise ValueError('Output overlaps auxiliary labels')
             job['aux_binding']=dict(index_sha256=file_sha(aux),manifest_sha256=file_sha(manifest))
-        if not getattr(args,'init_adapter',None):
-            raise ValueError('Dense routes require the explicitly selected restored base adapter')
-        init=args.init_adapter.resolve(strict=True)
-        cfg=read(init/'sft_new_loop_phase3_adapter_config.json')
-        if (cfg.get('sampling_policy')!='event_action_independent_v1'
-                or cfg.get('global_step')!=7680 or cfg.get('dense_contract')):
-            raise ValueError('Initialize from the completed independent 7680-update base, not sequence/dense weights')
-        job.update(init_adapter=str(init),init_adapter_files={str(p.relative_to(init)):file_sha(p)
-            for p in sorted(init.rglob('*')) if p.is_file()})
+        initialization=getattr(args,'dense_initialization','base_adapter')
+        if initialization not in ('qwen','base_adapter'):
+            raise ValueError('Unknown dense initialization')
+        job['initialization']=initialization
+        if initialization=='qwen':
+            if getattr(args,'init_adapter',None):
+                raise ValueError('Qwen initialization cannot also load an adapter')
+            job.update(init_adapter=None,init_adapter_files={})
+        else:
+            if not getattr(args,'init_adapter',None):
+                raise ValueError('Dense routes require an explicit restored base adapter or --dense-initialization qwen')
+            init=args.init_adapter.resolve(strict=True)
+            cfg=read(init/'sft_new_loop_phase3_adapter_config.json')
+            if (cfg.get('sampling_policy')!='event_action_independent_v1'
+                    or cfg.get('global_step')!=7680 or cfg.get('dense_contract')):
+                raise ValueError('Initialize from the completed independent 7680-update base, not sequence/dense weights')
+            job.update(init_adapter=str(init),init_adapter_files={str(p.relative_to(init)):file_sha(p)
+                for p in sorted(init.rglob('*')) if p.is_file()})
     elif getattr(args,'init_adapter',None):
         raise ValueError('The restored base starts from Qwen; init-adapter is only for dense routes')
     elif getattr(args,'aux_index',None) or getattr(args,'supervision','all')!='all':
@@ -255,7 +264,7 @@ def package(output, state):
     write(output/'workflow.json', state)
     files = {}
     names = {'workflow.json', 'job.json', 'preflight.json', 'validation_summary.json',
-             'metrics.json', 'training_progress.json', 'train_run_manifest.json',
+             'suite_contract.json', 'shared_data_receipt.json', 'metrics.json', 'training_progress.json', 'train_run_manifest.json',
              'train_eval_metrics.jsonl', 'final_generation.json', 'dense_val_cases.json',
              'dense_test_cases.json', 'dense_val_summary.json', 'dense_test_summary.json',
              'dense_val_sequence_metrics.json', 'dense_test_sequence_metrics.json',
@@ -305,6 +314,7 @@ def main():
     p.add_argument('--resume', type=Path)
     p.add_argument('--experiment', choices=['base','future','stream','windows','windows_prefix','windows_bank'], default='base')
     p.add_argument('--init-adapter', type=Path)
+    p.add_argument('--dense-initialization', choices=['base_adapter','qwen'], default='base_adapter')
     p.add_argument('--aux-index', type=Path, help='Separately validated native labels; matching base routes/splits only, raw meta recomputation required')
     p.add_argument('--supervision', choices=['all','single'], default='all')
     p.add_argument('--forecast-span-seconds', type=float, default=6.)

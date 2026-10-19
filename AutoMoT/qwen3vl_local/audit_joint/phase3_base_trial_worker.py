@@ -75,6 +75,8 @@ def make_args(job):
         coordinator_sha256=trial.file_sha(Path(trial.__file__)),
         generation='original_single_item_kv_loop_four_rank',
         validation='historical_frozen_ids', old_models_evaluated=False)
+    if job.get('suite_binding'):
+        args.base_trial['suite_binding']=job['suite_binding']
     return args
 
 

@@ -20,6 +20,12 @@ def validate(job):
         actual=dict(index_sha256=trial.file_sha(p),manifest_sha256=trial.file_sha(p.with_name('manifest.json')))
         if actual!=job['aux_binding']:raise ValueError('Auxiliary labels/manifest changed')
     elif job.get('aux_binding'):raise ValueError('Auxiliary label path missing')
+    if job.get('initialization')=='qwen':
+        if job.get('init_adapter') or job.get('init_adapter_files'):
+            raise ValueError('Qwen initialization contains an adapter')
+        return
+    if job.get('initialization','base_adapter')!='base_adapter':
+        raise ValueError('Unknown initialization')
     init=Path(job['init_adapter'])
     actual={str(p.relative_to(init)):trial.file_sha(p) for p in sorted(init.rglob('*')) if p.is_file()}
     if actual!=job['init_adapter_files']:raise ValueError('Initialization adapter changed')

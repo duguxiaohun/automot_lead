@@ -59,6 +59,7 @@ def contract(job):
         cache_scope='one optimizer forward only; no stale cache across updates',
         max_length_per_sequence=8192,max_padded_batch_tokens=job.get('max_batch_tokens',16384),max_pixels_per_image=442368,
         loss_normalization='event/action quota-weighted query CE sum per anchor; average anchors across ranks',
+        initialization=job.get('initialization','base_adapter'),
         init_adapter=job['init_adapter'],init_adapter_files=job['init_adapter_files'],
         release_sha256=job['release_sha256'])
 
@@ -82,6 +83,10 @@ def common_record(row,mode='future'):
 
 
 def initialize(bundle,job):
+    if job.get('initialization')=='qwen':
+        if job.get('init_adapter') or job.get('init_adapter_files'):
+            raise ValueError('Qwen initialization contains adapter weights')
+        return bundle
     from qwen3vl_local.qwen35.adapters import validate_adapter
     from peft.utils.save_and_load import load_peft_weights, set_peft_model_state_dict
     validate_adapter(job['init_adapter'])
