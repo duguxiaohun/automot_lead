@@ -1,0 +1,108 @@
+{
+  "scope": "local token identity regression and unchanged data verification; no model performance claim",
+  "sources": {
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "experiment_sources": {
+      "__init__.py": "f2548440bfc9e698c2c0866177a3b8425296d826bc17d03f0f40222ee8807370",
+      "__main__.py": "64128721fbed87303338f83ddac426e1394b0715f342000a0315c0399ec655ed",
+      "dataset.py": "4c960f5527a9e7337a7298a9e76d049a13a5e3578ba58cb5819c251895d6c378",
+      "history.py": "fc8acfd29a79266bdacbe6139f681734a0bd27db623c5fe40a3a5d7feaa3cc87",
+      "local_check.py": "ea37d34e2e269c544d87961771c4d554ca512b9f6ccfbb00913b8366712c7af0",
+      "objective.py": "ede8fd739eb43270473cf69719c937417e39ee97b2a8e1436b348a45f98e6b9a",
+      "planning.py": "358a276e4f97358f42b8a491a0692454ae267b0ad5146ee6b6b2abb6c3c19dcd",
+      "protocol.py": "f66426799f615ed842589719718fad9a94c8968f3c5bb73ca570a56cfa849c41",
+      "refresh_runtime.py": "489d40d064629e7c9deb11acad259a2cd2976828f6c93ddf2a19d57e74a6b1d2",
+      "runtime.py": "8333c2d0745830cbd839be8d2a6ff318ed1e85ebcdce5009e91dac933f52edb8",
+      "targets.py": "ff10ea8e8d5dd4832b06e60d61fd7b551667e5bed49d24123a40c2555ac2228c",
+      "worker.py": "d45fc72b33cddd4866417401f9d7c3e99f9e52da2219d8400ea5fe74d7b6a7ed"
+    }
+  },
+  "datasets": {
+    "train": {
+      "artifact": "AutoMoT/checkpoints/phase3_single_frame_v1/token_identity_train/dataset.json",
+      "artifact_sha256": "bd141828af8ac47dffd71816bc232bccdcc30db05026bbf34b5d75b9dd16d927",
+      "parent_sha256": "a6a19320f8055af1f0c9eb75152791030098053f78d37873fc48278a231b9c76",
+      "records_sha256": "27986a9bfe409d23e1fa8b3ef2771a975e8c253ad34990aee31292fd0a94e111",
+      "all_records_equal_to_previous": true,
+      "labels_recomputed": false,
+      "raw_sources_verified": true,
+      "anchors": 302,
+      "valid_future_windows": 946,
+      "valid_window_count_histogram": {
+        "4": 179,
+        "2": 47,
+        "3": 38,
+        "1": 22,
+        "0": 16
+      },
+      "unknown_history_windows": 88,
+      "unknown_history_anchor_histogram": {
+        "2": 19,
+        "0": 263,
+        "1": 7,
+        "3": 9,
+        "4": 4
+      },
+      "changed_runtime_sources": [
+        "objective.py",
+        "protocol.py",
+        "worker.py"
+      ],
+      "prompt_sha256": "b196bd5fa2358238115124b56322af35ef120290df036779601297d8fb0f3737"
+    },
+    "val": {
+      "artifact": "AutoMoT/checkpoints/phase3_single_frame_v1/token_identity_val/dataset.json",
+      "artifact_sha256": "e69e534407136165d76d97999aea0535cd042b16e1a3a90218ce5443aa487c11",
+      "parent_sha256": "4bf756c7bfa8296048cd9d48eea9732095403ee173bea34343f54455ae6414e4",
+      "records_sha256": "43e612c13babff4833d2a8f9abf0b2da05041c43af6814cf9394d36e595e16c6",
+      "all_records_equal_to_previous": true,
+      "labels_recomputed": false,
+      "raw_sources_verified": true,
+      "anchors": 320,
+      "valid_future_windows": 964,
+      "valid_window_count_histogram": {
+        "4": 168,
+        "0": 25,
+        "2": 45,
+        "3": 60,
+        "1": 22
+      },
+      "unknown_history_windows": 116,
+      "unknown_history_anchor_histogram": {
+        "0": 265,
+        "2": 27,
+        "1": 13,
+        "4": 4,
+        "3": 11
+      },
+      "changed_runtime_sources": [
+        "objective.py",
+        "protocol.py",
+        "worker.py"
+      ],
+      "prompt_sha256": "b196bd5fa2358238115124b56322af35ef120290df036779601297d8fb0f3737"
+    }
+  },
+  "tests": {
+    "passed": 176,
+    "seconds": 47.16,
+    "log": "AutoMoT/checkpoints/phase3_single_frame_v1/token_identity_tests.log",
+    "log_sha256": "f8283f1d4e8b5504b02993e408204855fd27d33a51bfc4cbbe61e34c40a00bb2",
+    "includes": "37 single-frame tests including six new token/missingness regressions, real tiny Qwen forward/backward, CPU epoch resume and existing native rule regressions"
+  },
+  "tokenizer_evidence": {
+    "implementation": "project Qwen3_5Tokenizer with official chat template and image processor",
+    "test_vocabulary": "synthetic byte-level vocabulary with whitespace merges; separate unsafe newline merge counterexample",
+    "server_model_tokenizer_checked": false,
+    "server_model_check": "mandatory all six actions in all four slots during prepare; per-input identity guard thereafter"
+  },
+  "unknown_policy": {
+    "meaning": "missing information",
+    "random_training_masking": false,
+    "attention_masked": false,
+    "future_labels_filled": false,
+    "robustness_improvement_verified": false
+  },
+  "gpu_training": false,
+  "pushed": false
+}

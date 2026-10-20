@@ -1,0 +1,82 @@
+{
+  "policy": "offline_native",
+  "post_observation_history_evidence_allowed": true,
+  "source_binding": {
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "experiment_sources": {
+      "__init__.py": "4f67a50e3a8328a5ff76d537959e1df833bc57404c0f271a0fd39be44c79094e",
+      "__main__.py": "95a67be8f548174448aab4910c0e1c76055aa777e7be0eff65edfb078772efb4",
+      "dataset.py": "378d8b6de0aeb69b5f7640f0a4dbd3ab5c4ba7e7827cf6c880a8fa429ad67060",
+      "history.py": "a2e03369ad39d35b9e08d5b05bc2bebbd29045ef183eb39924df8e20a1866e9e",
+      "local_check.py": "d596d0fa6761d4fa0fb9de4115611af048c14fb447c2c49df35bf7468bc99607",
+      "objective.py": "c007826bbfc04028c1c72863e325223e40de101b4a0f18b69a58823004a93aec",
+      "planning.py": "358a276e4f97358f42b8a491a0692454ae267b0ad5146ee6b6b2abb6c3c19dcd",
+      "runtime.py": "9946fa7fe0de59aeda2e79052e7b02d7c9650e12fc41d8b12952f8f28a50928f",
+      "targets.py": "ff10ea8e8d5dd4832b06e60d61fd7b551667e5bed49d24123a40c2555ac2228c",
+      "worker.py": "dea81308f62e623dafb5b66ff77398f4b31f7e14b18df1f4f278c66fdd003d0d"
+    }
+  },
+  "native_rule_modified": false,
+  "datasets": {
+    "train": {
+      "anchors": 302,
+      "known_history_tokens": 994,
+      "total_history_tokens": 1208,
+      "known_history_fraction": 0.8228476821192053,
+      "history_action_counts": {
+        "UNKNOWN": 214,
+        "STOP": 293,
+        "KEEP": 167,
+        "LANE_CHANGE_LEFT": 127,
+        "LANE_CHANGE_RIGHT": 82,
+        "RESUME": 134,
+        "DECELERATE": 191
+      },
+      "anchors_with_any_known_history": 295,
+      "anchors_with_all_known_history": 186,
+      "native_history_origins_exactly_checked": 2416,
+      "future_labels_and_windows_unchanged": true,
+      "anchor_members_and_order_unchanged": true,
+      "fixed_val_ids_match": null,
+      "current_dataset_sha256": "eaa94da688e657cb4d4769df92de06933c18cfd7dff46701a3886eba0be47a08",
+      "local_check_sha256": "d82139d51cac9f333c4fda82c252cb8d999be344cbc8083103913f8e114f8f31",
+      "source_and_raw_files_reloaded_verified": true,
+      "valid_future_windows": 946
+    },
+    "val": {
+      "anchors": 320,
+      "known_history_tokens": 1045,
+      "total_history_tokens": 1280,
+      "known_history_fraction": 0.81640625,
+      "history_action_counts": {
+        "STOP": 552,
+        "LANE_CHANGE_LEFT": 33,
+        "LANE_CHANGE_RIGHT": 59,
+        "DECELERATE": 149,
+        "KEEP": 138,
+        "UNKNOWN": 235,
+        "RESUME": 114
+      },
+      "anchors_with_any_known_history": 310,
+      "anchors_with_all_known_history": 200,
+      "native_history_origins_exactly_checked": 2560,
+      "future_labels_and_windows_unchanged": true,
+      "anchor_members_and_order_unchanged": true,
+      "fixed_val_ids_match": true,
+      "current_dataset_sha256": "c519e319654da7eff1ac9a10869019487dfa0e95cc843c73598cbf7b5e8bd21b",
+      "local_check_sha256": "8f622c4fb07d90911b7936601482b203cc0b7165075e120f0757cfa391e0d5ab",
+      "source_and_raw_files_reloaded_verified": true,
+      "valid_future_windows": 964
+    }
+  },
+  "gpu_training": false,
+  "model_accuracy_measured": false,
+  "pushed": false,
+  "three_epoch_anchor_order_and_event_action_quotas_unchanged": true,
+  "tests": {
+    "passed": 153,
+    "seconds": 38.43,
+    "log_sha256": "4ad281016d75cc3dae01ae1bac94f0eae73b79a781d6180f90e098742796a618"
+  },
+  "scope": "Known local development data; original native labeling checked, no model performance claim"
+}

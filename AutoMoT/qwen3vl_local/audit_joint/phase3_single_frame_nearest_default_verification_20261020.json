@@ -1,0 +1,84 @@
+{
+  "default_history_fill": "nearest_short",
+  "source_binding": {
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "experiment_sources": {
+      "__init__.py": "f2548440bfc9e698c2c0866177a3b8425296d826bc17d03f0f40222ee8807370",
+      "__main__.py": "64128721fbed87303338f83ddac426e1394b0715f342000a0315c0399ec655ed",
+      "dataset.py": "4c960f5527a9e7337a7298a9e76d049a13a5e3578ba58cb5819c251895d6c378",
+      "history.py": "fc8acfd29a79266bdacbe6139f681734a0bd27db623c5fe40a3a5d7feaa3cc87",
+      "local_check.py": "ea37d34e2e269c544d87961771c4d554ca512b9f6ccfbb00913b8366712c7af0",
+      "objective.py": "c007826bbfc04028c1c72863e325223e40de101b4a0f18b69a58823004a93aec",
+      "planning.py": "358a276e4f97358f42b8a491a0692454ae267b0ad5146ee6b6b2abb6c3c19dcd",
+      "runtime.py": "6cee972c0f476824a7a14e3c7da8257c6a630e60f659057ccb9ee9c8b4f0f8e6",
+      "targets.py": "ff10ea8e8d5dd4832b06e60d61fd7b551667e5bed49d24123a40c2555ac2228c",
+      "worker.py": "dea81308f62e623dafb5b66ff77398f4b31f7e14b18df1f4f278c66fdd003d0d"
+    }
+  },
+  "datasets": {
+    "train": {
+      "anchors": 302,
+      "counts": {
+        "windows": 1208,
+        "original_unknown": 214,
+        "remaining_unknown": 88,
+        "imputed_windows": 126,
+        "changed_windows": 126,
+        "imputed_points/nearest_transition": 85,
+        "imputed_points/same_endpoints": 63
+      },
+      "known_fraction": 0.9271523178807947,
+      "future_labels_and_native_history_preserved": true,
+      "history_matches_prior_nearest_comparison": true,
+      "source_and_raw_files_verified": true,
+      "artifact_sha256": "4681316b530b0c29d3c1d5146950e6fccf03fce15637a56f36cf1aa5d638b862",
+      "local_check_sha256": "f0d45d91b5901ed5b8e534def4a04b1ed90c1980e2c69619c4f0605dc9e8b533",
+      "fixed_val_ids_match": null
+    },
+    "val": {
+      "anchors": 320,
+      "counts": {
+        "windows": 1280,
+        "original_unknown": 235,
+        "remaining_unknown": 116,
+        "imputed_windows": 119,
+        "changed_windows": 119,
+        "imputed_points/nearest_transition": 75,
+        "imputed_points/same_endpoints": 63
+      },
+      "known_fraction": 0.909375,
+      "future_labels_and_native_history_preserved": true,
+      "history_matches_prior_nearest_comparison": true,
+      "source_and_raw_files_verified": true,
+      "artifact_sha256": "32d07e59078d6263107757f4299b228e90bab701c62bd8dab2559fdb30fddeb5",
+      "local_check_sha256": "d61eb30a5a4c5d624c65553b60b6757ee2eef6d90e4b3ffe421d7d44ef236001",
+      "fixed_val_ids_match": true
+    }
+  },
+  "model_accuracy_measured": false,
+  "gpu_training_executed": false,
+  "pushed": false,
+  "three_epoch_sampling_preserved": true,
+  "training_budget": {
+    "epochs": 3,
+    "world_size": 4,
+    "batch_size": 1,
+    "grad_accum": 1,
+    "per_event": 1024,
+    "optimizer_updates": 7680,
+    "status": "CPU plan only"
+  },
+  "tests": {
+    "passed": 165,
+    "seconds": 39.92,
+    "log_sha256": "dcb0656e3bac584fd41bf127df0970874502aad71027294085889e8e18660bb5",
+    "includes_actual_cpu_cli_default_and_explicit_comparison_modes": true
+  },
+  "evidence_root": "AutoMoT/checkpoints/phase3_single_frame_v1",
+  "limitations": [
+    "Local development label coverage is not model accuracy",
+    "Interpolated history is derived, native originals and provenance preserved",
+    "No future target imputation or loss-weight changes",
+    "No GPU probe/training/performance verification or push"
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "scope": "local launch/readout/contract/recovery verification; no H20 execution",
+  "frozen_base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+  "frozen_base_source_count": 261,
+  "launch_sources": {
+    "phase3_launch.py": "173595a95d1202a801f730c2d59ed38ed39c8f5c3ae5280933c0b7492b4a561a",
+    "phase3_launch.sh": "3cb2cc94ff9b45762d60a0d6a7e25b28cdf36d866b7ba0c684b3c2a16634abac",
+    "phase3_launch_worker.py": "01d399627bf532ff98a454803aef0306aa31b1666a6f67b7dcd34c9335587d5b"
+  },
+  "single_frame_sources": {
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "experiment_sources": {
+      "__init__.py": "f2548440bfc9e698c2c0866177a3b8425296d826bc17d03f0f40222ee8807370",
+      "__main__.py": "64128721fbed87303338f83ddac426e1394b0715f342000a0315c0399ec655ed",
+      "dataset.py": "4c960f5527a9e7337a7298a9e76d049a13a5e3578ba58cb5819c251895d6c378",
+      "history.py": "fc8acfd29a79266bdacbe6139f681734a0bd27db623c5fe40a3a5d7feaa3cc87",
+      "local_check.py": "ea37d34e2e269c544d87961771c4d554ca512b9f6ccfbb00913b8366712c7af0",
+      "objective.py": "ede8fd739eb43270473cf69719c937417e39ee97b2a8e1436b348a45f98e6b9a",
+      "planning.py": "358a276e4f97358f42b8a491a0692454ae267b0ad5146ee6b6b2abb6c3c19dcd",
+      "protocol.py": "f66426799f615ed842589719718fad9a94c8968f3c5bb73ca570a56cfa849c41",
+      "refresh_runtime.py": "489d40d064629e7c9deb11acad259a2cd2976828f6c93ddf2a19d57e74a6b1d2",
+      "runtime.py": "8333c2d0745830cbd839be8d2a6ff318ed1e85ebcdce5009e91dac933f52edb8",
+      "targets.py": "ff10ea8e8d5dd4832b06e60d61fd7b551667e5bed49d24123a40c2555ac2228c",
+      "worker.py": "5c76645edcef9524ab2e5783b9f71980e81f8c316ed2e26aa3c01e04d74ef37c"
+    }
+  },
+  "final_tests": {
+    "passed": 59,
+    "seconds": 21.29,
+    "command": "pytest -q -p no:cacheprovider qwen3vl_local/audit_joint/tests/test_phase3_launch.py qwen3vl_local/audit_joint/phase3_single_frame/tests qwen3vl_local/audit_joint/tests/test_python_dispatch.py",
+    "cwd": "AutoMoT",
+    "includes_real_two_process_torchrun": true
+  },
+  "earlier_baseline_regression": {
+    "passed": 173,
+    "seconds": 221.81,
+    "overlaps_final_tests": true
+  },
+  "checks": [
+    "native saved base adapter config accepted by actual final-eval parser",
+    "old explicit RGB override rejected with adapter; corrected command accepted",
+    "all planned base input roles scanned with actual local processor implementation",
+    "test RGB missing rejected before GPU",
+    "single-frame missing native manifest rejected before shape scan",
+    "mock stage orchestration stops on probe/train/test failures with original exit code",
+    "fixed method output collision refused; successful latest only",
+    "shell check-only flags and arbitrary cwd; bash syntax and help entry",
+    "complete epoch CPU recovery and small-Qwen input interventions covered by final tests"
+  ],
+  "datasets": {
+    "train": {
+      "anchors": 302,
+      "records_unchanged": true,
+      "records_sha256": "27986a9bfe409d23e1fa8b3ef2771a975e8c253ad34990aee31292fd0a94e111",
+      "unknown_history_windows": 88,
+      "valid_future_windows": 946,
+      "labels_recomputed": false,
+      "artifact_sha256": "1988050f402a1056fb715e6e97a8566278bdbdad91811deadaa19a435e9fb0f2"
+    },
+    "val": {
+      "anchors": 320,
+      "records_unchanged": true,
+      "records_sha256": "43e612c13babff4833d2a8f9abf0b2da05041c43af6814cf9394d36e595e16c6",
+      "unknown_history_windows": 116,
+      "valid_future_windows": 964,
+      "labels_recomputed": false,
+      "artifact_sha256": "4459242ddb7c2b882b2ed319795ac82ae6f44419e7059aa843f5a8e347e3d8f2"
+    }
+  },
+  "gpu_probe_or_training": false,
+  "old_models_evaluated": false,
+  "scheme_two_executed": false,
+  "limitations": [
+    "No local production Qwen3.5-4B tokenizer/weights or H20 fullflow",
+    "Synthetic tokenizers and small models are CPU interface checks, not GPU or quality evidence",
+    "Legacy base fullflow is preserved; use phase3_launch.sh for corrected test dispatch"
+  ]
+}

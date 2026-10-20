@@ -1,0 +1,257 @@
+{
+  "scope": "local code/data and CPU review fixes; no GPU performance claim",
+  "sources": {
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "experiment_sources": {
+      "__init__.py": "f2548440bfc9e698c2c0866177a3b8425296d826bc17d03f0f40222ee8807370",
+      "__main__.py": "64128721fbed87303338f83ddac426e1394b0715f342000a0315c0399ec655ed",
+      "dataset.py": "4c960f5527a9e7337a7298a9e76d049a13a5e3578ba58cb5819c251895d6c378",
+      "history.py": "fc8acfd29a79266bdacbe6139f681734a0bd27db623c5fe40a3a5d7feaa3cc87",
+      "local_check.py": "ea37d34e2e269c544d87961771c4d554ca512b9f6ccfbb00913b8366712c7af0",
+      "objective.py": "b2435e44f76bc5a7238ca0856ea5cc980b32afa25ef4ea27a8a10f9a95751ba9",
+      "planning.py": "358a276e4f97358f42b8a491a0692454ae267b0ad5146ee6b6b2abb6c3c19dcd",
+      "protocol.py": "9cd2b6679ccd701842f66259a5e53056bd21a549fea2081658b9d2b325f1c175",
+      "refresh_runtime.py": "489d40d064629e7c9deb11acad259a2cd2976828f6c93ddf2a19d57e74a6b1d2",
+      "runtime.py": "8333c2d0745830cbd839be8d2a6ff318ed1e85ebcdce5009e91dac933f52edb8",
+      "targets.py": "ff10ea8e8d5dd4832b06e60d61fd7b551667e5bed49d24123a40c2555ac2228c",
+      "worker.py": "f6b9aebc2e99620994f18d69bb288c8652619c13dc84b4f62f849c3ea800b497"
+    }
+  },
+  "native_release_file_count": 261,
+  "datasets": {
+    "train": {
+      "anchors": 302,
+      "valid_future_windows": 946,
+      "valid_window_count_histogram": {
+        "4": 179,
+        "2": 47,
+        "3": 38,
+        "1": 22,
+        "0": 16
+      },
+      "unknown_history_windows": 88,
+      "labels_recomputed": false,
+      "all_records_equal_to_previous": true,
+      "records_sha256": "27986a9bfe409d23e1fa8b3ef2771a975e8c253ad34990aee31292fd0a94e111",
+      "artifact_sha256": "a6a19320f8055af1f0c9eb75152791030098053f78d37873fc48278a231b9c76",
+      "raw_sources_verified": true,
+      "inference_contract": {
+        "schema": "single_frame_inference_v1",
+        "route": "phase3_single_frame_four_native_intents",
+        "prompt_name": "phase3_single_rgb_half_second_native_intents_v4_nearest_history_default",
+        "prompt_variant": "phase3_single_rgb_half_second_native_intents_v4_nearest_history_default",
+        "production_prompt_sha256": "82ce9e528e29a8712d9f07f18156b0faffd877761db035e46782af9e1d3f501e",
+        "prompt_recipe": {
+          "system": "Use the single image observed at t=0, current speed, navigation and the stated event. A=DECELERATE; B=STOP; C=RESUME; D=LANE_CHANGE_LEFT; E=LANE_CHANGE_RIGHT; F=KEEP. Choose exactly one allowed letter for each of four future windows. Each window compresses the native upcoming-action intentions at its two stated origins; it does NOT describe the action executed throughout a half-second interval. Keep the current event action domain at all origins, even when later events change. History contains native labels at past origins, not a plan that must continue. UNKNOWN means unavailable native labeling, not KEEP. Use the current observation to decide whether to continue or change; do not assume an event fixes an action sequence. Each query has its own prediction origin T = its latest visible image time + its offset. Reset all action rules at T: speed comparisons use ego speed at T, lane direction uses ego heading at T. For future T, that state must be predicted; observed speed and scene premises are not future measurements. From T, the immediate window is 1.5s, the speed window 2s, and the lane-crossing window 3s. Ignore return crossings only after the first crossing within this query window. A return after T can itself be the first crossing when the outward crossing was before T. STOP means an immediate sustained near-stop or continued waiting before a later release. Low speed alone does not establish continued waiting; immediate pull-away can be RESUME when sustained acceleration begins. Judge the first meaningful speed change relative to speed at T: a clear reduction is DECELERATE even if speed recovers; a sustained speed increase is RESUME without requiring a previous stop. Small adjustments mean continued driving. Predict the FIRST crossing of an ego lane boundary after T within this query window: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore crossings at or before T and returns after this query's first crossing. Distinguish bypass/return by lane/obstacle positions at T.\nSteering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count. Choose STOP first only when its sustained near-stop or waiting definition applies; otherwise the first upcoming lane crossing takes priority over its accompanying speed change; otherwise choose the speed action or KEEP. Preparatory slowing may happen before the selected crossing. KEEP does not mean the event has ended or visibility is poor.",
+          "message_builder": "def messages(record, image, *, history=True):\n    content = [dict(type='image', image=image), dict(type='text', text=record['premise'])]\n    values = record['history'] if history else ['UNKNOWN'] * 4\n    items = []\n    for i, action in enumerate(values):\n        token = LETTERS[ACTIONS.index(action)] if action in ACTIONS else 'UNKNOWN'\n        items.append(f'({-2+i*.5:g},{-1.5+i*.5:g}]s: {token}')\n    content.append(dict(type='text', text='HISTORY: '+record['history_semantics']+'\\n'+'; '.join(items)))\n    for i in range(4):\n        content.append(dict(type='text', text=(\n            f'\\nFUTURE ({i*.5:g},{(i+1)*.5:g}]s. Native prediction origins: '\n            f'+{i*.5+.25:g}s and +{i*.5+.5:g}s. Output one action.\\n[ACTION_QUERY_{i}]\\n')))\n    return [dict(role='system', content=INSTRUCTION), dict(role='user', content=content)]\n",
+          "premise_builder": "def premise(row, *, history=True):\n    \"\"\"Only input-time premises already used by Phase3, never answer values.\"\"\"\n    from qwen3vl_local.sft_new_loop_phase3.prompts import _scene_context_block\n    from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal\n    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID\n    r=row if history else replace(row,context_detail='')\n    spec=train._make_item(r,seed=20260904,action_output_mode='choice').spec\n    allowed=(*CONTEXT_BY_ID[r.context_id].action_keys,'KEEP')\n    options=', '.join(LETTERS[ACTIONS.index(a)]+'='+a for a in ACTIONS if a in allowed)\n    return (_scene_context_block(spec)+f'\\nCurrent measured speed: {r.current_speed_mps} m/s.\\n'\n            +render_navigation_goal(spec.goal_xy)+'\\nAllowed choices for this scene: '+options+'.')\n",
+          "history_semantics": "Past native upcoming-action intention labels computed from the full recorded trajectory, including later evidence. These labels are not an executed-action plan that must continue.",
+          "history_texts": [
+            "Past native upcoming-action intention labels computed from the full recorded trajectory, including later evidence. These labels are not an executed-action plan that must continue. Short missing stretches may be interpolated from native labels on both sides."
+          ],
+          "history_fill": {
+            "policy": "native_history_short_gap_v1",
+            "mode": "nearest_short",
+            "max_missing_frames": 2,
+            "max_missing_seconds": 0.5
+          },
+          "letters": {
+            "A": "DECELERATE",
+            "B": "STOP",
+            "C": "RESUME",
+            "D": "LANE_CHANGE_LEFT",
+            "E": "LANE_CHANGE_RIGHT",
+            "F": "KEEP"
+          },
+          "template_sources": {
+            "qwen3vl_local/audit_joint/phase3_base_dense/data.py": "80a16a4c0dcb123dd4a83dd2b5b1e482025a947959255669c689fdf103ccf2e4",
+            "qwen3vl_local/sft_new_loop_phase3/prompts.py": "538cb83afe6a2a23d203e51a8a05308d26d3ab501fa581ab306a1810f5542767",
+            "qwen3vl_local/sft_new_loop_phase3/navigation_goal.py": "cd24ac58aacd82a19b3cb3fb81528e12e6ce5362d12d14357a49eda3e5028002"
+          }
+        },
+        "actual_input_rgb_frames": 1,
+        "history_rgb_mode": "1rgb_current",
+        "history_rgb_count": 1,
+        "history_rgb_selected_indices": [
+          3
+        ],
+        "history_rgb_contract": {
+          "version": "phase3_single_current_rgb_v1",
+          "mode": "1rgb_current",
+          "selected_indices": [
+            3
+          ],
+          "index_rgb_count": 4,
+          "frame_offsets": [
+            0
+          ],
+          "frame_rate_hz": 4,
+          "order": "current_only"
+        },
+        "output_query_count": 4,
+        "action_output_mode": "choice",
+        "action_keys": [
+          "DECELERATE",
+          "STOP",
+          "RESUME",
+          "LANE_CHANGE_LEFT",
+          "LANE_CHANGE_RIGHT",
+          "KEEP"
+        ],
+        "answer_order": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E",
+          "F"
+        ],
+        "mapping_contract_hash": "1be87f29c60f17635da59ea97efbffb8a2a3626e4d1c028a597a25b4b237a6d0",
+        "input_contract": "One current stitched RGB, current speed/navigation/event, four historical action tokens.",
+        "output_contract": "Four parallel A-F readouts; at most four valid soft-target losses; no vocabulary extension.",
+        "inference_entry": "qwen3vl_local.audit_joint.phase3_single_frame.runtime.predict"
+      },
+      "parent_artifact_sha256": "4681316b530b0c29d3c1d5146950e6fccf03fce15637a56f36cf1aa5d638b862"
+    },
+    "val": {
+      "anchors": 320,
+      "valid_future_windows": 964,
+      "valid_window_count_histogram": {
+        "4": 168,
+        "0": 25,
+        "2": 45,
+        "3": 60,
+        "1": 22
+      },
+      "unknown_history_windows": 116,
+      "labels_recomputed": false,
+      "all_records_equal_to_previous": true,
+      "records_sha256": "43e612c13babff4833d2a8f9abf0b2da05041c43af6814cf9394d36e595e16c6",
+      "artifact_sha256": "4bf756c7bfa8296048cd9d48eea9732095403ee173bea34343f54455ae6414e4",
+      "raw_sources_verified": true,
+      "inference_contract": {
+        "schema": "single_frame_inference_v1",
+        "route": "phase3_single_frame_four_native_intents",
+        "prompt_name": "phase3_single_rgb_half_second_native_intents_v4_nearest_history_default",
+        "prompt_variant": "phase3_single_rgb_half_second_native_intents_v4_nearest_history_default",
+        "production_prompt_sha256": "82ce9e528e29a8712d9f07f18156b0faffd877761db035e46782af9e1d3f501e",
+        "prompt_recipe": {
+          "system": "Use the single image observed at t=0, current speed, navigation and the stated event. A=DECELERATE; B=STOP; C=RESUME; D=LANE_CHANGE_LEFT; E=LANE_CHANGE_RIGHT; F=KEEP. Choose exactly one allowed letter for each of four future windows. Each window compresses the native upcoming-action intentions at its two stated origins; it does NOT describe the action executed throughout a half-second interval. Keep the current event action domain at all origins, even when later events change. History contains native labels at past origins, not a plan that must continue. UNKNOWN means unavailable native labeling, not KEEP. Use the current observation to decide whether to continue or change; do not assume an event fixes an action sequence. Each query has its own prediction origin T = its latest visible image time + its offset. Reset all action rules at T: speed comparisons use ego speed at T, lane direction uses ego heading at T. For future T, that state must be predicted; observed speed and scene premises are not future measurements. From T, the immediate window is 1.5s, the speed window 2s, and the lane-crossing window 3s. Ignore return crossings only after the first crossing within this query window. A return after T can itself be the first crossing when the outward crossing was before T. STOP means an immediate sustained near-stop or continued waiting before a later release. Low speed alone does not establish continued waiting; immediate pull-away can be RESUME when sustained acceleration begins. Judge the first meaningful speed change relative to speed at T: a clear reduction is DECELERATE even if speed recovers; a sustained speed increase is RESUME without requiring a previous stop. Small adjustments mean continued driving. Predict the FIRST crossing of an ego lane boundary after T within this query window: LANE_CHANGE_LEFT or LANE_CHANGE_RIGHT, relative to ego's heading. Ignore crossings at or before T and returns after this query's first crossing. Distinguish bypass/return by lane/obstacle positions at T.\nSteering input, a curved lane, an in-lane pass, a connecting road without a boundary crossing, and another vehicle's lane change do not count. Choose STOP first only when its sustained near-stop or waiting definition applies; otherwise the first upcoming lane crossing takes priority over its accompanying speed change; otherwise choose the speed action or KEEP. Preparatory slowing may happen before the selected crossing. KEEP does not mean the event has ended or visibility is poor.",
+          "message_builder": "def messages(record, image, *, history=True):\n    content = [dict(type='image', image=image), dict(type='text', text=record['premise'])]\n    values = record['history'] if history else ['UNKNOWN'] * 4\n    items = []\n    for i, action in enumerate(values):\n        token = LETTERS[ACTIONS.index(action)] if action in ACTIONS else 'UNKNOWN'\n        items.append(f'({-2+i*.5:g},{-1.5+i*.5:g}]s: {token}')\n    content.append(dict(type='text', text='HISTORY: '+record['history_semantics']+'\\n'+'; '.join(items)))\n    for i in range(4):\n        content.append(dict(type='text', text=(\n            f'\\nFUTURE ({i*.5:g},{(i+1)*.5:g}]s. Native prediction origins: '\n            f'+{i*.5+.25:g}s and +{i*.5+.5:g}s. Output one action.\\n[ACTION_QUERY_{i}]\\n')))\n    return [dict(role='system', content=INSTRUCTION), dict(role='user', content=content)]\n",
+          "premise_builder": "def premise(row, *, history=True):\n    \"\"\"Only input-time premises already used by Phase3, never answer values.\"\"\"\n    from qwen3vl_local.sft_new_loop_phase3.prompts import _scene_context_block\n    from qwen3vl_local.sft_new_loop_phase3.navigation_goal import render_navigation_goal\n    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_BY_ID\n    r=row if history else replace(row,context_detail='')\n    spec=train._make_item(r,seed=20260904,action_output_mode='choice').spec\n    allowed=(*CONTEXT_BY_ID[r.context_id].action_keys,'KEEP')\n    options=', '.join(LETTERS[ACTIONS.index(a)]+'='+a for a in ACTIONS if a in allowed)\n    return (_scene_context_block(spec)+f'\\nCurrent measured speed: {r.current_speed_mps} m/s.\\n'\n            +render_navigation_goal(spec.goal_xy)+'\\nAllowed choices for this scene: '+options+'.')\n",
+          "history_semantics": "Past native upcoming-action intention labels computed from the full recorded trajectory, including later evidence. These labels are not an executed-action plan that must continue.",
+          "history_texts": [
+            "Past native upcoming-action intention labels computed from the full recorded trajectory, including later evidence. These labels are not an executed-action plan that must continue. Short missing stretches may be interpolated from native labels on both sides."
+          ],
+          "history_fill": {
+            "policy": "native_history_short_gap_v1",
+            "mode": "nearest_short",
+            "max_missing_frames": 2,
+            "max_missing_seconds": 0.5
+          },
+          "letters": {
+            "A": "DECELERATE",
+            "B": "STOP",
+            "C": "RESUME",
+            "D": "LANE_CHANGE_LEFT",
+            "E": "LANE_CHANGE_RIGHT",
+            "F": "KEEP"
+          },
+          "template_sources": {
+            "qwen3vl_local/audit_joint/phase3_base_dense/data.py": "80a16a4c0dcb123dd4a83dd2b5b1e482025a947959255669c689fdf103ccf2e4",
+            "qwen3vl_local/sft_new_loop_phase3/prompts.py": "538cb83afe6a2a23d203e51a8a05308d26d3ab501fa581ab306a1810f5542767",
+            "qwen3vl_local/sft_new_loop_phase3/navigation_goal.py": "cd24ac58aacd82a19b3cb3fb81528e12e6ce5362d12d14357a49eda3e5028002"
+          }
+        },
+        "actual_input_rgb_frames": 1,
+        "history_rgb_mode": "1rgb_current",
+        "history_rgb_count": 1,
+        "history_rgb_selected_indices": [
+          3
+        ],
+        "history_rgb_contract": {
+          "version": "phase3_single_current_rgb_v1",
+          "mode": "1rgb_current",
+          "selected_indices": [
+            3
+          ],
+          "index_rgb_count": 4,
+          "frame_offsets": [
+            0
+          ],
+          "frame_rate_hz": 4,
+          "order": "current_only"
+        },
+        "output_query_count": 4,
+        "action_output_mode": "choice",
+        "action_keys": [
+          "DECELERATE",
+          "STOP",
+          "RESUME",
+          "LANE_CHANGE_LEFT",
+          "LANE_CHANGE_RIGHT",
+          "KEEP"
+        ],
+        "answer_order": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E",
+          "F"
+        ],
+        "mapping_contract_hash": "1be87f29c60f17635da59ea97efbffb8a2a3626e4d1c028a597a25b4b237a6d0",
+        "input_contract": "One current stitched RGB, current speed/navigation/event, four historical action tokens.",
+        "output_contract": "Four parallel A-F readouts; at most four valid soft-target losses; no vocabulary extension.",
+        "inference_entry": "qwen3vl_local.audit_joint.phase3_single_frame.runtime.predict"
+      },
+      "parent_artifact_sha256": "32d07e59078d6263107757f4299b228e90bab701c62bd8dab2559fdb30fddeb5"
+    }
+  },
+  "tests": {
+    "passed": 170,
+    "seconds": 45.59,
+    "log_sha256": "1d9882d21f93b39af6fbb4d8c4c3ec3d2ee628f840e7e6e26c54f770487b28b2",
+    "log": "AutoMoT/checkpoints/phase3_single_frame_v1/review_fixes_tests.log"
+  },
+  "resume_test": {
+    "completed_epoch_boundaries": [
+      1,
+      2
+    ],
+    "plan_epochs": 3,
+    "cpu_updates_per_full_run": 30,
+    "periodic_val_included": true,
+    "equal_to_uninterrupted": [
+      "trainable",
+      "optimizer",
+      "scheduler",
+      "rng",
+      "sampling_history",
+      "global_step"
+    ],
+    "old_checkpoint_files_preserved": true,
+    "configuration_and_corruption_rejection_tested": true
+  },
+  "evaluation_test": {
+    "matched_repeat_last_denominator": true,
+    "variants": [
+      "full",
+      "no_history",
+      "native_history",
+      "blank_image"
+    ],
+    "small_real_qwen_forward": true,
+    "parameters_unchanged_and_no_gradients": true
+  },
+  "gpu_probe_or_training": false,
+  "pushed": false,
+  "limitations": [
+    "Completed-epoch resume only, fresh output, same strict checkpoint contract",
+    "Native trainer arguments retain original index validation schema; saved inference contract is single-image/four-query",
+    "Blank image and history interventions use same trained weights, not independently trained ablations",
+    "Old source/data-bound checkpoints are not silently migrated",
+    "Each anchor has 1-4 valid losses if admitted, normalized by its valid window count; zero-target anchors excluded only from train",
+    "No historical accuracy restoration claim"
+  ]
+}
