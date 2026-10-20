@@ -1,0 +1,84 @@
+{
+  "schema": "phase12_pipeline_release_verification_v1",
+  "date": "2026-10-20",
+  "policy": "coverage_task_action_v2",
+  "base_commit": "b24dec7e29dc5ea87115ca3c3a327cdb7892ffbf",
+  "tests": {
+    "passed": 95,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 103.4,
+    "junit_local_path": "AutoMoT/checkpoints/phase12_coverage_verification_20261020/pipeline_release.xml",
+    "junit_sha256": "35e8f7b02a13e44ef8beb97f35da5796a32d11df3459775841b775e4e3a60698"
+  },
+  "additional_checks": {
+    "six_shell_syntax": "passed",
+    "real_torchrun_two_gloo_ranks": "passed",
+    "script_run_argument_after_delimiter": "passed"
+  },
+  "coverage": [
+    "default phase1/2 budgets and all scheduled epoch templates",
+    "native quota and subtype preservation; actual exposure across epochs/ranks",
+    "legacy action reuse and heldout route exclusion",
+    "partial accumulation and skipped-input accounting",
+    "startup dataset/image-header/final-evaluation checks",
+    "two tiny native Qwen3.5 two-image loss/backward/LoRA save/reload/generate",
+    "real shell Phase1 && Phase2 plus actual eval packers with expensive model-job substitutes",
+    "Phase1 failure prevents Phase2; failure preserves old latest"
+  ],
+  "budget_world4_batch1_accum1": {
+    "phase1": {
+      "steps_per_epoch": 3072,
+      "epochs": 3,
+      "total_steps": 9216,
+      "warmup": 167
+    },
+    "phase2": {
+      "steps_per_epoch": 2688,
+      "epochs": 3,
+      "total_steps": 8064,
+      "warmup": 1500
+    }
+  },
+  "unchanged_prompt_rgb_eval_python_sha256": {
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/prompts.py": "53574f9543005b351d574af976651f4e5b2d0b7d2b9e9c3ea4d5eb44ad16e471",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/history_rgb.py": "742e33c70c085e87a6c972fcc6304cacebe1e28a5bc53fa21b19e42cf2e6d074",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/eval.py": "40693c459acdf35ccabd71d613d2281dfc18913ae2c6ab950ff0571a0554ff13",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/prompts.py": "62d3ca5b7bbd9b36d0c30e0b4221609ffc7fdc5d9e117afcad46d12dd1d4c9ae",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/history_rgb.py": "a6b954ae2278c0a3d889df1f9c81906ebf24c54f272c41fe7ba3347d62ff55ed",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/eval.py": "fb9261e53ca8e0e9f6e0c4413713545bb311a90db4dc8de757df6ed9912e4447"
+  },
+  "source_sha256": {
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/SFT_NEW_LOOP_PHASE1_RUN.md": "5a3e641e53a93f883ab36fbb2cc8ee7b85a15c1a71a5c61d4183bb7f4830fc04",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/build_dataset.py": "67dd421329f236038207b2da0359329ed697a095c3f0626488c31864337097e7",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/eval.sh": "034e2ec11e52f033261ab23ea0237fbb876bad5338017202ddb26a261146545d",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh": "8dd3d6e7d94c7258f840add068d8d0483a63d4a87af9f24dac32b788b1b66499",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/train.py": "7a343aa8d16036334f448c01d6b4df3eeec3e5b4d7fc4a7e4e8fc74c7f831b89",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/train.sh": "cf6ee387468825fd8b5b6d492d0fafdec55765b402d1de02ca5ffe8a20ae5a6f",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/SFT_NEW_LOOP_PHASE2_RUN.md": "fdfe93ae49dd0ef7b3d8982f565057382837bd041feddb0b41c51b9c23786ef5",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/build_dataset.py": "6ad51b9a9102d70b79aa5fda58bdf7ea715bd7ccb36d62e18b0390c85763cbc4",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/eval.sh": "e96ef8b43604c5d339be4ef738ae194f23904df4b6f948e362f13e1c4be276e6",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh": "cc10e80eef7b25b83ef3adf35051357969bf88b38e500fde14e3a469898ff2b3",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/train.py": "d25e6641de5746fd396ec4bc78cfc9e8ba17bd8725870f617df2abd3bf45355a",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/train.sh": "61d830fd97cd4d0100954bac3ceb9a3104a19bd5484e86a94cee960c7b18118c",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/BOUNDED_TRAINING_20261020.md": "61ec62e6c819b81ec629d8e3f8b7f45854effbbb90d009905d6ac1b24af97507",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/bounded_training_verification_20261020.json": "36e87c173d588819c8fb59c9dea41fb6158ad7d3b0318e95fe552d97ae2ddfd7",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/coverage_training_verification_20261020.json": "20d67b31154470dc798cfe99dfb191152dd433ac9a7825824d337112225ebd12",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/exposure_sampling.py": "297cd5dde8c848b2c87a90da4ec7a69bfddffad493dff2f76ab4858cd57c4692",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/local_assets.py": "ee76917a42d509be097dbcfb2701d21276f31d807975278a772b4d77d38abb05",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/pipeline_preflight.py": "0302b9ff633f5c0537efa39b38ee66cdd71a83e7c26ea764294b01b2c5b57b72",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_exposure_sampling.py": "4e50ba9465993766eee3992ce31ab3d1fd1bd4448f0787179a2ae9cc0f401a49",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_pipeline_release.py": "57a4015a795d0e769fab5f9199c419414d14b39dac43becb046e04988fd990b9",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_training_policy.py": "90e46a2d2d805fa82470d035593241c2c8f4dfc52ddbf43ef6fc8058268636b2",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/training_policy.py": "c6bf183fdd7bc5cf0dbf9443db1927ece3ae49d902105e2c1d6af20f824a76d8"
+  },
+  "limits": [
+    "No server full dataset or 4B GPU training; no GPU speed/accuracy certification",
+    "Image header checks do not fully decode pixel payloads or guard against later asset changes",
+    "Tiny Phase1 model test uses shortened English fixture prompt for byte tokenizer; production prompt unchanged",
+    "Shell orchestration test substitutes model jobs; native tiny model roundtrips are separate tests",
+    "Prior bounded/coverage verification JSONs describe historical snapshots; not the current source certification",
+    "No new action labels, old run exposure import, or optimizer/RNG resume",
+    "No Phase3/4 production changes included in this release"
+  ]
+}

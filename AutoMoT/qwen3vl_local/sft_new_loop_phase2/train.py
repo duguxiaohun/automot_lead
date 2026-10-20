@@ -99,6 +99,12 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
+from qwen3vl_local.sft_new_loop_phase1.training_policy import (
+    ActionHints, add_arguments, budget_plan, RuntimeBudget, check_runtime, backend_report,
+)
+
+from qwen3vl_local.sft_new_loop_phase1.exposure_sampling import CoverageSampler, ExposureLedger, prepare_epoch_templates
+
 FORMAT_COMPONENT_ID = -1
 
 
@@ -246,6 +252,10 @@ def _write_run_metadata(
         "save_steps": int(args.save_steps),
         "total_steps_global": int(total_steps),
         "focus_balance_count": int(args.focus_balance_count),
+        "training_budget": getattr(args, "_budget_plan", {}),
+        "action_sampling_source": getattr(args, "_action_report", {}).get("source", {}),
+        "sampling_policy": "coverage_task_action_v2",
+        "exposure_history_scope": "current_run_successful_backward_all_ranks",
         "train_route_diverse": bool(args.train_route_diverse),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
@@ -1401,6 +1411,10 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "max_steps": int(args.max_steps),
         "seed": int(args.seed),
         "focus_balance_count": int(args.focus_balance_count),
+        "training_budget": getattr(args, "_budget_plan", {}),
+        "action_sampling_source": getattr(args, "_action_report", {}).get("source", {}),
+        "sampling_policy": "coverage_task_action_v2",
+        "exposure_history_scope": "current_run_successful_backward_all_ranks",
         "train_route_diverse": bool(args.train_route_diverse),
         "regular_focus_multiplier": float(args.regular_focus_multiplier),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
@@ -1447,11 +1461,49 @@ def default_pipeline_adapter(
     return None
 
 
+def _training_work(rows, *, args, seed, **kwargs):
+    if not hasattr(args, "_action_hints"):
+        args._action_hints = ActionHints.load(args.action_index, rows, _AUTOMOT_ROOT)
+    if not hasattr(args, "_exposure"):
+        args._exposure = ExposureLedger(args._action_hints)
+        args._coverage_sampler = CoverageSampler(rows, args._action_hints)
+        first = _balanced_work(rows, seed=seed, **kwargs)
+        steps_per_epoch = math.ceil(len(first) / args._training_world_size)
+        epochs = math.ceil(args.max_steps / steps_per_epoch) if args.max_steps > 0 else args.num_epochs
+        args._epoch_templates, projection = prepare_epoch_templates(
+            first, seed=seed, epoch_count=epochs,
+            build=lambda future_seed: _balanced_work(rows, seed=future_seed, **kwargs),
+            sampler=args._coverage_sampler, strength=args.action_balance_strength,
+            max_repeat=int(getattr(args, "max_train_frame_repeat", 10)))
+        if int(os.environ.get("RANK", "0")) == 0:
+            pathlib.Path(args.output_dir, "epoch_preflight.json").write_text(json.dumps(projection, indent=2)+"\n")
+            print("[epoch-preflight] " + json.dumps(projection), flush=True)
+    work = args._epoch_templates[seed]
+    work, report = args._coverage_sampler.select(work, args._exposure, seed=seed,
+                                    strength=args.action_balance_strength,
+                                    max_repeat=int(getattr(args, "max_train_frame_repeat", 10)))
+    report["task_counts"] = dict(Counter(item.balance_key for item in work))
+    report["source_event_counts"] = dict(Counter(item.row.event for item in work))
+    report["event_action_counts"] = dict(Counter(
+        f"{item.row.event}/{args._action_hints.label(item.row)}" for item in work))
+    args._action_report = report
+    if int(os.environ.get("RANK", "0")) == 0:
+        dest = pathlib.Path(args.output_dir) / "balance"
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / f"action_seed_{seed}.json").write_text(json.dumps(report, indent=2)+"\n")
+        (dest.parent / "action_sampling.json").write_text(json.dumps(report, indent=2)+"\n")
+        print("[coverage-plan] " + json.dumps({k:v for k,v in report.items() if k not in ("strata", "source")}), flush=True)
+    return work
+
+
 def train(args: argparse.Namespace) -> None:
     """训练主流程。"""
 
-    rank, local_rank, world_size = setup_distributed()
-    if world_size > 1:
+    if args.plan_only:
+        rank, local_rank, world_size = 0, 0, int(os.environ.get("WORLD_SIZE", "4"))
+    else:
+        rank, local_rank, world_size = setup_distributed()
+    if world_size > 1 and not args.plan_only:
         device = torch.device(f"cuda:{local_rank}")
     else:
         device = torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -1466,6 +1518,17 @@ def train(args: argparse.Namespace) -> None:
             flush=True,
         )
         print("[startup] reading train rows...", flush=True)
+    args.warmup_reference_steps = 10752
+    if args.focus_balance_count <= 0:
+        raise ValueError("Training requires an explicit positive bounded focus quota; pool size is not a training budget")
+    budget_plan(args, 4 * int(args.focus_balance_count) + max(1, round(args.focus_balance_count * args.regular_focus_multiplier)) + max(1, round(args.focus_balance_count * args.invalid_focus_multiplier)), world_size)
+    if args.split != "train":
+        raise ValueError("Bounded training only accepts the train split")
+    if rank == 0:
+        from qwen3vl_local.sft_new_loop_phase1.local_assets import claim_training_output
+        claim_training_output(args.output_dir)
+    if not args.plan_only and world_size > 1:
+        dist.barrier()
     rows = _read_rows(
         pathlib.Path(args.index),
         split=str(args.split),
@@ -1485,8 +1548,9 @@ def train(args: argparse.Namespace) -> None:
             "(streaming candidate sampler)...",
             flush=True,
         )
-    full_work = _balanced_work(
-        rows,
+    args._training_world_size = world_size
+    full_work = _training_work(
+        rows, args=args,
         target_per_bin=int(args.focus_balance_count),
         seed=int(args.seed),
         regular_multiplier=float(args.regular_focus_multiplier),
@@ -1501,6 +1565,17 @@ def train(args: argparse.Namespace) -> None:
     # rank shard 供审计，每个后续 epoch 重新采样富余桶。
     work = _split_work_for_rank(full_work, rank=rank, world_size=world_size)
     output_dir = pathlib.Path(args.output_dir)
+    plan = budget_plan(args, len(full_work), world_size)
+    args._budget_plan = plan
+    args.warmup_steps = plan["warmup_updates"]
+    if rank == 0:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "training_budget.json").write_text(json.dumps(plan, indent=2)+"\n")
+        print("[training-budget] " + json.dumps(plan), flush=True)
+        print("[action-balance] " + json.dumps({k:v for k,v in args._action_report.items() if k != "strata"}), flush=True)
+    if args.plan_only:
+        return
+
 
     eval_rows: List[FrameRow] = []
     full_eval_work: List[WorkItem] = []
@@ -1567,6 +1642,10 @@ def train(args: argparse.Namespace) -> None:
                     "train": {
                         "split": str(args.split),
                         "focus_balance_count": int(args.focus_balance_count),
+                        "training_budget": getattr(args, "_budget_plan", {}),
+                        "action_sampling_source": getattr(args, "_action_report", {}).get("source", {}),
+                        "sampling_policy": "coverage_task_action_v2",
+                        "exposure_history_scope": "current_run_successful_backward_all_ranks",
                         "regular_focus_multiplier": float(args.regular_focus_multiplier),
                         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
                         "highway_regular_fraction": float(args.highway_regular_fraction),
@@ -1632,6 +1711,10 @@ def train(args: argparse.Namespace) -> None:
         strict_vision_scope=bool(args.strict_vision_scope),
         gradient_checkpointing=bool(args.gradient_checkpointing),
     )
+    if rank == 0:
+        runtime_info = backend_report()
+        (output_dir / "model_runtime.json").write_text(json.dumps(runtime_info, indent=2)+"\n")
+        print("[model-runtime] " + json.dumps(runtime_info), flush=True)
     if world_size > 1:
         bundle.model = DDP(bundle.model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
     if rank == 0:
@@ -1641,7 +1724,7 @@ def train(args: argparse.Namespace) -> None:
     steps_per_epoch = max(1, math.ceil(len(full_work) / max(1, int(world_size))))
     total_steps = int(args.max_steps) if int(args.max_steps) > 0 else max(1, steps_per_epoch * max(1, int(args.num_epochs)))
     total_optimizer_steps = max(1, math.ceil(total_steps / max(1, int(args.grad_accum))))
-    scheduler = make_scheduler(optimizer, total_steps=total_optimizer_steps, warmup_steps=int(args.warmup_steps))
+    scheduler = make_scheduler(optimizer, total_steps=total_optimizer_steps, warmup_steps=int(plan["warmup_updates"]))
     writer = SummaryWriter(str(output_dir / "tb")) if rank == 0 and _TB_AVAILABLE and not bool(args.no_tb) else None
     if rank == 0:
         _write_run_metadata(
@@ -1674,6 +1757,7 @@ def train(args: argparse.Namespace) -> None:
     window_metric_ok: Counter[str] = Counter()
     window_metric_count: Counter[str] = Counter()
     t0 = time.time()
+    runtime_budget = RuntimeBudget(plan, int(args.budget_probe_steps))
     bundle.model.train()
     if rank == 0:
         print(
@@ -1691,8 +1775,8 @@ def train(args: argparse.Namespace) -> None:
     while global_step < total_steps:
         if epoch > 0:
             epoch_seed = int(args.seed) + epoch * 1_000_003
-            full_work = _balanced_work(
-                rows,
+            full_work = _training_work(
+                rows, args=args,
                 target_per_bin=int(args.focus_balance_count),
                 seed=epoch_seed,
                 regular_multiplier=float(args.regular_focus_multiplier),
@@ -1787,6 +1871,7 @@ def train(args: argparse.Namespace) -> None:
                         window_metric_ok[metric_key] += float(stats[stat_key])
                         window_metric_count[metric_key] += 1
             (loss / grad_accum).backward()
+            args._exposure.record(item, valid=packed is not None, padded=padded_step)
             accum_steps += 1
             optimizer_stepped = False
             if accum_steps >= grad_accum:
@@ -1830,7 +1915,7 @@ def train(args: argparse.Namespace) -> None:
                 _append_jsonl(train_metrics_path, window_payload)
                 _write_scalar_dict(writer, "train_window", window_payload, global_step)
                 print(
-                    f"epoch={epoch + 1} step={global_step}/{total_steps} loss={loss_value:.4f} "
+                    f"epoch={epoch + 1}/{int(args.num_epochs)} epoch_step={global_step - epoch_start_step + 1}/{steps_per_epoch} total_step={global_step + 1}/{total_steps} loss={loss_value:.4f} "
                     f"win_loss={window_payload['loss_mean']:.4f} "
                     f"variant={spec.variant} bin={item.balance_key} skipped={skipped} world={world_size} "
                     f"elapsed={time.time() - t0:.1f}s"
@@ -1842,6 +1927,14 @@ def train(args: argparse.Namespace) -> None:
                 window_metric_ok.clear()
                 window_metric_count.clear()
             global_step += 1
+            if optimizer_stepped:
+                args._exposure.optimizer_applied()
+            if global_step % int(args.budget_probe_steps) == 0 or global_step == total_steps or optimizer_stepped and global_step - runtime_budget.last_report_step >= runtime_budget.probe_steps:
+                args._exposure.save(output_dir, rank, global_step)
+            if optimizer_stepped:
+                check_runtime(runtime_budget, global_step, rank=rank,
+                              distributed=dist, device=device, output_dir=output_dir,
+                              save_adapter=lambda: _save_adapter(bundle, output_dir, args, step=global_step, name="budget_stop"))
             saved_deferred_checkpoint = False
             if pending_checkpoint_step is not None and optimizer_stepped:
                 if rank == 0:
@@ -2027,6 +2120,8 @@ def train(args: argparse.Namespace) -> None:
                 break
         if global_step == epoch_start_step:
             raise RuntimeError("no train steps were completed in an epoch; check max_length and input data")
+        args._exposure.finish_epoch(output_dir, rank=rank, step=global_step,
+                                    epoch=epoch + 1, distributed=dist, planned=len(full_work))
         epoch += 1
 
     if accum_steps > 0:
@@ -2041,6 +2136,7 @@ def train(args: argparse.Namespace) -> None:
         if rank == 0:
             print(f"[flush] applied partial grad_accum window at step={global_step}", flush=True)
         accum_steps = 0
+        args._exposure.optimizer_applied()
         if pending_checkpoint_step is not None:
             if rank == 0:
                 ckpt_dir = _save_adapter(bundle, output_dir, args, step=global_step, name=f"checkpoint-{global_step}")
@@ -2053,6 +2149,7 @@ def train(args: argparse.Namespace) -> None:
 
     if world_size > 1:
         ddp_barrier(local_rank)
+    args._exposure.finish_run(output_dir, rank=rank, step=global_step, distributed=dist)
     final_dir = (
         _save_adapter(bundle, output_dir, args, step=global_step)
         if rank == 0 and bool(args.save_final)
@@ -2127,7 +2224,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--focus-balance-count",
         type=int,
-        default=0,
+        default=1536,
         help="per EVENT class; 0 uses only the smallest UE1/UE3/UE5/UE6/RE/INVALID class, positive values set a fixed target and repeat scarce bins when needed",
     )
     p.add_argument(
@@ -2166,7 +2263,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--eval-steps",
         type=int,
-        default=2_000,
+        default=1_000,
         help="validate every N optimizer steps; 0 disables periodic validation",
     )
     p.add_argument("--eval-balance-count", type=int, default=16)
@@ -2180,7 +2277,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--generation-eval-steps",
         type=int,
-        default=2_000,
+        default=1_000,
         help="run rank0 free-generation validation every N optimizer steps; must be a multiple of --eval-steps; 0 disables it",
     )
     p.add_argument("--generation-eval-balance-count", type=int, default=32)
@@ -2222,11 +2319,11 @@ def parse_args() -> argparse.Namespace:
         default=0.50,
         help="minimum applicable-local RE exact for production-ready best_generation",
     )
-    p.add_argument("--save-steps", type=int, default=20_000)
+    p.add_argument("--save-steps", type=int, default=2_000)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--learning-rate", type=float, default=1e-5)
     p.add_argument("--weight-decay", type=float, default=0.0)
-    p.add_argument("--warmup-steps", type=int, default=2_000)
+    p.add_argument("--warmup-steps", type=int, default=-1, help="-1 scales historical warmup fraction")
     p.add_argument("--max-length", type=int, default=8192)
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--lora-rank", type=int, default=16)
@@ -2256,6 +2353,7 @@ def parse_args() -> argparse.Namespace:
         help="save output_dir/final after training; disable for a bounded pilot that retains generation-selected adapter only",
     )
     p.add_argument("--no-tb", action="store_true")
+    add_arguments(p)
     args = p.parse_args()
     args.history_rgb_mode = validate_history_rgb_mode(args.history_rgb_mode)
     if not 0.0 < float(args.format_loss_weight) <= 1.0:

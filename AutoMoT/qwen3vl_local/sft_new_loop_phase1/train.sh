@@ -9,6 +9,8 @@
 # 不传模式时默认四卡 DDP；需要单卡 smoke 时显式传 single 或 check。
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/../.."
 
 ulimit -S -c 0 2>/dev/null || true
 
@@ -35,22 +37,22 @@ case "${HISTORY_RGB_MODE}" in
     ;;
 esac
 OUTPUT_DIR_BASE="checkpoints/sft_new_loop_phase1_runs"
-RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
+RUN_TAG="${RUN_TAG:-coverage_v2}"
 FINAL_RUN_NAME="run_${RUN_TAG}_combined_phase1_phase2_${HISTORY_RGB_TAG}"
 CHECK_RUN_NAME="check_${RUN_TAG}_combined_phase1_phase2_${HISTORY_RGB_TAG}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}"
+if [[ "${PLAN_ONLY:-0}" == "1" ]]; then
+  FINAL_OUTPUT_DIR="${FINAL_OUTPUT_DIR}_plan"
+  CHECK_OUTPUT_DIR="${CHECK_OUTPUT_DIR}_plan"
+fi
 if [[ "${MODE}" == "check" ]]; then
-  OUTPUT_DIR="${CHECK_OUTPUT_DIR}"
+  OUTPUT_DIR="${OUTPUT_DIR:-${CHECK_OUTPUT_DIR}}"
 else
-  OUTPUT_DIR="${FINAL_OUTPUT_DIR}"
+  OUTPUT_DIR="${OUTPUT_DIR:-${FINAL_OUTPUT_DIR}}"
 fi
-mkdir -p "${OUTPUT_DIR}"
-if [[ "${MODE}" != "check" ]]; then
-  ln -sfn "${FINAL_RUN_NAME}" "${OUTPUT_DIR_BASE}/latest"
-else
-  ln -sfn "${CHECK_RUN_NAME}" "${OUTPUT_DIR_BASE}/check_latest"
-fi
+python -m qwen3vl_local.sft_new_loop_phase1.local_assets reserve-output --path "${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR_BASE}"
 LOG_PATH="${LOG_PATH:-${OUTPUT_DIR}/train.log}"
 exec > >(tee -a "${LOG_PATH}") 2>&1
 
@@ -101,7 +103,7 @@ case "${MODE}" in
       # 严格 focus 均衡必须先看到每个桶；只读 index 的前 64 行会因文件顺序漏桶。
       --max-frames "${CHECK_MAX_FRAMES:-0}"
       --max-steps "${CHECK_MAX_STEPS:-2}"
-      --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-2}"
+      --focus-balance-count "${CHECK_FOCUS_BALANCE_COUNT:-6}"
       --eval-steps 0
       --generation-eval-steps 0
       --save-steps 0
@@ -122,6 +124,12 @@ case "${MODE}" in
 esac
 
 COMMON_ARGS=(
+  --action-index "${ACTION_INDEX:-auto}"
+  --action-balance-strength "${ACTION_BALANCE_STRENGTH:-0.5}"
+  --epoch-step-limit "${EPOCH_STEP_LIMIT:-4096}"
+  --total-step-limit "${TOTAL_STEP_LIMIT:-12288}"
+  --epoch-hours-limit "${EPOCH_HOURS_LIMIT:-10}"
+  --budget-probe-steps "${BUDGET_PROBE_STEPS:-100}"
   --model-dir "${MODEL_DIR}"
   --index "${INDEX}"
   --data-root "${DATA_ROOT}"
@@ -129,23 +137,23 @@ COMMON_ARGS=(
   --history-rgb-mode "${HISTORY_RGB_MODE}"
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-steps "${MAX_STEPS:-0}"
-  --focus-balance-count "${FOCUS_BALANCE_COUNT:-9216}"
+  --focus-balance-count "${FOCUS_BALANCE_COUNT:-768}"
   --max-train-frame-repeat "${MAX_TRAIN_FRAME_REPEAT:-10}"
   --eval-split "${EVAL_SPLIT:-val}"
-  --eval-steps "${EVAL_STEPS:-2000}"
+  --eval-steps "${EVAL_STEPS:-1000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
   --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
   --non-focus-semantic-loss-weight "${NON_FOCUS_SEMANTIC_LOSS_WEIGHT:-0.1}"
-  --generation-eval-steps "${GENERATION_EVAL_STEPS:-2000}"
+  --generation-eval-steps "${GENERATION_EVAL_STEPS:-1000}"
   --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-16}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
-  --save-steps "${SAVE_STEPS:-20000}"
+  --save-steps "${SAVE_STEPS:-2000}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --weight-decay "${WEIGHT_DECAY:-0.0}"
-  --warmup-steps "${WARMUP_STEPS:-2000}"
+  --warmup-steps "${WARMUP_STEPS:--1}"
   --lora-rank "${LORA_RANK:-16}"
   --lora-alpha "${LORA_ALPHA:-32}"
   --lora-dropout "${LORA_DROPOUT:-0.05}"
@@ -160,13 +168,26 @@ echo "[log] ${LOG_PATH}"
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
-if [[ "${NPROC}" -gt 1 ]]; then
+if [[ "${PLAN_ONLY:-0}" == "1" ]]; then
+  WORLD_SIZE="${NPROC}" python qwen3vl_local/sft_new_loop_phase1/train.py "${COMMON_ARGS[@]}" --plan-only
+  exit 0
+elif [[ "${NPROC}" -gt 1 ]]; then
   torchrun --nproc_per_node="${NPROC}" \
     --master_addr="${MASTER_ADDR}" \
     --master_port="${MASTER_PORT}" \
-    qwen3vl_local/sft_new_loop_phase1/train.py "${COMMON_ARGS[@]}"
+    -- qwen3vl_local/sft_new_loop_phase1/train.py "${COMMON_ARGS[@]}"
 else
   python qwen3vl_local/sft_new_loop_phase1/train.py "${COMMON_ARGS[@]}"
+fi
+
+# Publish latest only after successful training; failures preserve the previous target.
+if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
+LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
+if [[ "${MODE}" != "check" ]]; then
+  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest"
+else
+  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/check_latest"
+fi
 fi
 
 echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase1/eval.py"

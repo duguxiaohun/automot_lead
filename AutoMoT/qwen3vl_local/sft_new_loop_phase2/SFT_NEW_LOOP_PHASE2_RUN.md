@@ -1,3 +1,5 @@
+> **2026-10-20 当前入口**：采用 coverage_v2 适中预算、跨轮未见优先、固定方法目录和旧数据复用。旧默认大配额及时间戳启动方式已被[最新运行说明](../sft_new_loop_phase1/BOUNDED_TRAINING_20261020.md)覆盖；下文历史指标保持原意。
+
 > 2026-09-28：当前新训基座默认已迁移为本地 `checkpoints/Qwen3.5-4B`。本文历史记录/旧命令中的 Qwen3-VL 路径不适用于新模型；旧 adapter 需重训。依赖、本地源码、预检与兼容边界见 [Qwen3.5 迁移说明](../qwen35/README.md)。
 
 # SFT New Loop Phase2 运行说明

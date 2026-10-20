@@ -1,5 +1,24 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-20 Phase1/2 全链路前置检查与白名单发布
+
+用户要求检查后期执行错误、完善后push白名单并给一行Phase1 && Phase2命令。当前coverage_v2预算不再缩减：四卡P1每轮3072/三轮9216，P2每轮2688/三轮8064，事件/focus原配额与旧action软均衡、实际曝光跨轮优先沿用。新增全部计划轮次原生采样与容量投影，缓存任务配额但下一轮仍按实际历史重选；PLAN_ONLY现含各轮投影和首轮详单，不伪造消费。
+两个流水线开训前核验本地模型/runtime/processor、三split标签及所选RGB文件头、最终评测桶/排除条件；GPU编号/模式重复、输出冲突提前拒绝。六shell的torchrun参数边界显式加--，训练成功才更新latest；失败阻止&&后续阶段。RUN_BUILD=1确保完整库、存在即只读复用，固定coverage_v2方法目录，旧权重/数据保留。
+95相关测试103.40秒通过；含小型原生Qwen3.5双图loss/backward/LoRA保存重载生成、真实shell串联及实际eval打包器（昂贵模型任务替身），小CPU原生循环/两Gloo rank实际曝光与停止验证。另真实torchrun两Gloo worker的--run参数分隔通过、6shell语法通过；不可称4B/GPU全程验收，文件头检查非完整像素解码，不能保证未来硬件/资产变化无错误。6个prompt/RGB/eval.py文件逐字不变；eval.sh仅launcher分隔变动。无新标定/服务器GPU/SSH，不外推新预算达到旧最优。报告P1/BOUNDED_TRAINING_20261020.md与pipeline_release_verification_20261020.json；前两份同日回执保留为历史快照。本轮按明确授权只提交Phase1/2代码、测试、轻量记录及本条和对应历史条目；P3/P4/v89/.vscode、数据/权重/缓存不包含。
+
+### 2026-10-20 Phase1/2 coverage_v2 适中预算与实际曝光优先
+
+用户纠正上版预算缩减过大，授权适当增加数据量并优先跨轮未见以改善训练。当前默认覆盖同日 bounded_v1：P1每focus×答案768，world4/B1/acc1每轮12288呈现/3072步，三轮9216（比上版+33%）；P2每UE/INVALID1536、RE3072，每轮10752呈现/2688步，三轮8064（+50%）；warmup167/1500。单轮ETA门10h（先前8h会把约8.1h的新P1预算立即阻断），4096/12288步门不变；仍3轮。9.5s/step粗估P1单轮8.1h，P2假设同速7.1h，非一天完成保证或GPU实测。
+新增训练专用exposure_sampling，原生采样器继续确定任务/完整答案/event/原子类/问法配额，候选组已知/未知action覆盖不变；按历史成功反向传播+本轮计划曝光最低优先，等曝光再action软缺口与路线覆盖。不再固定P2原抽样route配额，允许兼容新路线；保留原highway/INVALID分组。两阶段每轮计划同帧上限10，稀缺容量不足拒绝、不无限补样；重复呈现过半显式提示。frame身份跨focus共享，另记新任务组合；相邻frame不是独立场景。
+只成功backward后记实际曝光，超长零损失占位不计；pending/applied梯度累计分开。每rank周期原子保存，轮末all_gather实际历史用于下一轮，各卡选择一致。顶层exposure_epochs/summary供原有包收集，明细exposure/rank_*留本机。计划不推进实际history；突然中断尾段可能未持久化，不提供optimizer/RNG续训；旧8000步run不导入，未见仅本run跨轮。PLAN_ONLY只第一轮计划，不伪造消费。验证/测试采样、prompt、标签、Phase3/4源码未改；旧action复用及固定数据名沿用，新实验名coverage_v2，不覆盖bounded_v1与历史run。无新标定/服务器完整池/GPU/SSH/push，不承诺新预算精度已达到旧最佳。验证与证据见P1/coverage_training_verification_20261020.json和BOUNDED_TRAINING_20261020.md；保留其它工作。
+
+### 2026-10-20 Phase1/2 有界训练、旧 action 辅助与固定方法目录
+
+用户要求事件/问题均衡且训练步数合理，单轮一天不可取；沿用历史最优审计方法，旧 action 标定足够、不要为此新标定，跨机器固定方法名避免时间戳找库。核实P1 v5八focus/YES:NO/问法4:1:1，P2四UE1:1＋RE2倍/INVALID1倍及原highway/route策略保留；P2历史v3最佳不冒称当前既有v5已验收，不回滚prompt/标签。P1原9216/桶→576（512触发旧精确4:1:1整数冲突，正式训练限定6倍数），world4/B1/acc1每轮2304、三轮6912；P2流水线/直接入口统一1024/类，1792/5376。warmup按原阶段比例125/1000，val/generation1000、save2000，旧评测成员/提示词不改。默认步数门4096/12288，开始后约100步实测，预计单轮>8h全rank协调停止并保存budget_stop adapter；非完整optimizer续训。记录fast-path状态，不能把预算缩短当Qwen3.5单步性能修复或一天保证。
+新增P1 training_policy/local_assets及两入口接线；action只读本机旧v23固定索引或显式ACTION_INDEX，按scenario/完整route/frame匹配train且排除源heldout物理路线；缺失/歧义UNAVAILABLE，显式坏源拒绝，不生成标签。仅同完整标签/event/子类替换，P2保持route配额，温和natural/sqrt混合，不增样本量、不强凑动作1:1。完整action源SHA/覆盖/前后计数入回执；没有匹配不能声称动作均衡。
+数据仍固定sft_new_loop_phase1_data/phase2_data；RUN_BUILD=auto及兼容1均已有完整库只核验复用，0仅复用；残缺/坏库拒绝自动重建，builder拒绝覆盖且目录flock。local_assets bind只建用户明确本机旧目录的固定方法symlink，禁止猜最新/跨机混资产；原目录保留。新训练/流水线固定bounded_v1+RGB名，碰撞拒绝，重复试验需显式语义名；PLAN_ONLY独立_plan，不写latest，训练失败不改变旧latest。旧8000步run不自动续训/重训。当前用户固定命名偏好覆盖此前要求默认时间戳的旧约定。
+77测试16.10秒通过，含三轮原生P1采样、P2子类/route不变、真实隔离shell CPU计划/重复拒绝、两阶段小CPU optimizer循环、两个真实Gloo rank停止前保存。旧action本地只读384行/317独立train/287可用提示，不代表服务器覆盖。8个prompt/RGB/eval文件与HEAD逐字一致；无新标定/完整服务器数据/4B GPU/SSH/push，未证明新预算达到旧最佳。报告P1/BOUNDED_TRAINING_20261020.md与bounded_training_verification_20261020.json，证据checkpoints/phase12_bounded_verification_20261020。保留P3/P4/v89/.vscode等已有工作。以后必须前置说明训练预算与耗时风险，不因均衡追加无界训练量。
+
 ### 2026-10-19 v88统一接续与十事件相邻RGB发布
 
 用户授权完善代码、白名单push及具体远程步骤。新增phase4_resume.sh/py按用户明确本机目录选择：已有data4/references4/view仅准入；缺view才新建；缺库才v86严格复用完整回放。损坏元数据拒绝、不猜最新/机器、不自动重算、目录锁防同入口重复、原退出码保留，20GiBguard与30MB包沿用。两机任选且不混资产，交handoff两fullflow文件；前置失败交launch.log。v88清单585源，v87原578不变，无原生teacher/学生/prompt/采样合同改动。

@@ -351,10 +351,16 @@ def iter_rows(args: argparse.Namespace, risk_stats: Optional[Counter[str]] = Non
                 }
 
 
+from qwen3vl_local.sft_new_loop_phase1.local_assets import exclusive_build
+
+
+@exclusive_build
 def build_dataset(args: argparse.Namespace) -> Dict[str, Any]:
     """Build ``frame_index.jsonl`` and ``manifest.json``."""
 
     out_dir = pathlib.Path(args.output_dir)
+    if (out_dir / "frame_index.jsonl").exists() or (out_dir / "manifest.json").exists():
+        raise ValueError(f"Dataset already exists: {out_dir}; reuse it or choose a new explicit method directory. Existing labels are preserved.")
     out_dir.mkdir(parents=True, exist_ok=True)
     review_coverage, coverage_source = load_review_coverage(
         review_root=pathlib.Path(args.review_root),

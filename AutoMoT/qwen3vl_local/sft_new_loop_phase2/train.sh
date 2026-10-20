@@ -9,6 +9,8 @@
 # 不传模式时默认四卡 DDP；需要单卡 smoke 时显式传 single 或 check。
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/../.."
 
 ulimit -S -c 0 2>/dev/null || true
 
@@ -38,9 +40,13 @@ esac
 OUTPUT_DIR_BASE="checkpoints/sft_new_loop_phase2_runs"
 FINAL_RUN_NAME="run_direct_event_format_supervised_${HISTORY_RGB_TAG}"
 CHECK_RUN_NAME="check_direct_event_format_supervised_${HISTORY_RGB_TAG}"
-RUN_TIMESTAMP="${RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
+RUN_TIMESTAMP="${RUN_TIMESTAMP:-coverage_v2}"
 FINAL_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${FINAL_RUN_NAME}/${RUN_TIMESTAMP}"
 CHECK_OUTPUT_DIR="${OUTPUT_DIR_BASE}/${CHECK_RUN_NAME}/${RUN_TIMESTAMP}"
+if [[ "${PLAN_ONLY:-0}" == "1" ]]; then
+  FINAL_OUTPUT_DIR="${FINAL_OUTPUT_DIR}_plan"
+  CHECK_OUTPUT_DIR="${CHECK_OUTPUT_DIR}_plan"
+fi
 if [[ "${MODE}" == "check" ]]; then
   RUN_NAME="${CHECK_RUN_NAME}"
   OUTPUT_DIR="${OUTPUT_DIR:-${CHECK_OUTPUT_DIR}}"
@@ -48,16 +54,8 @@ else
   RUN_NAME="${FINAL_RUN_NAME}"
   OUTPUT_DIR="${OUTPUT_DIR:-${FINAL_OUTPUT_DIR}}"
 fi
-mkdir -p "${OUTPUT_DIR}"
+python -m qwen3vl_local.sft_new_loop_phase1.local_assets reserve-output --path "${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR_BASE}"
-LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
-mkdir -p "${OUTPUT_DIR_BASE}/${RUN_NAME}"
-ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/${RUN_NAME}/latest"
-if [[ "${MODE}" == "check" ]]; then
-  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest_check"
-else
-  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest"
-fi
 if [[ "${RUN_LOG:-}" != "0" ]]; then
   RUN_LOG="${RUN_LOG:-${OUTPUT_DIR}/train.log}"
   export RUN_LOG
@@ -133,6 +131,12 @@ case "${MODE}" in
 esac
 
 COMMON_ARGS=(
+  --action-index "${ACTION_INDEX:-auto}"
+  --action-balance-strength "${ACTION_BALANCE_STRENGTH:-0.5}"
+  --epoch-step-limit "${EPOCH_STEP_LIMIT:-4096}"
+  --total-step-limit "${TOTAL_STEP_LIMIT:-12288}"
+  --epoch-hours-limit "${EPOCH_HOURS_LIMIT:-10}"
+  --budget-probe-steps "${BUDGET_PROBE_STEPS:-100}"
   --model-dir "${MODEL_DIR}"
   --index "${INDEX}"
   --data-root "${DATA_ROOT}"
@@ -141,17 +145,17 @@ COMMON_ARGS=(
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-frames "${MAX_FRAMES:-0}"
   --max-steps "${MAX_STEPS:-0}"
-  --focus-balance-count "${FOCUS_BALANCE_COUNT:-1024}"
+  --focus-balance-count "${FOCUS_BALANCE_COUNT:-1536}"
   --regular-focus-multiplier "${REGULAR_FOCUS_MULTIPLIER:-2.0}"
   --invalid-focus-multiplier "${INVALID_FOCUS_MULTIPLIER:-1.0}"
   --highway-regular-fraction "${HIGHWAY_REGULAR_FRACTION:-0.25}"
   --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}"
   --eval-split "${EVAL_SPLIT:-val}"
-  --eval-steps "${EVAL_STEPS:-2000}"
+  --eval-steps "${EVAL_STEPS:-1000}"
   --eval-balance-count "${EVAL_BALANCE_COUNT:-16}"
   --max-eval-frames "${MAX_EVAL_FRAMES:-0}"
   --format-loss-weight "${FORMAT_LOSS_WEIGHT:-0.25}"
-  --generation-eval-steps "${GENERATION_EVAL_STEPS:-2000}"
+  --generation-eval-steps "${GENERATION_EVAL_STEPS:-1000}"
   --generation-eval-balance-count "${GENERATION_EVAL_BALANCE_COUNT:-32}"
   --generation-eval-sampling-seed "${GENERATION_EVAL_SAMPLING_SEED:-20260831}"
   --generation-eval-max-new-tokens "${GENERATION_EVAL_MAX_NEW_TOKENS:-64}"
@@ -160,12 +164,12 @@ COMMON_ARGS=(
   --generation-eval-min-ue6-target-recall "${GENERATION_EVAL_MIN_UE6_TARGET_RECALL:-0.80}"
   --generation-eval-min-invalid-exact "${GENERATION_EVAL_MIN_INVALID_EXACT:-0.80}"
   --generation-eval-min-applicable-regular-exact "${GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT:-0.50}"
-  --save-steps "${SAVE_STEPS:-20000}"
+  --save-steps "${SAVE_STEPS:-2000}"
   --max-length "${MAX_LENGTH:-8192}"
   --learning-rate "${LEARNING_RATE:-${LR:-1e-5}}"
   --grad-accum "${GRAD_ACCUM:-1}"
   --weight-decay "${WEIGHT_DECAY:-0.0}"
-  --warmup-steps "${WARMUP_STEPS:-2000}"
+  --warmup-steps "${WARMUP_STEPS:--1}"
   --lora-rank "${LORA_RANK:-16}"
   --lora-alpha "${LORA_ALPHA:-32}"
   --lora-dropout "${LORA_DROPOUT:-0.05}"
@@ -211,13 +215,28 @@ fi
 echo "[gpu] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "[gpu] NPROC=${NPROC}"
 
-if [[ "${NPROC}" -gt 1 ]]; then
+if [[ "${PLAN_ONLY:-0}" == "1" ]]; then
+  WORLD_SIZE="${NPROC}" python qwen3vl_local/sft_new_loop_phase2/train.py "${COMMON_ARGS[@]}" --plan-only
+  exit 0
+elif [[ "${NPROC}" -gt 1 ]]; then
   torchrun --nproc_per_node="${NPROC}" \
     --master_addr="${MASTER_ADDR}" \
     --master_port="${MASTER_PORT}" \
-    qwen3vl_local/sft_new_loop_phase2/train.py "${COMMON_ARGS[@]}"
+    -- qwen3vl_local/sft_new_loop_phase2/train.py "${COMMON_ARGS[@]}"
 else
   python qwen3vl_local/sft_new_loop_phase2/train.py "${COMMON_ARGS[@]}"
+fi
+
+# Publish latest only after successful training; failures preserve the previous target.
+if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
+LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"
+mkdir -p "${OUTPUT_DIR_BASE}/${RUN_NAME}"
+ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/${RUN_NAME}/latest"
+if [[ "${MODE}" == "check" ]]; then
+  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest_check"
+else
+  ln -sfn "${LATEST_TARGET}" "${OUTPUT_DIR_BASE}/latest"
+fi
 fi
 
 echo "[hint] eval base: GPU_IDS=0 python qwen3vl_local/sft_new_loop_phase2/eval.py"

@@ -1,0 +1,160 @@
+{
+  "date": "2026-10-20",
+  "policy": "coverage_task_action_v2",
+  "status": "local_cpu_verified_not_gpu_or_server_verified",
+  "tests": {
+    "pytest.xml": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "88",
+      "time": "73.711",
+      "timestamp": "2026-10-20T13:59:56.591092+08:00",
+      "hostname": "codon"
+    },
+    "final_loop_checks.xml": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "4",
+      "time": "1.692",
+      "timestamp": "2026-10-20T14:02:21.437066+08:00",
+      "hostname": "codon"
+    }
+  },
+  "distinct_tests": 88,
+  "final_loop_checks_overlap": true,
+  "budgets_world4_b1_acc1_epochs3": {
+    "phase1": {
+      "per_focus_answer": 768,
+      "presentations_per_epoch": 12288,
+      "steps_per_epoch": 3072,
+      "total_steps": 9216,
+      "warmup": 167
+    },
+    "phase2": {
+      "per_ue_and_invalid": 1536,
+      "re": 3072,
+      "presentations_per_epoch": 10752,
+      "steps_per_epoch": 2688,
+      "total_steps": 8064,
+      "warmup": 1500
+    }
+  },
+  "limits": {
+    "epoch_steps": 4096,
+    "total_steps": 12288,
+    "projected_epoch_hours": 10,
+    "planned_frame_repeat_per_epoch": 10
+  },
+  "actual_consumption": "successful backward only; all-rank merge between epochs; pending/applied accumulation separate; skipped excluded",
+  "unchanged_eval_prompt_rgb_files": {
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/prompts.py": "53574f9543005b351d574af976651f4e5b2d0b7d2b9e9c3ea4d5eb44ad16e471",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/history_rgb.py": "742e33c70c085e87a6c972fcc6304cacebe1e28a5bc53fa21b19e42cf2e6d074",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/eval.py": "40693c459acdf35ccabd71d613d2281dfc18913ae2c6ab950ff0571a0554ff13",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/eval.sh": "e14ce38d4525ed32ed360a71f3cd97d33cff97a535534c7687cba92ed99ff234",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/prompts.py": "62d3ca5b7bbd9b36d0c30e0b4221609ffc7fdc5d9e117afcad46d12dd1d4c9ae",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/history_rgb.py": "a6b954ae2278c0a3d889df1f9c81906ebf24c54f272c41fe7ba3347d62ff55ed",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/eval.py": "fb9261e53ca8e0e9f6e0c4413713545bb311a90db4dc8de757df6ed9912e4447",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/eval.sh": "615536bb1c8c388ad981bfa78ac128e61b69d65e6269ff3046797951ccdba01b"
+  },
+  "source_sha256": {
+    "qwen3vl_local/sft_new_loop_phase1/train.py": "98f1c20155a6b870a351484dea9c82a1bc5b4a61a5dc3d357b5b3bc3d5e46d79",
+    "qwen3vl_local/sft_new_loop_phase1/train.sh": "34de5c5ed905c8848e2a7c7cc53dbb168ba337beb0756e284fbdd69d82814a80",
+    "qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh": "46c97c67a0c18ae51909eb73223f5ea35e5ee3fc1d13b6e8f2bfa134ef030427",
+    "qwen3vl_local/sft_new_loop_phase1/build_dataset.py": "67dd421329f236038207b2da0359329ed697a095c3f0626488c31864337097e7",
+    "qwen3vl_local/sft_new_loop_phase1/SFT_NEW_LOOP_PHASE1_RUN.md": "5a3e641e53a93f883ab36fbb2cc8ee7b85a15c1a71a5c61d4183bb7f4830fc04",
+    "qwen3vl_local/sft_new_loop_phase2/train.py": "95e87da9a0b780550beb44483f521fa6f995423cef2202e8be6a46ac5dc0654c",
+    "qwen3vl_local/sft_new_loop_phase2/train.sh": "7c794ce65e3d35ab1075941c843f481233c682695532a15ee5397191dfc2d660",
+    "qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh": "af06ef5c5075b7aba6bec0aad32b50333a95c54c563c9b5f4a046363711de908",
+    "qwen3vl_local/sft_new_loop_phase2/build_dataset.py": "6ad51b9a9102d70b79aa5fda58bdf7ea715bd7ccb36d62e18b0390c85763cbc4",
+    "qwen3vl_local/sft_new_loop_phase2/SFT_NEW_LOOP_PHASE2_RUN.md": "fdfe93ae49dd0ef7b3d8982f565057382837bd041feddb0b41c51b9c23786ef5",
+    "qwen3vl_local/sft_new_loop_phase1/training_policy.py": "c6bf183fdd7bc5cf0dbf9443db1927ece3ae49d902105e2c1d6af20f824a76d8",
+    "qwen3vl_local/sft_new_loop_phase1/local_assets.py": "c3296b2dcff95a710ceb85055f86ea84aa570dbdcb51ebaa4cd39d6d66d8f434",
+    "qwen3vl_local/sft_new_loop_phase1/exposure_sampling.py": "5d97c78a0f29cff691bc79fe47a581696ec0c1ab48d2087d844403f13478ca6b",
+    "qwen3vl_local/sft_new_loop_phase1/test_training_policy.py": "90e46a2d2d805fa82470d035593241c2c8f4dfc52ddbf43ef6fc8058268636b2",
+    "qwen3vl_local/sft_new_loop_phase1/test_exposure_sampling.py": "4e50ba9465993766eee3992ce31ab3d1fd1bd4448f0787179a2ae9cc0f401a49",
+    "qwen3vl_local/sft_new_loop_phase1/BOUNDED_TRAINING_20261020.md": "7b9a6e2b3b77ae8b78beb45d9b049809dd1404c81a3d2a92ff4e97a05039e4e7"
+  },
+  "synthetic_coverage": [
+    {
+      "phase": 1,
+      "scope": "synthetic selection replay, not server data or model quality",
+      "epochs": [
+        {
+          "epoch": 1,
+          "planned_presentations": 12288,
+          "actual_presentations": 12288,
+          "unique_frames": 10101,
+          "new_frames": 10101,
+          "cumulative_unique_frames": 10101,
+          "max_frame_repeat_this_epoch": 2
+        },
+        {
+          "epoch": 2,
+          "planned_presentations": 12288,
+          "actual_presentations": 12288,
+          "unique_frames": 9922,
+          "new_frames": 139,
+          "cumulative_unique_frames": 10240,
+          "max_frame_repeat_this_epoch": 2
+        },
+        {
+          "epoch": 3,
+          "planned_presentations": 12288,
+          "actual_presentations": 12288,
+          "unique_frames": 9934,
+          "new_frames": 0,
+          "cumulative_unique_frames": 10240,
+          "max_frame_repeat_this_epoch": 3
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "scope": "synthetic selection replay, not server data or model quality",
+      "epochs": [
+        {
+          "epoch": 1,
+          "planned_presentations": 10752,
+          "actual_presentations": 10752,
+          "unique_frames": 10496,
+          "new_frames": 10496,
+          "cumulative_unique_frames": 10496,
+          "max_frame_repeat_this_epoch": 2
+        },
+        {
+          "epoch": 2,
+          "planned_presentations": 10752,
+          "actual_presentations": 10752,
+          "unique_frames": 9589,
+          "new_frames": 4352,
+          "cumulative_unique_frames": 14848,
+          "max_frame_repeat_this_epoch": 2
+        },
+        {
+          "epoch": 3,
+          "planned_presentations": 10752,
+          "actual_presentations": 10752,
+          "unique_frames": 9723,
+          "new_frames": 2048,
+          "cumulative_unique_frames": 16896,
+          "max_frame_repeat_this_epoch": 2
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    "No server full Phase1/2 index available locally",
+    "No new action labels, dataset rebuild, remote job, GPU training, or push",
+    "Old 8000-step run not resumed or imported into exposure history",
+    "Less-exposed priority is within full-label/subtype and known/unknown annotation strata; action is soft",
+    "Route quotas can move to new compatible routes; original task/subtype/variant quotas preserved",
+    "Frame coverage is not independent-scene coverage or proof of accuracy improvement",
+    "Default 4 ranks need no padding; custom world padded items counted separately",
+    "Periodic exposure receipts can lag a sudden interruption; not optimizer/RNG resume checkpoints",
+    "Previous bounded_training_verification_20261020.json is historical v1 evidence"
+  ]
+}

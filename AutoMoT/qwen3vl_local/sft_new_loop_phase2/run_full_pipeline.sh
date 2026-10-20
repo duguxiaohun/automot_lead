@@ -27,14 +27,17 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
-PIPELINE_TIMESTAMP="${PIPELINE_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
-PIPELINE_ROOT="${PIPELINE_ROOT:-checkpoints/sft_new_loop_phase2_pipeline/${PIPELINE_TIMESTAMP}}"
-mkdir -p "${PIPELINE_ROOT}"
+PIPELINE_TIMESTAMP="${PIPELINE_TIMESTAMP:-coverage_v2}"
+if [[ "${PLAN_ONLY:-0}" == "1" ]]; then PIPELINE_TIMESTAMP="${PIPELINE_TIMESTAMP}_plan"; fi
+PIPELINE_MODE_TAG="${HISTORY_RGB_MODES:-4rgb}"
+PIPELINE_MODE_TAG="${PIPELINE_MODE_TAG// /_}"
+PIPELINE_ROOT="${PIPELINE_ROOT:-checkpoints/sft_new_loop_phase2_pipeline/${PIPELINE_TIMESTAMP}_${PIPELINE_MODE_TAG}}"
+python -m qwen3vl_local.sft_new_loop_phase1.local_assets reserve-output --path "${PIPELINE_ROOT}"
 
 PIPELINE_LOG="${PIPELINE_LOG:-${PIPELINE_ROOT}/pipeline.log}"
 exec > >(tee -a "${PIPELINE_LOG}") 2>&1
 
-RUN_BUILD="${RUN_BUILD:-1}"
+RUN_BUILD="${RUN_BUILD:-auto}"
 RUN_TRAIN="${RUN_TRAIN:-1}"
 RUN_EVAL_SH="${RUN_EVAL_SH:-1}"
 # eval.sh 已覆盖 base/LoRA production+audit 与错例抽样。默认关闭旧的内联评测，避免
@@ -54,7 +57,7 @@ INDEX="${INDEX:-${DATA_OUTPUT_DIR}/frame_index.jsonl}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODES="${HISTORY_RGB_MODES:-4rgb}"
-TRAIN_FOCUS_BALANCE_COUNT="${TRAIN_FOCUS_BALANCE_COUNT:-${FOCUS_BALANCE_COUNT:-2048}}"
+TRAIN_FOCUS_BALANCE_COUNT="${TRAIN_FOCUS_BALANCE_COUNT:-${FOCUS_BALANCE_COUNT:-1536}}"
 TRAIN_REGULAR_FOCUS_MULTIPLIER="${TRAIN_REGULAR_FOCUS_MULTIPLIER:-${REGULAR_FOCUS_MULTIPLIER:-2.0}}"
 TRAIN_INVALID_FOCUS_MULTIPLIER="${TRAIN_INVALID_FOCUS_MULTIPLIER:-${INVALID_FOCUS_MULTIPLIER:-1.0}}"
 TRAIN_NUM_EPOCHS="${TRAIN_NUM_EPOCHS:-${NUM_EPOCHS:-3}}"
@@ -104,7 +107,7 @@ run_eval() {
     torchrun --nproc_per_node="${NPROC}" \
       --master_addr="${MASTER_ADDR:-127.0.0.1}" \
       --master_port="$(find_free_master_port)" \
-      qwen3vl_local/sft_new_loop_phase2/eval.py "$@"
+      -- qwen3vl_local/sft_new_loop_phase2/eval.py "$@"
   else
     python qwen3vl_local/sft_new_loop_phase2/eval.py "$@"
   fi
@@ -168,7 +171,37 @@ echo "[pipeline] HIGHWAY_UE3_FRACTION=${HIGHWAY_UE3_FRACTION:-0.125}"
 echo "[pipeline] TRAIN_NUM_EPOCHS=${TRAIN_NUM_EPOCHS} TRAIN_MAX_STEPS=${TRAIN_MAX_STEPS}"
 echo "[pipeline] RUN_EVAL_SH=${RUN_EVAL_SH} RUN_BASE_EVAL=${RUN_BASE_EVAL} RUN_LORA_EVAL=${RUN_LORA_EVAL}"
 
-if [[ "${RUN_BUILD}" == "1" ]]; then
+
+if [[ "${RUN_TRAIN}" == "1" ]]; then
+  python -m qwen3vl_local.sft_new_loop_phase1.training_policy \
+    --phase 2 --world-size "${NPROC}" \
+    --focus-balance-count "${TRAIN_FOCUS_BALANCE_COUNT}" \
+    --num-epochs "${TRAIN_NUM_EPOCHS}" --max-steps "${TRAIN_MAX_STEPS}" \
+    --grad-accum "${GRAD_ACCUM:-1}" --warmup-steps "${WARMUP_STEPS:--1}" \
+    --epoch-step-limit "${EPOCH_STEP_LIMIT:-4096}" --total-step-limit "${TOTAL_STEP_LIMIT:-12288}" \
+    --epoch-hours-limit "${EPOCH_HOURS_LIMIT:-10}" \
+    --action-balance-strength "${ACTION_BALANCE_STRENGTH:-0.5}" \
+    --regular-focus-multiplier "${TRAIN_REGULAR_FOCUS_MULTIPLIER:-2.0}" \
+    --invalid-focus-multiplier "${TRAIN_INVALID_FOCUS_MULTIPLIER:-1.0}"
+fi
+
+LAUNCH_ARGS=(--modes "${HISTORY_RGB_MODES}" --gpu-ids "${GPU_IDS}")
+if [[ "${RUN_TRAIN}" == "1" ]]; then
+  for launch_mode in ${HISTORY_RGB_MODES}; do
+    LAUNCH_ARGS+=(--train-output "${TRAIN_OUTPUT_DIR:-checkpoints/sft_new_loop_phase2_runs/run_direct_event_format_supervised_${launch_mode}/${PIPELINE_TIMESTAMP}}")
+  done
+fi
+python -m qwen3vl_local.sft_new_loop_phase1.local_assets check-launch "${LAUNCH_ARGS[@]}"
+
+DATA_ACTION="$(python -m qwen3vl_local.sft_new_loop_phase1.local_assets ensure \
+  --phase 2 --index "${INDEX}" --run-build "${RUN_BUILD}" --receipt "${PIPELINE_ROOT}/dataset_receipt.json")"
+echo "[dataset] ${DATA_ACTION} ${INDEX} (fixed method path; no action relabeling)"
+if [[ "${DATA_ACTION}" == "build" && "${INDEX}" != "${DATA_OUTPUT_DIR}/frame_index.jsonl" ]]; then
+  echo "Missing explicit INDEX cannot be rebuilt into another DATA_OUTPUT_DIR: ${INDEX}" >&2
+  exit 1
+fi
+
+if [[ "${DATA_ACTION}" == "build" ]]; then
   echo
   echo "========== 1/build dataset =========="
   BUILD_ARGS=(
@@ -197,6 +230,9 @@ if [[ "${RUN_BUILD}" == "1" ]]; then
     --output "${DATA_OUTPUT_DIR}/highway_ue3_audit.json"
 fi
 
+python -m qwen3vl_local.sft_new_loop_phase1.local_assets ensure \
+  --phase 2 --index "${INDEX}" --run-build 0 --receipt "${PIPELINE_ROOT}/dataset_receipt.json"
+
 for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
   case "${HISTORY_RGB_MODE}" in
     4rgb|2rgb_endpoints) ;;
@@ -213,6 +249,21 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
   LORA_EVAL_DIR="${MODE_ROOT}/eval_lora_production"
   LORA_AUDIT_EVAL_DIR="${MODE_ROOT}/eval_lora_audit_prompt"
   MODE_TRAIN_OUTPUT_DIR="${TRAIN_OUTPUT_DIR:-checkpoints/sft_new_loop_phase2_runs/run_direct_event_format_supervised_${HISTORY_RGB_MODE}/${PIPELINE_TIMESTAMP}}"
+
+  if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
+    PREFLIGHT_EXTRA=()
+    if [[ "${ROUTE_DIVERSE_SAMPLING:-0}" == "1" ]]; then PREFLIGHT_EXTRA+=(--route-diverse); fi
+    python -m qwen3vl_local.sft_new_loop_phase1.pipeline_preflight \
+      --phase 2 --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" \
+      --history-rgb-mode "${HISTORY_RGB_MODE}" --eval-split "${FINAL_EVAL_SPLIT:-test}" \
+      --max-frames "${FINAL_MAX_EVAL_FRAMES:-${LORA_MAX_EVAL_FRAMES:-0}}" \
+      --cases-per-bin "${FINAL_CASES_PER_BIN:-${LORA_CASES_PER_BIN:-64}}" \
+      --highway-ue3-fraction "${HIGHWAY_UE3_FRACTION:-0.125}" \
+      --exclude-cases "${FINAL_EXCLUDE_CASES_JSONL:-}" \
+      --expected-excluded "${FINAL_EXPECTED_EXCLUDED_CASES:-0}" \
+      --expected-total "${FINAL_EXPECTED_TOTAL_CASES:-0}" \
+      --output "${MODE_ROOT}/preflight.json" "${PREFLIGHT_EXTRA[@]}"
+  fi
 
   if [[ "${RUN_BASE_EVAL}" == "1" ]]; then
     run_eval "base eval production ${HISTORY_RGB_MODE}" \
@@ -266,6 +317,7 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
     GENERATION_EVAL_MIN_INVALID_EXACT="${GENERATION_EVAL_MIN_INVALID_EXACT:-0.80}" \
     GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT="${GENERATION_EVAL_MIN_APPLICABLE_REGULAR_EXACT:-0.50}" \
     bash qwen3vl_local/sft_new_loop_phase2/train.sh "${TRAIN_MODE}"
+    if [[ "${PLAN_ONLY:-0}" == "1" ]]; then continue; fi
     LORA_ADAPTER_DIR="$(adapter_dir_for_train_output "${MODE_TRAIN_OUTPUT_DIR}")"
   else
     LORA_ADAPTER_DIR="${ADAPTER_DIR:-$(adapter_dir_for_train_output "${MODE_TRAIN_OUTPUT_DIR}")}"

@@ -163,7 +163,7 @@ run_eval() {
   torchrun --nproc_per_node="${NPROC}" \
     --master_addr="${MASTER_ADDR:-127.0.0.1}" \
     --master_port="$(find_free_master_port)" \
-    "${EVAL_PY}" "$@"
+    -- "${EVAL_PY}" "$@"
 }
 
 build_bundle() {
