@@ -63,10 +63,34 @@ def added_rows(rows,candidates,offsets):
         yield row
 
 
+
+def verify_producer_release(producer,current):
+    if producer==current:return
+    # Narrow compatibility with the one released producer that failed on mounts.
+    # Never rewrite its receipt/SHA or accept arbitrary previous releases.
+    import ast
+    import hashlib
+    compat=trial.read(Path(__file__).with_name('phase3_suite_data_compat_1103ece79.json'))
+    if (compat['schema']!='phase3_suite_prepared_data_compatibility_v1'
+            or producer!=compat['producer_release_sha256']):
+        raise ValueError('Prepared data producer release is not compatible')
+    for name,expected in compat['unchanged_files'].items():
+        if trial.file_sha(trial.APP/name)!=expected:
+            raise ValueError('Prepared data dependency changed: '+name)
+    source=Path(__file__).read_text()
+    nodes={n.name:n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef)}
+    for name,expected in compat['generator_functions'].items():
+        node=nodes[name]
+        start=min([node.lineno]+[d.lineno for d in node.decorator_list])-1
+        segment='\n'.join(source.splitlines()[start:node.end_lineno])
+        actual=hashlib.sha256(segment.encode()).hexdigest()
+        if actual!=expected:raise ValueError('Prepared data generation logic changed: '+name)
+
 def verify(directory, *, data_root, offsets, release):
     directory=Path(directory).resolve(strict=True)
     receipt=trial.read(directory/'shared_data_receipt.json')
-    if (receipt['policy']!=POLICY or receipt['release_sha256']!=release
+    verify_producer_release(receipt['release_sha256'],release)
+    if (receipt['policy']!=POLICY
             or receipt['offset_frames']!=list(offsets)
             or receipt['data_root']!=str(Path(data_root).resolve(strict=True))):
         raise ValueError('Prepared data protocol/source/root mismatch')

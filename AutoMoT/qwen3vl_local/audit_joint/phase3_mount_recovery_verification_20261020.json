@@ -1,0 +1,64 @@
+{
+  "schema": "phase3_suite_mount_recovery_verification_v1",
+  "date": "2026-10-20",
+  "observed_server_state": {
+    "server": "cr02",
+    "source": "user-provided workflow and traceback text",
+    "data_build_exit": 0,
+    "data_build_seconds": 1098.9014646913856,
+    "added_targets": 22421,
+    "missing_requested_targets": 26786,
+    "base_cpu": "passed",
+    "a_future_cpu": "failed_raw_route_escapes_data_root",
+    "b_windows_bank": "not_started",
+    "gpu_probe_started": false,
+    "training_started": false,
+    "tests_started": false
+  },
+  "fix": {
+    "provenance_policy": "native_frame_meta_recompute_logical_mounts_v2",
+    "supported_external_mounts": [
+      "scenario",
+      "route",
+      "metas",
+      "rgb",
+      "individual source file"
+    ],
+    "safeguards": [
+      "logical route/frame identity",
+      "resolved directory and source targets",
+      "meta recomputation",
+      "source SHA and stat at recomputation",
+      "cached resolved target/stat and meta membership checks",
+      "reject duplicate resolved route roots",
+      "exact RGB history",
+      "existing split/rule/quarantine checks"
+    ],
+    "existing_dataset_modified": false,
+    "generation_functions_changed": false
+  },
+  "reuse": {
+    "known_producer_commit": "1103ece79a4d2c76e702759a284fcb2580bfe0d4",
+    "known_producer_release_sha256": "00302cfd7c2d78ebd16c3e59409c87554fa780abf5a97d691bc0811dddf2f3eb",
+    "unchanged_dependency_files": 253,
+    "unchanged_generator_functions": 6,
+    "unknown_release_refused": true,
+    "producer_receipt_rewritten": false,
+    "data_regeneration_required": false
+  },
+  "validation": {
+    "passed": 205,
+    "seconds": 185.68,
+    "source_files": 258,
+    "release_sha256": "1ab865f5447da4f6ebdb382a89964761cf20fcc880ca7c9fa3d39a35f574a5a2",
+    "scope": "CPU regressions including 17 new mounted-provenance and prior-producer compatibility cases",
+    "actual_external_symlink_fixtures": true,
+    "retarget_and_source_mutation_rejected": true
+  },
+  "limitations": [
+    "Server physical link targets not supplied or directly inspected",
+    "Server label coverage gates not reached in the received failure; later admission may still block",
+    "No H20 GPU execution or model quality verification",
+    "Cached provenance uses recorded file stat and resolved targets; no claim of adversarial filesystem attestation"
+  ]
+}
