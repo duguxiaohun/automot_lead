@@ -1,5 +1,6 @@
 """Separate, guarded base or single-frame A runs; never start scheme B."""
 import argparse
+from contextlib import ExitStack
 import fcntl
 import hashlib
 import os
@@ -34,7 +35,7 @@ def schedule(method, root, *, prepare_only=False):
         stages = [('prepare', command(own, 'prepare', '--job', job)),
                   ('probe', command(own, 'probe', '--job', job, distributed=True)),
                   ('train', command(native, '--operation', 'train', '--job', job, distributed=True)),
-                  ('summarize', command(native, '--operation', 'summarize', '--job', job)),
+                  ('summarize', command(own, 'summarize', '--job', job)),
                   ('test', command(own, 'test', '--job', job, distributed=True))]
     else:
         own = 'qwen3vl_local.audit_joint.phase3_single_frame.worker'
@@ -46,7 +47,8 @@ def schedule(method, root, *, prepare_only=False):
 
 
 def launch_sources():
-    names = ('phase3_launch.py', 'phase3_launch.sh', 'phase3_launch_worker.py')
+    names = ('phase3_launch.py', 'phase3_launch.sh', 'phase3_launch_worker.py',
+             'phase3_common_data.py', 'phase3_common_runtime.py')
     return {n: trial.file_sha(Path(__file__).with_name(n)) for n in names}
 
 
@@ -85,7 +87,10 @@ def package(root, state):
 def parser():
     p = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument('--method', choices=('base', 'single_frame'), required=True)
-    p.add_argument('--index', type=Path, required=True)
+    p.add_argument('--index', type=Path, help='Optional historical index; omitted builds/reuses the fixed common dataset')
+    p.add_argument('--common-data-dir', type=Path, default=trial.APP/'checkpoints/phase3_common_v1')
+    p.add_argument('--collection-dir', type=Path, default=trial.APP/'keyframe_filter/collection_output')
+    p.add_argument('--workers', type=int, default=2)
     p.add_argument('--data-root', type=Path, default=trial.APP/'lead_data')
     p.add_argument('--model-dir', type=Path, default=trial.APP/'checkpoints/Qwen3.5-4B')
     p.add_argument('--output', type=Path, required=True, help='Base directory; creates a fixed run_METHOD below it')
@@ -104,18 +109,26 @@ def parser():
 def main():
     resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
     a = parser().parse_args()
-    if (a.method == 'base' and (a.build_data or a.dataset)) or (a.method == 'single_frame' and not (a.build_data or a.dataset)):
+    if (a.method == 'base' and (a.build_data or a.dataset)) or (a.method == 'single_frame' and a.index is not None and not (a.build_data or a.dataset)):
         raise ValueError('base uses the original index; single_frame requires --build-data or --dataset')
-    if a.resume and a.build_data:
+    if a.resume and (a.build_data or (a.method=='single_frame' and not a.dataset)):
         raise ValueError('Resume requires the original bound --dataset, never rebuild it')
     if a.timeout_seconds <= 0 or a.reserve_gib < 20:
         raise ValueError('Positive timeout and >=20 GiB reserve required')
-    for key in ('index', 'data_root', 'model_dir'):
+    automatic_index = a.index is None
+    if automatic_index:
+        a.common_data_dir = a.common_data_dir.resolve()
+        a.index = a.common_data_dir/'native/frame_index.jsonl'
+        if a.resume and not (a.common_data_dir/'common_receipt.json').is_file():
+            raise ValueError('Resume requires the existing bound common dataset; no automatic generation')
+    else:
+        a.index = a.index.resolve(strict=True)
+    for key in ('data_root', 'model_dir'):
         setattr(a, key, getattr(a, key).resolve(strict=True))
     if a.dataset: a.dataset = a.dataset.resolve(strict=True)
     if a.resume: a.resume = a.resume.resolve(strict=True)
     base_dir = a.output.resolve()
-    protected = [a.index.parent, a.data_root, a.model_dir]
+    protected = [a.common_data_dir if automatic_index else a.index.parent, a.data_root, a.model_dir]
     if a.dataset: protected.append(a.dataset.parent)
     if a.resume: protected.append(a.resume.parents[2])
     if any(base_dir.is_relative_to(p) or p.is_relative_to(base_dir) for p in protected):
@@ -132,7 +145,7 @@ def main():
         server_label=os.environ.get('AUTOMOT_SERVER', 'unspecified'), stages=[],
         launch_sources=launch_sources(), old_models_evaluated=False, scheme_two_executed=False)
     print('[run] '+str(root), flush=True)
-    code = 0; lock_fd = None
+    code = 0; lock_fd = None; contexts = ExitStack(); reference = None
     try:
         if a.resume:
             lock_fd = os.open(a.resume, os.O_RDONLY | os.O_DIRECTORY)
@@ -140,27 +153,38 @@ def main():
         if shutil.disk_usage(root).free < (a.reserve_gib+1)*1024**3:
             raise ValueError('Insufficient space above the disk reserve')
         release = trial.verified_sources()
-        if trial.file_sha(a.index) != trial.reference()['index_sha256']:
-            raise ValueError('Frozen Phase3 index required; no rebuild/SHA override')
         from qwen3vl_local.sft_new_loop_phase3.preflight import check_index, check_model
         check_model(a.model_dir)
-        check_index(a.index, action_output_mode='choice', prompt_variant=trial.reference()['prompt_variant'])
         ids = '' if a.prepare_only else trial.gpu_ids(a.gpu_ids)
         env = environment(ids)
         env['HF_HOME'] = str(base_dir/'.hf_cache')
         snapshot = model_snapshot(a.model_dir)
-        def run(name, cmd):
+        def run(name, cmd, log=None):
             nonlocal code
             if launch_sources() != state['launch_sources'] or trial.verified_sources() != release:
                 raise ValueError('Launch sources changed during the run')
             check_model_snapshot(a.model_dir, snapshot)
             state.update(active_stage=name); trial.write(root/'launch_workflow.json', state)
-            result = trial.run_stage(cmd, root/(name+'.log'), env,
+            result = trial.run_stage(cmd, log or root/(name+'.log'), env,
                 timeout=a.timeout_seconds, reserve_bytes=a.reserve_gib*1024**3)
             state['stages'].append(dict(stage=name, **result))
             trial.write(root/'launch_workflow.json', state)
             if result['exit_code']:
                 code = result['exit_code']; raise RuntimeError(f'{name} exited {code}; see {result["log"]}')
+        if automatic_index:
+            from . import phase3_common_data as common, phase3_common_runtime as common_runtime
+            a.index, reference = common.ensure(a.common_data_dir,a.data_root,a.collection_dir,run,
+                workers=a.workers,single_frame=a.method=='single_frame' and not a.dataset)
+            contexts.enter_context(common_runtime.activate(reference,a.data_root))
+            state['common_data'] = dict(root=str(a.common_data_dir),reference_sha256=trial.file_sha(reference),
+                historical_scores_comparable=trial.reference().get('historical_scores_comparable',True))
+            if a.method=='single_frame' and not a.dataset:
+                a.dataset=a.common_data_dir/'single_frame/dataset.json'; a.build_data=False
+        if trial.file_sha(a.index) != trial.reference()['index_sha256']:
+            raise ValueError('Explicit index differs from frozen reference; omit --index for a new common dataset')
+        check_index(a.index, action_output_mode='choice', prompt_variant=trial.reference()['prompt_variant'])
+        def worker_command(cmd):
+            return common_runtime.wrap(cmd,reference,a.data_root) if reference else cmd
         exp = root/'experiment'
         if a.method == 'base':
             job = trial.build_job(SimpleNamespace(index=a.index, data_root=a.data_root, model_dir=a.model_dir,
@@ -177,10 +201,13 @@ def main():
                 '--index', a.index, '--data-root', a.data_root, '--model-dir', a.model_dir,
                 '--dataset', data_path, '--output', exp)
             if a.resume: cmd += ['--resume', str(a.resume)]
-            run('prepare', cmd)
+            run('prepare', worker_command(cmd))
             job = trial.read(exp/'single_frame_job.json')
+        if reference:
+            trial.write(exp/'common_reference.json',trial.reference())
+            trial.write(exp/'common_receipt.json',trial.read(reference.parent/'common_receipt.json'))
         for name, cmd in schedule(a.method, root, prepare_only=a.prepare_only):
-            run(name, cmd)
+            run(name, worker_command(cmd))
             if name == 'train':
                 state['training'] = trial.verify_training(job)
         state.update(status='prepared_cpu_no_training' if a.prepare_only else 'completed_quality_pending', active_stage=None)
@@ -195,6 +222,7 @@ def main():
         state.update(status='failed_or_interrupted', error=f'{type(exc).__name__}: {exc}')
         print(state['error'], file=sys.stderr, flush=True); code = code or 2
     finally:
+        contexts.close()
         if lock_fd is not None: os.close(lock_fd)
         try: package(root, state)
         except Exception as exc:

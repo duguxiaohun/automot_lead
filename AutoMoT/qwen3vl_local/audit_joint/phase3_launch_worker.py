@@ -172,14 +172,78 @@ def probe(job):
         train.cleanup_distributed()
 
 
+def summarize(job):
+    if trial.reference().get('reference_kind') != 'new_common_dataset_v1':
+        return base.summarize(job)
+    import json
+    from collections import Counter
+    from qwen3vl_local.sft_new_loop_phase3.prompts import (
+        make_prompt_spec, parse_action_output, choice_target_action, prompt_spec_to_json,
+    )
+    root = Path(job['output'])/'train'
+    path = root/('generation_val_cases.jsonl' if job['stage'] == 'quick' else 'final_generation_val_cases.jsonl')
+    records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    step = 2560 if job['stage'] == 'quick' else 7680
+    records = [r for r in records if r['step'] == step]
+    if len(records) != 320:
+        raise ValueError('Expected exactly 320 frozen validation outputs')
+    identities, actions, events, seen = [], {}, Counter(), set()
+    correct = valid = 0
+    for row in records:
+        saved = row['prompt_spec']
+        spec = make_prompt_spec(variant=saved['variant'], answers=row['answers'],
+            seed_key=saved['seed_key'], context_id=saved['context_id'], road_structure=saved['road_structure'],
+            goal_xy=saved.get('goal_xy'), context_detail=saved.get('context_detail', ''),
+            current_speed_mps=saved.get('current_speed_mps'), action_output_mode='choice')
+        if prompt_spec_to_json(spec) != saved:
+            raise ValueError('Saved validation spec changed')
+        identity = (row['scenario'], row['route_id'], row['frame_id'], row['context_id'])
+        if identity in seen:
+            raise ValueError('Duplicate validation output')
+        seen.add(identity)
+        target = choice_target_action(spec)
+        parsed = parse_action_output(row['raw_output'], spec=spec)
+        if parsed != row['parsed']:
+            raise ValueError('Raw prediction disagrees with saved parser output')
+        is_valid = all(v is not None for v in parsed.values())
+        prediction = row['raw_output'].strip()
+        ok = is_valid and prediction == target
+        if bool(row['all_ok']) != ok or bool(row['format_valid']) != is_valid:
+            raise ValueError('Saved validation correctness mismatch')
+        correct += ok; valid += is_valid; events[row['context_id']] += 1
+        cell = actions.setdefault(target, dict(support=0, correct=0, predicted=0))
+        cell['support'] += 1; cell['correct'] += ok
+        if is_valid:
+            actions.setdefault(prediction, dict(support=0, correct=0, predicted=0))['predicted'] += 1
+        # The pinned index's valid rows use the native reader's default reason.
+        # Include road premise and reason, exactly as native case_identity does.
+        from qwen3vl_local.sequence_batch import digest
+        identities.append(digest((*identity, spec.road_structure, 'wrong_road_structure')))
+    from qwen3vl_local.sft_new_loop_phase3.context_taxonomy import CONTEXT_IDS
+    if events != dict.fromkeys(CONTEXT_IDS, 32):
+        raise ValueError('Validation event quotas differ from the frozen plan')
+    if identities != trial.reference()['validation']['generation']['selected_ids']:
+        raise ValueError('Validation identities/order differ from the frozen plan')
+    for cell in actions.values():
+        cell['recall'] = cell['correct']/cell['support'] if cell['support'] else None
+        cell['precision'] = cell['correct']/cell['predicted'] if cell['predicted'] else None
+    report = dict(step=step, optimizer_updates=step, planned_optimizer_updates=7680,
+        correct=correct, total=320, exact=correct/320, format_valid=valid/320,
+        actions=actions, event_counts=dict(events), reference_sha256=job['reference_sha256'],
+        historical_scores_comparable=False, old_models_evaluated=False, test_used=False,
+        conclusion='New common-dataset validation; no historical accuracy delta')
+    trial.write(Path(job['output'])/'validation_summary.json',report)
+
+
 def main():
     p = argparse.ArgumentParser(allow_abbrev=False)
-    p.add_argument('operation', choices=('prepare', 'probe', 'test'))
+    p.add_argument('operation', choices=('prepare', 'probe', 'summarize', 'test'))
     p.add_argument('--job', type=Path, required=True)
     a = p.parse_args(); job = trial.read(a.job); base.validate_job(job)
     check_model_snapshot(Path(job['model_dir']), job['model_snapshot'])
     if a.operation == 'prepare': prepare(job)
     elif a.operation == 'probe': probe(job)
+    elif a.operation == 'summarize': summarize(job)
     else:
         trial.verify_training(job)
         from qwen3vl_local.sft_new_loop_phase3 import eval as evaluate

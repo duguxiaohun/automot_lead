@@ -1,0 +1,72 @@
+{
+  "schema": "phase3_common_data_verification_v1",
+  "tests": {
+    "passed": 71,
+    "seconds": 24.98,
+    "scope": "CPU lifecycle, parser, native adapter/reference integration, single-frame regressions"
+  },
+  "launch_sources": {
+    "phase3_launch.py": "658bf918a6b06c76118e3f1b4432b517ed4512b3435b5942224ef13edd9ae1b2",
+    "phase3_launch.sh": "3cb2cc94ff9b45762d60a0d6a7e25b28cdf36d866b7ba0c684b3c2a16634abac",
+    "phase3_launch_worker.py": "ff914019ffe5169f3c191239c204e5bce27a4613648964671184e21647e1ba04",
+    "phase3_common_data.py": "3426a0776bbac16b114b335b5f640d7286d123f41a539a4664c09cfaef791315",
+    "phase3_common_runtime.py": "c296e34445d4e3df61b9edabb9946263fc4598833e4cc6a69ccd7977bdb0565f"
+  },
+  "native_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+  "local_native": {
+    "index_sha256": "da7545ca6dc5d6a8b9e5d7a1e3c872625ed0a8016f92437ef8c01e208671fb3d",
+    "counts": {
+      "frames/train": 11100,
+      "frames/val": 420,
+      "frames/test": 768
+    },
+    "scenarios": 42,
+    "collection_routes": 7241,
+    "historical_scores_comparable": false,
+    "reference_sha256": "5001fb3ca69a4f833ddf6ff733d87eb07d84e31506092e734cb5226894a662f7",
+    "base_epochs_each_event": 1024,
+    "base_epochs": 3
+  },
+  "single_frame": {
+    "anchors": 10240,
+    "routes": 2940,
+    "source_files": 404433,
+    "dataset_sha256": "d8313d0b600a8a915c027fe7070a909cdd0cc500578817c40ce29b838900b89e",
+    "epochs": {
+      "epoch_0": {
+        "presentations": 10240,
+        "supervised_windows": 33892,
+        "errors": []
+      },
+      "epoch_1": {
+        "presentations": 10240,
+        "supervised_windows": 33804,
+        "errors": []
+      },
+      "epoch_2": {
+        "presentations": 10240,
+        "supervised_windows": 33850,
+        "errors": []
+      }
+    },
+    "fixed_evaluation": {
+      "val": {
+        "anchors": 320,
+        "minimum_distinct_supported_pairs": 8
+      },
+      "test": {
+        "anchors": 380,
+        "minimum_distinct_supported_pairs": 15
+      }
+    },
+    "history_fill": "nearest_short",
+    "future_fill": false
+  },
+  "local_evidence": "checkpoints/phase3_common_v1",
+  "model_inference_executed": false,
+  "gpu_verified": false,
+  "native_rule_sources_changed": false,
+  "raw_dataset_uploaded": false,
+  "limits": "CPU data and quota/coverage checks only; production tokenizer, H20 execution and model accuracy remain unverified",
+  "complete_cache_reuse_verified": true
+}
