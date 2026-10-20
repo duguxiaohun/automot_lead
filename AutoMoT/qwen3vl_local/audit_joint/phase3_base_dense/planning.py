@@ -11,6 +11,20 @@ from qwen3vl_local.sft_new_loop_phase3.sampling import route_diverse_sample
 
 def options(job):
     from qwen3vl_local.sft_new_loop_phase3 import trajectory_action as rule
+    if job.get('forecast_protocol','legacy')=='trajectory':
+        from .trajectory_targets import timeline
+        if job.get('forecast_step_seconds','auto')!='auto' or job.get('forecast_span_seconds',6.)!=6.:
+            raise ValueError('Trajectory timeline comes from waypoint config; span/step overrides require legacy protocol')
+        if job.get('mode','future')!='future':raise ValueError('Trajectory forecasting applies only to future mode')
+        if job.get('supervision','all')!='all':raise ValueError('Trajectory anchor-domain projection currently requires all supervision; no matched single control is claimed')
+        coverage=float(job.get('min_future_coverage',.8))
+        if not .5<=coverage<=1:raise ValueError('min-future-coverage must be between 0.5 and 1')
+        coverage_policy=job.get('trajectory_coverage_policy','masked')
+        if coverage_policy not in ('masked','strict'):raise ValueError('Unknown trajectory coverage policy')
+        return dict(timeline(),min_future_coverage=coverage,supervision='all',
+            trajectory_coverage_policy=coverage_policy,
+            masked_min_future_queries_per_anchor=1.,masked_min_distinct_targets_per_event_position=2,
+            frame_dt_seconds=rule.FRAME_DT_SECONDS,overlapping_native_windows=True)
     dt=rule.FRAME_DT_SECONDS
     horizons=[rule.IMMEDIATE_HORIZON_FRAMES,rule.LONGITUDINAL_HORIZON_FRAMES,rule.LATERAL_HORIZON_FRAMES]
     step=job.get('forecast_step_seconds','auto')
@@ -41,6 +55,9 @@ def active_indices(record,supervision):
 
 def make_plan(pool,args,job,epoch,world_size=4,history=None):
     opts=options(job)
+    if job.get('forecast_protocol')=='trajectory':
+        from .trajectory_plan import make_plan as trajectory_plan
+        return trajectory_plan(pool,args,job,epoch,world_size,history,opts)
     original=[r for r in pool.anchor_rows if r.split=='train' and Pool.action(r) is not None]
     reference,ref_audit=baseline.independent_work(original,args,epoch=epoch,world_size=world_size,history=history)
     quotas=Counter((x.row.context_id,Pool.action(x.row)) for x in reference)

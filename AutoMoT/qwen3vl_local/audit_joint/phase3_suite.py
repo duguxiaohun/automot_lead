@@ -55,6 +55,9 @@ def jobs(args,prepared,output,contract):
             model_dir=args.model_dir,resume=None,stage='complete',experiment=mode,
             dense_initialization='qwen',init_adapter=None,
             aux_index=prepared/'auxiliary/frame_index.jsonl' if mode!='base' else None,
+            forecast_protocol=getattr(args,'forecast_protocol','legacy') if mode=='future' else 'legacy',
+            trajectory_targets=getattr(args,'trajectory_targets',None) if mode=='future' else None,
+            trajectory_coverage_policy=getattr(args,'trajectory_coverage_policy','masked'),
             supervision='all',forecast_span_seconds=args.forecast_span_seconds,
             forecast_step_seconds=args.forecast_step_seconds,min_future_coverage=.8,
             min_eval_coverage=.8,max_batch_tokens=32768)
@@ -135,6 +138,9 @@ def parser():
     p.add_argument('--prepared-data',type=Path,help='Reuse an explicit prior suite shared_data directory; never regenerate')
     p.add_argument('--prepare-only',action='store_true')
     p.add_argument('--gpu-ids',default=os.environ.get('GPU_IDS',''))
+    p.add_argument('--forecast-protocol',choices=('trajectory','legacy'),default='trajectory')
+    p.add_argument('--trajectory-coverage-policy',choices=('masked','strict'),default='masked')
+    p.add_argument('--trajectory-targets',type=Path,help='Reuse A raw targets from this release; original base/B shared data remain separate')
     p.add_argument('--forecast-span-seconds',type=float,default=6.)
     p.add_argument('--forecast-step-seconds',default='auto')
     p.add_argument('--timeout-seconds',type=int,default=172800)
@@ -157,6 +163,7 @@ def main():
     if trial.file_sha(args.index)!=trial.reference()['index_sha256']:raise ValueError('Frozen historical index required')
     from .phase3_base_dense.planning import options
     offsets=options(vars(args))['offset_frames']
+    shared_offsets=[0,12,24] if args.forecast_protocol=='trajectory' else offsets
     release=trial.verified_sources()
     from qwen3vl_local.sft_new_loop_phase3.preflight import check_model
     check_model(args.model_dir)
@@ -176,19 +183,20 @@ def main():
         prepared=args.prepared_data.resolve(strict=True) if args.prepared_data else output/'shared_data'
         if not args.prepared_data:
             data_job=dict(index=str(args.index),data_root=str(args.data_root),collection_dir=str(args.collection_dir),
-                output=str(prepared),offset_frames=offsets,release_sha256=release)
+                output=str(prepared),offset_frames=shared_offsets,release_sha256=release)
             trial.write(output/'data_job.json',data_job)
             result=trial.run_stage([sys.executable,'-m','qwen3vl_local.audit_joint.phase3_suite_data',
                 '--job',str(output/'data_job.json')],output/'data_build.log',environment(''),
                 timeout=args.timeout_seconds,reserve_bytes=args.reserve_gib*1024**3)
             state['stages'].append(dict(stage='shared_data',**result))
             if result['exit_code']:code=result['exit_code'];raise RuntimeError('Shared data generation failed')
-        receipt=data.verify(prepared,data_root=args.data_root,offsets=offsets,release=release)
+        receipt=data.verify(prepared,data_root=args.data_root,offsets=shared_offsets,release=release)
         contract=dict(policy=POLICY,profile=trial.profile(),arms=ARMS,initialization='same_qwen_no_trained_adapter',
             model_dir=str(args.model_dir),model_files_sha256={k:v['sha256'] for k,v in snapshot.items()},
             reference_sha256=trial.file_sha(trial.REFERENCE),release_sha256=release,
             shared_data=str(prepared),shared_data_receipt_sha256=trial.file_sha(prepared/'shared_data_receipt.json'),
-            forecast_offset_frames=offsets,supervision='all',
+            forecast_offset_frames=offsets,forecast_protocol=args.forecast_protocol,trajectory_coverage_policy=args.trajectory_coverage_policy,
+            shared_native_index_offsets=shared_offsets,supervision='all',
             historical_best=dict(mode='4rgb_choice',val_correct=242,val_total=320,test_correct=274,test_total=380),
             interpretation='three methods, not an isolated density ablation; prompts/encoding/architecture differ; no test selection')
         trial.write(output/'suite_contract.json',contract)
@@ -199,7 +207,7 @@ def main():
             trial.write(folder/'shared_data_receipt.json',receipt)
         def run(arm,op,cmd):
             check_model_snapshot(args.model_dir,snapshot)
-            data.verify(prepared,data_root=args.data_root,offsets=offsets,release=release)
+            data.verify(prepared,data_root=args.data_root,offsets=shared_offsets,release=release)
             state.update(status='running',active_arm=arm,active_stage=op);update()
             env=environment(ids if op in ('train','probe','test','summarize') else '')
             env['TORCH_NCCL_DEBUG_INFO_TEMP_FILE']=str(output/arm/'nccl_rank_')

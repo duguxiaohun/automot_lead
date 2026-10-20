@@ -52,6 +52,14 @@ def messages(record, images):
         content.extend(dict(type='image',image=image) for image in images)
         if record.get('premises'):
             content.append(dict(type='text',text=record['premises'][0]+'\nThese premises describe only the current observation.'))
+        if record.get('forecast_protocol')=='trajectory':
+            content.append(dict(type='text',text=(
+                'All queries retain the current anchor event and its allowed choices shown above. '
+                'Use that same action domain at every prediction origin, even if the later event or road structure changes. '
+                'The anchor event fixes the question domain only; do not assume its physical condition or other observed premises persist until T. '
+                'KEEP means no qualifying change within that fixed domain. '
+                'Future speed, heading and positions must still be predicted at T; do not hold their observed values constant. '
+                'Predict the native upcoming-window action from each origin, not the action executed in a 0.25-second segment. ')))
         for i,offset in enumerate(record['offsets_seconds']):
             content.append(dict(type='text',text=query(i,offset)))
     else:

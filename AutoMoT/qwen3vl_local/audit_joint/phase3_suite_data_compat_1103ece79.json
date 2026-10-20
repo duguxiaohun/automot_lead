@@ -22,12 +22,8 @@
     "qwen3vl_local/audit_joint/phase3_base_dense/__init__.py": "e20b69975c7af657d0395002ca9d812178d577f6499015e99462fe23b10c4f7f",
     "qwen3vl_local/audit_joint/phase3_base_dense/baseline.py": "964f80759b814a74f9e40c01163342c196dd7c687f5cc9e18bc42b9ecd66ff81",
     "qwen3vl_local/audit_joint/phase3_base_dense/data.py": "80a16a4c0dcb123dd4a83dd2b5b1e482025a947959255669c689fdf103ccf2e4",
-    "qwen3vl_local/audit_joint/phase3_base_dense/evaluation.py": "5558aadd409869d90d04090f8474f2cd59e7c1ed4c29d118e783eb944ceded07",
     "qwen3vl_local/audit_joint/phase3_base_dense/frame_bank.py": "a471d8a49c9ce88dc5d1e38950a62212795b58845da78d638350dcad97566eed",
-    "qwen3vl_local/audit_joint/phase3_base_dense/objectives.py": "3e995b53684c9de6437a645de2adf83053b841a5e1d528bc7b9937d5cd43aa1f",
-    "qwen3vl_local/audit_joint/phase3_base_dense/planning.py": "5bfe5408b5e680f8102e4323013a5ece33b303030713313aca9e43d6b73f2b28",
     "qwen3vl_local/audit_joint/phase3_base_dense/prefix_cache.py": "5e3e4ab0bca5eff9f1f54e9312aad9eb13ce2660e5c4598222fcdaacf9a39b56",
-    "qwen3vl_local/audit_joint/phase3_base_dense/runtime.py": "8942e898f4f3d7af275aa25c57f5ed6413885ff6b99488dfdc79bff859652a58",
     "qwen3vl_local/audit_joint/phase3_base_dense/shapes.py": "84cda90cd345e80078c96afd392366a6e3b695eea114ca60726cf169dc195b29",
     "qwen3vl_local/audit_joint/phase3_base_dense/tests/test_base_dense.py": "f98f5cb4acb909b87807a8f72d8bba1e87bc0110ab70a6058d08fe8a9941b5f8",
     "qwen3vl_local/audit_joint/phase3_base_dense/tests/test_frame_bank.py": "9622886bc0bdec0f4fd510e4154c488a179ecdeacc2a3d8574f920ee5be1590c",
@@ -36,8 +32,6 @@
     "qwen3vl_local/audit_joint/phase3_base_dense/tests/test_review_fixes.py": "989b244b9b8af3c9f19eb1489fa7fab5d16a4a8e125f899c0a578b5c1c8afacf",
     "qwen3vl_local/audit_joint/phase3_base_dense/tests/test_second_review.py": "45c8666103d0c2404c7381546c447b9b284f14a0a83f2b984ff8aefafa1d7042",
     "qwen3vl_local/audit_joint/phase3_base_dense/vision_slots.py": "036fc6a02fe6f5c0ed58edcc7bfeecda030eb5be6f879740f70c605893a4c621",
-    "qwen3vl_local/audit_joint/phase3_base_dense/worker.py": "33a1e7f7fde45e7e544d890aa98d215c50fde381b2a4518ea226d8608cadebc6",
-    "qwen3vl_local/audit_joint/phase3_base_trial.py": "d4ea4a03ab4ebd09ee94d4b3010c897dcd4766910644924d732de9e536ede147",
     "qwen3vl_local/audit_joint/phase3_base_trial.sh": "12f99d61e39f0bcde5ff9395288cc530636ef4719148399af06c821ad8e4535d",
     "qwen3vl_local/audit_joint/phase3_base_trial_worker.py": "2d588089ccb0d698c8f39ae4b5a7473189d8f9c9e9253089da8982c9fdd5584d",
     "qwen3vl_local/audit_joint/phase3_continue.py": "82ac7e3ca309fcad3d9c4a43157345d1206fb502440fd81e97aed6cee16ce034",
@@ -46,7 +40,6 @@
     "qwen3vl_local/audit_joint/phase3_sequence_trial.py": "17c348f6401715a98a6cebf2a11d4b7daa69a48e6eaca7ab76f1840095cbde94",
     "qwen3vl_local/audit_joint/phase3_sequence_trial.sh": "b3b087fee1970f24551ee4afd6acd4a24da2ac3db54972a58e7ea44afb69aebf",
     "qwen3vl_local/audit_joint/phase3_sequence_trial_worker.py": "17cb572160e3a0e90b9d2c3f3f46a40f9a7dfa00c9bd8933dee3e662ee409b30",
-    "qwen3vl_local/audit_joint/phase3_suite.py": "428b9f1f3335b973cc87a8102dc55337ca255860db7f2fd457abe8f6f191ca33",
     "qwen3vl_local/audit_joint/phase3_suite.sh": "08520f8de267f02e4fd9b0f517b348937f6ff4a7373367820376c8d91c5af865",
     "qwen3vl_local/audit_joint/phase3_suite_compare.py": "4d18387144eb61fb25fdfc2fa0df96d83194028a00d67b6efeb0c2b87e17801f",
     "qwen3vl_local/audit_joint/tests/test_phase3_base_trial.py": "f386a276e54e1dcedd8fc958188bca99264ba1ef0cb5c7ef38a7f1ce8723aedb",
@@ -269,5 +262,15 @@
     "added_rows": "ec9d8cca568c45035da8150e859a43a1bbeb017865b2f63ab0c4d79229204195",
     "build": "6991135ae680c45042a9ddf47c5f97578c535ccb7c124aa0295e7bf79a5f0230",
     "main": "d23dee90f5cd7cc95476b1dbd2124eca519571d59081e4a31c1c091fb2918e37"
-  }
+  },
+  "consumer_only_changes": {
+    "qwen3vl_local/audit_joint/phase3_base_trial.py": "d4ea4a03ab4ebd09ee94d4b3010c897dcd4766910644924d732de9e536ede147",
+    "qwen3vl_local/audit_joint/phase3_suite.py": "428b9f1f3335b973cc87a8102dc55337ca255860db7f2fd457abe8f6f191ca33",
+    "qwen3vl_local/audit_joint/phase3_base_dense/planning.py": "5bfe5408b5e680f8102e4323013a5ece33b303030713313aca9e43d6b73f2b28",
+    "qwen3vl_local/audit_joint/phase3_base_dense/runtime.py": "8942e898f4f3d7af275aa25c57f5ed6413885ff6b99488dfdc79bff859652a58",
+    "qwen3vl_local/audit_joint/phase3_base_dense/objectives.py": "3e995b53684c9de6437a645de2adf83053b841a5e1d528bc7b9937d5cd43aa1f",
+    "qwen3vl_local/audit_joint/phase3_base_dense/evaluation.py": "5558aadd409869d90d04090f8474f2cd59e7c1ed4c29d118e783eb944ceded07",
+    "qwen3vl_local/audit_joint/phase3_base_dense/worker.py": "33a1e7f7fde45e7e544d890aa98d215c50fde381b2a4518ea226d8608cadebc6"
+  },
+  "consumer_only_scope": "Prior producer hashes retained for audit; training/planning/prompt/evaluation consumer changes do not relabel prepared native rows. Generator function source and all remaining producer dependencies must match."
 }

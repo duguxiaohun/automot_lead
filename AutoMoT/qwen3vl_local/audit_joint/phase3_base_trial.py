@@ -136,10 +136,14 @@ def build_job(args, output):
     job['mode']=mode
     if mode!='base':
         from .phase3_base_dense.planning import options
-        for name,default in [('supervision','all'),('forecast_span_seconds',6.),('forecast_step_seconds','auto'),
+        for name,default in [('forecast_protocol','legacy'),('trajectory_coverage_policy','masked'),('supervision','all'),('forecast_span_seconds',6.),('forecast_step_seconds','auto'),
                              ('min_future_coverage',.8),('min_eval_coverage',.8),('max_batch_tokens',16384)]:
             job[name]=getattr(args,name,default)
         job['forecast_contract']=options(job)
+        targets=getattr(args,'trajectory_targets',None)
+        job['trajectory_targets']=str(targets.resolve(strict=True)) if targets else None
+        if targets and output.resolve().is_relative_to(targets.resolve().parent):
+            raise ValueError('Output overlaps trajectory target artifacts')
         if not .5<=job['min_eval_coverage']<=1:raise ValueError('min-eval-coverage must be in [0.5,1]')
         if not 8192<=job['max_batch_tokens']<=32768:
             raise ValueError('max-batch-tokens must be in [8192,32768]')
@@ -269,6 +273,9 @@ def package(output, state):
              'dense_test_cases.json', 'dense_val_summary.json', 'dense_test_summary.json',
              'dense_val_sequence_metrics.json', 'dense_test_sequence_metrics.json',
              'dense_coverage.json', 'dense_probe.json', 'dense_input_shapes.json', 'dense_admission_failure.json',
+             'trajectory_targets_summary.json','trajectory_train_coverage_epoch0.json',
+             'trajectory_train_coverage_epoch1.json','trajectory_train_coverage_epoch2.json',
+             'trajectory_eval_coverage_val.json','trajectory_eval_coverage_test.json',
              'dense_aux_summary.json','dense_evaluation_plan.json','dense_val_transfer_summary.json',
              'dense_test_transfer_summary.json','dense_val_transfer_cases.json','dense_test_transfer_cases.json'}
     for p in sorted(output.rglob('*')):
@@ -277,7 +284,9 @@ def package(output, state):
         relative = str(p.relative_to(output))
         if (p.name in names or p.parent.name == 'balance' and p.name.startswith(('epoch_', 'consumed_', 'plan_', 'query_consumed_'))
                 or re.fullmatch(r'epoch_\d+_rank\d+_batches\.jsonl',p.name)):
-            if p.stat().st_size > (32 if p.name in ('dense_coverage.json','dense_input_shapes.json') else 4)*1024**2:
+            limit_mib=(32 if p.name in ('dense_coverage.json','dense_input_shapes.json') else
+                       8 if re.fullmatch(r'epoch_\d+_rank\d+_batches\.jsonl',p.name) else 4)
+            if p.stat().st_size > limit_mib*1024**2:
                 raise ValueError('Oversized report: '+relative)
             files[relative] = p.read_bytes()
         elif p.name in ('generation_val_cases.jsonl', 'final_generation_val_cases.jsonl') or (p.parent.name == 'test' and p.name.startswith('cases') and p.suffix == '.jsonl'):
@@ -288,7 +297,7 @@ def package(output, state):
             with p.open('rb') as stream:
                 stream.seek(max(0, p.stat().st_size-60000))
                 files[relative] = stream.read()
-    if sum(map(len, files.values())) > 96*1024**2:
+    if sum(map(len, files.values())) > 128*1024**2:
         raise ValueError('Handoff exceeds uncompressed budget')
     dest = output/'handoff'; dest.mkdir(exist_ok=True)
     archive = dest/'phase3_base_report.zip'
@@ -317,6 +326,9 @@ def main():
     p.add_argument('--dense-initialization', choices=['base_adapter','qwen'], default='base_adapter')
     p.add_argument('--aux-index', type=Path, help='Separately validated native labels; matching base routes/splits only, raw meta recomputation required')
     p.add_argument('--supervision', choices=['all','single'], default='all')
+    p.add_argument('--forecast-protocol',choices=('legacy','trajectory'),default='legacy')
+    p.add_argument('--trajectory-coverage-policy',choices=('masked','strict'),default='masked')
+    p.add_argument('--trajectory-targets',type=Path,help='Reuse a verified trajectory_targets.json from this release')
     p.add_argument('--forecast-span-seconds', type=float, default=6.)
     p.add_argument('--forecast-step-seconds', default='auto')
     p.add_argument('--min-future-coverage',type=float,default=.8)

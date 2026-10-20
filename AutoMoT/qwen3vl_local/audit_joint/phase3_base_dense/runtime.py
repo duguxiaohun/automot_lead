@@ -17,6 +17,9 @@ def load_pool(job,*,recompute_aux=False):
     rows=[]
     for split in ('train','val','test'):
         rows.extend(train._read_rows(Path(job['index']),split,data_root=Path(job['data_root'])))
+    if job.get('forecast_protocol')=='trajectory':
+        from .trajectory_targets import TrajectoryPool,load
+        return TrajectoryPool(rows,load(job,rows,create=recompute_aux))
     auxiliary=[]
     if job.get('aux_index'):
         from qwen3vl_local.sft_new_loop_phase3.preflight import check_index
@@ -35,12 +38,15 @@ def load_pool(job,*,recompute_aux=False):
 
 
 def contract(job):
+    artifact=(trial.read(Path(job['output'])/'trajectory_targets_summary.json')['artifact_sha256']
+              if job.get('forecast_protocol')=='trajectory' else None)
     return dict(policy=POLICY,mode=job['mode'],output='A-F existing vocabulary, external parallel readouts',
         current_action_in_prompt=False,ground_truth_in_input=False,
         query_time_semantics='all_native_rule_windows_reset_at_each_prediction_origin_v1',
         resource_probe_policy='exact_query_positions_and_eight_source_slot_upper_workload_v2',
-        forecast_contract=planning.options(job),aux_index=job.get('aux_index'),aux_binding=job.get('aux_binding'),
-        auxiliary_provenance='native_meta_recomputed_and_split_preserved_v1',
+        forecast_contract=planning.options(job),trajectory_targets_sha256=artifact,
+        aux_index=job.get('aux_index'),aux_binding=job.get('aux_binding'),
+        auxiliary_provenance=('raw_meta_anchor_event_point_projection_v2' if artifact else 'native_meta_recomputed_and_split_preserved_v1'),
         evaluation_policy='fixed_anchor_matched_readout_primary_four_frame_transfer_secondary_v1',
         native_validation_loss_role='secondary_four_frame_transfer_diagnostic',
         min_eval_coverage=job.get('min_eval_coverage',.8),
@@ -58,7 +64,8 @@ def contract(job):
         gradient_checkpointing=job['mode'] not in ('windows_prefix','windows_bank'),
         cache_scope='one optimizer forward only; no stale cache across updates',
         max_length_per_sequence=8192,max_padded_batch_tokens=job.get('max_batch_tokens',16384),max_pixels_per_image=442368,
-        loss_normalization='event/action quota-weighted query CE sum per anchor; average anchors across ranks',
+        loss_normalization=('half native anchor mass and half unique physical future target mass per event'
+            if job.get('forecast_protocol')=='trajectory' else 'event/action quota-weighted query CE sum per anchor; average anchors across ranks'),
         initialization=job.get('initialization','base_adapter'),
         init_adapter=job['init_adapter'],init_adapter_files=job['init_adapter_files'],
         release_sha256=job['release_sha256'])
@@ -157,6 +164,8 @@ def install(job,pool,shape_audit=None):
             if value['ids']!=[rec['id']]:raise ValueError('Actual dense batch does not match loss record')
             value=dict(value,dense_query_event=rec['event'],dense_query_actions=rec['actions'],
                        dense_query_weights=report['query_weights'],
+                       dense_query_source_ids=rec.get('source_ids'),
+                       dense_query_target_reasons=rec.get('target_reasons'),
                        query_record_phase='backward_completed_before_optimizer_step')
             if report.get('visual_reuse'):
                 value['dense_compute']={k:report['visual_reuse'][k] for k in
@@ -273,7 +282,8 @@ def evaluate(job,split='val'):
             expected_tokens=input_shapes[f'eval/{split}/matched/{identity}']['sequence_tokens'])
         dense_records.append(dict(id=identity,frame=item.row.frame_id,event=item.row.context_id,
             scenario=item.row.scenario,route=item.row.route_id,frames=dense['frames'],
-            targets=dense['actions'],predictions=predictions))
+            targets=dense['actions'],predictions=predictions,source_ids=dense['source_ids'],
+            offsets_seconds=dense['offsets_seconds'],target_reasons=dense.get('target_reasons')))
         for i,(target,pred) in enumerate(zip(dense['actions'],predictions)):
             prefix=f'query_{i}'
             if target is None:

@@ -71,7 +71,9 @@ def preflight(job,pool):
         records.update(eval_records)
         trial.write(root/'dense_coverage.json',dict(status='planned_not_consumed',contract=runtime.contract(job),
             epoch_plans=plans,auxiliary_labels_added=pool.aux_added,
-            update_budget=7680,labels_rebuilt=False,RGB_copied=False))
+            update_budget=7680,labels_rebuilt=False,
+            supplemental_raw_intents_built=job.get('forecast_protocol')=='trajectory' and not job.get('trajectory_targets'),
+            original_labels_modified=False,RGB_copied=False))
         processor=LocalProcessor.from_pretrained(job['model_dir'],local_files_only=True)
         objectives.choice_ids(processor.tokenizer)
         report=shapes.scan(processor,records,job.get('max_batch_tokens',16384))
