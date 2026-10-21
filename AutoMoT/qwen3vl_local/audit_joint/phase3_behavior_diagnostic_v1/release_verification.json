@@ -1,0 +1,38 @@
+{
+  "status": "ready_for_remote_diagnostic_inference",
+  "tests": {
+    "passed": 27,
+    "seconds": 5.3,
+    "scope": "diagnostic logic, native small Qwen paired forward, launcher selection and failure propagation"
+  },
+  "remote_base_commit": "3ac67352bc9b7fa7e23188447a8270345dba19f9",
+  "original_release_sources_verified_at_remote_commit": 261,
+  "plans": [
+    {
+      "seed": 11,
+      "sha256": "ddfce73f22230686d43d54afa33bba384e098f19538874da21cb259ca0f8df80",
+      "matched": 264
+    },
+    {
+      "seed": 29,
+      "sha256": "949b8d74354fa369c47a43950a384243e3ac0a0e04dc4baec0df91f6904ae293",
+      "matched": 264
+    },
+    {
+      "seed": 47,
+      "sha256": "7041c3d6f84fb257246c4db58b70e9a417ad5e22b18bd0ea6e7428758323e498",
+      "matched": 264
+    }
+  ],
+  "gpu_4b_inference_performed": false,
+  "training_performed": false,
+  "original_prompts_labels_training_modified": false,
+  "audit_evidence": {
+    "visual_unique_rgb": 431,
+    "visual_anchors": 27,
+    "physical_groups": 25,
+    "val_anchors_replayed": 320,
+    "native_label_differences": 0
+  },
+  "scope": "Only standalone Phase3 image intervention sources/tests/protocol manifests/docs; other dirty work excluded"
+}
