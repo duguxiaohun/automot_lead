@@ -1,5 +1,10 @@
 # AGENTS.md
 
+### 2026-10-21 远程同步命令永久约定
+
+用户明确要求：以后提供远程服务器代码同步命令，统一使用 `bash ./sync_automot.sh`，不再使用 `git pull --ff-only origin main` 或直接 git pull 作为替代。命令在该机已有 AutoMoT 应用根执行，不重复拼接 AutoMoT、不修改同步脚本、不清理本机数据和权重。本条覆盖历史运行说明中相冲突的远程同步示例；本机经授权的 GitHub fetch/push 发布流程不受影响。详见 PROJECT_CONTEXT.md 同名条目。
+
+
 ### 2026-10-21 远程路径命令偏好
 
 用户明确不接受重复手填 PYTHON/DATA_ROOT/MAPS_DIR/MODEL_DIR 占位符。提供远程命令前先核对已有记录与项目默认路径；已知环境使用当前 Python、AutoMoT/lead_data 和 AutoMoT/checkpoints/Qwen3.5-4B，并在目标机器验证。未知或存在歧义的资产先提供无需手填路径的只读探测命令，由用户回传结果后形成完整可执行命令，不猜另一台机器的绝对路径、不指定必须使用某台机器。本地已核验 xodr 位于 lead/3rd_party/fail2drive/toolbox/carla_xodr，仅是本机证据，尚不能声称远程有同路径。

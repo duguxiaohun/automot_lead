@@ -23,6 +23,34 @@ ROOTS = ('qwen3vl_local', 'keyframe_filter', 'lead_video_tools')
 OVERLAY = ('phase3_behavior_diagnostics.py', 'phase3_matched_image_eval.py')
 
 
+def inspect_existing(output):
+    """Read prior evidence only. A stored status is not a live-process check."""
+    output=Path(output).absolute()
+    report=dict(output=str(output),exists=output.exists(),inspection_only=True,
+                live_process_status='not_checked',files_modified=False)
+    if not output.is_dir():
+        report['reason']='Output is absent or is not a directory'
+        return report
+    receipt=output/'receipt.json'
+    try:
+        report['receipt']=json.loads(receipt.read_text())
+    except (OSError,ValueError) as exc:
+        report['receipt_error']=str(exc)
+    report['metrics_exists']=(output/'metrics.json').is_file()
+    report['log_tails']={}
+    for path in [output/'preflight.log',*sorted(output.glob('rank_*.log'))]:
+        if path.is_file():
+            with path.open('rb') as stream:
+                stream.seek(0,2);stream.seek(max(0,stream.tell()-6000))
+                report['log_tails'][path.name]=stream.read().decode('utf-8',errors='replace')
+    report['next_step']='Inspect the prior receipt/logs before retrying; preserve this directory. No automatic rerun or overwrite.'
+    return report
+
+
+class ExistingOutputError(ValueError):
+    pass
+
+
 def write(path, value):
     path.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
 
@@ -105,6 +133,8 @@ def processes(commands, cwd, envs, logs):
 
 
 def launch(job_path, output, ids='', preflight_only=False):
+    if Path(output).exists() or Path(output).is_symlink():
+        raise ExistingOutputError(json.dumps(inspect_existing(output),ensure_ascii=False,indent=2))
     job_path=Path(job_path).resolve(strict=True);output=Path(output).resolve()
     job=json.loads(job_path.read_text())
     for key in ('output','dataset','data_root','model_dir','index'):
@@ -174,10 +204,17 @@ def main():
     p.add_argument('--job',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--gpu-ids',default=os.environ.get('GPU_IDS',''))
     p.add_argument('--preflight-only',action='store_true')
+    p.add_argument('--inspect-existing',action='store_true',help='Read existing receipt and log tails only; no GPU or writes')
     a=p.parse_args()
+    if a.inspect_existing:
+        print(json.dumps(inspect_existing(a.output),ensure_ascii=False,indent=2));return
     def interrupted(signum, frame):raise KeyboardInterrupt(f'Signal {signum}')
     signal.signal(signal.SIGTERM,interrupted)
-    print(json.dumps(launch(a.job,a.output,a.gpu_ids,a.preflight_only)))
+    try:
+        print(json.dumps(launch(a.job,a.output,a.gpu_ids,a.preflight_only)))
+    except ExistingOutputError as exc:
+        print('Existing diagnostic output; prior evidence follows:\n'+str(exc),file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 if __name__=='__main__':main()

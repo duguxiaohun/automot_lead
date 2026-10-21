@@ -72,3 +72,44 @@ def test_failed_worker_terminates_sibling(tmp_path):
     with pytest.raises(RuntimeError,match='exited 9'):
         launch.processes(commands,tmp_path,[dict(os.environ)]*2,[tmp_path/'a.log',tmp_path/'b.log'])
     assert time.monotonic()-start<10
+
+
+@pytest.mark.parametrize('status',['failed','completed','preparing_runtime'])
+def test_existing_output_read_only_before_assets_or_gpu(tmp_path,monkeypatch,status):
+    output=tmp_path/'existing';output.mkdir()
+    (output/'receipt.json').write_text(json.dumps(dict(status=status,error='prior root cause')))
+    (output/'preflight.log').write_text('x'*10000+'\nSOURCE_FAILURE\n')
+    (output/'rank_0.log').write_text('rank evidence')
+    before={p.name:p.read_bytes() for p in output.iterdir()}
+    monkeypatch.setattr(launch,'gpu_ids',lambda x:pytest.fail('Must not select GPU'))
+    with pytest.raises(launch.ExistingOutputError) as caught:
+        launch.launch(tmp_path/'missing_job.json',output)
+    report=json.loads(str(caught.value))
+    assert report['receipt']['status']==status
+    assert 'SOURCE_FAILURE' in report['log_tails']['preflight.log']
+    assert len(report['log_tails']['preflight.log'])<=6000
+    assert report['live_process_status']=='not_checked'
+    assert {p.name:p.read_bytes() for p in output.iterdir()}==before
+
+
+def test_inspect_existing_cli_does_not_require_assets_or_gpu(tmp_path):
+    output=tmp_path/'existing';output.mkdir()
+    (output/'receipt.json').write_text('{broken')
+    env=dict(os.environ,PYTHON=sys.executable,GPU_IDS='invalid')
+    result=subprocess.run(['bash',str(LAUNCHER),'--job',str(tmp_path/'missing.json'),
+        '--output',str(output),'--inspect-existing'],cwd=tmp_path,env=env,capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    report=json.loads(result.stdout)
+    assert 'receipt_error' in report and report['files_modified'] is False
+    assert (output/'receipt.json').read_text()=='{broken'
+    assert list(output.iterdir())==[output/'receipt.json']
+
+
+def test_existing_output_cli_shows_evidence_without_traceback(tmp_path):
+    output=tmp_path/'existing';output.mkdir()
+    (output/'preflight.log').write_text('previous failure evidence')
+    result=subprocess.run(['bash',str(LAUNCHER),'--job',str(tmp_path/'missing.json'),
+        '--output',str(output)],env=dict(os.environ,PYTHON=sys.executable),capture_output=True,text=True)
+    assert result.returncode==2
+    assert 'previous failure evidence' in result.stderr
+    assert 'Traceback' not in result.stderr

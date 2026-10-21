@@ -17,10 +17,10 @@
 ## 运行
 
 以下命令在原来运行训练的 `AutoMoT/` 目录、原训练 Python 环境中执行。
-同步仅使用 fast-forward；如有本地改动冲突，保留文件并先处理冲突，不清理数据。
+远程同步统一使用已有的 `bash ./sync_automot.sh`；保留本机数据、权重及原实验目录。
 
 ```bash
-git pull --ff-only origin main
+bash ./sync_automot.sh
 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
   --output phase3_single_frame_visual_diagnostic_v2
@@ -35,7 +35,17 @@ nohup env GPU_IDS=0,1,2,3 bash qwen3vl_local/audit_joint/phase3_matched_image_ev
   > phase3_single_frame_visual_diagnostic_v2.log 2>&1 &
 ```
 
-两种运行方式任选一种。显式 `GPU_IDS=0` 仍可只用一张卡，卡数来自指定列表；默认不足四卡会报错，不静默退回单卡。目录已存在时拒绝覆盖，重试须明确指定新的输出名。
+两种运行方式任选一种。显式 `GPU_IDS=0` 仍可只用一张卡，卡数来自指定列表；默认不足四卡会报错，不静默退回单卡。目录已存在时只展示原回执和日志末尾并停止，不自动覆盖或重复推理。不能凭“目录存在”判断上次成功或失败；先用下面的只读命令查看。只有确认上次失败原因已解决后，才明确指定新输出名重试。
+
+```bash
+bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
+  --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
+  --output phase3_single_frame_visual_diagnostic_v2 \
+  --inspect-existing
+```
+
+此命令不选择 GPU、不加载模型、不修改任何文件；将终端输出回传即可定位此前失败原因。回执 status 仅为已保存状态，不表示当前进程仍在运行。
+
 需要只验证资产时，追加 `--preflight-only` 并使用不同输出名；该模式不会选择 GPU 或推理。
 正式推理自身已先执行全部资产检查，无需先单独跑预检查。
 必须保留原始源码合同；不能通过改 SHA 让其它版本的权重、标签或模型通过检查。

@@ -1,5 +1,10 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-21 远程同步命令永久约定
+
+用户明确要求：以后提供远程服务器代码同步命令，统一使用 `bash ./sync_automot.sh`，不再使用 `git pull --ff-only origin main` 或直接 git pull 作为替代。命令在该机已有 AutoMoT 应用根执行，不重复拼接 AutoMoT、不修改同步脚本、不清理本机数据和权重。本条覆盖历史运行说明中相冲突的远程同步示例；本机经授权的 GitHub fetch/push 发布流程不受影响。详见 PROJECT_CONTEXT.md 同名条目。
+
+
 ### 2026-10-21 geometry_v1 划分覆盖回溯修复
 
 用户复核指出六路线十事件可行但贪心补全拒绝，授权修复。geometry_v1新增coverage_search：保留贪心成功结果；失败撤回本轮移动，以事件存在位掩码做精确回溯，原holdout固定、开发物理组train-only、其余原train组可重新分配。相同事件组合最多三个代表，严格限当前一事件一有效帧/物理组；不套用更高配额。默认100000搜索状态，可用--coverage-search-states调整。feasible/infeasible/unknown明确区分；只有完整搜索无解才报当前政策下不足，预算用尽报coverage_search_inconclusive，无解/未完成不发布贪心部分划分。候选和几何过滤后两门均接线。共享旧Phase3 split_coverage.py未改。
