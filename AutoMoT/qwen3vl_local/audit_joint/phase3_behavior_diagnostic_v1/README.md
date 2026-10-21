@@ -25,7 +25,7 @@
 bash ./sync_automot.sh
 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
-  --output phase3_single_frame_visual_diagnostic_sync_v1
+  --output phase3_single_frame_visual_diagnostic_mount_v1
 ```
 
 默认自动选择四张显存占用最少的 GPU；显式指定四卡并后台运行：
@@ -33,8 +33,8 @@ bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
 ```bash
 nohup env GPU_IDS=0,1,2,3 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
-  --output phase3_single_frame_visual_diagnostic_sync_v1 \
-  > phase3_single_frame_visual_diagnostic_sync_v1.log 2>&1 &
+  --output phase3_single_frame_visual_diagnostic_mount_v1 \
+  > phase3_single_frame_visual_diagnostic_mount_v1.log 2>&1 &
 ```
 
 两种运行方式任选一种。显式 `GPU_IDS=0` 仍可只用一张卡，卡数来自指定列表；默认不足四卡会报错，不静默退回单卡。目录已存在时只展示原回执和日志末尾并停止，不自动覆盖或重复推理。不能凭“目录存在”判断上次成功或失败；先用下面的只读命令查看。只有确认上次失败原因已解决后，才明确指定新输出名重试。
@@ -42,7 +42,7 @@ nohup env GPU_IDS=0,1,2,3 bash qwen3vl_local/audit_joint/phase3_matched_image_ev
 ```bash
 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
-  --output phase3_single_frame_visual_diagnostic_sync_v1 \
+  --output phase3_single_frame_visual_diagnostic_mount_v1 \
   --inspect-existing
 ```
 
@@ -56,9 +56,9 @@ bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
 这些 JSON 不含模型权重或 RGB。打包时排除 runtime 源码快照，保留日志和分片结果：
 
 ```bash
-tar --exclude=phase3_single_frame_visual_diagnostic_sync_v1/runtime \
-  -czf phase3_single_frame_visual_diagnostic_sync_v1.tar.gz \
-  phase3_single_frame_visual_diagnostic_sync_v1
+tar --exclude=phase3_single_frame_visual_diagnostic_mount_v1/runtime \
+  -czf phase3_single_frame_visual_diagnostic_mount_v1.tar.gz \
+  phase3_single_frame_visual_diagnostic_mount_v1
 ```
 若失败，交日志及已生成的回执，不删除原训练目录，不重训。
 
@@ -72,4 +72,12 @@ tar --exclude=phase3_single_frame_visual_diagnostic_sync_v1/runtime \
 本机已验证无 Git 平铺目录和无关 Git 目录下的白名单复制/原生校验、真实四 CPU 子进程的分片与单进程结果精确一致、漏项/重复拒绝和失败清理，以及原生小 Qwen 的真实配对前向。四 CPU 子进程使用确定性预测替身，不冒称四卡 4B/H20 推理已通过。
 保留原生标签、提示词和训练代码。原始审计图像及完整证据仅留本机 checkpoints，不随 Git 发布。
 
-本轮旧 `phase3_single_frame_visual_diagnostic_v2` 已由回执确认为源码准备失败，未训练、未推理；保留该目录。上述 sync_v1 是修复 Git 依赖后的新输出名，无需删除旧目录、重训或重建数据。
+本轮旧 `phase3_single_frame_visual_diagnostic_v2` 已由回执确认为源码准备失败，未训练、未推理；保留该目录。当前 mount_v1 同时包含无 Git 部署与 RGB 挂载修复，无需删除旧目录、重训或重建数据。
+
+## 2026-10-22 RGB 挂载路径校验修复
+
+原生来源校验允许场景、路线或图片通过软链接挂载到 data_root 的真实路径以外；旧诊断额外使用 resolved_path.is_relative_to(root)，误拒绝这种合法布局。现按场景/完整路线/rgb/锚点核对逻辑路径，要求计划与原记录解析到同一文件，并核对已准入 raw_proof 的 resolved_path、stat、SHA 和计划图片 SHA、尺寸及亮度。检查后再次确认文件与挂载未变化；没有放宽原生标签和数据来源绑定。
+
+不同文件的错误现在包含样本 ID、计划逻辑/真实路径和原记录逻辑/真实路径；每组成功时打印 outside_root_mounts 计数。外层进程失败会直接展示该 worker 的日志末尾。
+
+已用场景/路线/图片外部软链接样例复现旧条件误拒绝；本机实际三份计划各 266/265/266 个接收或供图文件通过检查，本机这些图片都位于解析根目录内。不能从旧服务器通用错误确定其失败分支；四卡 H20 仍待本次实际验收。保留失败的 sync_v1 目录，新输出使用 mount_v1。

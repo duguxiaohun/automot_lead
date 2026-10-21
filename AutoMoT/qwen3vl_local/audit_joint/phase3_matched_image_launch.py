@@ -122,7 +122,11 @@ def processes(commands, cwd, envs, logs):
             codes=[p.poll() for p in children]
             if any(c is not None and c!=0 for c in codes):
                 failed=next(i for i,c in enumerate(codes) if c is not None and c!=0)
-                raise RuntimeError(f'Worker {failed} exited {codes[failed]}; see {logs[failed]}')
+                with logs[failed].open('rb') as stream:
+                    stream.seek(0,2);stream.seek(max(0,stream.tell()-6000))
+                    tail=stream.read().decode('utf-8',errors='replace')
+                raise RuntimeError(f'Worker {failed} exited {codes[failed]}; see {logs[failed]}\n'
+                                   f'--- worker log tail ---\n{tail}')
             if all(c==0 for c in codes):break
             if time.monotonic()-last>=30:
                 print(f'[diagnostic] completed={sum(c==0 for c in codes)}/{len(codes)}; logs: {logs[0].parent}',flush=True)

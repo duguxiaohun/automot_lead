@@ -65,12 +65,13 @@ def test_snapshot_rejects_foreign_release(tmp_path):
 
 
 def test_failed_worker_terminates_sibling(tmp_path):
-    commands=[[sys.executable,'-c','import sys; sys.exit(9)'],
+    commands=[[sys.executable,'-c','import sys; print("precise failure evidence",flush=True); sys.exit(9)'],
               [sys.executable,'-c','import time; time.sleep(120)']]
     import time
     start=time.monotonic()
-    with pytest.raises(RuntimeError,match='exited 9'):
+    with pytest.raises(RuntimeError,match='exited 9') as caught:
         launch.processes(commands,tmp_path,[dict(os.environ)]*2,[tmp_path/'a.log',tmp_path/'b.log'])
+    assert 'precise failure evidence' in str(caught.value)
     assert time.monotonic()-start<10
 
 

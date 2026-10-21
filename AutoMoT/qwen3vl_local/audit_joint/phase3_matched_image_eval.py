@@ -11,26 +11,50 @@ from pathlib import Path
 from . import phase3_behavior_diagnostics as diag
 
 
-def checked_pairs(plan, records, data_root):
+def checked_pairs(plan, records, data_root, raw_proof=None):
     """Validate all input metadata and RGB before loading a GPU model."""
     from PIL import Image, ImageStat
     from qwen3vl_local.sft_new_loop_phase3.build_dataset import physical_route_group
+    from .phase3_base_dense import provenance
     metadata=diag.validate_plan(plan);root=Path(data_root).resolve(strict=True)
     if not plan['pairs']:raise ValueError('No matched image support; inference would be empty')
     used={x[k] for x in plan['pairs'] for k in ('receiver','donor')}
-    for key in used:
+    mounted_outside=0
+    for key in sorted(used):
         r=records[key];m=metadata[key]
         if (r['split']!='val' or r['event']!=m['event'] or
             physical_route_group(r['scenario'],r['route_id'])!=m['group']):
             raise ValueError('Plan identity/event/physical group differs from admitted dataset')
-        path=(root/m['image']).resolve(strict=True)
-        if not path.is_relative_to(root) or Path(r['image']).resolve(strict=True)!=path:
-            raise ValueError('Plan RGB does not match admitted record')
-        if diag.file_sha(path)!=m['rgb_sha256']:raise ValueError('Intervention source RGB changed')
+        relative=Path(m['image'])
+        # Check logical identity before resolving. Native provenance explicitly
+        # supports scenario/route mounts outside the physical data root.
+        logical=provenance.logical_path(root,relative)
+        if (len(relative.parts)!=4 or relative.parts[:3]!=(r['scenario'],r['route_id'],'rgb') or
+                not relative.stem.isdigit() or int(relative.stem)!=r['anchor']):
+            raise ValueError('Plan logical RGB identity differs: '+json.dumps(dict(
+                id=key,plan_image=m['image'],scenario=r['scenario'],route=r['route_id'],anchor=r['anchor'])))
+        path=logical.resolve(strict=True)
+        mounted_outside+=not path.is_relative_to(root)
+        record_path=Path(r['image']).resolve(strict=True)
+        if record_path!=path:
+            raise ValueError('Plan RGB resolves to a different admitted file: '+json.dumps(dict(
+                id=key,data_root=str(root),plan_image=m['image'],plan_resolved=str(path),
+                record_image=r['image'],record_resolved=str(record_path))))
+        before=provenance.stamp(logical)
+        if raw_proof is not None:
+            source=raw_proof['sources'].get(str(relative))
+            if (source is None or source['resolved_path']!=str(path) or source['stat']!=before or
+                    source['sha256']!=m['rgb_sha256']):
+                raise ValueError('Plan RGB differs from admitted raw provenance: '+json.dumps(dict(
+                    id=key,plan_image=m['image'],resolved=str(path),admitted=source)))
+        if diag.file_sha(path)!=m['rgb_sha256']:raise ValueError('Intervention source RGB changed: '+m['image'])
         with Image.open(path) as im:
             if list(im.size)!=m['image_size']:raise ValueError('Intervention image shape changed')
             brightness=ImageStat.Stat(im.convert('L')).mean[0]
             if abs(brightness-m['brightness'])>1e-8:raise ValueError('Image brightness metadata changed')
+        if logical.resolve(strict=True)!=path or Path(r['image']).resolve(strict=True)!=path or provenance.stamp(logical)!=before:
+            raise ValueError('RGB source or mount changed during validation: '+m['image'])
+    print(f'[RGB validation] seed={plan["seed"]} files={len(used)} outside_root_mounts={mounted_outside} checked',flush=True)
     return metadata
 
 
@@ -149,7 +173,7 @@ def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False, ran
     for p in plans:
         if [r['id'] for r in p['metadata']]!=fixed:
             raise ValueError('Plan does not use the exact original fixed validation membership/order')
-        checked_pairs(p,artifact['records'],job['data_root'])
+        checked_pairs(p,artifact['records'],job['data_root'],artifact['raw_proof'])
     checkpoint=Path(job['output'])/'train/training_states/epoch_0003'
     receipt=trial.read(checkpoint/'receipt.json')
     if receipt['files']!=training_state.files(checkpoint):raise ValueError('Checkpoint files changed')

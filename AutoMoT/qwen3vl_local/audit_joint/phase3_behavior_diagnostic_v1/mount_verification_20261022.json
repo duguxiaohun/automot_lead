@@ -1,0 +1,39 @@
+{
+  "status": "local_verified_remote_mount_layout_not_observed",
+  "tests": {
+    "passed": 53,
+    "seconds": 5.37
+  },
+  "original_condition_reproduced_on_external_scenario_route_image_symlinks": true,
+  "logical_identity_and_admitted_file_equality_required": true,
+  "raw_proof_and_pixel_sha_checked": true,
+  "rejects": [
+    "different_file_even_with_identical_bytes",
+    "traversal_or_absolute_plan_path",
+    "wrong_route",
+    "retargeted_image_symlink",
+    "missing_provenance",
+    "changed_pixels"
+  ],
+  "actual_local_plans": {
+    "11": {
+      "checked_files": 266,
+      "outside_root_mounts": 0
+    },
+    "29": {
+      "checked_files": 265,
+      "outside_root_mounts": 0
+    },
+    "47": {
+      "checked_files": 266,
+      "outside_root_mounts": 0
+    }
+  },
+  "remote_error_boundary": "Old combined path condition did not record which branch failed; exact remote layout not established",
+  "gpu_inference_performed": false,
+  "labels_prompts_dataset_modified": false,
+  "source_sha256": {
+    "phase3_matched_image_eval.py": "f15e547c22709d6864f16b32688745f9e2465b40ac87e567711df8f02c68b0dc",
+    "phase3_matched_image_launch.py": "f3864066bed21cdd782eab0cfeea1d7ae2b1bdbd7bddf397fe7e81c35e36c7fb"
+  }
+}
