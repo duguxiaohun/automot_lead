@@ -40,6 +40,7 @@ def planned(job,artifact):
     loss_ids=[dataset.identity(x.row) for x in evaluation.selected(native,'val','loss')]
     for key in loss_ids:needed[key]='evaluation'
     report['fixed_loss_ids']=loss_ids
+    _,report['fixed_loss_admission']=runtime.loss_members(evaluation.selected(native,'val','loss'),artifact['records'])
     loss_coverage=planning.evaluation_coverage(artifact['records'][i] for i in loss_ids)
     report['fixed_loss_coverage']=loss_coverage
     for event in train.CONTEXT_IDS:
@@ -95,6 +96,27 @@ def bundle(job,device):
         strict_vision_scope=True,gradient_checkpointing=True)
 
 
+def probe_periodic_loss(job,artifact,admitted,bundle,*,rank,world,device):
+    """Exercise the exact native periodic-validation path before any training."""
+    runtime.install(artifact,Path(job['output']))
+    rows=train._read_rows(Path(job['index']),'val',data_root=Path(job['data_root']))
+    work=evaluation.selected(Pool(rows),'val','loss')
+    if [dataset.identity(x.row) for x in work]!=admitted['plans']['fixed_loss_ids']:
+        raise ValueError('Periodic probe fixed loss members changed')
+    _,coverage=runtime.loss_members(work,artifact['records'])
+    if coverage!=admitted['plans']['fixed_loss_admission']:
+        raise ValueError('Periodic probe target coverage changed')
+    shard=train._split_work_for_rank(work,rank=rank,world_size=world)
+    args=runtime.make_args(job,artifact)
+    metrics=train.evaluate_loss(bundle,shard,history_rgb_mode=args.history_rgb_mode,
+        prompt_variant=args.prompt_variant,max_length=args.max_length,format_loss_weight=args.format_loss_weight,
+        device=device,world_size=world,batch_size=1)
+    if (metrics['requested_samples']!=coverage['requested'] or metrics['samples']!=coverage['eligible'] or
+            metrics['unlabeled_samples']!=len(coverage['unlabeled_ids'])):
+        raise ValueError('Periodic probe aggregate differs from CPU coverage')
+    return metrics
+
+
 def probe(job,artifact,admitted):
     if os.environ.get('WORLD_SIZE')!='4':raise ValueError('Probe requires exactly four ranks')
     rank,local,world=train.setup_distributed()
@@ -128,10 +150,11 @@ def probe(job,artifact,admitted):
                             raise ValueError('Missing/nonfinite probe gradient: '+name)
                     optimizer.step();optimizer.zero_grad(set_to_none=True)
                 results.append(dict(id=key,phase='training_two_optimizer_steps'))
+        periodic=probe_periodic_loss(job,artifact,admitted,b,rank=rank,world=world,device=device)
         torch.cuda.synchronize(device)
         free,total=torch.cuda.mem_get_info(device);peak=torch.cuda.max_memory_reserved(device)
         result=dict(rank=rank,free_bytes=free,total_bytes=total,peak_reserved_bytes=peak,
-                    peak_allocated_bytes=torch.cuda.max_memory_allocated(device),results=results,
+                    peak_allocated_bytes=torch.cuda.max_memory_allocated(device),results=results,periodic_loss=periodic,
                     passed=free>=8*1024**3 and peak<=.85*total)
         ranks=[None]*world;torch.distributed.all_gather_object(ranks,result)
         passed=all(r['passed'] for r in ranks)

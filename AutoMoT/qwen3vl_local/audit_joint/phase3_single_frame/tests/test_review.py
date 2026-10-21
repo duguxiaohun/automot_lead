@@ -53,8 +53,13 @@ def test_real_native_save_contract_and_epoch_resume_exact(tmp_path,monkeypatch,p
     from qwen3vl_local.qwen35 import adapters
     job,rows,art,_=fixture(tmp_path,monkeypatch)
     job['dataset']=str(tmp_path/'single/dataset.json')
+    # Real production edge: a frozen validation anchor has no complete pair.
+    validation_records=[r for r in art['records'].values() if r['split']=='val']
+    from qwen3vl_local.audit_joint.phase3_single_frame import targets
+    validation_records[0]['windows']=[targets.distribution([None,None])]*4
+    validation_records[1]['windows'][2:]=[targets.distribution([None,None])]*2
     names=('_make_item','_contiguous_work','_loss_batch','SEQUENCE_POLICY','_build_inputs',
-        '_save_adapter','_write_run_metadata','_validation_work','_loss_one','_append_jsonl','verify_epoch_consumption','select_history_rgb_paths')
+        '_save_adapter','_write_run_metadata','_validation_work','_loss_one','_append_jsonl','verify_epoch_consumption','select_history_rgb_paths','evaluate_loss')
     originals={n:getattr(train,n) for n in names}
     for n,v in originals.items():monkeypatch.setattr(train,n,v)
     monkeypatch.setattr(preflight,'check_model',lambda *a:None)
@@ -104,6 +109,9 @@ def test_real_native_save_contract_and_epoch_resume_exact(tmp_path,monkeypatch,p
     for field in ('trainable','optimizer','scheduler','rng','sampling_history','global_step'):same(states[0][field],states[1][field])
     assert states[1]['global_step']==30
     root=Path(resumed['output'])/'train'
+    periodic=[json.loads(line) for line in (root/'train_eval_metrics.jsonl').read_text().splitlines()]
+    assert periodic
+    assert all(m['samples']==9 and m['unlabeled_samples']==1 and m['requested_samples']==10 and m['supervised_windows']==34 for m in periodic)
     assert not (root/'training_states/epoch_0001').exists()
     for path in (root/'final/sft_new_loop_phase3_adapter_config.json',root/'train_run_manifest.json'):
         value=trial.read(path);protocol.validate(value,art)

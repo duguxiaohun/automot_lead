@@ -1,0 +1,154 @@
+{
+  "date": "2026-10-21",
+  "status": "fixed_locally_pending_H20_rerun",
+  "received": {
+    "archive_bytes": 6547616,
+    "archive_sha256": "54591b2d71fe01d330aef889cf27f4dc90862a0da143532b13a6246688c6a50d",
+    "member_count": 18,
+    "crc_verified": true,
+    "all_member_sha256_verified": true,
+    "hostname": "szh-gpu-cr02",
+    "method": "single_frame",
+    "stages": [
+      {
+        "stage": "derive_common",
+        "exit_code": 0,
+        "seconds": 994.2409946154803
+      },
+      {
+        "stage": "prepare",
+        "exit_code": 0,
+        "seconds": 409.3297184482217
+      },
+      {
+        "stage": "probe",
+        "exit_code": 0,
+        "seconds": 118.89103356003761
+      },
+      {
+        "stage": "train",
+        "exit_code": 1,
+        "seconds": 5950.13247141242
+      }
+    ],
+    "launch_sources_match": true,
+    "native_index_sha256": "925053e34c47f35dfe4987f14a1be3a8abdc206d75bea31964dc4ca9b8fcee99",
+    "historical_reference_preserved": true
+  },
+  "failure": {
+    "stage": "first periodic loss at global_step=2560",
+    "error": "fixed validation cannot skip inputs rejected by max_length/packing",
+    "cause": "zero-supervision anchor returned None; native guard interpreted it as input rejection",
+    "pre_fix_reproduced": true,
+    "first_epoch_batch_rows_per_rank": [
+      2560,
+      2560,
+      2560,
+      2560
+    ],
+    "presentation_positions_verified": true,
+    "supervised_windows_histogram": {
+      "4": 6158,
+      "2": 1447,
+      "3": 1786,
+      "1": 849
+    },
+    "total_supervised_windows": 33733,
+    "recovery_saved_before_failure": false,
+    "recovery_evidence": "eval precedes epoch consumption/recovery; save_steps=0 and save_best flags false; not inferred from excluded archive weights"
+  },
+  "received_gpu_probe": {
+    "status": "passed",
+    "world_size": 4,
+    "peak_reserved_GiB": [
+      15.8828125,
+      15.744140625,
+      15.912109375,
+      16.140625
+    ],
+    "input_token_range": [
+      1432,
+      1479
+    ],
+    "new_fix_gpu_validated": false
+  },
+  "fix": {
+    "changed_production_sources": [
+      "runtime.py",
+      "worker.py"
+    ],
+    "fixed_loss_members_preserved": true,
+    "labels_recomputed": false,
+    "native_trainer_changed": false,
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "pretraining_probe_runs_complete_native_periodic_validation": true
+  },
+  "regression": {
+    "passed": 72,
+    "seconds": 35.92,
+    "log_sha256": "d7f877794a74a7d6f0e0c1c087d5c46783ff2f0286169c0cc9cbedd4496f67c1",
+    "native_loop_resume_cutoffs": [
+      1,
+      2
+    ],
+    "four_gloo_ranks_local_eligible": [
+      0,
+      1,
+      2,
+      1
+    ],
+    "four_gloo_global": {
+      "requested": 10,
+      "eligible": 4,
+      "unlabeled": 6,
+      "supervised_windows": 14
+    },
+    "all_missing_and_genuine_packing_failure_rejected": true
+  },
+  "local_runtime_refresh": {
+    "status": "passed",
+    "records": 10240,
+    "records_sha256": "6d0f3820c8b243418e67899c5d96c4872cbe370cf342121f29cce004647fd587",
+    "old_artifact_unchanged": true,
+    "labels_recomputed": false,
+    "three_epoch_plans_and_eval_unchanged": true,
+    "fixed_loss_admission": {
+      "requested": 160,
+      "eligible": 150,
+      "unlabeled_ids": [
+        "3c0a3f7f27c53a9ab107de858cb5d4c896558a50255780d8871c22012d9c2795",
+        "8606cb4b8306de7865c0f8058905b27ef966c8a934ce01436275bd5224a6c43f",
+        "02a15a80eaa55a249115e7f64b571a6cdd6ddd9500e63f807f54e8361cdd05e7",
+        "5a7d1253e8818ec1815f8aa87ff00b20547bb75a7bf3afee0a45f46e68a82ced",
+        "750c4054a72eef2ca0b81fe9a675d0336dcfc1c91fe1a2328d512df361318afc",
+        "af385dec3b805b403103af594fcf4a95117ac90926f8b45dfd6c862febce00fa",
+        "ab4392d3ec3826fd55b3a229a61177b0ddc6fee681b90a3aef5a7d7f0777ed1c",
+        "6feab3fbe10824ba1443f1fc22650b5497184dd60663ad14764e3d996a00a878",
+        "8e94dfa00f72e447ba521fe383783af0488f9ecf9b39e3445f70539079d9ab4f",
+        "80595d17e386991dca3c54a815a07e7d78c7cf399f2eca0e57156c697c27b8f3"
+      ],
+      "supervised_windows": 481
+    },
+    "changed_runtime_sources": [
+      "runtime.py",
+      "worker.py"
+    ],
+    "refreshed_artifact_sha256": "fb1db4dc17bf6b3afad313944e9a6d58f607a8e68b688af95bf2ca815a5b297d",
+    "base_release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+    "scope": "Local pool; not server pool nor GPU execution"
+  },
+  "source_sha256": {
+    "phase3_single_frame/runtime.py": "cc2a30ff399071165924a94995ff393ea2a0ea263aafbf3a951b241ba05b30c2",
+    "phase3_single_frame/worker.py": "8cba81b90a513aff37b605ae58edf7ea0079d33828ad03481b87ee4657ece168",
+    "phase3_single_frame/tests/test_review.py": "e3c8872e2e69d5d4b339463a2e611718b67def043e4ab1589726d618eec13c5c",
+    "phase3_single_frame/tests/test_single_frame.py": "ec15092eeea05251e2b8bae0c387b8be4fa3e03c659eac7dc05bf36fbdc408b4",
+    "phase3_single_frame/tests/test_periodic_validation.py": "782ef8d4b25d0ce9d683424dad0fd5bbe87668c0a7a09a9adbabe9d2e4672402"
+  },
+  "limitations": [
+    "No fixed H20 full training in this turn",
+    "No base result supplied",
+    "Local pool differs from received server pool",
+    "No recoverable checkpoint can be reconstructed from batch logs"
+  ],
+  "raw_evidence": "checkpoints/phase3_validation_failure_20261021 (local only; not published)"
+}

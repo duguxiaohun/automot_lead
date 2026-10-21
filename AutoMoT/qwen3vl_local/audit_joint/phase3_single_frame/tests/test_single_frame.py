@@ -161,7 +161,7 @@ def test_native_training_consumes_four_queries_one_image_and_saves_checkpoint(tm
     job,rows,artifact,_=fixture(tmp_path,monkeypatch)
     job['dataset']=str(tmp_path/'single/dataset.json')
     for name in ('_make_item','_contiguous_work','_loss_batch','SEQUENCE_POLICY','_build_inputs',
-                 '_save_adapter','_write_run_metadata','_validation_work','_loss_one','_append_jsonl','verify_epoch_consumption','select_history_rgb_paths'):
+                 '_save_adapter','_write_run_metadata','_validation_work','_loss_one','_append_jsonl','verify_epoch_consumption','select_history_rgb_paths','evaluate_loss'):
         monkeypatch.setattr(train,name,getattr(train,name))
     monkeypatch.setattr(preflight,'check_model',lambda *a:None)
     class Tiny(torch.nn.Module):
@@ -227,7 +227,7 @@ def test_zero_target_evaluation_is_skipped_not_counted_as_correct(tmp_path,monke
     from qwen3vl_local.audit_joint.phase3_single_frame import runtime
     job,rows,art,_=fixture(tmp_path,monkeypatch)
     for name in ('_make_item','_contiguous_work','_loss_batch','SEQUENCE_POLICY','_build_inputs',
-                 '_save_adapter','_write_run_metadata','_validation_work','_loss_one','_append_jsonl','verify_epoch_consumption','select_history_rgb_paths'):
+                 '_save_adapter','_write_run_metadata','_validation_work','_loss_one','_append_jsonl','verify_epoch_consumption','select_history_rgb_paths','evaluate_loss'):
         monkeypatch.setattr(train,name,getattr(train,name))
     row=next(r for r in rows if r.split=='val' and dataset.identity(r) in art['records'])
     art['records'][dataset.identity(row)]['windows']=[targets.distribution([None,None])]*4

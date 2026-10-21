@@ -27,11 +27,27 @@ def make_args(job, artifact):
     return args
 
 
+def loss_members(work, records):
+    """Keep fixed membership visible; only defined targets enter the loss mean."""
+    selected=[];missing=[];windows=0
+    for item in work:
+        key=dataset.identity(item.row)
+        rec=records[key]  # Missing records are errors, never treated as missing labels.
+        if rec['split']!='val' or item.row.split!='val':
+            raise ValueError('Periodic loss requires validation records')
+        count=sum(w['valid'] for w in rec['windows'])
+        if count:
+            selected.append(item);windows+=count
+        else:missing.append(key)
+    return selected,dict(requested=len(work),eligible=len(selected),unlabeled_ids=missing,
+                         supervised_windows=windows)
+
+
 def install(artifact, output):
     """Install only in this worker. Caller must not reuse the process for other modes."""
     baseline.install_baseline()
     originals = {name:getattr(train,name) for name in ('_make_item','_append_jsonl',
-        'verify_epoch_consumption','_save_adapter','_write_run_metadata','_validation_work')}
+        'verify_epoch_consumption','_save_adapter','_write_run_metadata','_validation_work','evaluate_loss')}
     by_seed = {}; state = {}; records = artifact['records']
     def make_item(row, **kwargs):
         item = originals['_make_item'](row,**kwargs)
@@ -49,7 +65,7 @@ def install(artifact, output):
         row = by_seed[kwargs['spec'].seed_key]
         rec = records[dataset.identity(row)]
         if row.split!='train' and not any(w['valid'] for w in rec['windows']):
-            # Native validation reports this as skipped, not a zero loss/correct answer.
+            # The A-only evaluate_loss adapter accounts for these before native packing.
             return None
         packed = objective.pack(bundle,rec,kwargs['images'][-1],max_length=kwargs['max_length'])
         packed['record'] = rec
@@ -70,6 +86,24 @@ def install(artifact, output):
         # Native B1 periodic validation calls _loss_one rather than _loss_batch.
         value,stats=loss(bundle,[packed],[spec])
         return value,stats[0]
+    def evaluate_loss(bundle,work,**kwargs):
+        selected,audit=loss_members(work,records)
+        totals=torch.tensor([audit['requested'],audit['eligible'],len(audit['unlabeled_ids']),
+                             audit['supervised_windows']],dtype=torch.int64,device=kwargs['device'])
+        if kwargs['world_size']>1:torch.distributed.all_reduce(totals)
+        requested,eligible,unlabeled,windows=map(int,totals.tolist())
+        if not eligible:raise ValueError('Fixed validation has no supervised anchors globally')
+        # Empty LOCAL shards are valid; native evaluation reduces sums/counts
+        # across ranks. Its genuine max_length/packing failures still raise.
+        metrics=originals['evaluate_loss'](bundle,selected,**kwargs)
+        if metrics['samples']!=eligible or metrics['skipped']!=0:
+            raise ValueError('Periodic validation supervised denominator changed')
+        metrics.update(requested_samples=float(requested),unlabeled_samples=float(unlabeled),
+            supervised_windows=float(windows),requested_windows=float(4*requested),
+            supervised_anchor_fraction=eligible/requested,
+            supervised_window_fraction=windows/(4*requested))
+        return metrics
+
     def append(path,value):
         if re.fullmatch(r'epoch_\d+_rank\d+_batches.jsonl',Path(path).name):
             rec,report = state.pop('pending')
@@ -129,6 +163,7 @@ def install(artifact, output):
         annotate(Path(output)/'train/train_run_manifest.json')
     train._make_item=make_item;train._contiguous_work=select
     train._validation_work=validation;train._loss_one=loss_one
+    train.evaluate_loss=evaluate_loss
     train._build_inputs=pack;train._loss_batch=loss
     train._append_jsonl=append;train.verify_epoch_consumption=verify
     train._save_adapter=save;train._write_run_metadata=metadata

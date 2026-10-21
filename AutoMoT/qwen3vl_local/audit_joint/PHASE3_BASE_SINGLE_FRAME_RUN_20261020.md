@@ -1,5 +1,7 @@
 # Phase3：独立 base 与单图方案一
 
+2026-10-21：已有方案一在第2560步周期验证失败时，按 [周期验证修复与原库复用](PHASE3_PERIODIC_VALIDATION_FIX_20261021.md) 更新运行绑定并使用新输出；不重复建库或 base。下方首次运行命令适用于尚未派生方案一数据的环境。
+
 当前只运行 base 和新的单图方案一，不调用旧 base/A/B suite，不运行方案二，不重新评测旧模型。两组分别从同一个本机 Qwen3.5-4B 初始化，各三轮、四卡 B1/累积1、每事件每轮1024、7680次更新、warmup2000、lr=1e-5。不会在 base 权重上继续训练方案一。
 
 没有增加训练预算。两组总共15360次更新；本机未测H20耗时，不承诺一天内完成。每阶段默认超时48小时、磁盘绝对保留20GiB，首错停止、不自动重试。GPU probe只做资源/执行检查，权重不带入训练，不证明模型精度恢复。
@@ -68,7 +70,7 @@ tail -f phase3_base_a_v1.launch.log
 
 共同入口先检查源码、模型文件、创建或核验共用索引与评测名单、完整原生题库manifest，随后分别完成CPU全输入检查和四卡probe，再训练和评测。新方案一保持nearest_short、不人工增加UNKNOWN、不填未来标签。tokenizer会在完整提示词上检查六动作历史ID与输出候选一致。
 
-base额外扫描三轮实际选题、固定loss/val/test的四图解码及token预算，验证最终test成员在开训前存在。资源probe覆盖训练反向/AdamW、loss验证、val生成和test生成的不同输入形状；保持原val生成64与test生成256 token上限。单图方案一沿原四查询probe，并在prepare前移原生题库/模型检查。训练后仍必须核对真实消费与7680步。
+base额外扫描三轮实际选题、固定loss/val/test的四图解码及token预算，验证最终test成员在开训前存在。资源probe覆盖训练反向/AdamW、loss验证、val生成和test生成的不同输入形状；保持原val生成64与test生成256 token上限。单图方案一沿原四查询probe，并实际执行完整固定loss名单的周期验证（单独统计无监督锚点）；prepare还前置原生题库/模型检查。训练后仍必须核对真实消费与7680步。
 
 旧base test入口给adapter同时传`--history-rgb-mode`，会被原生评测器拒绝。新入口通过独立`phase3_launch_worker`移除该冲突参数，让评测器读取保存的四图合同；保持原生trainer、原生eval及冻结发布清单字节不变。不要把旧`phase3_base_trial.sh`的完整流程当作本次修复后的运行入口。
 
