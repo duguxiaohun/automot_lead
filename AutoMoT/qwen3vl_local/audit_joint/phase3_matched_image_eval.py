@@ -60,14 +60,67 @@ def predict_pairs(bundle, records, plan, *, predict=None, reference_cache=None, 
     return full,wrong
 
 
-def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False):
+def receiver_shard(plans, rank, world):
+    if world < 1 or not 0 <= rank < world:
+        raise ValueError('Invalid inference rank/world')
+    ids = sorted({p['receiver'] for plan in plans for p in plan['pairs']})
+    return set(ids[rank::world])
+
+
+def merge_shards(plans, shards):
+    """Require an exact, disjoint partition of all receivers and donor pairs."""
+    full_cache = {}; wrong_cache = {}
+    if sorted(s['rank'] for s in shards) != list(range(len(shards))):
+        raise ValueError('Missing or duplicate inference ranks')
+    for shard in shards:
+        rank = shard['rank']
+        if shard['world'] != len(shards):raise ValueError('Inference world changed')
+        wanted = receiver_shard(plans, rank, len(shards))
+        expected_pairs = {(p['receiver'],p['donor']) for plan in plans for p in plan['pairs'] if p['receiver'] in wanted}
+        full = {c['id']:c for c in shard['reference']}
+        wrong = {(c['id'],c['donor_id']):c for c in shard['swapped']}
+        if (len(full)!=len(shard['reference']) or set(full)!=wanted or
+                len(wrong)!=len(shard['swapped']) or set(wrong)!=expected_pairs):
+            raise ValueError('Missing, duplicate or misplaced inference cases')
+        if full_cache.keys() & full.keys() or wrong_cache.keys() & wrong.keys():
+            raise ValueError('Overlapping inference shards')
+        full_cache.update(full);wrong_cache.update(wrong)
+    return full_cache, wrong_cache
+
+
+def save_metrics(job, plans, output, full_cache, wrong_cache):
+    from . import phase3_base_trial as trial
+    common_ids=set.intersection(*({p['receiver'] for p in plan['pairs']} for plan in plans))
+    old={c['id']:c for c in trial.read(Path(job['output'])/'single_frame_val_cases.json')}
+    results={}
+    for plan in plans:
+        full=[full_cache[p['receiver']] for p in plan['pairs']]
+        wrong=[wrong_cache[p['receiver'],p['donor']] for p in plan['pairs']]
+        metadata={r['id']:r for r in plan['metadata']}
+        metrics=diag.paired_scores(full,wrong,metadata)
+        metrics['primary_common_across_seeds']=diag.paired_scores(
+            [c for c in full if c['id'] in common_ids],[c for c in wrong if c['id'] in common_ids],metadata)
+        metrics['primary_common_anchors']=len(common_ids)
+        for c in full:
+            if c['windows']!=old[c['id']]['windows']:raise ValueError('Published target windows changed')
+        metrics['reference_prediction_changes_from_received']=sum(c['predictions']!=old[c['id']]['predictions'] for c in full)
+        metrics['paired_anchors']=len(full);metrics['excluded_anchors']=len(plan['excluded'])
+        trial.write(output/f'seed_{plan["seed"]}_reference_cases.json',full)
+        trial.write(output/f'seed_{plan["seed"]}_wrong_image_cases.json',wrong)
+        trial.write(output/f'seed_{plan["seed"]}_metrics.json',metrics)
+        results[str(plan['seed'])]=metrics
+    trial.write(output/'metrics.json',results)
+
+
+def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False, rank=None, world=1):
+    if rank is None and world!=1:raise ValueError('An explicit rank is required for multiple workers')
     import torch
     from . import phase3_base_trial as trial, phase3_base_trial_worker as base
     from .phase3_single_frame import dataset,runtime,worker
     from .phase3_suite import check_model_snapshot
     from qwen3vl_local.sft_new_loop_phase3 import training_state
     job_path=Path(job_path).resolve(strict=True);output=Path(output).resolve()
-    if output.exists():raise ValueError('Use a new output directory; no overwrite')
+    if output.exists() or output.is_symlink():raise ValueError('Use a new output directory; no overwrite')
     job=trial.read(job_path)
     protected=[Path(job['output']).resolve(),Path(job['dataset']).resolve().parent,
                Path(job['data_root']).resolve(),Path(job['model_dir']).resolve()]
@@ -82,9 +135,17 @@ def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False):
     if admitted['contract']!=expected:raise ValueError('Original inference contract changed')
     plans=[trial.read(p) for p in plan_paths]
     if not plans or len({p['seed'] for p in plans})!=len(plans):raise ValueError('Empty or duplicate intervention seeds')
+    shard_ids=receiver_shard(plans,0 if rank is None else rank,world)
+    if not shard_ids:raise ValueError('Empty inference shard')
     common_ids=set.intersection(*({p['receiver'] for p in plan['pairs']} for plan in plans))
     if not common_ids:raise ValueError('No common receivers across intervention seeds')
     fixed=admitted['plans']['val']['ordered_ids']
+    saved=trial.read(Path(job['output'])/'single_frame_val_cases.json')
+    if [c['id'] for c in saved]!=fixed:
+        raise ValueError('Published validation membership/order changed')
+    for case in saved:
+        if case['windows']!=artifact['records'][case['id']]['windows']:
+            raise ValueError('Published target windows changed')
     for p in plans:
         if [r['id'] for r in p['metadata']]!=fixed:
             raise ValueError('Plan does not use the exact original fixed validation membership/order')
@@ -112,28 +173,18 @@ def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False):
     del state
     # Only unique receiver and receiver/donor pairs are inferred across seeds.
     # Recompute actual-image reference under the same runtime as the intervention.
-    full_cache={};wrong_cache={};results={}
+    full_cache={};wrong_cache={}
     for plan in plans:
-        full,wrong=predict_pairs(b,artifact['records'],plan,reference_cache=full_cache,swapped_cache=wrong_cache)
-        metrics=diag.paired_scores(full,wrong,{r['id']:r for r in plan['metadata']})
-        metrics['primary_common_across_seeds']=diag.paired_scores(
-            [c for c in full if c['id'] in common_ids],[c for c in wrong if c['id'] in common_ids],
-            {r['id']:r for r in plan['metadata']})
-        metrics['primary_common_anchors']=len(common_ids)
-        # Explicitly report inference reproducibility, never silently replace the
-        # previously published full score with a matched-subset denominator.
-        saved=trial.read(Path(job['output'])/'single_frame_val_cases.json')
-        old={c['id']:c for c in saved}
-        for c in full:
-            if c['windows']!=old[c['id']]['windows']:raise ValueError('Published target windows changed')
-        metrics['reference_prediction_changes_from_received']=sum(c['predictions']!=old[c['id']]['predictions'] for c in full)
-        metrics['paired_anchors']=len(full);metrics['excluded_anchors']=len(plan['excluded'])
-        trial.write(output/f'seed_{plan["seed"]}_reference_cases.json',full)
-        trial.write(output/f'seed_{plan["seed"]}_wrong_image_cases.json',wrong)
-        trial.write(output/f'seed_{plan["seed"]}_metrics.json',metrics)
-        results[str(plan['seed'])]=metrics
+        selected=plan if rank is None else dict(plan,pairs=[p for p in plan['pairs'] if p['receiver'] in shard_ids])
+        print(f'[inference rank={rank}] seed={plan["seed"]} paired={len(selected["pairs"])}',flush=True)
+        predict_pairs(b,artifact['records'],selected,reference_cache=full_cache,swapped_cache=wrong_cache)
+    if rank is None:
+        save_metrics(job,plans,output,full_cache,wrong_cache)
+    else:
+        trial.write(output/'shard.json',dict(rank=rank,world=world,
+            reference=list(full_cache.values()),swapped=list(wrong_cache.values())))
     note.update(inference_performed=True,unique_actual_forwards=len(full_cache),unique_swapped_forwards=len(wrong_cache))
-    trial.write(output/'receipt.json',note);trial.write(output/'metrics.json',results)
+    trial.write(output/'receipt.json',note)
     return note
 
 
@@ -142,7 +193,8 @@ def main():
     p.add_argument('--job',type=Path,required=True);p.add_argument('--plan',type=Path,nargs='+',required=True)
     p.add_argument('--output',type=Path,required=True);p.add_argument('--device',default='cuda:0')
     p.add_argument('--preflight-only',action='store_true')
-    a=p.parse_args();print(json.dumps(run(a.job,a.plan,a.output,a.device,a.preflight_only)))
+    p.add_argument('--rank',type=int);p.add_argument('--world',type=int,default=1)
+    a=p.parse_args();print(json.dumps(run(a.job,a.plan,a.output,a.device,a.preflight_only,a.rank,a.world)))
 
 
 if __name__=='__main__':main()

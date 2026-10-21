@@ -135,3 +135,62 @@ def test_cross_seed_cache_preserves_pairs_and_avoids_repeated_forwards():
     c,f=e.predict_pairs(None,records,p,predict=predict,reference_cache=ref,swapped_cache=swap)
     assert len(calls)==2 and a==c and b==f
     assert set(swap)=={(x['receiver'],x['donor']) for x in p['pairs']}
+
+
+def test_four_process_shards_equal_serial_and_reject_partial_or_duplicate(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from qwen3vl_local.audit_joint import phase3_matched_image_launch as launch
+    rows=[row(i) for i in range(8)]
+    plans=[d.matched_plan(rows,seed) for seed in (11,29,47)]
+    records={r['id']:r for r in rows}
+    payload=tmp_path/'input.json';payload.write_text(json.dumps(dict(plans=plans,records=records)))
+    script=tmp_path/'worker.py'
+    script.write_text('''import json,sys
+from qwen3vl_local.audit_joint import phase3_matched_image_eval as e
+v=json.load(open(sys.argv[1]));rank=int(sys.argv[2]);world=int(sys.argv[3])
+ids=e.receiver_shard(v['plans'],rank,world)
+def predict(bundle,records):
+    return [dict(r,predictions=['STOP' if sum(map(ord,r['image']))%2 else 'KEEP']*4) for r in records],{}
+a={};b={}
+for p in v['plans']:
+    selected=dict(p,pairs=[x for x in p['pairs'] if x['receiver'] in ids])
+    e.predict_pairs(None,v['records'],selected,predict=predict,reference_cache=a,swapped_cache=b)
+json.dump(dict(rank=rank,world=world,reference=list(a.values()),swapped=list(b.values())),open(sys.argv[4],'w'))
+''')
+    env=dict(os.environ,PYTHONPATH=str(launch.APP))
+    commands=[[sys.executable,str(script),str(payload),str(rank),'4',str(tmp_path/f'rank_{rank}.json')] for rank in range(4)]
+    launch.processes(commands,tmp_path,[env]*4,[tmp_path/f'{rank}.log' for rank in range(4)])
+    shards=[json.loads((tmp_path/f'rank_{rank}.json').read_text()) for rank in range(4)]
+    actual,swapped=e.merge_shards(plans,shards)
+    single=tmp_path/'single.json'
+    subprocess.run([sys.executable,str(script),str(payload),'0','1',str(single)],env=env,check=True)
+    serial=json.loads(single.read_text())
+    assert actual=={c['id']:c for c in serial['reference']}
+    assert swapped=={(c['id'],c['donor_id']):c for c in serial['swapped']}
+    assert len(actual)==8
+    original=tmp_path/'original';original.mkdir()
+    (original/'single_frame_val_cases.json').write_text(json.dumps(serial['reference']))
+    parallel_output=tmp_path/'parallel_metrics';parallel_output.mkdir()
+    serial_output=tmp_path/'serial_metrics';serial_output.mkdir()
+    e.save_metrics(dict(output=str(original)),plans,parallel_output,actual,swapped)
+    sa,sb=e.merge_shards(plans,[serial])
+    e.save_metrics(dict(output=str(original)),plans,serial_output,sa,sb)
+    for path in parallel_output.glob('*.json'):
+        assert path.read_bytes()==(serial_output/path.name).read_bytes()
+    for mutation in ('missing','duplicate','rank'):
+        bad=copy.deepcopy(shards)
+        if mutation=='missing':bad[0]['reference'].pop()
+        if mutation=='duplicate':bad[0]['swapped'].append(bad[0]['swapped'][0])
+        if mutation=='rank':bad[0]['rank']=1
+        with pytest.raises(ValueError):e.merge_shards(plans,bad)
+
+
+def test_real_plan_four_rank_exact_904_forward_partition():
+    root=Path(e.__file__).with_name('phase3_behavior_diagnostic_v1')
+    plans=[json.loads((root/f'matched_images_seed_{s}.json').read_text()) for s in (11,29,47)]
+    shards=[e.receiver_shard(plans,r,4) for r in range(4)]
+    assert [len(s) for s in shards]==[67]*4
+    assert sum(len({(p['receiver'],p['donor']) for plan in plans for p in plan['pairs'] if p['receiver'] in ids}) for ids in shards)==636
+    assert len(set.union(*shards))==268

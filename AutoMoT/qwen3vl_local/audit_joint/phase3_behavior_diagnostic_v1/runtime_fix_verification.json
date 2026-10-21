@@ -1,0 +1,40 @@
+{
+  "commit": "3ac67352bc9b7fa7e23188447a8270345dba19f9",
+  "release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+  "verified_native_sources": 261,
+  "diagnostic_sources": {
+    "phase3_behavior_diagnostics.py": "6c5b50fa4df22ba3064c22fde69836d4a59dbd9ded6f1dfd8c193bf79a4034d7",
+    "phase3_matched_image_eval.py": "59b9ff9035dbfe9732985e1a6f39dee8ec9e8beb1b7892eed3b554de4483e828"
+  },
+  "current_checkout_modified": false,
+  "source_hash_bypass": false,
+  "received_v2_dataset_source_contract_exact_match": true,
+  "status": "local_verified_remote_four_gpu_inference_pending",
+  "tests": {
+    "passed": 35,
+    "seconds": 3.62,
+    "scope": [
+      "native small Qwen paired CPU inference",
+      "four actual CPU subprocess shards with deterministic prediction substitute; all case and metric files identical to serial",
+      "native archived release check",
+      "GPU selection and failure cleanup"
+    ]
+  },
+  "default_gpus": 4,
+  "unique_actual_forwards": 268,
+  "unique_swapped_forwards": 636,
+  "per_rank_actual_anchors": [
+    67,
+    67,
+    67,
+    67
+  ],
+  "model_weights_available_locally": false,
+  "gpu_inference_performed": false,
+  "original_prompt_label_training_modified": false,
+  "release_files_sha256": {
+    "phase3_matched_image_eval.py": "59b9ff9035dbfe9732985e1a6f39dee8ec9e8beb1b7892eed3b554de4483e828",
+    "phase3_matched_image_eval.sh": "3399346d4b366d85a06b14c26e8c5279a36d9f2c53e0401e8beff85ca0215148",
+    "phase3_matched_image_launch.py": "04dde8b877f1744d66f188cc2b4b0ec0bd3f843e19367003539bad1f4874fab1"
+  }
+}
