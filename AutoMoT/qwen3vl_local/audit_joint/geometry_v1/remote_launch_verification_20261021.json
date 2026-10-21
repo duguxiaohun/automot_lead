@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-21",
+  "scope": "Project-local remote launcher and CARLA map symlink view",
+  "verified_staged_tree": "5de97eb8a1af9ff030fbcd2ad4e292ddb5bf662d",
+  "checks": {
+    "isolated_staged_tree_geometry_tests": {
+      "passed": 55,
+      "seconds": 15.85,
+      "warnings": 37
+    },
+    "new_launcher_cases": 8,
+    "native_preflight_import": true,
+    "shell_syntax": true,
+    "documented_shell_blocks": 4,
+    "geometry_source_identity_unchanged": true
+  },
+  "files": {
+    "remote.sh": "27f442b6e800c83b940a79c77cb147768c5f1e5132d7c46821d7bb30c64def8b",
+    "REMOTE_RUN.md": "b7e61d66abf34a86829f9888a525f34c01a8172b21df903b658c6fd214f0ecc4",
+    "tests/test_remote.py": "e9fb768f2853030f43b5e28c84ccb5d9fbb4b540e57ff441a63992367b9eb43b"
+  },
+  "limits": [
+    "Launcher tests use temporary project CARLA layouts and substitute expensive model/build/train calls.",
+    "Remote map locations are user-provided evidence, not local remote access.",
+    "No remote execution, full-pool build, GPU training or CARLA online validation."
+  ],
+  "preserved": "Existing geometry Python source fingerprints, labels, model code, old artifacts and unrelated working changes"
+}

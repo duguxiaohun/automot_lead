@@ -1,5 +1,13 @@
 # AGENTS.md
 
+### 2026-10-21 远程路径命令偏好
+
+用户明确不接受重复手填 PYTHON/DATA_ROOT/MAPS_DIR/MODEL_DIR 占位符。提供远程命令前先核对已有记录与项目默认路径；已知环境使用当前 Python、AutoMoT/lead_data 和 AutoMoT/checkpoints/Qwen3.5-4B，并在目标机器验证。未知或存在歧义的资产先提供无需手填路径的只读探测命令，由用户回传结果后形成完整可执行命令，不猜另一台机器的绝对路径、不指定必须使用某台机器。本地已核验 xodr 位于 lead/3rd_party/fail2drive/toolbox/carla_xodr，仅是本机证据，尚不能声称远程有同路径。
+
+用户回传两机实际应用根：cee `/mnt/workspace/cee3sgh/AutoMoT`、当前 Python `/mnt/workspace/cee3sgh/AutoMoT/.venv/bin/python`；cr02 `/home/cruser1/lda/AutoMoT`、当前 Python `/home/cruser1/.conda/envs/automot/bin/python`。两机 git 根本身已是 AutoMoT，禁止再次无条件拼接 `/AutoMoT`；用 qwen3vl_local 等目录标志核验根。上一条探测错误拼成 AutoMoT/AutoMoT，三项 MISSING 不能认定资产缺失；跨挂载盘 find 的 Terminated 是30秒超时，不能认定地图不存在。后续定向检查项目与已知地图目录，不反复全盘扫描；两机路径记录独立，不混用。
+
+两机现均已确认项目 `CARLA_0915/CarlaUE4/Content/Carla/Maps` 内完整十二Town：01–07/10HD在OpenDrive，11/12/13/15在各Town子目录的OpenDrive。以后优先项目CARLA软链接或配置，不再跨挂载盘查找；不能仅据顶层OpenDrive判断缺图。新增geometry_v1/remote.sh自动选项目venv或当前Python，绑定项目数据/模型/collection，在新实验目录建立地图软链接视图，保留原几何源码与SHA。远程沿用已有sync_automot.sh同步后先CPU全池建库/三轮计划，核验再训练；两机任选，禁止再次无条件拼接AutoMoT。
+
 ### 2026-10-21 geometry_v1 划分覆盖回溯修复
 
 用户复核指出六路线十事件可行但贪心补全拒绝，授权修复。geometry_v1新增coverage_search：保留贪心成功结果；失败撤回本轮移动，以事件存在位掩码做精确回溯，原holdout固定、开发物理组train-only、其余原train组可重新分配。相同事件组合最多三个代表，严格限当前一事件一有效帧/物理组；不套用更高配额。默认100000搜索状态，可用--coverage-search-states调整。feasible/infeasible/unknown明确区分；只有完整搜索无解才报当前政策下不足，预算用尽报coverage_search_inconclusive，无解/未完成不发布贪心部分划分。候选和几何过滤后两门均接线。共享旧Phase3 split_coverage.py未改。
