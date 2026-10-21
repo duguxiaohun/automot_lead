@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-21",
+  "contract": {
+    "version": "geometry_v1",
+    "names": [
+      "LEFT_NEAR",
+      "LEFT_REFERENCE",
+      "LEFT_FAR",
+      "CENTER_NEAR",
+      "CENTER_REFERENCE",
+      "CENTER_FAR",
+      "RIGHT_NEAR",
+      "RIGHT_REFERENCE",
+      "RIGHT_FAR"
+    ],
+    "horizons": [
+      0.5,
+      1.0,
+      1.5,
+      2.0
+    ],
+    "lookbacks": [
+      2.0,
+      1.5,
+      1.0,
+      0.5
+    ],
+    "half_width_m": 2.0,
+    "delta_floor_mps": 0.5,
+    "delta_fraction": 0.2,
+    "delta_cap_mps": 1.0,
+    "negative_speed_limit_mps": -0.1,
+    "reference_source": "nearest_driving_lane_oriented_to_ego_v1",
+    "radius": "horizontal_endpoint_chord",
+    "boundary": "equality belongs to CENTER/REFERENCE; no radius rounding",
+    "history": "overlapping causal lookbacks ending now, each with its own start state",
+    "future": "exact endpoints relative to frozen current origin/speed/lane",
+    "supervision": "single hard class per valid endpoint; no event action mask",
+    "missing": "UNKNOWN history; masked future; no imputation",
+    "frame_dt_s": 0.25,
+    "native_dt_s": 0.05,
+    "max_native_step_m": 5.0
+  },
+  "sources": {
+    "__init__.py": "82c61c02ecc08e80624cef42ce3abe03154092f0b45089302fb41567e7630311",
+    "__main__.py": "ec7c43baf15e65ce3f8aa6905b6424e03d0bfc7e2c617898db71b745e5950994",
+    "codec.py": "9b9f90f1ddd046673a8c72b0f751d89a5259ab46c56b74bc7d41329a081bcf68",
+    "dataset.py": "1e34892548e8725fcd25da230d8dcc17c9ab3b16eb40807cf8dc26dceb14c8e3",
+    "expert.py": "16e2f3dd08aebd2f55560a6a0d1e7dec71e2c596efbbe23242382898c089b144",
+    "local_check.py": "6dd2c18207b6569e008a007625b7858ca409a4f842b15741b67c5bd1f7dc4c8d",
+    "metrics.py": "7b85bc7858d159ece5c42442f70c85ba7a388c9e677efab562f482697837a132",
+    "objective.py": "7d9d7d70e23c1f0562c96f7131c51ad87902726e90f24153883ee65c9ba16f19",
+    "planning.py": "169068de697b73ea19220ef0cd50f2e605221c61176cc59c0cc44f0d56676b82",
+    "sources.py": "bcebb95647bcb59208db1f7f97b792fea1d5831be2c9d07bba25a8061a97b3d8",
+    "train.py": "519ce441f27c17653aa66b5c29ea40d873b20cbdeba2b223f153a75264414bba",
+    "event_split_source_contract": "18d72c422c922cf298753897a28a99e6017a00e687738685a8eda73136906fda",
+    "leadmot/config.py": "5599a297d400735afd6f1198b7e0bcd4e1572eee2043d57ef39ec2aff25de280",
+    "leadmot/decoder.py": "470aef6faf67f7c67a4605a23097463ee568e5136709e20a16c6d9f3e1206296"
+  },
+  "tests": {
+    "selected_passed": 45,
+    "deselected": 3,
+    "seconds": 5.37,
+    "log_sha256": "93e4ec21ec89946632e50e4f30ca07bc81249acd4ac43f116c7f36de6c2bfa44",
+    "known_broader_failures": [
+      {
+        "test": "test_contract_rejects_changed_token_or_image_condition[qwen_simple]",
+        "reason": "Pre-existing local readonly AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py is absent; no source bypass"
+      },
+      {
+        "test": "test_contract_rejects_changed_token_or_image_condition[bev_only]",
+        "reason": "Pre-existing local readonly AutoMoT/leaderboard/team_code/mot_lead_offline_runner.py is absent; no source bypass"
+      }
+    ]
+  },
+  "native_qwen": {
+    "real_small_qwen35": true,
+    "downloaded_model_weights": false,
+    "single_rgb": true,
+    "parallel_queries": 4,
+    "history_output_token_identity_classes": 9,
+    "backward": true,
+    "checkpoint_reload": true
+  },
+  "expert": {
+    "linear_decoder": true,
+    "flow_matching_decoder": true,
+    "sequence_shape": "[B,4]",
+    "time_and_reference_conditioning": true,
+    "real_backward_and_reload": true,
+    "predicted_oracle_none_separated": true,
+    "existing_launchers_default_changed": false,
+    "carla_online_agent_changed": false
+  },
+  "local_sources": {
+    "path": "AutoMoT/checkpoints/geometry_v1_implementation_20261021/verified",
+    "dataset_sha256": "894b9938ff66e3e7456e1887f098ce25f66a8346c32d0e839eac6927f100d713",
+    "anchors": 60,
+    "routes": 14,
+    "events": 10,
+    "history_valid": 232,
+    "future_valid": 240,
+    "rejected": {},
+    "bound_source_files": 2422,
+    "maps": 5,
+    "scope": "known train anchors as smoke locations only; old labels unused; not full pool or RGB semantic review"
+  },
+  "distributed": {
+    "actual_two_rank_gloo_backward": true,
+    "actual_exposure_consistent": true,
+    "server_GPU_validated": false
+  },
+  "command_checks": {
+    "shell_syntax": true,
+    "python_compile": true,
+    "real_shell_plan_three_epochs": true,
+    "git_diff_check": true,
+    "real_two_worker_torchrun_module_separator": true
+  },
+  "gpu_training": false,
+  "remote_SSH": false,
+  "simulation_server": false,
+  "full_dataset_build": false,
+  "push": false,
+  "limitations": [
+    "No 4B/GPU full training or model-quality claim",
+    "Old checkpoint source hashes require original code",
+    "No automatic action_prior/CARLA switch",
+    "Expert three-condition diagnostic is not three independently trained ablations",
+    "Training CLI does not support resume"
+  ]
+}

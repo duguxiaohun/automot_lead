@@ -1,0 +1,270 @@
+{
+  "date": "2026-10-21",
+  "scope": "five review fixes and user-confirmed current-reference history",
+  "contract": {
+    "version": "geometry_v1",
+    "names": [
+      "LEFT_NEAR",
+      "LEFT_REFERENCE",
+      "LEFT_FAR",
+      "CENTER_NEAR",
+      "CENTER_REFERENCE",
+      "CENTER_FAR",
+      "RIGHT_NEAR",
+      "RIGHT_REFERENCE",
+      "RIGHT_FAR"
+    ],
+    "horizons": [
+      0.5,
+      1.0,
+      1.5,
+      2.0
+    ],
+    "lookbacks": [
+      2.0,
+      1.5,
+      1.0,
+      0.5
+    ],
+    "half_width_m": 2.0,
+    "delta_floor_mps": 0.5,
+    "delta_fraction": 0.2,
+    "delta_cap_mps": 1.0,
+    "negative_speed_limit_mps": -0.1,
+    "reference_source": "nearest_driving_lane_oriented_to_ego_v1",
+    "radius": "horizontal_endpoint_chord",
+    "boundary": "equality belongs to CENTER/REFERENCE; no radius rounding",
+    "history": "past endpoints minus current origin; frozen current speed/lane; positive lookback duration",
+    "prediction_binding": "sample_identity_and_causal_observation_sha256_v1",
+    "future": "exact endpoints relative to frozen current origin/speed/lane",
+    "supervision": "single hard class per valid endpoint; no event action mask",
+    "missing": "UNKNOWN history; masked future; no imputation",
+    "frame_dt_s": 0.25,
+    "native_dt_s": 0.05,
+    "max_native_step_m": 5.0
+  },
+  "sources": {
+    "__init__.py": "82c61c02ecc08e80624cef42ce3abe03154092f0b45089302fb41567e7630311",
+    "__main__.py": "20a8e897fa432915edb341b2f221a0623cb706abea61295e180080eec8542390",
+    "codec.py": "394e1900fe6476a72b5dc4874e74937b98108c8155dc351d34ca3ab86257e314",
+    "dataset.py": "46704c943c1eeea81bba3f9c394b66160c9fe910a109859d2006a56a041a7f90",
+    "expert.py": "a7fc2fac89a7f2dcf0e9a56ccd1c53f0e85205edd31dea895830f44f17a7dd2b",
+    "identity.py": "ff557af0a2cefd20f0335bbaa437b5bd391d39a2afc7fbaec3b5084bfad20ffc",
+    "local_check.py": "2c4a5998bd338eb56dc56221ae17e10a328886b3552f744f3c6b7ea70b10b0e3",
+    "metrics.py": "7b85bc7858d159ece5c42442f70c85ba7a388c9e677efab562f482697837a132",
+    "objective.py": "e655aa9d2773d14f9f97fc6b1b48a6c6ae43741c0ac81af0ab71d28d19c98f86",
+    "planning.py": "0c9fc32dae9fb7b715b33b084c667046ebf1a86bf7faee700acc6505c7020750",
+    "sources.py": "e9baab138bd6bbf1fe26792f1daf66036877a0fcdcf87d84ee95d14d3ba6cb69",
+    "splits.py": "7457aa8655fd71bcb54b136ee041e66896a53812d94b50338d2aef8fcfe7a9b3",
+    "startup.py": "424a166045d9293ae4c6cdb1b4e15262b8418b4cf8ef2ef9c18a646c92122a76",
+    "train.py": "30cf5c5ca992a931b68051d8c25af1c61004d136775354e328771871d523eff6",
+    "event_split_source_contract": "18d72c422c922cf298753897a28a99e6017a00e687738685a8eda73136906fda",
+    "split_coverage.py": "d3f0ad3f8de9b7df11389b39740b1758842de1fe78694a3fdf07e84072395842",
+    "leadmot/config.py": "5599a297d400735afd6f1198b7e0bcd4e1572eee2043d57ef39ec2aff25de280",
+    "leadmot/decoder.py": "470aef6faf67f7c67a4605a23097463ee568e5136709e20a16c6d9f3e1206296"
+  },
+  "tests": {
+    "selected_passed": 64,
+    "geometry_module_passed": 38,
+    "deselected": 3,
+    "seconds": 13.64,
+    "log_sha256": "77922949dba91fce1f62ff981f61e3f5e6cda08ff85f2aa4d5cb9e8c0ce0b91d",
+    "deselection_reason": "Existing three-parameter legacy contract test group omitted: previous two cases require absent mot_lead_offline_runner.py; no bypass or claim of full-suite pass.",
+    "native_small_qwen_backward_reload": true,
+    "linear_and_fm_expert_backward": true,
+    "actual_two_gloo_ranks_exposure": true,
+    "actual_two_gloo_ranks_single_source_audit_and_error_propagation": true,
+    "capacity_exhaustive_graphs": 343
+  },
+  "candidate_scan": {
+    "routes": 5163,
+    "candidates": 260751,
+    "development_groups": 1955,
+    "moved_physical_groups": 8,
+    "unresolved": {},
+    "before": {
+      "train": {
+        "LEAD_BRAKE": 3343,
+        "STATIC_BLOCKAGE": 66084,
+        "DYNAMIC_CUTIN": 1416,
+        "VULNERABLE_CROSSING": 37389,
+        "ONCOMING_INVASION": 4724,
+        "JUNCTION_RULE_CONFLICT": 6865,
+        "SIGNAL_FAILURE": 2560,
+        "POST_BYPASS_RETURN": 46987,
+        "UNSIGNALIZED_PRIORITY": 67212,
+        "RAMP_MERGE_EXIT": 21400
+      },
+      "val": {
+        "LEAD_BRAKE": 0,
+        "STATIC_BLOCKAGE": 30,
+        "DYNAMIC_CUTIN": 0,
+        "VULNERABLE_CROSSING": 159,
+        "ONCOMING_INVASION": 0,
+        "JUNCTION_RULE_CONFLICT": 209,
+        "SIGNAL_FAILURE": 0,
+        "POST_BYPASS_RETURN": 143,
+        "UNSIGNALIZED_PRIORITY": 12,
+        "RAMP_MERGE_EXIT": 11
+      },
+      "test": {
+        "LEAD_BRAKE": 0,
+        "STATIC_BLOCKAGE": 85,
+        "DYNAMIC_CUTIN": 0,
+        "VULNERABLE_CROSSING": 494,
+        "ONCOMING_INVASION": 0,
+        "JUNCTION_RULE_CONFLICT": 359,
+        "SIGNAL_FAILURE": 0,
+        "POST_BYPASS_RETURN": 475,
+        "UNSIGNALIZED_PRIORITY": 762,
+        "RAMP_MERGE_EXIT": 32
+      }
+    },
+    "after": {
+      "train": {
+        "LEAD_BRAKE": 3305,
+        "STATIC_BLOCKAGE": 66084,
+        "DYNAMIC_CUTIN": 1410,
+        "VULNERABLE_CROSSING": 37359,
+        "ONCOMING_INVASION": 4627,
+        "JUNCTION_RULE_CONFLICT": 6865,
+        "SIGNAL_FAILURE": 2537,
+        "POST_BYPASS_RETURN": 46987,
+        "UNSIGNALIZED_PRIORITY": 67136,
+        "RAMP_MERGE_EXIT": 21400
+      },
+      "val": {
+        "LEAD_BRAKE": 34,
+        "STATIC_BLOCKAGE": 30,
+        "DYNAMIC_CUTIN": 3,
+        "VULNERABLE_CROSSING": 159,
+        "ONCOMING_INVASION": 57,
+        "JUNCTION_RULE_CONFLICT": 209,
+        "SIGNAL_FAILURE": 13,
+        "POST_BYPASS_RETURN": 143,
+        "UNSIGNALIZED_PRIORITY": 88,
+        "RAMP_MERGE_EXIT": 11
+      },
+      "test": {
+        "LEAD_BRAKE": 4,
+        "STATIC_BLOCKAGE": 85,
+        "DYNAMIC_CUTIN": 3,
+        "VULNERABLE_CROSSING": 524,
+        "ONCOMING_INVASION": 40,
+        "JUNCTION_RULE_CONFLICT": 359,
+        "SIGNAL_FAILURE": 10,
+        "POST_BYPASS_RETURN": 475,
+        "UNSIGNALIZED_PRIORITY": 762,
+        "RAMP_MERGE_EXIT": 32
+      }
+    },
+    "physical_groups_after": {
+      "train": {
+        "LEAD_BRAKE": 83,
+        "STATIC_BLOCKAGE": 1535,
+        "DYNAMIC_CUTIN": 216,
+        "VULNERABLE_CROSSING": 1320,
+        "ONCOMING_INVASION": 96,
+        "JUNCTION_RULE_CONFLICT": 349,
+        "SIGNAL_FAILURE": 120,
+        "POST_BYPASS_RETURN": 2366,
+        "UNSIGNALIZED_PRIORITY": 1419,
+        "RAMP_MERGE_EXIT": 387
+      },
+      "val": {
+        "LEAD_BRAKE": 1,
+        "STATIC_BLOCKAGE": 4,
+        "DYNAMIC_CUTIN": 1,
+        "VULNERABLE_CROSSING": 5,
+        "ONCOMING_INVASION": 1,
+        "JUNCTION_RULE_CONFLICT": 11,
+        "SIGNAL_FAILURE": 1,
+        "POST_BYPASS_RETURN": 6,
+        "UNSIGNALIZED_PRIORITY": 4,
+        "RAMP_MERGE_EXIT": 1
+      },
+      "test": {
+        "LEAD_BRAKE": 1,
+        "STATIC_BLOCKAGE": 2,
+        "DYNAMIC_CUTIN": 1,
+        "VULNERABLE_CROSSING": 18,
+        "ONCOMING_INVASION": 1,
+        "JUNCTION_RULE_CONFLICT": 14,
+        "SIGNAL_FAILURE": 1,
+        "POST_BYPASS_RETURN": 15,
+        "UNSIGNALIZED_PRIORITY": 11,
+        "RAMP_MERGE_EXIT": 1
+      }
+    },
+    "seconds": 119.20016368600045,
+    "source": "/home/codon/automot_lead/AutoMoT/keyframe_filter/collection_output",
+    "geometry_filtered": false,
+    "full_collection_source_hashes_verified": false,
+    "snapshot_sha256": "133330496d95f4ed12ed3e6277524a09ef14e7dfdade76e7a73c786c96cd30f9"
+  },
+  "known_exposure": {
+    "physical_group": "Accident/Town06_route_001856",
+    "frame": 47,
+    "test_rejected": "development_group_in_holdout",
+    "train_accepted": true,
+    "future_valid": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "evidence_sha256": "660407655e3736d39a33137a1196464893cbd64b923b8563b93c0ebe9e815d5c"
+  },
+  "local_sources": {
+    "path": "AutoMoT/checkpoints/geometry_v1_review_20261021/verified",
+    "dataset_sha256": "a0c03a7cdd7b09c25d90769687556127a4822c1a803529ffb12c37028c4225a4",
+    "routes": 14,
+    "anchors": 60,
+    "events": 10,
+    "future_valid": 240,
+    "history_valid": 232,
+    "bound_files": 2433,
+    "full_source_rehash_and_reload": true,
+    "scoped_smoke_only": true,
+    "new_semantic_rgb_review": false
+  },
+  "startup": {
+    "single_node_only": true,
+    "raw_source_verification_ranks": [
+      0
+    ],
+    "processor_probe_max_total": 20,
+    "cached_local_probes": true,
+    "default_max_startup_hours": 1,
+    "cooperative_timeout": true,
+    "blocking_library_calls_checked_on_return": true,
+    "gpu_startup_measured": false
+  },
+  "training_budget": {
+    "world_size": 4,
+    "per_event": 1024,
+    "epochs": 3,
+    "updates": 7680,
+    "warmup": 2000,
+    "max_epoch_hours": 10,
+    "max_epoch_steps": 4096,
+    "max_total_steps": 12288
+  },
+  "command_checks": {
+    "shell_syntax": true,
+    "compileall": true,
+    "diff_whitespace": true,
+    "shell_help": true,
+    "shell_three_epoch_smoke_plan": true
+  },
+  "limitations": [
+    "Candidate scan does not prove full-pool geometry eligibility or coverage after filtering.",
+    "Holdout minimum is one eligible frame/physical group per event; this is not generalization certification.",
+    "No full-pool build, GPU training, online CARLA acceptance, SSH, model download or push.",
+    "Original verification_20261021.json is a historical snapshot; old geometry artifacts are not migrated or rehashed.",
+    "Startup gate is cooperative; save/evaluation and blocking backend stalls are not a hard total-job wallclock bound.",
+    "Decoder/expert APIs are available; existing action_prior launcher and CARLA agent are not switched.",
+    "Caller must associate the supplied RGB pixels with the record image identity."
+  ],
+  "evidence_directory": "AutoMoT/checkpoints/geometry_v1_review_20261021"
+}

@@ -1,5 +1,23 @@
 # AGENTS.md
 
+### 2026-10-21 geometry_v1 划分覆盖回溯修复
+
+用户复核指出六路线十事件可行但贪心补全拒绝，授权修复。geometry_v1新增coverage_search：保留贪心成功结果；失败撤回本轮移动，以事件存在位掩码做精确回溯，原holdout固定、开发物理组train-only、其余原train组可重新分配。相同事件组合最多三个代表，严格限当前一事件一有效帧/物理组；不套用更高配额。默认100000搜索状态，可用--coverage-search-states调整。feasible/infeasible/unknown明确区分；只有完整搜索无解才报当前政策下不足，预算用尽报coverage_search_inconclusive，无解/未完成不发布贪心部分划分。候选和几何过滤后两门均接线。共享旧Phase3 split_coverage.py未改。
+47项模块测试13.51秒通过（新增9项），含六路线反例、2401种全枚举小图、200组固定holdout/开发约束对照、非单事件供给不足的联合无解、预算未判定、正式builder前后两门及原生小Qwen/两Gloo rank。复扫5163路线260751候选，既有成功划分逐字段不变，仍8未曝光物理组移动；未全池几何过滤。14路线60锚点新目录建库/完整源SHA重载通过，240未来/232历史及全部records与上轮完全一致；codec/sources/objective/planning字节不变，仍历史位置标签，非过去动作。报告geometry_v1/split_search_verification_20261021.json及README，证据checkpoints/geometry_v1_split_search_20261021。旧回执/库/权重保留，源码绑定不改SHA迁移。无GPU/SSH/在线/新RGB盲审/push，保留其它工作。
+
+### 2026-10-21 geometry_v1 五项复核修复与当前参考历史
+
+用户指出正式划分缺四事件、追加开发名单遗漏、共享帧贪心误报、expert错样本接收、启动全池重复processor五项问题，授权修复。用户进一步明确过去−2/−1.5/−1/−0.5秒位置减当前位置，统一当前原点/速度/车道方向、正回看时长；四个历史A–I输入prompt，缺失UNKNOWN，未来定义不变。此条覆盖同日上一版“历史各用起点状态”。
+默认继承全部Phase3 development_route_groups文件（含20260926及RGB-stage），额外既有manifest可显式合并additional_development；名单/源SHA绑定且开发物理组train-only。候选先查可行性，几何过滤后按有效端点补齐三split十事件、完整物理组移动；不足建库拒绝，显式scoped-smoke禁止正式训练。当前覆盖最低1帧/1组不是泛化认证。采样新增残余增广路径修复跨事件共享容量，不放宽同帧10次、配额或实际曝光原则。预测绑定ID/路线/帧/图像标识及完整因果观测SHA，缺绑定/错样本拒绝，不回退真值。
+单机torchrun仅rank0全量原始源/模型SHA核验，其余rank绑定同一dataset SHA；processor至多train/val各事件1条共20条、rank分片且缓存，余下消费时校验。新增默认1h独立启动预算与阶段耗时，文件hash逐块检查，库阻塞返回后检查；不是硬实时/总作业上限。训练仍四卡7680更新/warmup2000/100步后10h单轮门，无CLI resume。
+复扫5163路线260751候选，1955开发组，移动8未曝光物理组后三split十事件齐全；未全池几何过滤。真实Accident/Town06_route_001856 f47四未来有效，test拒绝/train通过。14路线60已知train锚点240未来/232历史、源重哈希重载及三轮小计划通过。64项选定回归（新模块38）13.64秒通过，含343候选图穷举、真实两Gloo rank单次源核验/失败广播、原生小Qwen backward/reload及FM梯度；沿用排除旧runner缺失三参数测试组，不冒称全套通过。上轮verification保留历史，当前见geometry_v1/review_verification_20261021.json和README；证据checkpoints/geometry_v1_review_20261021。无全池建库/GPU/SSH/在线验收/新RGB语义盲审/push，旧库权重保留且不改SHA；保留其它已有工作。
+
+### 2026-10-21 geometry_v1 九类独立实现
+
+用户确认独立 geometry_v1 入口，保留旧 single_frame/六动作数据与权重。新增 audit_joint/geometry_v1 的 codec、原始事件候选建库、因果历史、九类四查询 objective、预测、采样、训练/评测及 expert 条件适配。固定车道切线向ego前向定向、横向±2m、delta=min(1,max(.5,.2v))；四个未来准确端点同当前原点，四个重叠历史回看到当前，各用起点状态；缺失不补。正式候选在旧label_actions之前接入，事件配额不强行九类均衡，曝光仅成功optimizer更新后计数，物理帧跨事件共享，单轮同帧上限10。默认world4/B1/acc1/十事件各1024/三轮7680更新，warmup2000；4096/12288步门和100步后10h单轮实测门。尚无CLI resume，不能把部分epoch称完成。
+LeadMoT config/decoder新增默认关闭的四token开关，互斥旧scalar动作；编码时距与当前车道相对角，连续route10/waypoint8不变。expert提供predicted/oracle/none、原FM loss适配与同噪声配对诊断；预测缺失不回退真值。未默认改action_prior launcher/CARLA在线agent，不称全链路已验收；旧源码指纹checkpoint须原源码，不改SHA。地图接口离线/在线共用，参考线跳变只诊断不借未来平滑。
+本地14条已知train路线60锚点/十事件，240未来端点、232有效历史，建库/完整源SHA/重载/小采样通过；旧锚点仅作功能测试位置，不是新全池覆盖认证，未新RGB语义盲审。45项选定回归通过，含原生小Qwen3.5单图四查询backward/保存重载、真实两Gloo rank曝光、Linear/FM expert梯度。扩大回归中两项旧action消融测试因本机缺失只读mot_lead_offline_runner.py阻断，未绕过；最终筛选排除此三参数测试组并单列限制。本机临时venv只安装测试依赖，未下载模型权重。无GPU/SSH/仿真/全池建库/push。说明与精确回执见 AutoMoT/qwen3vl_local/audit_joint/geometry_v1/README.md、verification_20261021.json；完整小样本留checkpoints/geometry_v1_implementation_20261021/verified。保留其它已有工作。
+
 ### 2026-10-20 Phase1/2 全链路前置检查与白名单发布
 
 用户要求检查后期执行错误、完善后push白名单并给一行Phase1 && Phase2命令。当前coverage_v2预算不再缩减：四卡P1每轮3072/三轮9216，P2每轮2688/三轮8064，事件/focus原配额与旧action软均衡、实际曝光跨轮优先沿用。新增全部计划轮次原生采样与容量投影，缓存任务配额但下一轮仍按实际历史重选；PLAN_ONLY现含各轮投影和首轮详单，不伪造消费。

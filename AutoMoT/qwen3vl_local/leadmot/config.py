@@ -273,6 +273,9 @@ class LeadMoTPlanningDecoderConfig:
     use_bev: bool = True
     # 全局动作条件：五个变化动作、KEEP、UNCOND；不属于 BEV 空间网格。
     use_high_level_action_token: bool = False
+    # Independent geometry_v1 experiment: four timed region tokens plus lane
+    # direction. Default off; the old scalar six-action vocabulary is separate.
+    use_geometry_tokens: bool = False
 
     # final_goal token：第 4 个 status token，喂 LeadMoT decoder（默认启用）。
     # 与 tp/ntp 共享 WaypointInputAdaptor MLP，让坐标语义在同一空间。
@@ -321,7 +324,7 @@ class LeadMoTPlanningDecoderConfig:
         """
         bev_tokens = self.bev_grid[0] * self.bev_grid[1] if self.use_bev else 0
         status_tokens = 4 if self.use_final_goal else 3
-        return bev_tokens + int(self.use_high_level_action_token) + status_tokens + self.num_route_queries + self.num_waypoint_queries
+        return bev_tokens + int(self.use_high_level_action_token) + 4*int(self.use_geometry_tokens) + status_tokens + self.num_route_queries + self.num_waypoint_queries
 
     def slice_layout(self):
         """返回 packed generated sequence 的 [start, end) 切片。
@@ -337,6 +340,8 @@ class LeadMoTPlanningDecoderConfig:
             layout["bev"] = (idx, idx + bev_tokens); idx += bev_tokens
         if self.use_high_level_action_token:
             layout["action"] = (idx, idx + 1); idx += 1
+        if self.use_geometry_tokens:
+            layout["geometry"] = (idx, idx + 4); idx += 4
         layout["speed"] = (idx, idx + 1); idx += 1
         layout["tp"] = (idx, idx + 1); idx += 1
         layout["ntp"] = (idx, idx + 1); idx += 1
@@ -363,6 +368,8 @@ class LeadMoTPlanningDecoderConfig:
 
     def validate_qwen_kv_shape(self) -> None:
         """检查直接 attention 到 Qwen prefix K/V 所需的不变量。"""
+        if self.use_geometry_tokens and self.use_high_level_action_token:
+            raise ValueError('geometry_v1 and legacy scalar action conditioning are mutually exclusive')
         if self.hidden_size != self.num_kv_heads * self.head_dim:
             raise ValueError(
                 f"hidden_size must equal num_kv_heads * head_dim: "

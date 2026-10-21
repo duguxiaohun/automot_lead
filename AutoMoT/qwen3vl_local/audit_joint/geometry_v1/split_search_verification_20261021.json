@@ -1,0 +1,168 @@
+{
+  "date": "2026-10-21",
+  "scope": "geometry_v1 split coverage exact fallback",
+  "contract": {
+    "version": "geometry_v1",
+    "names": [
+      "LEFT_NEAR",
+      "LEFT_REFERENCE",
+      "LEFT_FAR",
+      "CENTER_NEAR",
+      "CENTER_REFERENCE",
+      "CENTER_FAR",
+      "RIGHT_NEAR",
+      "RIGHT_REFERENCE",
+      "RIGHT_FAR"
+    ],
+    "horizons": [
+      0.5,
+      1.0,
+      1.5,
+      2.0
+    ],
+    "lookbacks": [
+      2.0,
+      1.5,
+      1.0,
+      0.5
+    ],
+    "half_width_m": 2.0,
+    "delta_floor_mps": 0.5,
+    "delta_fraction": 0.2,
+    "delta_cap_mps": 1.0,
+    "negative_speed_limit_mps": -0.1,
+    "reference_source": "nearest_driving_lane_oriented_to_ego_v1",
+    "radius": "horizontal_endpoint_chord",
+    "boundary": "equality belongs to CENTER/REFERENCE; no radius rounding",
+    "history": "past endpoints minus current origin; frozen current speed/lane; positive lookback duration",
+    "prediction_binding": "sample_identity_and_causal_observation_sha256_v1",
+    "future": "exact endpoints relative to frozen current origin/speed/lane",
+    "supervision": "single hard class per valid endpoint; no event action mask",
+    "missing": "UNKNOWN history; masked future; no imputation",
+    "frame_dt_s": 0.25,
+    "native_dt_s": 0.05,
+    "max_native_step_m": 5.0
+  },
+  "sources": {
+    "__init__.py": "82c61c02ecc08e80624cef42ce3abe03154092f0b45089302fb41567e7630311",
+    "__main__.py": "8de44f375828d16864322b7b53884ff4239eec0a5809b3513de3582038efcdad",
+    "codec.py": "394e1900fe6476a72b5dc4874e74937b98108c8155dc351d34ca3ab86257e314",
+    "coverage_search.py": "576b3c6621fda80c3f339ac40d7f4aa8fac4d2f94e07f65b41c888241db375e0",
+    "dataset.py": "db33458bfdb691be6efce41f23a65fcfc46ce56da53c928f467b4c56c769f564",
+    "expert.py": "a7fc2fac89a7f2dcf0e9a56ccd1c53f0e85205edd31dea895830f44f17a7dd2b",
+    "identity.py": "ff557af0a2cefd20f0335bbaa437b5bd391d39a2afc7fbaec3b5084bfad20ffc",
+    "local_check.py": "2c4a5998bd338eb56dc56221ae17e10a328886b3552f744f3c6b7ea70b10b0e3",
+    "metrics.py": "7b85bc7858d159ece5c42442f70c85ba7a388c9e677efab562f482697837a132",
+    "objective.py": "e655aa9d2773d14f9f97fc6b1b48a6c6ae43741c0ac81af0ab71d28d19c98f86",
+    "planning.py": "0c9fc32dae9fb7b715b33b084c667046ebf1a86bf7faee700acc6505c7020750",
+    "sources.py": "e9baab138bd6bbf1fe26792f1daf66036877a0fcdcf87d84ee95d14d3ba6cb69",
+    "splits.py": "3062be6ab938b75f198457681b937bcb9251bad34e77c1c48b71d3f41eed3798",
+    "startup.py": "424a166045d9293ae4c6cdb1b4e15262b8418b4cf8ef2ef9c18a646c92122a76",
+    "train.py": "30cf5c5ca992a931b68051d8c25af1c61004d136775354e328771871d523eff6",
+    "event_split_source_contract": "18d72c422c922cf298753897a28a99e6017a00e687738685a8eda73136906fda",
+    "split_coverage.py": "d3f0ad3f8de9b7df11389b39740b1758842de1fe78694a3fdf07e84072395842",
+    "leadmot/config.py": "5599a297d400735afd6f1198b7e0bcd4e1572eee2043d57ef39ec2aff25de280",
+    "leadmot/decoder.py": "470aef6faf67f7c67a4605a23097463ee568e5136709e20a16c6d9f3e1206296"
+  },
+  "unchanged_core_sha256": {
+    "codec.py": "394e1900fe6476a72b5dc4874e74937b98108c8155dc351d34ca3ab86257e314",
+    "sources.py": "e9baab138bd6bbf1fe26792f1daf66036877a0fcdcf87d84ee95d14d3ba6cb69",
+    "objective.py": "e655aa9d2773d14f9f97fc6b1b48a6c6ae43741c0ac81af0ab71d28d19c98f86",
+    "planning.py": "0c9fc32dae9fb7b715b33b084c667046ebf1a86bf7faee700acc6505c7020750"
+  },
+  "legacy_shared_split_coverage_unchanged": true,
+  "tests": {
+    "module_passed": 47,
+    "seconds": 13.51,
+    "log_sha256": "07e4a25fc81ba53c492076f66461c0fb0b15da14adfa9b9ec5d9a6b50ee77a7b",
+    "new_test_cases": 9,
+    "exhaustive_route_event_graphs": 2401,
+    "fixed_holdout_and_development_cases": 200,
+    "six_route_ten_event_counterexample_recovered": true,
+    "formal_builder_candidate_and_filtered_paths": true,
+    "unknown_vs_infeasible_distinct": true,
+    "greedy_success_preserved": true,
+    "real_small_qwen_backward_reload": true,
+    "real_two_gloo_ranks": true
+  },
+  "counterexample": {
+    "masks": [
+      699,
+      376,
+      892,
+      983,
+      915,
+      254
+    ],
+    "known_feasible_colors": [
+      0,
+      1,
+      0,
+      1,
+      2,
+      2
+    ],
+    "old_unresolved": {
+      "val": [
+        "LEAD_BRAKE",
+        "STATIC_BLOCKAGE",
+        "POST_BYPASS_RETURN"
+      ]
+    },
+    "new_unresolved": {},
+    "search": {
+      "method": "exact_event_mask_backtracking_v1",
+      "status": "feasible",
+      "visited_states": 6,
+      "max_states": 100000,
+      "event_signatures": 6,
+      "movable_groups": 6,
+      "representatives": 6,
+      "scope": "original holdouts fixed; development train-only; one group/frame per event/split"
+    },
+    "evidence_sha256": "892e2d5ba5f0839cb31b1d9eadc8005e53867617f258051ec65ced496bb9e470"
+  },
+  "candidate_scan": {
+    "routes": 5163,
+    "candidates": 260751,
+    "development_groups": 1955,
+    "moved_groups": 8,
+    "seconds": 122.62594048000028,
+    "feasibility": "feasible",
+    "search": {
+      "method": "greedy",
+      "status": "feasible",
+      "visited_states": 0
+    },
+    "previous_success_report_preserved": true,
+    "geometry_filtered": false,
+    "full_collection_hashes_verified": false,
+    "evidence_sha256": "d1444fbc6f30183110076b12d17cb7025fbd94048a15aac515f1a2b3a45f17bd"
+  },
+  "local_sources": {
+    "routes": 14,
+    "anchors": 60,
+    "future_valid": 240,
+    "history_valid": 232,
+    "dataset_sha256": "0103d898c358bc0cd32425be8d3a3f21e14bce724cb1d8da76f14bb46df7514e",
+    "full_source_rehash_and_reload": true,
+    "records_identical_to_previous": true,
+    "scoped_smoke_only": true
+  },
+  "command_checks": {
+    "compileall": true,
+    "shell_syntax": true,
+    "shell_help": true,
+    "diff_whitespace": true
+  },
+  "limits": {
+    "default_max_search_states": 100000,
+    "resource_limit_status": "unknown",
+    "exact_scope": "ten events, minimum one eligible frame/group in each split; original holdouts fixed, development train-only",
+    "full_pool_geometry_build": false,
+    "gpu_training": false,
+    "online_acceptance": false,
+    "push": false
+  },
+  "evidence_directory": "AutoMoT/checkpoints/geometry_v1_split_search_20261021"
+}
