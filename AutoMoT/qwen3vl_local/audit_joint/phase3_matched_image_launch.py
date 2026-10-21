@@ -1,4 +1,4 @@
-"""Four independent GPU workers, running the exact archived single-frame runtime."""
+"""Four independent GPU workers using a SHA-verified runtime from synced whitelist files."""
 import argparse
 import csv
 import json
@@ -9,16 +9,12 @@ import shutil
 import signal
 import subprocess
 import sys
-import tarfile
-import tempfile
 import time
 
 from . import phase3_behavior_diagnostics as diag
 from . import phase3_matched_image_eval as evaluation
 
 APP = Path(__file__).resolve().parents[2]
-# This is the v2 runtime used to train the received checkpoint, before geometry_v1.
-RUNTIME_COMMIT = '3ac67352bc9b7fa7e23188447a8270345dba19f9'
 ROOTS = ('qwen3vl_local', 'keyframe_filter', 'lead_video_tools')
 OVERLAY = ('phase3_behavior_diagnostics.py', 'phase3_matched_image_eval.py')
 
@@ -68,40 +64,49 @@ def gpu_ids(value):
     return [str(r[0]) for r in sorted(parsed,key=lambda r:(r[1],r[2],r[0]))[:4]]
 
 
-def snapshot(destination, job, *, app=APP, commit=RUNTIME_COMMIT):
-    """Export tracked historical code; never alter the current checkout or hashes."""
-    repo=Path(subprocess.check_output(['git','-C',str(app),'rev-parse','--show-toplevel'],text=True).strip())
-    prefix=app.resolve().relative_to(repo.resolve())
-    resolved=subprocess.check_output(['git','-C',str(repo),'rev-parse',commit+'^{commit}'],text=True).strip()
-    if resolved!=commit:raise ValueError('Full runtime commit required')
-    destination.mkdir(parents=True,exist_ok=False)
-    with tempfile.TemporaryFile() as archive:
-        subprocess.run(['git','-C',str(repo),'archive',commit,*[str(prefix/r) for r in ROOTS]],stdout=archive,check=True)
-        archive.seek(0)
-        with tarfile.open(fileobj=archive,mode='r:') as tar:
-            for member in tar:
-                path=Path(member.name)
-                if path.is_absolute() or '..' in path.parts:raise ValueError('Unsafe archive path')
-                if member.isdir():continue
-                if not member.isfile():raise ValueError('Runtime archive must contain regular files only')
-                target=destination/path
-                target.parent.mkdir(parents=True,exist_ok=True)
-                with tar.extractfile(member) as src, target.open('xb') as dst:shutil.copyfileobj(src,dst)
-    runtime=destination/prefix
-    release=runtime/'qwen3vl_local/audit_joint/phase3_base_trial_sources.json'
-    if diag.file_sha(release)!=job['release_sha256']:
+def snapshot(destination, job, *, app=APP):
+    """Build from synchronized whitelist files only; Git is never consulted."""
+    app=Path(app).resolve()
+    package=app/'qwen3vl_local/audit_joint/phase3_behavior_diagnostic_v1'
+    manifest_path=package/'runtime_sources.json'
+    manifest=json.loads(manifest_path.read_text())
+    if manifest.get('schema')!='phase3_synced_runtime_v1':raise ValueError('Unsupported synced runtime manifest')
+    files=manifest['files'];bound=[]
+    for name,entry in files.items():
+        path=Path(name)
+        if path.is_absolute() or '..' in path.parts or path.parts[0] not in ROOTS:
+            raise ValueError('Unsafe runtime source path: '+name)
+        if entry['source']=='project':source=app/path
+        elif entry['source']=='compat_sources':source=package/'compat_sources'/path
+        else:raise ValueError('Unknown runtime source kind')
+        if not source.is_file() or diag.file_sha(source)!=entry['sha256']:
+            raise ValueError('Synced runtime file missing or changed: '+str(source)+
+                '; synchronize the published whitelist with bash ./sync_automot.sh')
+        bound.append((path,source,entry['sha256']))
+    release_name='qwen3vl_local/audit_joint/phase3_base_trial_sources.json'
+    if files[release_name]['sha256']!=job['release_sha256']:
         raise ValueError('Job does not match the supported v2 runtime release; no hash bypass')
+    destination=Path(destination)
+    destination.mkdir(parents=True,exist_ok=False)
+    for path,source,expected in bound:
+        target=destination/path;target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(source,target)
+        if diag.file_sha(target)!=expected:raise ValueError('Runtime source changed while copying: '+str(source))
+    runtime=destination
+    release=runtime/release_name
     spec=json.loads(release.read_text())
     for name,sha in spec['files'].items():
         path=Path(name)
         if path.is_absolute() or '..' in path.parts or diag.file_sha(runtime/path)!=sha:
-            raise ValueError('Archived source mismatch: '+name)
+            raise ValueError('Published source mismatch: '+name)
     copied={}
     for name in OVERLAY:
         source=app/'qwen3vl_local/audit_joint'/name
         target=runtime/'qwen3vl_local/audit_joint'/name
         shutil.copyfile(source,target);copied[name]=diag.file_sha(target)
-    return runtime,dict(commit=commit,release_sha256=diag.file_sha(release),
+    return runtime,dict(source='synchronized_whitelist',remote_git_required=False,
+        reference_commit=manifest['reference_commit'],runtime_manifest_sha256=diag.file_sha(manifest_path),
+        release_sha256=diag.file_sha(release),verified_runtime_sources=len(files),
         verified_native_sources=len(spec['files']),diagnostic_sources=copied,
         current_checkout_modified=False,source_hash_bypass=False)
 
@@ -158,7 +163,7 @@ def launch(job_path, output, ids='', preflight_only=False):
     try:
         runtime,provenance=snapshot(output/'runtime',job)
         note['runtime']=provenance;write(output/'receipt.json',note)
-        # Copy the admitted plans as well, so another pull cannot change a running experiment.
+        # Copy the admitted plans as well, so another sync cannot change a running experiment.
         local_plans=output/'plans';local_plans.mkdir()
         paths=[]
         for plan in plans:
@@ -169,7 +174,7 @@ def launch(job_path, output, ids='', preflight_only=False):
         for key in ('RANK','LOCAL_RANK','WORLD_SIZE','MASTER_ADDR','MASTER_PORT'):env.pop(key,None)
         command=[sys.executable,'-m','qwen3vl_local.audit_joint.phase3_matched_image_eval',
             '--job',str(job_path),'--plan',*paths]
-        print('[diagnostic] CPU preflight using archived original v2 sources',flush=True)
+        print('[diagnostic] CPU preflight using synchronized original v2 sources (no Git)',flush=True)
         processes([command+['--preflight-only','--output',str(output/'preflight')]],runtime,[env],[output/'preflight.log'])
         if preflight_only:
             note['status']='preflight_completed';write(output/'receipt.json',note);return note

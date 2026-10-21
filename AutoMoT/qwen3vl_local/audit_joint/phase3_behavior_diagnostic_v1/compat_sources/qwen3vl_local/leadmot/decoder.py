@@ -1,0 +1,247 @@
+"""LeadMoT planning decoder 顶层模块。
+
+decoder 从 runner 接收 frozen Qwen prefix K/V 和 frozen LEAD BEV feature。
+它先构建 generated-token 序列，再跑 12 层 Prefix-KV decoder block，
+最后用 LEAD 风格 head 读取 route / waypoint query 切片。
+"""
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Tuple
+
+import torch
+import torch.nn as nn
+
+from .config import LeadMoTPlanningDecoderConfig
+from .heads import RouteHead, WaypointHead
+from .mot_block import MoTDecoderBlock, RMSNorm
+from .projectors import LeadBEVProjector, StatusTokenEncoder
+from .query_bank import RouteQueryBank, WaypointQueryBank
+
+
+class LeadMoTPlanningDecoder(nn.Module):
+    """接在 frozen Qwen 和 frozen BEV 上训练的快推理 planning decoder。
+
+    Forward 输入：
+    - ``pooled_kv``：frozen Qwen K/V 的 8 个 full-attention segment，每层 block 用一个；
+    - ``bev``：LEAD BEV feature map，形状 ``(B, 512, 10, 12)``；
+    - ``speed``、``target_point``、``target_point_next``：ego 状态输入；
+    - ``rope_position_offset``：来自 Qwen prefill 的 next-token 位置 offset。
+    """
+
+    def __init__(self, config: Optional[LeadMoTPlanningDecoderConfig] = None):
+        super().__init__()
+        self.config = config or LeadMoTPlanningDecoderConfig()
+        # 提前检查：prefix K/V 会直接进 attention，不经过 Linear 投影兜底。
+        self.config.validate_qwen_kv_shape()
+        cfg = self.config
+
+        # use_bev=False 时不建 bev_projector，节省参数 + 避免误用。
+        # state_dict 在两档间不兼容（一档有 bev_projector 子模块，一档没有），
+        # 切换 use_bev 必须从头训或单独 warm start。
+        self.bev_projector = LeadBEVProjector(cfg) if cfg.use_bev else None
+        self.status_encoder = StatusTokenEncoder(cfg)
+
+        self.route_query_bank = RouteQueryBank(
+            num_queries=cfg.num_route_queries,
+            hidden_size=cfg.hidden_size,
+        )
+        self.waypoint_query_bank = WaypointQueryBank(
+            num_queries=cfg.num_waypoint_queries,
+            hidden_size=cfg.hidden_size,
+        )
+
+        # 每个 block attention 到一个 pooled Qwen K/V segment。
+        # 所有 block 共用同一套 RoPE 策略，保证 train/eval/runner 对齐。
+        active_section = cfg.active_mrope_section()
+        self.blocks = nn.ModuleList(
+            [
+                MoTDecoderBlock(
+                    hidden_size=cfg.hidden_size,
+                    num_heads=cfg.num_heads,
+                    ffn_hidden_size=cfg.ffn_hidden_size,
+                    dropout=cfg.dropout,
+                    rope_theta=cfg.rope_theta,
+                    rope_type=cfg.rope_type,
+                    mrope_section=active_section,
+                    partial_rotary_factor=cfg.partial_rotary_factor,
+                    mrope_interleaved=cfg.mrope_interleaved,
+                )
+                for _ in range(cfg.num_layers)
+            ]
+        )
+        self.gen_final_norm = RMSNorm(cfg.hidden_size, eps=1e-6, elementwise_affine=True)
+
+        self.route_head = RouteHead(hidden_size=cfg.hidden_size, point_dim=cfg.point_dim)
+        self.waypoint_head = WaypointHead(hidden_size=cfg.hidden_size, point_dim=cfg.point_dim)
+        self.action_embedding = None
+        if cfg.use_high_level_action_token:
+            # 保存 RNG，使 FM head 初始化不因新增 embedding 改变。
+            from qwen3vl_local.action_prior.action_token import ACTION_TOKEN_NAMES
+            with torch.random.fork_rng(devices=[]):
+                self.action_embedding = nn.Embedding(len(ACTION_TOKEN_NAMES), cfg.hidden_size)
+                nn.init.normal_(self.action_embedding.weight, std=0.02)
+
+    def _build_gen_sequence(
+        self,
+        bev: Optional[torch.Tensor],
+        speed: torch.Tensor,
+        target_point: torch.Tensor,
+        target_point_next: torch.Tensor,
+        final_goal: Optional[torch.Tensor] = None,
+        action_token_id: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """按 ``slice_layout`` 约定顺序打包 BEV/status/query token。
+
+        use_bev=False 时 bev 参数被忽略（可传 None），gen 序列从 speed 段开始拼。
+        use_final_goal=True 时必须传 final_goal；False 时忽略。
+        """
+        if self.config.use_bev:
+            if bev is None:
+                raise ValueError("config.use_bev=True 但 forward bev=None；要禁用 BEV 请把 config.use_bev 改为 False。")
+            batch_size = bev.shape[0]
+            bev_tokens = self.bev_projector(bev)
+            device = bev_tokens.device
+            dtype = bev_tokens.dtype
+        else:
+            # use_bev=False：BEV 通路完全跳过，从 speed 推 batch/device/dtype。
+            batch_size = speed.shape[0]
+            device = speed.device
+            dtype = speed.dtype
+            bev_tokens = None
+
+        speed_tok = self.status_encoder.encode_speed(speed)
+        if self.config.use_final_goal:
+            if final_goal is None:
+                raise ValueError(
+                    "config.use_final_goal=True 但 forward final_goal=None；"
+                    "要禁用 final_goal 请把 config.use_final_goal 改为 False。"
+                )
+            tp_tok, ntp_tok, fg_tok = self.status_encoder.encode_target_points(
+                target_point, target_point_next, final_goal,
+            )
+        else:
+            tp_tok, ntp_tok, fg_tok = self.status_encoder.encode_target_points(
+                target_point, target_point_next,
+            )
+        route_q = self.route_query_bank(batch_size, device=device, dtype=dtype)
+        wp_q = self.waypoint_query_bank(batch_size, device=device, dtype=dtype)
+        # 布局：(BEV) | speed | tp | ntp | (final_goal) | route Q | waypoint Q
+        # 注意 dtype 对齐到 BEV 通路一致（use_bev=False 时退回 speed dtype）。
+        parts = []
+        if bev_tokens is not None:
+            parts.append(bev_tokens)
+        if self.action_embedding is not None:
+            if (action_token_id is None or action_token_id.shape != (batch_size,)
+                    or action_token_id.dtype != torch.long):
+                raise ValueError("action_token_id must be an explicit [B] int64 tensor")
+            action_tok = self.action_embedding(action_token_id.to(device=device)).unsqueeze(1)
+            parts.append(action_tok.to(dtype=dtype))
+        elif action_token_id is not None:
+            raise ValueError("action token supplied while decoder switch is disabled")
+        parts.extend([speed_tok, tp_tok, ntp_tok])
+        if fg_tok is not None:
+            parts.append(fg_tok)
+        parts.extend([route_q, wp_q])
+        gen_seq = torch.cat(parts, dim=1)
+        if gen_seq.shape[1] != self.config.total_gen_tokens():
+            raise RuntimeError(
+                f"gen seq length mismatch: got {gen_seq.shape[1]}, "
+                f"expect {self.config.total_gen_tokens()}（use_bev={self.config.use_bev}, "
+                f"use_final_goal={self.config.use_final_goal}）"
+            )
+        return gen_seq
+
+    def _check_pooled_kv(self, pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]]) -> None:
+        """attention 开始前检查 K/V segment 数量和形状。"""
+        if len(pooled_kv) != self.config.num_layers:
+            raise ValueError(
+                f"pooled_kv has {len(pooled_kv)} segments, expected {self.config.num_layers}"
+            )
+        for i, (k, v) in enumerate(pooled_kv):
+            if k.shape != v.shape:
+                raise ValueError(f"pooled_kv[{i}] K/V shape mismatch: {tuple(k.shape)} vs {tuple(v.shape)}")
+            if k.ndim != 4:
+                raise ValueError(f"pooled_kv[{i}] K must be [B,H,S,D], got {tuple(k.shape)}")
+            if k.shape[1] != self.config.num_kv_heads or k.shape[3] != self.config.head_dim:
+                raise ValueError(
+                    f"pooled_kv[{i}] shape {tuple(k.shape)} does not match "
+                    f"(heads={self.config.num_kv_heads}, head_dim={self.config.head_dim})"
+                )
+
+    def encode_conditioning(
+        self,
+        pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+        bev: Optional[torch.Tensor],
+        speed: torch.Tensor,
+        target_point: torch.Tensor,
+        target_point_next: torch.Tensor,
+        final_goal: Optional[torch.Tensor] = None,
+        rope_position_offset: int | torch.Tensor | None = None,
+        action_token_id: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """编码一次条件上下文并返回 route / waypoint query hidden。
+
+        除原 Linear+cumsum head 外，条件 Flow Matching 也复用同一套 Qwen KV、BEV、
+        状态和 Prefix-KV blocks。将该边界显式化可让 ODE 的多个向量场步只重复轻量
+        head，而不会重复 Qwen-prefix attention。
+        """
+        self._check_pooled_kv(pooled_kv)
+        gen_seq = self._build_gen_sequence(
+            bev=bev,
+            speed=speed,
+            target_point=target_point,
+            target_point_next=target_point_next,
+            final_goal=final_goal,
+            action_token_id=action_token_id,
+        )
+
+        # 第 i 个 block 使用 pooled_kv[i] 作为 language prefix K/V。
+        for block, lang_kv in zip(self.blocks, pooled_kv):
+            gen_seq = block(
+                gen_seq=gen_seq,
+                lang_kv=lang_kv,
+                rope_position_offset=rope_position_offset,
+            )
+        gen_seq = self.gen_final_norm(gen_seq)
+
+        # 只有 query 切片进入 planning head；BEV/status token 只作为上下文。
+        layout = self.config.slice_layout()
+        r_start, r_end = layout["route"]
+        w_start, w_end = layout["waypoint"]
+        route_hidden = gen_seq[:, r_start:r_end, :]
+        wp_hidden = gen_seq[:, w_start:w_end, :]
+
+        return {
+            "route_hidden": route_hidden,
+            "waypoint_hidden": wp_hidden,
+            "gen_hidden": gen_seq,
+        }
+
+    def forward(
+        self,
+        pooled_kv: List[Tuple[torch.Tensor, torch.Tensor]],
+        bev: Optional[torch.Tensor],
+        speed: torch.Tensor,
+        target_point: torch.Tensor,
+        target_point_next: torch.Tensor,
+        final_goal: Optional[torch.Tensor] = None,
+        rope_position_offset: int | torch.Tensor | None = None,
+        action_token_id: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """返回原有 Linear+cumsum route / future-waypoint 预测，保持 v1 接口。"""
+        encoded = self.encode_conditioning(
+            pooled_kv=pooled_kv,
+            bev=bev,
+            speed=speed,
+            target_point=target_point,
+            target_point_next=target_point_next,
+            final_goal=final_goal,
+            action_token_id=action_token_id,
+            rope_position_offset=rope_position_offset,
+        )
+        return {
+            "pred_route": self.route_head(encoded["route_hidden"]),
+            "pred_future_waypoints": self.waypoint_head(encoded["waypoint_hidden"]),
+            "gen_hidden": encoded["gen_hidden"],
+        }

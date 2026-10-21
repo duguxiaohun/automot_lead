@@ -113,3 +113,39 @@ def test_existing_output_cli_shows_evidence_without_traceback(tmp_path):
     assert result.returncode==2
     assert 'previous failure evidence' in result.stderr
     assert 'Traceback' not in result.stderr
+
+
+@pytest.mark.parametrize('layout',['flat_without_git','nested_unrelated_git'])
+def test_synced_runtime_without_original_git_history(tmp_path,monkeypatch,layout):
+    import shutil
+    app=tmp_path/('server' if layout=='flat_without_git' else 'unrelated/AutoMoT')
+    app.mkdir(parents=True)
+    package=Path('qwen3vl_local/audit_joint/phase3_behavior_diagnostic_v1')
+    manifest=json.loads((launch.APP/package/'runtime_sources.json').read_text())
+    for name,entry in manifest['files'].items():
+        relative=Path(name) if entry['source']=='project' else package/'compat_sources'/name
+        target=app/relative;target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(launch.APP/relative,target)
+    (app/package).mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(launch.APP/package/'runtime_sources.json',app/package/'runtime_sources.json')
+    for name in launch.OVERLAY:
+        shutil.copyfile(launch.APP/'qwen3vl_local/audit_joint'/name,app/'qwen3vl_local/audit_joint'/name)
+    if layout=='nested_unrelated_git':(app/'.git').write_text('not the publication repository')
+    with monkeypatch.context() as patch:
+        patch.setattr(subprocess,'check_output',lambda *a,**k:pytest.fail('Runtime must not call git'))
+        patch.setattr(subprocess,'run',lambda *a,**k:pytest.fail('Runtime must not invoke external commands'))
+        runtime,note=launch.snapshot(tmp_path/'runtime',dict(release_sha256=launch.diag.file_sha(
+            app/'qwen3vl_local/audit_joint/phase3_base_trial_sources.json')),app=app)
+    assert note['remote_git_required'] is False and note['verified_runtime_sources']==len(manifest['files'])
+    assert runtime==tmp_path/'runtime'
+    assert not (runtime/'.git').exists()
+    expected={p.name:launch.diag.file_sha(p) for p in (runtime/'qwen3vl_local/audit_joint/phase3_single_frame').glob('*.py')}
+    cmd=[sys.executable,'-c','import json; from qwen3vl_local.audit_joint.phase3_single_frame import dataset,worker,runtime; print(json.dumps(dataset.sources()))']
+    result=subprocess.run(cmd,cwd=runtime,env=dict(os.environ,PYTHONPATH=str(runtime)),capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    assert json.loads(result.stdout)['experiment_sources']==expected
+    compat=next(n for n,v in manifest['files'].items() if v['source']=='compat_sources')
+    (app/package/'compat_sources'/compat).write_text('changed')
+    with pytest.raises(ValueError,match='Synced runtime file missing or changed'):
+        launch.snapshot(tmp_path/'must_not_exist',dict(release_sha256='bad'),app=app)
+    assert not (tmp_path/'must_not_exist').exists()

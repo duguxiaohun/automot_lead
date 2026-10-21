@@ -1,0 +1,24 @@
+{
+  "source": "synchronized_whitelist",
+  "remote_git_required": false,
+  "reference_commit": "3ac67352bc9b7fa7e23188447a8270345dba19f9",
+  "runtime_manifest_sha256": "6d491caf52bd451720b0ed7d8a358fd0b3ea0c0bca287f4994b1973f1e16b3ef",
+  "release_sha256": "d5a40a07055aec481dc208f271aaa9d40e52730ccd2741ad57d592c28f7de63a",
+  "verified_runtime_sources": 484,
+  "verified_native_sources": 261,
+  "diagnostic_sources": {
+    "phase3_behavior_diagnostics.py": "6c5b50fa4df22ba3064c22fde69836d4a59dbd9ded6f1dfd8c193bf79a4034d7",
+    "phase3_matched_image_eval.py": "59b9ff9035dbfe9732985e1a6f39dee8ec9e8beb1b7892eed3b554de4483e828"
+  },
+  "current_checkout_modified": false,
+  "source_hash_bypass": false,
+  "received_v2_dataset_source_contract_exact_match": true,
+  "tests": {
+    "passed": 42,
+    "seconds": 5.23,
+    "scope": "no-Git and unrelated-Git source deployment, strict SHA, native imports, four CPU shard aggregation, native small Qwen CPU paired forward"
+  },
+  "gpu_inference_performed": false,
+  "training_performed": false,
+  "launcher_sha256": "6b7efcd3aa8e980e62550ca1739f8578f48c6b5a7520251082fc8f43512febea"
+}

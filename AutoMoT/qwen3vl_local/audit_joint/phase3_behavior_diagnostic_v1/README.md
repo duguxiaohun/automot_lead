@@ -10,7 +10,9 @@
 
 ## 旧模型源码隔离与四卡修复
 
-后续 geometry_v1 修改了共享 leadmot/config.py，因此直接在当前源码中载入旧模型会触发 Published trial source mismatch。启动器从 Git 提取明确的原始 v2 提交 `3ac67352bc9b7fa7e23188447a8270345dba19f9` 到新输出目录 runtime，核验 261 项原生源码，再执行原生 job、dataset、checkpoint 全部检查。只有独立诊断工具复制到该快照；当前工作区、旧数据、旧权重均不改，绝不改 SHA 绕过检查。浅克隆缺少该提交时会停止，需要补齐该 Git 提交后另用新输出目录。
+后续 geometry_v1 修改了共享 leadmot/config.py，因此旧六动作模型须使用原版源码。当前启动器只读取 sync_automot 同步的白名单：`runtime_sources.json` 列明 484 项运行依赖及原始 SHA；除两项兼容副本外，其余从现有项目文件读取。`compat_sources/qwen3vl_local/leadmot/config.py` 和 `decoder.py` 是原始 v2 源码，独立发布，不覆盖当前 geometry 实现。
+
+启动器先核验所有清单文件，再复制到新输出目录 runtime；保留 261 项原生发布校验及原生 job、dataset、checkpoint 检查。**不调用远程 Git，不要求 `.git`、历史提交或与本机相同的仓库布局**。清单中的 reference_commit 仅记录本机来源，不用于远程查询。缺失或 SHA 不符的文件在加载模型前报告具体路径，通过同步白名单解决；不改 SHA 绕过检查。
 
 先完成 CPU 预检查，再启动默认四个独立推理进程，每卡载入一份模型；按接收样本划分，各卡 67 个不同原图，错图配对也归同一卡。汇总检查完整性、重复、原实验绑定和目标窗口；仍是 904 次总前向，不能保证耗时恰好缩短四倍。某一卡失败会停止其它进程，日志及失败回执保留。
 
@@ -23,7 +25,7 @@
 bash ./sync_automot.sh
 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
-  --output phase3_single_frame_visual_diagnostic_v2
+  --output phase3_single_frame_visual_diagnostic_sync_v1
 ```
 
 默认自动选择四张显存占用最少的 GPU；显式指定四卡并后台运行：
@@ -31,8 +33,8 @@ bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
 ```bash
 nohup env GPU_IDS=0,1,2,3 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
-  --output phase3_single_frame_visual_diagnostic_v2 \
-  > phase3_single_frame_visual_diagnostic_v2.log 2>&1 &
+  --output phase3_single_frame_visual_diagnostic_sync_v1 \
+  > phase3_single_frame_visual_diagnostic_sync_v1.log 2>&1 &
 ```
 
 两种运行方式任选一种。显式 `GPU_IDS=0` 仍可只用一张卡，卡数来自指定列表；默认不足四卡会报错，不静默退回单卡。目录已存在时只展示原回执和日志末尾并停止，不自动覆盖或重复推理。不能凭“目录存在”判断上次成功或失败；先用下面的只读命令查看。只有确认上次失败原因已解决后，才明确指定新输出名重试。
@@ -40,7 +42,7 @@ nohup env GPU_IDS=0,1,2,3 bash qwen3vl_local/audit_joint/phase3_matched_image_ev
 ```bash
 bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
   --job phase3_single_frame_validation_v2/run_single_frame_nearest_v1/experiment/single_frame_job.json \
-  --output phase3_single_frame_visual_diagnostic_v2 \
+  --output phase3_single_frame_visual_diagnostic_sync_v1 \
   --inspect-existing
 ```
 
@@ -54,9 +56,9 @@ bash qwen3vl_local/audit_joint/phase3_matched_image_eval.sh \
 这些 JSON 不含模型权重或 RGB。打包时排除 runtime 源码快照，保留日志和分片结果：
 
 ```bash
-tar --exclude=phase3_single_frame_visual_diagnostic_v2/runtime \
-  -czf phase3_single_frame_visual_diagnostic_v2.tar.gz \
-  phase3_single_frame_visual_diagnostic_v2
+tar --exclude=phase3_single_frame_visual_diagnostic_sync_v1/runtime \
+  -czf phase3_single_frame_visual_diagnostic_sync_v1.tar.gz \
+  phase3_single_frame_visual_diagnostic_sync_v1
 ```
 若失败，交日志及已生成的回执，不删除原训练目录，不重训。
 
@@ -67,5 +69,7 @@ tar --exclude=phase3_single_frame_visual_diagnostic_v2/runtime \
 未找到足以直接修改原标定或提示词的确定错标。当前发现：22 个当前变道锚点中 4 个未进入有效未来变道监督；严格纯标签转换子集 44 个锚点中 16 个预测偏晚、13 个未预测转换；1.5 倍偏好实际仅改变混合目标，纯变道目标的归一化抵消权重。
 这些是开发诊断证据，不是全池盲审或修改标签的授权依据。
 
-本机已验证原始源码隔离/原生校验、真实四 CPU 子进程的分片与单进程结果精确一致、漏项/重复拒绝和失败清理，以及原生小 Qwen 的真实配对前向。四 CPU 子进程使用确定性预测替身，不冒称四卡 4B/H20 推理已通过。
+本机已验证无 Git 平铺目录和无关 Git 目录下的白名单复制/原生校验、真实四 CPU 子进程的分片与单进程结果精确一致、漏项/重复拒绝和失败清理，以及原生小 Qwen 的真实配对前向。四 CPU 子进程使用确定性预测替身，不冒称四卡 4B/H20 推理已通过。
 保留原生标签、提示词和训练代码。原始审计图像及完整证据仅留本机 checkpoints，不随 Git 发布。
+
+本轮旧 `phase3_single_frame_visual_diagnostic_v2` 已由回执确认为源码准备失败，未训练、未推理；保留该目录。上述 sync_v1 是修复 Git 依赖后的新输出名，无需删除旧目录、重训或重建数据。

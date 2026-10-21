@@ -4,6 +4,8 @@
 
 用户明确要求：以后提供远程服务器代码同步命令，统一使用 `bash ./sync_automot.sh`，不再使用 `git pull --ff-only origin main` 或直接 git pull 作为替代。命令在该机已有 AutoMoT 应用根执行，不重复拼接 AutoMoT、不修改同步脚本、不清理本机数据和权重。本条覆盖历史运行说明中相冲突的远程同步示例；本机经授权的 GitHub fetch/push 发布流程不受影响。详见 PROJECT_CONTEXT.md 同名条目。
 
+远程应用目录只接收白名单文件覆盖，不代表本机发布仓库，也不要求包含本机提交历史或可用 `.git`。部署和运行代码禁止依赖远程 git rev-parse、git archive、git checkout 或历史提交；旧模型兼容源码必须作为明确白名单文件随 push → sync_automot 分发，并按文件 SHA 校验。不能要求用户修复远程 Git 或补拉历史来满足运行入口。Phase3 本轮新增的 `qwen3vl_local/audit_joint/phase3_behavior_diagnostic_v1/runtime_sources.json` 及 `compat_sources/qwen3vl_local/leadmot/{config,decoder}.py` 纳入既有源码白名单；它们是兼容源码与清单，不含权重、RGB 或运行数据。
+
 
 ### 2026-10-21 geometry_v1 划分覆盖回溯修复
 
