@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-22",
+  "status": "v2_review_fixes_verified_native_build_still_running",
+  "sources": {
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit_v2.py": "61be31b4a8668d39771ee27244d216b3300fbc415fdb6547d4a7df4c0783d372",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit_v2.sh": "9d0bc857097988d1e4201f011b1b71f92212d1f9935cee2dee9425ca9e8bcb61",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_continue_v2.py": "cf01ef0ea5a6f689c914853c88b59ebf4d7e00f889ee740bf9601a8098118f37",
+    "qwen3vl_local/audit_joint/tests/test_geometry_study_cpu_v2.py": "cd773c5c94561ef137da467397bad965a3b7643ca2af010c12904ed967d86e45"
+  },
+  "frozen_study_unchanged": 159,
+  "old_audit_files_unchanged": 3,
+  "v90_unchanged": 587,
+  "tests": {
+    "passed": 81,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 16.275,
+    "evidence": "checkpoints/geometry_study_cpu_review_20261022/regression.xml"
+  },
+  "real_small_pool": {
+    "same_pool_report": true,
+    "CLI_exit_code": 2,
+    "formal_admission": false,
+    "actual_direction_flips": 0,
+    "new_RGB_review": false
+  },
+  "handoff": {
+    "native_pid": 162503,
+    "native_start_time_unchanged": true,
+    "native_interrupted": false,
+    "pinned_sources": 165,
+    "job_sha256": "2f1deb9fa386a21ca25d9b95e0f775f0b529c446973044e98c1dd9ec7574248f",
+    "snapshot": {
+      "native_pid": 162503,
+      "native_start_time": "10087944",
+      "job_sha256": "2f1deb9fa386a21ca25d9b95e0f775f0b529c446973044e98c1dd9ec7574248f",
+      "job": "AutoMoT/checkpoints/geometry_study_pool_20261022/continuation_v2_job.json",
+      "stage": "waiting_for_native",
+      "status": "running",
+      "supervisor_pid": 168192,
+      "updated_unix": 1792673765.3901186,
+      "GPU": false
+    },
+    "evidence": "checkpoints/geometry_study_cpu_review_20261022/handoff_from_v1.json"
+  },
+  "formal_full_pool_admitted": false,
+  "training_changed": false,
+  "GPU": false,
+  "SSH": false,
+  "push": false
+}

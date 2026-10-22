@@ -58,24 +58,43 @@ for town in towns:
     selected[town] = dict(source=str(found[0].resolve(strict=True)), sha256=hashes[0])
 out = Path(os.environ['GEOMETRY_ROOT'])
 out.parent.mkdir(parents=True, exist_ok=True)
-out.mkdir(exist_ok=False)
+out.mkdir(exist_ok=True)
 view = Path(os.environ['MAPS_DIR'])
-view.mkdir()
+view.mkdir(exist_ok=True)
 for town, item in selected.items():
-    (view/f'{town}.xodr').symlink_to(item['source'])
-(out/'assets.json').write_text(json.dumps(dict(
+    link=view/f'{town}.xodr'
+    if link.exists() or link.is_symlink():
+        if not link.is_file() or hashlib.sha256(link.read_bytes()).hexdigest()!=item['sha256']:
+            raise SystemExit(f'Existing map view differs: {link}; preserve it and inspect the map version')
+    else:
+        link.symlink_to(item['source'])
+assets=dict(
     python=os.sys.executable, data_root=os.environ['DATA_ROOT'],
     model_dir=os.environ['MODEL_DIR'], carla_maps=str(root), maps=selected,
-), indent=2) + '\n')
+)
+if (out/'assets.json').exists():
+    previous=json.loads((out/'assets.json').read_text())
+    if previous['maps']!=assets['maps'] or previous['data_root']!=assets['data_root']:
+        raise SystemExit('Existing asset mapping changed; preserve prior evidence')
+else:
+    (out/'assets.json').write_text(json.dumps(assets, indent=2)+'\n')
 print(f'Prepared {len(selected)} project map links: {view}', flush=True)
 PY
-  bash "$ENTRY" build --collection "$COLLECTION_DIR" --data-root "$DATA_ROOT" \
-    --maps "$MAPS_DIR" --output "$GEOMETRY_ROOT/data"
-  bash "$ENTRY" plan --dataset "$GEOMETRY_ROOT/data/dataset.json" \
-    --output "$GEOMETRY_ROOT/plan.json" --world-size 4 --per-event 1024 --epochs 3
+  "$PYTHON" -m qwen3vl_local.audit_joint.geometry_prepare_profile \
+    --timing-report "$GEOMETRY_ROOT/prepare_timings.jsonl" \
+    --collection "$COLLECTION_DIR" --data-root "$DATA_ROOT" --maps "$MAPS_DIR" \
+    --receipt "$GEOMETRY_ROOT/data_ready.json"
   printf '%s\n' ready > "$GEOMETRY_ROOT/cpu.done"
 else
   [[ -f "$GEOMETRY_ROOT/cpu.done" ]] || { echo 'CPU build and plan not complete' >&2; exit 2; }
+  GEOMETRY_DATASET=$("$PYTHON" -B - <<'PY'
+import json,os
+from pathlib import Path
+root=Path(os.environ['GEOMETRY_ROOT'])
+ready=root/'data_ready.json'
+print(json.loads(ready.read_text())['dataset'] if ready.is_file() else root/'data/dataset.json')
+PY
+)
   [[ ! -e "$GEOMETRY_ROOT/run" && ! -e "$GEOMETRY_ROOT/test" ]] || {
     echo 'Existing run/test output; refusing to overwrite or resume' >&2; exit 2;
   }
@@ -84,13 +103,13 @@ else
     IFS=, read -ra devices <<< "$GPU_IDS"
     [[ ${#devices[@]} == 4 ]] || { echo 'This plan requires four GPUs' >&2; exit 2; }
   fi
-  bash "$ENTRY" train --dataset "$GEOMETRY_ROOT/data/dataset.json" \
+  bash "$ENTRY" train --dataset "$GEOMETRY_DATASET" \
     --model-dir "$MODEL_DIR" --output "$GEOMETRY_ROOT/run" \
     --per-event 1024 --epochs 3 --max-startup-hours 1 --max-epoch-hours 10
   eval_gpu=${GEOMETRY_EVAL_GPU:-}
   if [[ -z $eval_gpu && -n ${GPU_IDS:-} ]]; then eval_gpu=${GPU_IDS%%,*}; fi
   GPU_IDS="$eval_gpu" bash "$ENTRY" evaluate \
-    --dataset "$GEOMETRY_ROOT/data/dataset.json" --model-dir "$MODEL_DIR" \
+    --dataset "$GEOMETRY_DATASET" --model-dir "$MODEL_DIR" \
     --checkpoint "$GEOMETRY_ROOT/run/epoch_3" --split test --output "$GEOMETRY_ROOT/test"
   printf '%s\n' complete > "$GEOMETRY_ROOT/train_test.done"
 fi

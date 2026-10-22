@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-22",
+  "status": "local_cpu_verification_passed",
+  "tests": {
+    "passed": 164,
+    "new_tests": 5,
+    "seconds": 38.72,
+    "exit_code": 0,
+    "command": [
+      "/tmp/geometry_v1_verify_env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "qwen3vl_local/audit_joint/tests/test_geometry_prepare_profile.py",
+      "qwen3vl_local/audit_joint/tests/test_data_reuse_boundaries.py",
+      "qwen3vl_local/audit_joint/tests/test_data_prepare_review_fixes.py",
+      "qwen3vl_local/audit_joint/tests/test_versioned_data.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_common_data.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_launch.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_prompt_review.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_launcher.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_paths.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_native.py",
+      "qwen3vl_local/audit_joint/tests/test_phase4_resume.py",
+      "qwen3vl_local/audit_joint/tests/test_phase4_first_epoch.py"
+    ],
+    "cwd": "/home/codon/automot_lead/AutoMoT",
+    "log": "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_prepare_timing_20261022/pytest.txt",
+    "log_sha256": "43525764fa6ee9f3190472f674041424ab7b1ec1d445bb2c0443bf7f5763e679"
+  },
+  "observations": [
+    "Native synthetic build and reuse preserve cache identity and cached bytes with profiling enabled and disabled.",
+    "Failure restores all instrumented functions and propagates native exception.",
+    "Reports append success/failure records; unrelated JSONL preserved.",
+    "Remote CPU preparation selects profiling wrapper and separate timing file."
+  ],
+  "source_sha256": {
+    "geometry_prepare_profile.py": "79d9ce855a1328b57035f40c69578a1963751f858edca570ae844258a6e75504",
+    "geometry_v1/remote.sh": "3356847a4dc629492aff2b450ffe5db3fa9d644310bdcb3ba2f744198331b12d",
+    "geometry_v1/REMOTE_RUN.md": "7c296c6581717b6ffbd1ad5510939c6a8f9c9bf943c4638aea8ef981d743ee6f",
+    "tests/test_geometry_prepare_profile.py": "57f359ea183f4f55a6d7481bf519a501a32599ecccb82e96fa451d20967203c9",
+    "GEOMETRY_PREPARE_TIMING_20261022.md": "e38aa9c3749ec384b6e418dffbe43d866ef567edf6fe4f431ca33ccb7ee74c56",
+    "data_prepare.py": "deda492bf41aedc8be0da8b2473e0fc3d37acc05649199ce3278986bea699f6b",
+    "versioned_data.py": "a752089ac3502049af2b042ade02f98fb55924eccced8c0996a2f1699dfbe2a7",
+    "release_sources_v90_data_dependencies_20261022.json": "406e77d32df266182919c3c668cf34053129d0d7ddc3f1fc33c0daa94ca6b97c"
+  },
+  "generation_code_unchanged": true,
+  "phase4_release": {
+    "status": "matched",
+    "files": 587,
+    "historical_manifests_unchanged": true
+  },
+  "shell_syntax": "passed",
+  "git_diff_check": "passed",
+  "timing_scope": "Inclusive overlapping stages; adapter successful hash calls/bytes only; repeated reads counted; native internal I/O not fully counted.",
+  "full_pool_performance_measured": false,
+  "performance_improvement_claimed": false,
+  "gpu_performed": false,
+  "server_executed": false,
+  "training_performed": false,
+  "new_rgb_semantic_audit": false,
+  "pushed": false
+}

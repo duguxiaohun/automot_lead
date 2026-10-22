@@ -39,6 +39,25 @@ set -euo pipefail
 printf '%s|%s|%s\\n' "$1" "${GPU_IDS:-auto}" "$*" >> "$GEOMETRY_ROOT/calls"
 [[ ${FAIL_STAGE:-} != "$1" ]] || exit 7
 ''')
+    # The current CPU shell routes through the versioned preparation profiler.
+    # Substitute that expensive dependency at its actual module boundary; keep
+    # the real shell, project map lookup and propagation of failures under test.
+    (entry.parent/'geometry_prepare_profile.py').write_text('''
+import json,os,sys
+from pathlib import Path
+args=sys.argv[1:]
+root=Path(os.environ['GEOMETRY_ROOT'])
+assert args[args.index('--timing-report')+1]==str(root/'prepare_timings.jsonl')
+assert args[args.index('--maps')+1]==str(root/'maps')
+ready=Path(args[args.index('--receipt')+1])
+if ready.exists():
+    with (root/'calls').open('a') as f:f.write('reuse|cpu|verified_existing\\n')
+else:
+    for stage in ('build','plan'):
+        with (root/'calls').open('a') as f:f.write(stage+'|cpu|native_preparation_substitute\\n')
+        if os.environ.get('FAIL_STAGE')==stage:sys.exit(7)
+    ready.write_text(json.dumps(dict(dataset=str(root/'versioned/data/dataset.json'))))
+''')
     return root
 
 
@@ -63,8 +82,8 @@ def test_project_symlinks_and_fresh_output(app):
         assert link.is_symlink() and str(link.resolve()) == item['source']
     assert (out/'cpu.done').is_file()
     assert [line.split('|')[0] for line in (out/'calls').read_text().splitlines()] == ['build', 'plan']
-    assert run(app, 'cpu').returncode != 0
-    assert len((out/'calls').read_text().splitlines()) == 2
+    assert run(app, 'cpu').returncode == 0
+    assert [line.split('|')[0] for line in (out/'calls').read_text().splitlines()] == ['build','plan','reuse']
 
 
 @pytest.mark.parametrize('problem', ['missing', 'conflicting'])
@@ -104,5 +123,6 @@ def test_train_then_evaluate(app, devices, expected):
     out = app/'checkpoints/geometry_v1'
     assert (out/'train_test.done').exists()
     assert (out/'calls').read_text().splitlines()[-1].startswith(f'evaluate|{expected}|')
+    assert '--dataset '+str(out/'versioned/data/dataset.json') in (out/'calls').read_text()
     (out/'run').mkdir()
     assert run(app, 'train', **devices).returncode != 0

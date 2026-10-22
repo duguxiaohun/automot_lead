@@ -11,6 +11,49 @@ from . import phase3_base_trial as trial
 DEFAULT = trial.APP/'checkpoints/phase3_common_v1'
 SOURCE = trial.APP/'qwen3vl_local/sft_new_loop_phase3'
 SEED = 20260904
+INPUT_SCHEMA = 'phase3_common_inputs_v2'
+
+
+class UnverifiableLegacyInputs(ValueError):
+    """Missing historical proof, distinct from corruption or changed inputs."""
+
+
+def raw_inputs(data, route_keys):
+    """Bind native builder dependencies, including rejected candidate routes.
+
+    The builder reads all trajectory PKLs, but only RGB file membership (not
+    pixels). Quarantine evidence is the exception and is content-bound too.
+    """
+    from . import versioned_data as cache, label_quarantine
+    result = {}
+    for scenario, ident in sorted(set(tuple(x) for x in route_keys)):
+        if any(Path(x).name != x or x in ('.', '..') for x in (scenario, ident)):
+            raise ValueError('Invalid raw route identity')
+        run = data/scenario/ident
+        if not run.is_dir(): raise ValueError('Raw route missing: '+str(run))
+        paths = list((run/'metas').glob('*.pkl'))
+        for risk in label_quarantine.load(data, route=(scenario, ident)):
+            paths.extend(data/s['path'] for s in risk['sources'])
+        rgb = run/'rgb'
+        result[f'{scenario}/{ident}'] = dict(resolved=str(run.resolve(strict=True)),
+            files=cache.bindings(paths),
+            rgb_members={p.name:str(p.resolve(strict=True)) for p in sorted(rgb.iterdir()) if p.is_file()}
+                if rgb.is_dir() else None)
+    # A compatibility runtime can relocate unchanged policy sources. Only their
+    # content matters here; native release verification binds the source set.
+    return dict(routes=result, quarantine_sha256=cache.bind(label_quarantine.LEDGER)['sha256'])
+
+
+def derived_path(root):
+    root=Path(root)
+    pointer=root/'single_frame_ready.json'
+    if pointer.is_file():
+        note=trial.read(pointer)
+        path=Path(note['dataset'])
+        if trial.file_sha(path)!=note['dataset_sha256']:
+            raise ValueError('Derived dataset pointer changed')
+        return path
+    return root/'single_frame/dataset.json'
 
 
 def source_inputs(collection, data):
@@ -18,7 +61,7 @@ def source_inputs(collection, data):
     from qwen3vl_local.sft_new_loop_phase3.build_dataset import _iter_routes_stream
     files = sorted(p for p in collection.glob('*_result.json') if p.stem != 'noScenarios_result')
     if not files: raise ValueError('No formal *_result.json files in '+str(collection))
-    routes = 0
+    route_keys = []
     for path in files:
         scenario = path.stem.removesuffix('_result')
         if not (data/scenario).is_dir():
@@ -29,9 +72,22 @@ def source_inputs(collection, data):
             raw = data/scenario/ident
             if not raw.is_dir():
                 raise ValueError('Raw route missing; refusing partial general dataset: '+str(raw))
-            routes += 1
-    if not routes: raise ValueError('Formal collection contains no available routes')
-    return dict(collection={str(p): trial.file_sha(p) for p in files}, routes=routes)
+            route_keys.append([scenario, ident])
+    if not route_keys: raise ValueError('Formal collection contains no available routes')
+    return dict(schema=INPUT_SCHEMA, collection={str(p): trial.file_sha(p) for p in files},
+                routes=len(route_keys), route_keys=sorted(route_keys), raw=raw_inputs(data,route_keys))
+
+
+def current_inputs(previous, collection, data):
+    if any(p.stem != 'noScenarios_result' for p in collection.glob('*_result.json')):
+        return source_inputs(collection, data)
+    if previous.get('schema') != INPUT_SCHEMA:
+        raise UnverifiableLegacyInputs('Legacy common index lacks raw dependency proof and local annotations; cannot certify reuse')
+    # Annotation exports can be absent on a deployment machine. Recheck every
+    # recorded export still present and all raw dependencies, never just the index.
+    changed = [p for p,sha in previous['collection'].items() if Path(p).exists() and trial.file_sha(p)!=sha]
+    if changed: raise ValueError('Recorded annotations changed; restore the complete collection before rebuilding')
+    return dict(previous,raw=raw_inputs(data,previous['route_keys']))
 
 
 def create_reference(index, data):
@@ -67,6 +123,9 @@ def validate(root, data):
     if receipt.get('schema') != 'phase3_common_dataset_v1' or receipt.get('data_root') != str(data):
         raise ValueError('Common dataset receipt/root mismatch; no implicit relocation or rebuild')
     if receipt['release_sha256'] != trial.verified_sources(): raise ValueError('Native builder sources changed')
+    if receipt.get('input_bindings_sha256'):
+        if trial.file_sha(root/'input_bindings.json')!=receipt['input_bindings_sha256']:
+            raise ValueError('Common input binding receipt changed')
     for name, sha in receipt['files'].items():
         if name not in ('native/frame_index.jsonl','native/manifest.json','reference.json'):
             raise ValueError('Unexpected common dataset receipt member')
@@ -80,12 +139,48 @@ def validate(root, data):
     return receipt
 
 
-def ensure(root, data, collection, run, *, workers=2, single_frame=False):
+def ensure(root, data, collection, run, *, workers=2, single_frame=False, discover_existing=False):
     root, data, collection = (Path(p).resolve() for p in (root,data,collection))
     for protected in (data,collection):
         if root.is_relative_to(protected) or protected.is_relative_to(root):
             raise ValueError('Common dataset output overlaps raw input')
     if workers < 1: raise ValueError('workers must be positive')
+    if (root/'common_receipt.json').is_file():
+        receipt=validate(root,data)
+        previous=trial.read(root/'input_bindings.json') if receipt.get('input_bindings_sha256') else {}
+        current=current_inputs(previous,collection,data)
+        if current!=previous:
+            from .versioned_data import digest
+            if not any(collection.glob('*_result.json')):
+                raise ValueError('Raw dependencies changed; local annotations required to regenerate the common index')
+            key=digest(dict(inputs=current,release=receipt['release_sha256'],data_root=str(data)))
+            target=root.parent/('phase3_common_input_'+key)
+            if target==root:raise ValueError('Common input version does not match its bound contents')
+            print('[common data] input dependencies changed; new version '+str(target),flush=True)
+            return ensure(target,data,collection,run,workers=workers,single_frame=single_frame)
+    if discover_existing and not root.exists():
+        from . import versioned_data
+        def compatible(path):
+            value=trial.read(path)
+            if value.get('schema')!='phase3_common_dataset_v1' or value.get('data_root')!=str(data):return None
+            if value.get('release_sha256')!=trial.verified_sources():return None
+            validate(path.parent,data)
+            previous=trial.read(path.parent/'input_bindings.json') if value.get('input_bindings_sha256') else {}
+            try:
+                current=current_inputs(previous,collection,data)
+            except UnverifiableLegacyInputs as exc:
+                # validate() above has already checked receipt/index integrity.
+                # Only this missing-proof condition is ineligible for discovery;
+                # corrupt JSON/files and explicit requests still fail strictly.
+                print('[common data] skip '+str(path.parent)+': '+str(exc),flush=True)
+                return None
+            if current!=previous:return None
+            return value['files']
+        existing=versioned_data.unique_compatible(
+            versioned_data.discover(root.parent,'common_receipt.json',depth=3),compatible)
+        if existing is not None:
+            print('[common data] found compatible local version '+str(existing.parent),flush=True)
+            return ensure(existing.parent,data,collection,run,workers=workers,single_frame=single_frame,discover_existing=True)
     root.parent.mkdir(parents=True,exist_ok=True)
     # Parent directory lock covers creation too; no stale lock-file deletion.
     fd = os.open(root.parent,os.O_RDONLY|os.O_DIRECTORY)
@@ -114,9 +209,8 @@ def ensure(root, data, collection, run, *, workers=2, single_frame=False):
                 check_index(index,action_output_mode='choice',prompt_variant=trial.reference()['prompt_variant'])
                 trial.write(root/'reference.json',create_reference(index,data))
                 if release != trial.verified_sources(): raise ValueError('Sources changed during build')
-                paths = sorted(p for p in collection.glob('*_result.json') if p.stem != 'noScenarios_result')
-                if inputs['collection'] != {str(p):trial.file_sha(p) for p in paths}:
-                    raise ValueError('Collection changed during build')
+                if inputs != source_inputs(collection,data):
+                    raise ValueError('Common input dependencies changed during build')
                 receipt = dict(schema='phase3_common_dataset_v1',data_root=str(data),release_sha256=release,
                     files={name:trial.file_sha(root/name) for name in (
                         'native/frame_index.jsonl','native/manifest.json','reference.json')},
@@ -128,16 +222,15 @@ def ensure(root, data, collection, run, *, workers=2, single_frame=False):
                 trial.write(root/'build_failure.json',dict(error=f'{type(exc).__name__}: {exc}'))
                 raise
         if single_frame:
-            from .phase3_single_frame import dataset
-            path = root/'single_frame/dataset.json'
-            if path.parent.exists():
-                artifact = dataset.load(path,index=root/'native/frame_index.jsonl')
-                if artifact['data_root'] != str(data): raise ValueError('Single-frame raw root mismatch')
-            else:
-                run('derive_common', [sys.executable,'-m','qwen3vl_local.audit_joint.phase3_single_frame','build',
-                    '--index',str(root/'native/frame_index.jsonl'),'--data-root',str(data),
-                    '--output',str(path.parent)],root/'derive_single_frame.log')
-                dataset.load(path,index=root/'native/frame_index.jsonl')
+            # Retain the launcher's original wall-time/free-space guard around
+            # derivation, including cache misses and the final assembled JSON.
+            run('derive_common',[sys.executable,'-m','qwen3vl_local.audit_joint.phase3_data_ready',
+                '--index',str(root/'native/frame_index.jsonl'),'--data-root',str(data),
+                '--cache-root',str(root.parent/'generation_cache'),'--search-root',str(root.parent),
+                '--receipt',str(root/'single_frame_ready.json')],root/'derive_single_frame.log')
+            result=trial.read(root/'single_frame_ready.json')
+            derived_path(root)
+            print('[single-frame data] '+result['action']+' '+result['dataset'],flush=True)
         return root/'native/frame_index.jsonl', root/'reference.json'
     finally:
         os.close(fd)

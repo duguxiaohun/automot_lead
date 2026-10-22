@@ -25,6 +25,11 @@ def common_fixture(tmp_path,monkeypatch):
     trial.write(root/'reference.json',ref)
     receipt=dict(schema='phase3_common_dataset_v1',data_root=j['data_root'],release_sha256='fixture',
         files={n:trial.file_sha(root/n) for n in ('native/frame_index.jsonl','native/manifest.json','reference.json')})
+    data=Path(j['data_root'])
+    keys=sorted({(r['scenario'],r['route_id']) for r in original if (data/r['scenario']/r['route_id']).is_dir()})
+    trial.write(root/'input_bindings.json',dict(schema=common.INPUT_SCHEMA,collection={},routes=len(keys),
+        route_keys=[list(k) for k in keys],raw=common.raw_inputs(data,keys)))
+    receipt['input_bindings_sha256']=trial.file_sha(root/'input_bindings.json')
     trial.write(root/'common_receipt.json',receipt)
     return j,root,ref
 
@@ -78,7 +83,7 @@ def test_reuse_no_build_and_tamper_no_rebuild(tmp_path,monkeypatch):
 def test_new_build_once_and_partial_rejected(tmp_path,monkeypatch):
     j,source,_=common_fixture(tmp_path,monkeypatch)
     root=tmp_path/'new_common';collection=tmp_path/'collection';collection.mkdir()
-    monkeypatch.setattr(common,'source_inputs',lambda *a:dict(collection={},routes=30))
+    monkeypatch.setattr(common,'source_inputs',lambda *a:trial.read(source/'input_bindings.json'))
     calls=[]
     def run(name,cmd,log):
         calls.append(name); assert '--use-review-cache' not in cmd

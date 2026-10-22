@@ -1,5 +1,46 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-22 geometry a/b/c 发布入口复核
+
+用户授权继续完善并 push 白名单、给出 abc 测试训练步骤。复核 v2 供体/退出竞争修复；新增包外 geometry_study_abc.py/.sh：CPU v2 入口、只读 status、正式准入/三轮计划/模型分片/四卡与全部输出碰撞前置检查，a→b→c 串行训练和原生验证选模重载 test，首错停止，操作日志与完成回执绑定表示/数据/9600步。新外层不接收隐式同名续训，不改159冻结源码或当前165源接续job、不重启全池任务，不启动本机GPU。每组四卡三轮9600、三组合计28800更新；旧2.12s/步粗估17h纯训练，另加准备评测，非本次GPU实测。
+
+159项相关CPU回归26.95秒通过（含新增11入口测试）；从精确Git index构造无.git应用副本，补齐测试依赖后192项回归49.22秒通过；两批有重叠不相加，结果见geometry_study_abc_release_verification_20261022.json。发布仅geometry study/CPU审计/运行入口及原生数据准备必要文件与轻量记录，.vscode、其它P3/P4改动、RGB/原始数据/权重保留；data_prepare本轮验收限geometry路径，其它阶段新增集成不作为本次发布验收。当前全池仍在运行、尚无准入结论；服务器先sync_automot.sh→abc.sh cpu，完整通过后check→train all；拒绝则交CPU报告，不降低覆盖/预算。详见audit_joint/GEOMETRY_STUDY_ABC_RUN_20261022.md。
+
+
+### 2026-10-22 CPU 审计供体与接续竞争 v2 修复
+
+用户复核指出填补供体查车道失败时证据回落错帧、/proc存在检查与stat读取间退出竞争，另要求图册优先不同路线/起点。新增包外 geometry_study_cpu_audit_v2.py/.sh 和 geometry_study_cpu_continue_v2.py；原159冻结源、旧审计3文件及v90 587源均未改，不热改旧SHA。v2供体从imputation.selected_endpoint_frame优先确定，缺失/冲突/缺供体原证据拒绝；不依赖成功写direction_origin_frame。候选按类型/Town/事件有界散列，去重并优先新物理组/Town/事件/原生起点，报告实际支持，非独立变道实例覆盖认证。接续单次读/proc，消失视退出后查回执；PID复用/僵尸终止等待，权限错误不掩盖；job源SHA和单次启动锁/输出拒绝覆盖保持。
+
+81项CPU回归16.30秒通过（原64+新增17），含真实transform地图失败保留供体9、退出竞争有回执继续、真实短命进程、源变化/重复启动拒绝。真实26路线小池v2 CLI与v1 pool_report一致，仍151共同/覆盖及1280容量拒绝/退出2；190不变方向、99去重，无真实翻转或新RGB人工验收。
+
+完成验证后只交接等待进程：通过pidfd暂止旧supervisor确认waiting且无子进程，归档旧状态后退出旧163657；原生PID162503/start_time10087944未变，未发信号/重启原生建库。新supervisor168192（exec75733）绑定continuation_v2_job.json的165源，原生成功后用v2写full_report_v2与study_audit_v2.log；旧工具/脚本/结果保留。当前原生仍native.build，新接续waiting_for_native，无全池准入结论。继续先读checkpoints/geometry_study_pool_20261022/pipeline_status.json，不重复启动或热改绑定文件。交接证据checkpoints/geometry_study_cpu_review_20261022/handoff_from_v1.json。新说明GEOMETRY_STUDY_CPU_REVIEW_20261022.md及geometry_study_cpu_review_verification_20261022.json；未GPU/SSH/push/标签阈值预算改动，保留其它工作。
+
+### 2026-10-22 geometry_study 转入全池 CPU 证据阶段
+
+用户复核四项修复通过，要求停止反复修补并转向全池准入。新增包外 geometry_study_cpu_audit.py/.sh，不改已验收 geometry_study 159 源及表示/阈值/预算，v90 587 源亦匹配。原生版本缓存父库→原 study prepare→独立覆盖/1280三轮容量报告；即使holdout拒绝仍可测训练容量，诊断不写ready、不盖过拒绝。固定验证报告缺类/混合事件/最大单物理组占比，不加新门槛或挑选成员。可选全train原生父候选方向重放，含共同排除锚点，保存翻转/近垂直/其它无效、原生跨线证据和实际填补来源、连续RGB SHA/本地图册；自动图册非人工验收。
+
+64项CPU测试15.90秒通过（原54+新增10），真实小池CLI 26路线204父锚点→151共同锚点，覆盖与1280容量均rejected，完整落报告退出2；190个D/E出现位置均不变，99个事件/原点/类型去重，不外推全池或新RGB验收。当前真实全池已启动但尚未完成：checkpoints/geometry_study_pool_20261022/native_prepare.log、pipeline_status.json；native成功后本机continuation自动启动共同池报告及训练方向重放，无GPU。写本条时native PID162503、supervisor PID163657在运行（exec会话91171/89877）；后续先读状态，不重复启动。第一轮候选枚举105.49秒、依赖SHA443.38秒，原生仍会重复完整来源复核，不删证明/跳校验提速。若冻结源码改变则接续拒绝。尚无真实全池准入/1280三轮/真实方向边界验收结论，失败缓存保留。
+
+默认CPU命令（发布后已有AutoMoT根）bash qwen3vl_local/audit_joint/geometry_study_cpu_audit.sh --directions；同步仍 bash ./sync_automot.sh。无需模型权重或GPU；旧报告碰撞拒绝，另给语义化output。GPU启动/重载/评测仍在全池通过之后，当前未执行。说明 GEOMETRY_STUDY_CPU_AUDIT_20261022.md 与 geometry_study_cpu_audit_verification_20261022.json，后者是运行中快照；最终状态看本机pipeline_status。未SSH/push/新RGB人工审计，保留其它工作。
+
+### 2026-10-22 geometry_study 训练前四项复核修复
+
+用户复核要求处理共同池缺测试事件、六动作无事件解码限制、固定验证全混合导致选模不可定义及 expert 权重未绑表示。当前独立 study 合同升为 current_reference_matched_study_v2；新增 admission：共同过滤后 train/val/test 十事件覆盖先验，CPU 固定每事件ID前16验证成员并报四组纯/混合/缺失、类别/物理组支持，任一纯类macro不可定义即拒绝，再做容量。准入/计划内容寻址，就绪指针 preparing/rejected/ready，旧ready不兼容；训练重算准入并把SHA/成员绑checkpoint，恢复/评测核验。未补齐真实缺事件，未移动旧test或改变split要求。
+
+six prompt/predict 恢复原事件 action_keys+KEEP（LEAD_BRAKE A/B/C/F），保留全词表/未限制输出及域外诊断，全词表准确率按原始输出；a/b/c仍九类。RepresentationExpert 在新expert训练前绑定完整合同，state_dict额外状态/权重回执SHA/调用均校验；缺/错合同包括strict=False拒绝，旧未知权重不自动迁移。原始源仅训练rank0完整检查，shell检查数据JSON/代码/准入/计划避免重复原始源扫描。
+
+188项相关CPU回归63.44秒通过（study54，新增28）；最后避免重复扫描改动后5项准入4.34秒再通过。含原生合成30路线三split十事件完整建库/准入/缓存复用、全混合与缺test反例、16组expert表示加载、原生小FM保存重载同噪声输出一致。26既有真实train路线重派生仍151共同锚点/517查询、保留24路线，所有records及小计划不变，建库/复用SHA一致；明确拒绝正式ready，非全池覆盖/1280验证。159依赖绑定，旧非study142源和v90 587源不变；旧回执不改。未新RGB盲审/新真实D-E翻转/4B GPU/SSH/在线/push。见 geometry_study/REVIEW_FIXES_20261022.md 与 review_verification_20261022.json；完整证据 checkpoints/geometry_study_review_20261022。保留其它工作。
+
+### 2026-10-22 六动作与 geometry a/b/c 共同样本实现
+
+用户附件由方案审计转为代码实现。新增独立 audit_joint/geometry_study：six 保留原生 A/B/C/F 局部速度及未来证据，已确认 D/E 投影到当前车道方向，近垂直 abs(cos)<0.1 缺失；原填补后按实际来源参考转换。a 原标定不改；b 当前R3高速20/24m、其它3/13m，c统一3/13m，所有时距/历史共用绝对边界，中界叫MIDDLE，FAR不截断。缺道路不猜。六动作离线历史允许后续证据，geometry因果位置历史，不能称等信息比较。
+
+新共同池从原生验证geometry与原始六动作规则派生，当前六动作有效、未来共同mask、无有效查询剔除，原split隔离保留；不是旧single_frame锚点列表逐字复刻。十事件等额、跨事件物理帧每轮1/全run3、实际成功更新曝光及路线/4秒片段优先，四表示未来质量一半natural/一半sqrt软偏好，共用ID/顺序；增广容量检查失败不放宽。候选1280/world4/B1/三轮9600、warmup2500；1024/7680控制保留，正式全池容量未验。固定每事件最多16验证成员按纯类macro recall选模型，完成全预算后test只收选中checkpoint。
+
+新增历史冲突/拷贝、纯/混合分开、转换率/误报率及分事件时距类别支持；val配对历史清空/反序/黑图，diagnose-legacy保留原geometry权重prompt合同。expert四token条件/FM同噪声接口与共同ADE/FDE，混合hard oracle拒绝；未默认接在线agent。按内容SHA的本机缓存/锁/失败保留，整库级派生复用、尚无逐路线增量；remote沿用项目资产，sync仍bash ./sync_automot.sh。旧生产模块/库/权重不改，不改旧SHA。
+
+160相关CPU回归57.82秒通过（26新增），含四表示原生小Qwen backward/token/reload、真实两Gloo曝光、原生FM梯度、共享容量穷举、源篡改拒绝/缓存复用；旧geometry remote测试夹具同步当前profiler入口与重复复用，非改生产。26真实train路线204候选→151共同锚点/517查询，十事件小计划三轮四组一致，a有效值不变，D/E本小池变化0；最终新缓存重载与逐字复用通过。v90 587源仍匹配。仅复看既有两图册12RGB面板，无新盲审/全池正式容量/4B GPU/SSH/在线/push；已用test的划分只能开发对照，独立结论须新未曝光物理组。详见geometry_study/README.md与verification_20261022.json；原始证据checkpoints/geometry_study_verification_20261022。保留其它已有工作。
+
 ### 2026-10-21 远程同步命令永久约定
 
 用户明确要求：以后提供远程服务器代码同步命令，统一使用 `bash ./sync_automot.sh`，不再使用 `git pull --ff-only origin main` 或直接 git pull 作为替代。命令在该机已有 AutoMoT 应用根执行，不重复拼接 AutoMoT、不修改同步脚本、不清理本机数据和权重。本条覆盖历史运行说明中相冲突的远程同步示例；本机经授权的 GitHub fetch/push 发布流程不受影响。详见 PROJECT_CONTEXT.md 同名条目。

@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-22",
+  "scope": "external CPU evidence coordinator; frozen study sources unchanged",
+  "source_files": {
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit.py": "09c2c4c49c1bb376fe25f3950bd9568e3bd00507cd3270ce9dbee154d8a2e1b8",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit.sh": "f1485062eeeb1ed9c3284372d6bdeca0f6a3a6fe85651c739f2bbba6e0fd3c35",
+    "qwen3vl_local/audit_joint/tests/test_geometry_study_cpu_audit.py": "ae7488bb8626dd9a1a2692867cf40bfa9eef57c2998a417c335cd1b483382043"
+  },
+  "frozen_study_source_count": 159,
+  "frozen_study_sources_unchanged": true,
+  "v90_sources_unchanged": 587,
+  "tests": {
+    "passed": 64,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 15.863,
+    "evidence": "checkpoints/geometry_study_pool_20261022/regression.xml"
+  },
+  "real_small_pool": {
+    "parent_routes": 26,
+    "parent_anchors": 204,
+    "common_anchors": 151,
+    "admission": "rejected",
+    "capacity": "rejected",
+    "quota": 1280,
+    "exit_code": 2,
+    "direction_occurrences": {
+      "unchanged": 190
+    },
+    "distinct_direction_origins": {
+      "unchanged": 99
+    },
+    "visual_review_complete": false,
+    "full_pool_claim": false
+  },
+  "full_pool": {
+    "status": "running_not_admitted",
+    "snapshot": {
+      "stage": "waiting_for_native",
+      "status": "running",
+      "updated_unix": 1792671833.716887,
+      "native_pid": 162503,
+      "supervisor_pid": 163657,
+      "GPU": false
+    },
+    "evidence_directory": "checkpoints/geometry_study_pool_20261022",
+    "automatic_CPU_continuation": true,
+    "automatic_GPU": false
+  },
+  "changes_to_thresholds": false,
+  "changes_to_splits": false,
+  "GPU": false,
+  "SSH": false,
+  "push": false
+}

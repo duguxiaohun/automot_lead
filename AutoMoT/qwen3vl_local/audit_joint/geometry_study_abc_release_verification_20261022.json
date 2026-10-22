@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-22",
+  "scope": "geometry a/b/c operational entry and required CPU preparation dependencies",
+  "source_files": {
+    "qwen3vl_local/audit_joint/data_prepare.py": "deda492bf41aedc8be0da8b2473e0fc3d37acc05649199ce3278986bea699f6b",
+    "qwen3vl_local/audit_joint/geometry_prepare_profile.py": "79d9ce855a1328b57035f40c69578a1963751f858edca570ae844258a6e75504",
+    "qwen3vl_local/audit_joint/geometry_study/__init__.py": "9974e0a9c9ad8d637cabfebe7288e26822b0f3427e662caebe90d153a64113ec",
+    "qwen3vl_local/audit_joint/geometry_study/__main__.py": "df14ebc96f4a87fa0c6c17d3b7820a07571cd6ae3acf4bdd6bd58a4cda78cfca",
+    "qwen3vl_local/audit_joint/geometry_study/admission.py": "5107d5c57b887db76db0736dfbf69e191e979cc720ad5bd9fab0d0219074cdc7",
+    "qwen3vl_local/audit_joint/geometry_study/dataset.py": "10e4e77cddd79414f27daffae6895ae49211b8993535d4005322b99138c8428b",
+    "qwen3vl_local/audit_joint/geometry_study/expert.py": "ae9f6f6a1361511d1dbe8f36e59e2dd76af47d29d802e03f45ce7b30f5db11ee",
+    "qwen3vl_local/audit_joint/geometry_study/legacy_diagnose.py": "301c439caf05fb8dc158fd396dd6ac2a4bed9692fa504c7a0e3f218337e09620",
+    "qwen3vl_local/audit_joint/geometry_study/local_check.py": "42b406d89fa82ad14ca5dbdd3ccdfe11a0f1b79cd88a13199e4af85beb7d74ca",
+    "qwen3vl_local/audit_joint/geometry_study/metrics.py": "8c8b5aa256d7f8aa3113126b208a34e40b66723ecec84c0c28bd7269bca63d31",
+    "qwen3vl_local/audit_joint/geometry_study/objective.py": "e0bce639b0929e9b3721d9667f5e0a08867ab0f4acd07cd73772d549d9e1a629",
+    "qwen3vl_local/audit_joint/geometry_study/planning.py": "1f1d8777d8633ab4478c8a55e3812ad6393aa5a6562908d9c7f4428bdc40c55e",
+    "qwen3vl_local/audit_joint/geometry_study/prepare.py": "8fa2cd09c5629957632990925507e0aeb7589b0f4c2299441d48423ed65ecb5e",
+    "qwen3vl_local/audit_joint/geometry_study/regions.py": "946a210cd4128bdc0ec187e5be81b3fbabfa403c0394a2b9fe0c1aa3508dbe17",
+    "qwen3vl_local/audit_joint/geometry_study/remote.sh": "d77a49e93c454573c246037fcbc41a41bf147f747325ff77f31b434e0853420e",
+    "qwen3vl_local/audit_joint/geometry_study/run.sh": "b3bd60a5a127e33aa0f5f8a73946f06d09f53fbdd580eacacf625999bc61331a",
+    "qwen3vl_local/audit_joint/geometry_study/six.py": "0530ea2783d6d00c8887ffbd38e81987f27fc465b82b7892b7207e31c21fd2a1",
+    "qwen3vl_local/audit_joint/geometry_study/startup.py": "dca10e5a93773e85c0fa13b533410013c09a1177e49ee1585a3db54f6124a111",
+    "qwen3vl_local/audit_joint/geometry_study/tests/__init__.py": "6e684f4666dbfb1814a8d7d76319301924abaff927898fe39454d9fb66fcb4b3",
+    "qwen3vl_local/audit_joint/geometry_study/tests/test_admission.py": "e8993b64c2961b7a24b7e6b4c1fd1ecbf390e1d195c9ebf5219f96d0f7fe5402",
+    "qwen3vl_local/audit_joint/geometry_study/tests/test_domain.py": "65399b48e79546e25b9fd436ee627a413915a95d3cd731b31d943837411adb4b",
+    "qwen3vl_local/audit_joint/geometry_study/tests/test_expert.py": "7b6a6202af2eeabaff26f580e6f774013d2fb1793e21d7483563b762760a78df",
+    "qwen3vl_local/audit_joint/geometry_study/tests/test_qwen.py": "38d95bf0ccdb7394f0b0713bfd478450f35ed3c962cc0910b64005c321ab75b7",
+    "qwen3vl_local/audit_joint/geometry_study/tests/test_study.py": "2084bdc3e7192914a5bbfccf1d9879fb0112048834304aae7694bdee4d9ae995",
+    "qwen3vl_local/audit_joint/geometry_study/train.py": "4eb35ecd8bc446299580083e6c6cc422eae74c1b70f767f7487d50a362ade5d9",
+    "qwen3vl_local/audit_joint/geometry_study_abc.py": "c71bf96457276c88ea1fa37644b1bea6219cbd9d2d4a84470a8225e763a3229f",
+    "qwen3vl_local/audit_joint/geometry_study_abc.sh": "55f2e6e582e1621acefb14669c6140a13c4dc735ce2d4c381cfdb45137fa48e1",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit.py": "09c2c4c49c1bb376fe25f3950bd9568e3bd00507cd3270ce9dbee154d8a2e1b8",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit.sh": "f1485062eeeb1ed9c3284372d6bdeca0f6a3a6fe85651c739f2bbba6e0fd3c35",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit_v2.py": "61be31b4a8668d39771ee27244d216b3300fbc415fdb6547d4a7df4c0783d372",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_audit_v2.sh": "9d0bc857097988d1e4201f011b1b71f92212d1f9935cee2dee9425ca9e8bcb61",
+    "qwen3vl_local/audit_joint/geometry_study_cpu_continue_v2.py": "cf01ef0ea5a6f689c914853c88b59ebf4d7e00f889ee740bf9601a8098118f37",
+    "qwen3vl_local/audit_joint/geometry_v1/remote.sh": "3356847a4dc629492aff2b450ffe5db3fa9d644310bdcb3ba2f744198331b12d",
+    "qwen3vl_local/audit_joint/geometry_v1/tests/test_remote.py": "f2d6fe2afff50c0f5650134041c6076fca17aa25d4ef2563c86d9b9b497fa1a7",
+    "qwen3vl_local/audit_joint/phase3_common_data.py": "722f5af5c385c278ce6608e425baa33f01cf89f9afb01667b0bda90e28d24d86",
+    "qwen3vl_local/audit_joint/tests/test_data_prepare_review_fixes.py": "24fb40bf41e98bbdaa8160c982f7b05c6b655fdfb54667df801eadf4488800bc",
+    "qwen3vl_local/audit_joint/tests/test_data_reuse_boundaries.py": "9747976297ef71c63bdbcb4ca3c7b636c14e80d2cc8aa088f7b42c1103169a70",
+    "qwen3vl_local/audit_joint/tests/test_geometry_prepare_profile.py": "57f359ea183f4f55a6d7481bf519a501a32599ecccb82e96fa451d20967203c9",
+    "qwen3vl_local/audit_joint/tests/test_geometry_study_abc.py": "5c1a308be507f745831e0b05de1ef7f55f6aa97affd4b5fd92d256fa97b906db",
+    "qwen3vl_local/audit_joint/tests/test_geometry_study_cpu_audit.py": "ae7488bb8626dd9a1a2692867cf40bfa9eef57c2998a417c335cd1b483382043",
+    "qwen3vl_local/audit_joint/tests/test_geometry_study_cpu_v2.py": "cd773c5c94561ef137da467397bad965a3b7643ca2af010c12904ed967d86e45",
+    "qwen3vl_local/audit_joint/tests/test_phase3_common_data.py": "597bb7442f4818bd5ed37a2609ff4fc2d940f6239bf8dc5e48d486f4cfdf28f9",
+    "qwen3vl_local/audit_joint/versioned_data.py": "a752089ac3502049af2b042ade02f98fb55924eccced8c0996a2f1699dfbe2a7"
+  },
+  "frozen_sources": {
+    "count": 159,
+    "matched": true
+  },
+  "active_job_sources": {
+    "count": 165,
+    "matched": true,
+    "interrupted": false
+  },
+  "tests": {
+    "workspace": {
+      "passed": 159,
+      "seconds": 26.95
+    },
+    "isolated_git_index_application": {
+      "passed": 192,
+      "seconds": 49.22,
+      "git_directory_present": false,
+      "first_attempt": "Snapshot omitted already-tracked lead_video_tools and unstaged test fixture dependencies; corrected snapshot and published fixture closure before the successful run"
+    },
+    "counts_overlap": true,
+    "new_launcher_tests": 11
+  },
+  "budget": {
+    "variants": [
+      "a",
+      "b",
+      "c"
+    ],
+    "per_event": 1280,
+    "world_size": 4,
+    "epochs": 3,
+    "updates_per_variant": 9600,
+    "total_updates": 28800,
+    "changed": false
+  },
+  "full_pool_snapshot": {
+    "native_pid": 162503,
+    "native_start_time": "10087944",
+    "job_sha256": "2f1deb9fa386a21ca25d9b95e0f775f0b529c446973044e98c1dd9ec7574248f",
+    "job": "AutoMoT/checkpoints/geometry_study_pool_20261022/continuation_v2_job.json",
+    "stage": "waiting_for_native",
+    "status": "running",
+    "supervisor_pid": 168192,
+    "updated_unix": 1792673765.3901186,
+    "GPU": false
+  },
+  "limitations": [
+    "Full-pool CPU job has not completed; formal admission and 1280 capacity not established",
+    "No GPU/4B model/remote training or CARLA validation",
+    "New launcher subprocess training tested with substitutes; native tiny Qwen/Gloo tests retained",
+    "data_prepare integration verification in this release covers geometry; other phase integration remains separate",
+    "Generated RGB galleries are not new visual review"
+  ],
+  "GPU": false,
+  "remote_training": false
+}
