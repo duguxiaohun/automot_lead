@@ -1,0 +1,74 @@
+{
+  "schema": "phase3_base_coverage_release_v1",
+  "date": "2026-10-22",
+  "scope": "Independent four-image base 9600 update adapter; no sequence training",
+  "staged_no_git_validation": {
+    "tests": 106,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 43.607,
+    "test_paths": [
+      "tests/test_phase3_base_coverage.py",
+      "tests/test_phase3_launch.py",
+      "tests/test_phase3_common_data.py",
+      "tests/test_phase3_matched_image_launcher.py",
+      "phase3_single_frame/tests"
+    ]
+  },
+  "budget": {
+    "events": 10,
+    "per_event_per_epoch": 1280,
+    "world_size": 4,
+    "batch_size": 1,
+    "grad_accum": 1,
+    "epochs": 3,
+    "updates_per_epoch": 3200,
+    "total_updates": 9600,
+    "warmup": 2500,
+    "total_presentations": 38400
+  },
+  "evidence": [
+    "Actual three-epoch full-quota synthetic projection with 38400 unseen selections",
+    "Native CPU optimizer loop and checkpoint exposure; reduced fixture quota, not a 4B GPU run",
+    "Optimizer failure cannot commit completed-epoch exposure",
+    "Shared-frame augmenting allocation, cap rejection, shuffled-input determinism",
+    "Real compatibility runtime export/reuse and native 261 source validation without Git",
+    "Common-reference and coverage hook order, saved adapter coverage receipt",
+    "9600 completion audit rejects changed budget, per-rank IDs, exposure, source contract or adapter members"
+  ],
+  "frozen_geometry_bound_sources": {
+    "count": 165,
+    "mismatches": []
+  },
+  "limits": [
+    "Real full-pool base 1280 capacity not yet established",
+    "No 4B GPU training/probe/remote execution or new accuracy evidence",
+    "Base and study six share update budget, not sample cohort, target semantics or model-selection policy",
+    "Geometry study six still requires its independent formal CPU ready receipt"
+  ],
+  "excluded": [
+    "sequence changes",
+    "frozen native trainer changes",
+    "geometry source changes",
+    "Phase4 changes",
+    "weights",
+    "RGB",
+    "raw data",
+    "chat history",
+    "unrelated workspace edits"
+  ],
+  "published_files_sha256": {
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_BASE_COVERAGE_RUN_20261022.md": "c23817cf65141590526de5ce0a73a0fe8c01f1eae195cd64a82a7f587a2032c0",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_coverage.py": "53e27137148a10d992b9d23f253e6709efc99282aaa62ad055f67e5fc6ec311f",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_coverage.sh": "ee576ac3bcefd53031ca8b59de00048c987b6039cfbc4bf1c8b6d2955bb19f65",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_coverage_sampling.py": "2bcba3af71a432bc12a1509e31d1f0d7264f53e165ba9dea169a53007e7feebe",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_data_ready.py": "62092f82f65db59956a114ac47b9f76977ee8a1947a9ffc90f542126bf3b7a3b",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_launch.py": "b0d57ee2b8351286f5e0dea9bc930f05b579aff6e3f2222fddf0fa916d9412eb",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_launch_worker.py": "db8f44bc946f6379926ced7b8f0422a94974a20ea9073ab3f88ac0995be22a18",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_native_runtime.py": "28e193489ca4b8f6f3a7a7a17a5ba7d7e8989f9e53bd32db2d5e63ded5051a6d",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_prompt_review.py": "844454f1661da7d09aa6bc10e0bbade4ef189cfe8b589526a05b4f86a64f1050",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_prompt_runtime.py": "dce8d4e0777b3e5637d8725550d6280229d07f6ec147db3cca5b0eadc8dde46b",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_base_coverage.py": "36bf219ebd8c7445de3d068f20a0ca0ea9b6985a9872e29341e8e9372e018641"
+  }
+}

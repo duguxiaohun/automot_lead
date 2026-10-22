@@ -173,7 +173,7 @@ def probe(job):
 
 
 def summarize(job):
-    if trial.reference().get('reference_kind') != 'new_common_dataset_v1':
+    if trial.reference().get('reference_kind') != 'new_common_dataset_v1' and not job.get('coverage_contract'):
         return base.summarize(job)
     import json
     from collections import Counter
@@ -183,7 +183,7 @@ def summarize(job):
     root = Path(job['output'])/'train'
     path = root/('generation_val_cases.jsonl' if job['stage'] == 'quick' else 'final_generation_val_cases.jsonl')
     records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    step = 2560 if job['stage'] == 'quick' else 7680
+    step = job['profile']['steps_per_epoch'] if job['stage'] == 'quick' else job['profile']['optimizer_updates']
     records = [r for r in records if r['step'] == step]
     if len(records) != 320:
         raise ValueError('Expected exactly 320 frozen validation outputs')
@@ -227,11 +227,12 @@ def summarize(job):
     for cell in actions.values():
         cell['recall'] = cell['correct']/cell['support'] if cell['support'] else None
         cell['precision'] = cell['correct']/cell['predicted'] if cell['predicted'] else None
-    report = dict(step=step, optimizer_updates=step, planned_optimizer_updates=7680,
+    report = dict(step=step, optimizer_updates=step, planned_optimizer_updates=job['profile']['optimizer_updates'],
         correct=correct, total=320, exact=correct/320, format_valid=valid/320,
         actions=actions, event_counts=dict(events), reference_sha256=job['reference_sha256'],
-        historical_scores_comparable=False, old_models_evaluated=False, test_used=False,
-        conclusion='New common-dataset validation; no historical accuracy delta')
+        historical_scores_comparable=trial.reference().get('historical_scores_comparable',True),
+        old_models_evaluated=False, test_used=False,
+        conclusion='Fixed-member validation; sampling/budget changes must be accounted for in comparisons')
     trial.write(Path(job['output'])/'validation_summary.json',report)
 
 

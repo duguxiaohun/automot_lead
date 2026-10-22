@@ -1,5 +1,14 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-22 四图独立 base 增步与白名单入口
+
+用户再次明确 sequence 已彻底放弃，授权补齐四图 base 9600步、独立采样、未见优先及重复限制后发布命令。新包外 phase3_base_coverage.py/.sh 和 sampling：十事件各1280、四卡B1/累积1、三轮9600/warmup2500；基于原生有效choice锚点，独立打乱，事件等额、动作自然/sqrt温和偏好，跨事件同帧每轮1/全run3，容量不足拒绝。CPU先投影三轮并复核实际形状；完整优化与消费后推进历史，失败无隐式续训。原提示词/动作/四RGB/单题loss及最终第三轮test政策保留；新增逐rank ID/曝光/预算验收与最终adapter SHA合同。不是sequence回滚，也不是只改环境变量绕过旧7680校验。
+
+显式入口 phase3_launch --method base --base-budget coverage_v2；旧default原样。发布必要兼容源码bootstrap、公共/单帧数据复用与prompt helper，原prompt仍默认，未启动澄清prompt训练。runtime使用既有发布484快照核验原生261源，服务器无Git历史要求，不改旧SHA。精确index构造无.git应用副本，106项CPU回归43.61秒通过（含新增19项）；真实小CPU原生优化/失败/保存、完整38400呈现合成投影、四Gloo旧周期验证与原生单图回归包含其中。165 geometry绑定源完全未变，不操作既有geometry任务。
+
+未实测真实全池base1280容量、4B/GPU、服务器耗时或新精度；单帧新版是geometry_study six，同9600预算但共同池/四查询/验证选模与base不同，不能声称完全配对对照。服务器sync_automot.sh后运行phase3_base_coverage.sh；six须当前CPU成功ready后remote.sh train six，无重复cpu/no隐式续训。两组各9600共19200更新，同一组四卡顺序跑。说明PHASE3_BASE_COVERAGE_RUN_20261022.md、回执phase3_base_coverage_verification_20261022.json。仅精确白名单相关代码/测试/说明，保留其它未提交工作、旧权重与数据。
+
+
 ### 2026-10-22 geometry a/b/c 发布入口复核
 
 用户授权继续完善并 push 白名单、给出 abc 测试训练步骤。复核 v2 供体/退出竞争修复；新增包外 geometry_study_abc.py/.sh：CPU v2 入口、只读 status、正式准入/三轮计划/模型分片/四卡与全部输出碰撞前置检查，a→b→c 串行训练和原生验证选模重载 test，首错停止，操作日志与完成回执绑定表示/数据/9600步。新外层不接收隐式同名续训，不改159冻结源码或当前165源接续job、不重启全池任务，不启动本机GPU。每组四卡三轮9600、三组合计28800更新；旧2.12s/步粗估17h纯训练，另加准备评测，非本次GPU实测。

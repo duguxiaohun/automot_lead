@@ -48,7 +48,9 @@ def schedule(method, root, *, prepare_only=False):
 
 def launch_sources():
     names = ('phase3_launch.py', 'phase3_launch.sh', 'phase3_launch_worker.py',
-             'phase3_common_data.py', 'phase3_common_runtime.py')
+             'phase3_common_data.py', 'phase3_common_runtime.py', 'phase3_data_ready.py',
+             'versioned_data.py', 'phase3_prompt_runtime.py', 'phase3_prompt_review.py','phase3_native_runtime.py',
+             'phase3_base_coverage.py','phase3_base_coverage_sampling.py')
     return {n: trial.file_sha(Path(__file__).with_name(n)) for n in names}
 
 
@@ -87,6 +89,9 @@ def package(root, state):
 def parser():
     p = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument('--method', choices=('base', 'single_frame'), required=True)
+    p.add_argument('--base-budget', choices=('original','coverage_v2'), default='original')
+    p.add_argument('--prompt-version', choices=('original','native_clarified_v1'), default='original',
+                   help='Explicit NEW single-frame experiment; labels are reused unchanged')
     p.add_argument('--index', type=Path, help='Optional historical index; omitted builds/reuses the fixed common dataset')
     p.add_argument('--common-data-dir', type=Path, default=trial.APP/'checkpoints/phase3_common_v1')
     p.add_argument('--collection-dir', type=Path, default=trial.APP/'keyframe_filter/collection_output')
@@ -109,6 +114,10 @@ def parser():
 def main():
     resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
     a = parser().parse_args()
+    if a.base_budget!='original' and (a.method!='base' or a.resume):
+        raise ValueError('coverage_v2 requires a new base run; no single-frame or resume')
+    if a.method=='base' and a.prompt_version!='original':
+        raise ValueError('Clarified four-query prompt only applies to single_frame')
     if (a.method == 'base' and (a.build_data or a.dataset)) or (a.method == 'single_frame' and a.index is not None and not (a.build_data or a.dataset)):
         raise ValueError('base uses the original index; single_frame requires --build-data or --dataset')
     if a.resume and (a.build_data or (a.method=='single_frame' and not a.dataset)):
@@ -123,6 +132,9 @@ def main():
             raise ValueError('Resume requires the existing bound common dataset; no automatic generation')
     else:
         a.index = a.index.resolve(strict=True)
+    from . import phase3_native_runtime
+    if phase3_native_runtime.needed():
+        return phase3_native_runtime.execute('phase3_launch',sys.argv[1:])
     for key in ('data_root', 'model_dir'):
         setattr(a, key, getattr(a, key).resolve(strict=True))
     if a.dataset: a.dataset = a.dataset.resolve(strict=True)
@@ -134,6 +146,8 @@ def main():
     if any(base_dir.is_relative_to(p) or p.is_relative_to(base_dir) for p in protected):
         raise ValueError('Output base overlaps input or previous run; use a separate directory')
     tag = a.run_tag or ('base_independent_v1' if a.method=='base' else 'single_frame_nearest_v1')
+    if a.base_budget!='original' and not a.run_tag:tag='base_coverage_v2'
+    if a.prompt_version!='original' and not a.run_tag:tag+='_'+a.prompt_version
     if a.prepare_only: tag += '_plan'
     if not re.fullmatch(r'[A-Za-z0-9_-]+', tag): raise ValueError('Invalid run tag')
     latest = base_dir/'latest'
@@ -142,6 +156,7 @@ def main():
     root = base_dir/('run_'+tag)
     root.mkdir(parents=True, exist_ok=False)
     state = dict(method=a.method, status='preflight', output=str(root), hostname=socket.gethostname(),
+        prompt_version=a.prompt_version, base_budget=a.base_budget,
         server_label=os.environ.get('AUTOMOT_SERVER', 'unspecified'), stages=[],
         launch_sources=launch_sources(), old_models_evaluated=False, scheme_two_executed=False)
     print('[run] '+str(root), flush=True)
@@ -174,17 +189,25 @@ def main():
         if automatic_index:
             from . import phase3_common_data as common, phase3_common_runtime as common_runtime
             a.index, reference = common.ensure(a.common_data_dir,a.data_root,a.collection_dir,run,
-                workers=a.workers,single_frame=a.method=='single_frame' and not a.dataset)
+                workers=a.workers,single_frame=a.method=='single_frame' and not a.dataset,discover_existing=True)
             contexts.enter_context(common_runtime.activate(reference,a.data_root))
-            state['common_data'] = dict(root=str(a.common_data_dir),reference_sha256=trial.file_sha(reference),
+            state['common_data'] = dict(root=str(reference.parent),reference_sha256=trial.file_sha(reference),
                 historical_scores_comparable=trial.reference().get('historical_scores_comparable',True))
             if a.method=='single_frame' and not a.dataset:
-                a.dataset=a.common_data_dir/'single_frame/dataset.json'; a.build_data=False
+                a.dataset=common.derived_path(reference.parent); a.build_data=False
         if trial.file_sha(a.index) != trial.reference()['index_sha256']:
             raise ValueError('Explicit index differs from frozen reference; omit --index for a new common dataset')
         check_index(a.index, action_output_mode='choice', prompt_variant=trial.reference()['prompt_variant'])
+        if a.base_budget=='coverage_v2':
+            from . import phase3_base_coverage
+            contexts.enter_context(phase3_base_coverage.activate())
         def worker_command(cmd):
-            return common_runtime.wrap(cmd,reference,a.data_root) if reference else cmd
+            cmd=common_runtime.wrap(cmd,reference,a.data_root) if reference else cmd
+            if a.base_budget=='coverage_v2':cmd=phase3_base_coverage.wrap(cmd)
+            if a.prompt_version!='original':
+                from . import phase3_prompt_runtime
+                cmd=phase3_prompt_runtime.wrap(cmd)
+            return cmd
         exp = root/'experiment'
         if a.method == 'base':
             job = trial.build_job(SimpleNamespace(index=a.index, data_root=a.data_root, model_dir=a.model_dir,
