@@ -5,7 +5,9 @@ APP=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 export PYTHONPATH="${APP}${PYTHONPATH:+:${PYTHONPATH}}"
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 PYTHON=${PYTHON:-python}
+MODULE=qwen3vl_local.audit_joint.geometry_v1
 if [[ ${1:-} == train || ${1:-} == evaluate ]]; then
+  MODULE=qwen3vl_local.audit_joint.geometry_progress
   if [[ -n ${GPU_IDS:-} ]]; then
     export CUDA_VISIBLE_DEVICES="$GPU_IDS"
   else
@@ -19,7 +21,7 @@ if [[ ${1:-} == train || ${1:-} == evaluate ]]; then
   export GEOMETRY_GPU_SELECTED=1
   if [[ ${1:-} == train ]]; then
     IFS=, read -ra devices <<< "$CUDA_VISIBLE_DEVICES"
-    exec "$PYTHON" -m torch.distributed.run --standalone --max_restarts=0 --nproc_per_node="${#devices[@]}" --module -- qwen3vl_local.audit_joint.geometry_v1 "$@"
+    exec "$PYTHON" -m torch.distributed.run --standalone --max_restarts=0 --nproc_per_node="${#devices[@]}" --module -- "$MODULE" "$@"
   fi
 fi
-exec "$PYTHON" -m qwen3vl_local.audit_joint.geometry_v1 "$@"
+exec "$PYTHON" -m "$MODULE" "$@"

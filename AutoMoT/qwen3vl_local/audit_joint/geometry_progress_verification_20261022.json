@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-22",
+  "scope": "Launch-time progress observer for new geometry train/evaluate processes",
+  "staged_tree_tested": "5d499b99dcba92642707ff2d7e0aa72f023782e1",
+  "validation": {
+    "isolated_geometry_suite_passed": 62,
+    "seconds": 15.0,
+    "new_cases": 7,
+    "native_geometry_identity_unchanged": true,
+    "checks": [
+      "CPU observer vs baseline weights/scheduler/RNG/exposure equality",
+      "Budget stop and exception restore scheduler",
+      "Checkpoint/validation/test stage observation",
+      "Real two Gloo rank loop with rank0 observer",
+      "Real shell routing for plan/train/evaluate"
+    ]
+  },
+  "files": {
+    "geometry_progress.py": "1ca3f0b713d8dfec14f49d7252cc1044e880cb2d79a6e0a0f13cc46af8cb80a5",
+    "geometry_v1/run.sh": "a438a0f03bae499e8ba37585af994ca4d72017d2955c8cdc055df1fe87f9983d",
+    "geometry_v1/tests/test_progress.py": "78df7d985e386fa37fec325e7a79ac6a21f0670662434d343e54f7f51e3b1c95"
+  },
+  "limits": [
+    "No attachment or injection into the already-running remote job; no remote restart performed.",
+    "Step ETA excludes checkpoint saving, validation and final test; provisional before 100 steps.",
+    "No GPU validation performed.",
+    "Step reporting is rank0 successful optimizer/scheduler steps, not independently confirmed cross-rank persisted exposure."
+  ]
+}
