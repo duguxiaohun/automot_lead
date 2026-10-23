@@ -12,10 +12,12 @@ import time
 from . import phase3_base_coverage as coverage, phase3_base_pool as pool
 from . import phase3_base_bounded_sampling as sampling
 from . import phase3_base_trial as trial, phase3_common_data as common, versioned_data as cache
+from . import phase3_base_hash_retry as hash_retry
 
 APP=Path(__file__).resolve().parents[2]
 POLICY='phase3_independent_base_scarce_repeat_9600_v3'
-FILES=(*coverage.FILES,'phase3_base_bounded.py','phase3_base_bounded_sampling.py','phase3_base_bounded.sh')
+FILES=(*coverage.FILES,'phase3_base_bounded.py','phase3_base_bounded_sampling.py','phase3_base_bounded.sh',
+       'phase3_base_hash_retry.py')
 
 
 @contextmanager
@@ -37,7 +39,7 @@ def contract():
         frame_cap_per_run='case cap for single-context frames; 6 for shared-context frames',
         repeat_eligibility='scarce event or shared-context capacity deficit; exhaust each scarce event pool',
         priority='minimize physical repeats, then cumulative exposure; route/segment/action ties within equivalent capacity groups',
-        holdout_selection_changed=False,labels_changed=False)
+        holdout_selection_changed=False,labels_changed=False,input_binding_hash_policy=hash_retry.POLICY)
 
 
 @contextmanager
@@ -45,7 +47,7 @@ def activate():
     previous=coverage.sampling,coverage.POLICY,coverage.contract
     coverage.sampling,coverage.POLICY,coverage.contract=sampling,POLICY,contract
     try:
-        with coverage.activate():yield
+        with hash_retry.activate(common,trial), coverage.activate():yield
     finally:coverage.sampling,coverage.POLICY,coverage.contract=previous
 
 
@@ -91,6 +93,7 @@ def project(index,data,reference):
     return dict(report,sha256=cache.digest(report))
 
 
+@hash_retry.activate(common,trial)
 def ensure(root,data,collection,run,*,workers=2):
     root=Path(root).resolve();data=Path(data).resolve(strict=True);collection=Path(collection).resolve()
     for protected in (data,collection):
@@ -129,6 +132,7 @@ def ensure(root,data,collection,run,*,workers=2):
             state.update(status='rejected',error=f'{type(exc).__name__}: {exc}');cache.write(pointer,state);raise
 
 
+@hash_retry.activate(common,trial)
 def load_ready(root):
     pointer=Path(root)/'ready_1280.json'
     if not pointer.is_file():raise ValueError('bounded base CPU admission missing; run phase3_compare.sh cpu base first')

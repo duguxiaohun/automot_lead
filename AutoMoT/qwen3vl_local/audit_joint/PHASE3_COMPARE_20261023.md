@@ -1,5 +1,7 @@
 # Phase3 五类当前运行说明
 
+更新：base输入绑定清单的ctime-only漂移新增严格双重读恢复，源码合同已更新，旧base需重新CPU准入。仅独立探针失败且正式run未启动的重试步骤见 [元信息漂移修复](PHASE3_HASH_RETRY_FIX_20261023.md)。下文此前正式CPU结果为旧合同证据，不代表本修复已完成远程GPU验收。
+
 当前正式版本为 base bounded_v3、single v3、abc v2，三包均已完成本机正式全池 CPU 准入。统一入口为 `bash qwen3vl_local/audit_joint/phase3_compare.sh`。历史回执保持原样，最新验收范围见 [发布复核](PHASE3_RELEASE_REVIEW_20261023.md)。
 
 | 方法 | 当前实现 | 监督与输入 |

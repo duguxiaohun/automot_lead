@@ -1,5 +1,11 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-23 base ctime-only 输入清单恢复
+
+用户要求解决远程probe的input_bindings.json散列中ctime漂移，确认尚未重新启动。新增phase3_base_hash_retry，仅bounded base的receipt绑定清单在首次仅ctime变化时追加两次完整严格读取，身份/size/mtime/ctime稳定且两次SHA匹配原回执才放行；持续变化/内容改写/替换/其它错误拒绝，stderr记rank。通用io、冻结manifest/旧SHA及原生pool生成合同不变；bounded合同显式绑定新助手/策略，旧base ready须重新cpu准入，兼容原生池验证复用。single/abc与Phase4不改，不覆盖失败_probe，不认证远程元信息漂移根因已查明。
+
+112项相关CPU回归54.82s通过，含真实ctime注入和兼容子进程原生validator。未本轮正式全池/GPU；旧ready字节保留但base合同不再兼容。说明AutoMoT/qwen3vl_local/audit_joint/PHASE3_HASH_RETRY_FIX_20261023.md；远程在尚无正式run时sync_automot.sh→cpu base→check base→train base，后者仍先四卡探针。已运行或完成任务保持旧源码，不热改或自动迁移。
+
 ### 2026-10-23 Phase3 五类发布复核
 
 用户授权修复并 push 精确白名单。当前 canonical 为 base bounded_v3／single v3／abc v2，五类本机正式 CPU ready 已通过；每轮12800呈现、3200更新、三轮9600，允许独立采样，base按授权有限重复。base外层使用已验证兼容快照收尾，verify base支持已完成任务补验收。

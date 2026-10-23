@@ -17,7 +17,8 @@ OVERLAY=('phase3_common_data.py','phase3_common_runtime.py','phase3_launch.py','
          'phase3_launch_worker.py','phase3_data_ready.py','phase3_prompt_runtime.py','phase3_prompt_review.py',
          'versioned_data.py','data_prepare.py','phase3_native_runtime.py',
          'phase3_base_coverage.py','phase3_base_coverage_sampling.py','phase3_base_pool.py',
-         'phase3_base_bounded.py','phase3_base_bounded_sampling.py','phase3_base_bounded.sh')
+         'phase3_base_bounded.py','phase3_base_bounded_sampling.py','phase3_base_bounded.sh',
+         'phase3_base_hash_retry.py')
 
 
 def prepare(checkpoints, *, app=APP):

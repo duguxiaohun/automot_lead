@@ -1,0 +1,59 @@
+{
+  "schema": "phase3_base_hash_retry_verification_v1",
+  "date": "2026-10-23",
+  "tests": {
+    "unique_passed": 112,
+    "seconds": 54.82,
+    "export_recheck_passed": 21,
+    "export_recheck_seconds": 2.193,
+    "export_recheck_included_in_112": true,
+    "real_compatibility_subprocess": true,
+    "synthetic_index_structure_check": true
+  },
+  "sources": {
+    "AGENTS.md": "5f77f8ae1b38022e10dabef117354a20b40a77e651adcaa679772b95b0472d8a",
+    "CLAUDE.md": "0a63edd55bad75660097d918bda13330f50c9e834b02c0c9caf0adace3e5f6cc",
+    "PROJECT_CONTEXT.md": "6ac667f179163d7cc9eb7803a2f8ef9695063851ca918f6150ecc126370e52b0",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_hash_retry.py": "16534ae63a6084a1d5c7910214ea43912d64a29c513c9a578e27877bde497c68",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_bounded.py": "87585b36e8d7636dfada7fced9d4a4abd4e1f9c1990b838497119a081a5325fc",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_native_runtime.py": "d7ee6d4868466556aa1f5b60a2afa84f412539c0227fdf9ba7f650f83a8c6156",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_base_hash_retry.py": "83227ba54e1a5a9ccdd9629efbfa28fc3167806ab005545086207db569755da8",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_HASH_RETRY_FIX_20261023.md": "83743331589ae0fedd460ee077fe8836fdc1c27deb061dc1d5df7fcc75e67761",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md": "9f6e7d0695bf92f43e37ffe97b461e687cc5c14a48dbf67fa5802cf37e775930"
+  },
+  "evidence": {
+    "checkpoints/phase3_hash_retry_review_20261023/regression.xml": "d16e1a7dfee556e48dfbdc1fc1d4e1a832c899d548273b240ff1e3026fe015f5",
+    "checkpoints/phase3_hash_retry_review_20261023/export_tests.xml": "5651f46ea0fe6d03a485cf1f5757b8ac42e43946950ad6d922387810c0a3c360",
+    "checkpoints/phase3_hash_retry_review_20261023/preservation.json": "efdd441de0ceb7c82266d10ef92d054b3424c0b26beaad2cde6347509e3ae2e7",
+    "checkpoints/phase3_hash_retry_review_20261023/contracts.json": "1e3776d387d290a81c8be6b84c7347fb738c96688771b43f84466ca4239658ae"
+  },
+  "preservation": {
+    "ready_bytes": {
+      "phase3_base_bounded_v3": "7137049273c908dcd0e60a4b4c50ac4bdb11ec950e415ccefa980672931fed15",
+      "phase3_single_v3": "57c37cf77bf6fa0a2179ce025759deedff024b1570223a63acb119459de8533c",
+      "geometry_abc_v2": "ed5d90c9fd1d4256ad0dbf82fa00d6624556902c68e6c221a816cf2d7f7ff6c1"
+    },
+    "old_cpu_source_changes": [
+      "qwen3vl_local/audit_joint/phase3_compare.py",
+      "qwen3vl_local/audit_joint/phase3_compare.sh"
+    ],
+    "frozen_files_unchanged": [
+      "io.py",
+      "phase3_common_runtime.py",
+      "phase3_common_data.py",
+      "phase3_base_pool.py",
+      "phase3_base_coverage_sampling.py",
+      "phase3_base_trial_sources.json",
+      "phase3_behavior_diagnostic_v1/runtime_sources.json"
+    ],
+    "base_requires_new_admission": true
+  },
+  "contracts": {
+    "native_pool_contract_unchanged": true,
+    "new_base_admission_required": true
+  },
+  "formal_cpu_readmission_executed": false,
+  "GPU_executed": false,
+  "remote_filesystem_root_cause_identified": false,
+  "phase4_changed": false
+}
