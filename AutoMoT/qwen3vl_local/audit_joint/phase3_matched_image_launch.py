@@ -16,7 +16,7 @@ from . import phase3_matched_image_eval as evaluation
 
 APP = Path(__file__).resolve().parents[2]
 ROOTS = ('qwen3vl_local', 'keyframe_filter', 'lead_video_tools')
-OVERLAY = ('phase3_behavior_diagnostics.py', 'phase3_matched_image_eval.py')
+OVERLAY = ('phase3_behavior_diagnostics.py', 'phase3_matched_image_eval.py', 'phase3_prompt_review.py')
 
 
 def inspect_existing(output):
@@ -141,7 +141,7 @@ def processes(commands, cwd, envs, logs):
         for stream in streams:stream.close()
 
 
-def launch(job_path, output, ids='', preflight_only=False):
+def launch(job_path, output, ids='', preflight_only=False, prompt_review=False):
     if Path(output).exists() or Path(output).is_symlink():
         raise ExistingOutputError(json.dumps(inspect_existing(output),ensure_ascii=False,indent=2))
     job_path=Path(job_path).resolve(strict=True);output=Path(output).resolve()
@@ -163,6 +163,7 @@ def launch(job_path, output, ids='', preflight_only=False):
     if len(selected)>len({p['receiver'] for plan in plans for p in plan['pairs']}):raise ValueError('Too many inference workers')
     output.mkdir(parents=True,exist_ok=False)
     note=dict(status='preparing_runtime',gpu_ids=selected,training_performed=False,inference_performed=False)
+    if prompt_review:note['experiment']='native_clarified_v1_prompt_only'
     write(output/'receipt.json',note)
     try:
         runtime,provenance=snapshot(output/'runtime',job)
@@ -178,6 +179,7 @@ def launch(job_path, output, ids='', preflight_only=False):
         for key in ('RANK','LOCAL_RANK','WORLD_SIZE','MASTER_ADDR','MASTER_PORT'):env.pop(key,None)
         command=[sys.executable,'-m','qwen3vl_local.audit_joint.phase3_matched_image_eval',
             '--job',str(job_path),'--plan',*paths]
+        if prompt_review:command.append('--prompt-review')
         print('[diagnostic] CPU preflight using synchronized original v2 sources (no Git)',flush=True)
         processes([command+['--preflight-only','--output',str(output/'preflight')]],runtime,[env],[output/'preflight.log'])
         if preflight_only:
@@ -196,6 +198,28 @@ def launch(job_path, output, ids='', preflight_only=False):
             if not receipt['inference_performed']:raise ValueError('Incomplete rank')
             for key in ('job_sha256','checkpoint_receipt_sha256','plans','source_sha256','primary_common_receiver_ids'):
                 if receipt[key]!=preflight[key]:raise ValueError('Worker provenance changed: '+key)
+            if prompt_review:
+                for key in ('prompt_intervention','reference_cases_sha256','prompt_review_source_sha256'):
+                    if receipt[key]!=preflight[key]:raise ValueError('Prompt provenance changed: '+key)
+        if prompt_review:
+            # Use the copied implementation for scoring too, so a concurrent sync
+            # cannot change the experiment between worker execution and merge.
+            import importlib.util
+            name='qwen3vl_local.audit_joint._prompt_review_snapshot'
+            spec=importlib.util.spec_from_file_location(name,runtime/'qwen3vl_local/audit_joint/phase3_prompt_review.py')
+            review=importlib.util.module_from_spec(spec);spec.loader.exec_module(review)
+            if diag.file_sha(Path(job['output'])/'single_frame_val_cases.json')!=preflight['reference_cases_sha256']:
+                raise ValueError('Original reference cases changed before merge')
+            cases=review.merge(plans,shards)
+            if sum(r['unique_prompt_forwards'] for r in receipts)!=len(cases):
+                raise ValueError('Prompt worker forward count differs from merged cases')
+            review.save(job,plans,output,cases,preflight['prompt_intervention'])
+            note.update(status='completed',inference_performed=True,unique_prompt_forwards=len(cases),
+                unique_actual_forwards=0,unique_swapped_forwards=0,
+                primary_common_anchors=len(preflight['primary_common_receiver_ids']),
+                prompt_intervention=preflight['prompt_intervention'],reference_cases_sha256=preflight['reference_cases_sha256'])
+            write(output/'receipt.json',note)
+            return note
         full,wrong=evaluation.merge_shards(plans,shards)
         evaluation.save_metrics(job,plans,output,full,wrong)
         note.update(status='completed',inference_performed=True,unique_actual_forwards=len(full),
@@ -213,6 +237,7 @@ def main():
     p.add_argument('--job',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--gpu-ids',default=os.environ.get('GPU_IDS',''))
     p.add_argument('--preflight-only',action='store_true')
+    p.add_argument('--prompt-review',action='store_true',help='268 new prompt-only forwards; no repeated image intervention or training')
     p.add_argument('--inspect-existing',action='store_true',help='Read existing receipt and log tails only; no GPU or writes')
     a=p.parse_args()
     if a.inspect_existing:
@@ -220,7 +245,7 @@ def main():
     def interrupted(signum, frame):raise KeyboardInterrupt(f'Signal {signum}')
     signal.signal(signal.SIGTERM,interrupted)
     try:
-        print(json.dumps(launch(a.job,a.output,a.gpu_ids,a.preflight_only)))
+        print(json.dumps(launch(a.job,a.output,a.gpu_ids,a.preflight_only,a.prompt_review)))
     except ExistingOutputError as exc:
         print('Existing diagnostic output; prior evidence follows:\n'+str(exc),file=sys.stderr)
         raise SystemExit(2) from None

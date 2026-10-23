@@ -1,4 +1,4 @@
-"""Operational entry for the frozen a/b/c study; no labeling or budget changes."""
+"""Operational entry for geometry-only a/b/c; independent from six-action eligibility."""
 import argparse
 import fcntl
 import json
@@ -26,13 +26,13 @@ def selected_gpus(explicit=None, query=subprocess.check_output):
 
 
 def ready(app, quota):
-    from .geometry_study.prepare import load_ready
-    return load_ready(app/f'checkpoints/geometry_study_v1/ready_{quota}.json',
+    from .geometry_abc.prepare import load_ready
+    return load_ready(app/f'checkpoints/geometry_abc_v1/ready_{quota}.json',
                       per_event=quota, world_size=4)
 
 
 def preflight(app, quota, variants):
-    root = app/'checkpoints/geometry_study_v1'
+    root = app/'checkpoints/geometry_abc_v1'
     for variant in variants:
         for path in (root/f'runs/{variant}_{quota}', root/f'operations/{variant}_{quota}.log'):
             if path.exists():
@@ -45,7 +45,7 @@ def preflight(app, quota, variants):
 
 
 def run_training(app, quota, variants, launch=subprocess.run):
-    root = app/'checkpoints/geometry_study_v1'
+    root = app/'checkpoints/geometry_abc_v1'
     root.mkdir(parents=True, exist_ok=True)
     # One a/b/c launcher per study root; status remains read-only and unlocked.
     with (root/'.abc_launch.lock').open('a') as lock:
@@ -62,7 +62,7 @@ def run_training(app, quota, variants, launch=subprocess.run):
         for variant in variants:
             log = operations/f'{variant}_{quota}.log'
             status = operations/f'{variant}_{quota}.json'
-            command = ['bash', str(app/'qwen3vl_local/audit_joint/geometry_study/remote.sh'), 'train', variant]
+            command = ['bash', str(app/'qwen3vl_local/audit_joint/geometry_abc/remote.sh'), 'train', variant]
             state = dict(variant=variant, per_event=quota, status='running',
                          dataset=result['dataset'], dataset_sha256=result['dataset_sha256'],
                          gpu_ids=gpu_ids, log=str(log), command=command)
@@ -90,9 +90,11 @@ def run_training(app, quota, variants, launch=subprocess.run):
 
 
 def status_report(app, quota):
-    root = app/'checkpoints/geometry_study_v1'
+    root = app/'checkpoints/geometry_abc_v1'
     pointer = root/f'ready_{quota}.json'
     result = dict(ready=read(pointer) if pointer.is_file() else {'status': 'not_prepared'}, runs={})
+    cpu = root/'cpu_status.json'
+    if cpu.is_file(): result['cpu'] = read(cpu)
     for variant in ('a', 'b', 'c'):
         run = root/f'runs/{variant}_{quota}'
         operation = root/f'operations/{variant}_{quota}.json'
@@ -129,7 +131,7 @@ def main():
         print(json.dumps(status_report(APP, args.per_event), ensure_ascii=False, indent=2)); return 0
     if args.operation == 'cpu':
         return subprocess.run([sys.executable, '-u', '-m',
-            'qwen3vl_local.audit_joint.geometry_study_cpu_audit_v2', '--directions',
+            'qwen3vl_local.audit_joint.geometry_abc.cpu',
             '--per-event', str(args.per_event)], cwd=APP).returncode
     if args.operation == 'check':
         result, gpus = preflight(APP, args.per_event, variants)

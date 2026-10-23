@@ -1,5 +1,13 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-23 Phase3 五类发布复核
+
+用户授权修复并 push 精确白名单。当前 canonical 为 base bounded_v3／single v3／abc v2，五类本机正式 CPU ready 已通过；每轮12800呈现、3200更新、三轮9600，允许独立采样，base按授权有限重复。base外层使用已验证兼容快照收尾，verify base支持已完成任务补验收。
+
+本轮补齐 single／abc 原先仅凭完成摘要和metrics文件即可通过的漏洞：包外phase3_completion核验当前来源/数据/准入/计划、三轮state.pt散列、完成步数与累计曝光、完整test成员/标签，并从cases重算metrics；不加载模型、不重新推理，不改绑定的训练代码或ready。compare.sh继承禁core设置，运行说明统一当前版本。精确暂存副本不含.git，350项不同相关CPU测试通过；共享测试文件保留本机Phase4测试、仅暂存本轮范围，16项复核计入350不累加。结果和限制见AutoMoT/qwen3vl_local/audit_joint/PHASE3_RELEASE_REVIEW_20261023.md及phase3_release_verification_20261023.json。原13份base证据及single162/abc160项绑定源码保持，旧回执不重写。数据/权重/RGB/完整日志与其它任务改动不发布。
+
+真实4B四卡探针仍未执行，不能把CPU回归当作正式GPU训练验收。稀疏test、val缺类、已知开发曝光与3/13米边界视觉审查限制保留。服务器同步仍bash ./sync_automot.sh；已有base完成先verify base，按未完成方法继续，不能重跑train all覆盖已有实验。
+
 ### 2026-10-22 四图独立 base 增步与白名单入口
 
 用户再次明确 sequence 已彻底放弃，授权补齐四图 base 9600步、独立采样、未见优先及重复限制后发布命令。新包外 phase3_base_coverage.py/.sh 和 sampling：十事件各1280、四卡B1/累积1、三轮9600/warmup2500；基于原生有效choice锚点，独立打乱，事件等额、动作自然/sqrt温和偏好，跨事件同帧每轮1/全run3，容量不足拒绝。CPU先投影三轮并复核实际形状；完整优化与消费后推进历史，失败无隐式续训。原提示词/动作/四RGB/单题loss及最终第三轮test政策保留；新增逐rank ID/曝光/预算验收与最终adapter SHA合同。不是sequence回滚，也不是只改环境变量绕过旧7680校验。

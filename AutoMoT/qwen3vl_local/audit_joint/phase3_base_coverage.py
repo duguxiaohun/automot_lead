@@ -19,7 +19,7 @@ from .phase3_base_dense import baseline
 POLICY = 'phase3_independent_base_coverage_9600_v2'
 FILES = ('phase3_base_coverage.py', 'phase3_base_coverage_sampling.py',
          'phase3_launch.py', 'phase3_launch_worker.py', 'phase3_common_runtime.py',
-         'phase3_common_data.py', 'phase3_native_runtime.py')
+         'phase3_common_data.py', 'phase3_native_runtime.py', 'phase3_base_pool.py')
 
 
 def contract():

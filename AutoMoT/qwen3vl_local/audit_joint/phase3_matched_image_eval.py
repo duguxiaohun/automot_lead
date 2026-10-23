@@ -136,7 +136,7 @@ def save_metrics(job, plans, output, full_cache, wrong_cache):
     trial.write(output/'metrics.json',results)
 
 
-def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False, rank=None, world=1):
+def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False, rank=None, world=1, prompt_review=False):
     if rank is None and world!=1:raise ValueError('An explicit rank is required for multiple workers')
     import torch
     from . import phase3_base_trial as trial, phase3_base_trial_worker as base
@@ -186,6 +186,16 @@ def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False, ran
         plans=[dict(seed=p['seed'],sha256=p['plan_sha256'],matched=len(p['pairs'])) for p in plans],
         primary_common_receiver_ids=sorted(common_ids),
         inference_performed=False,training_performed=False,source_sha256=diag.file_sha(__file__))
+    if prompt_review:
+        from . import phase3_prompt_review as review
+        from .phase3_single_frame import objective
+        note['prompt_intervention']=review.contract(objective)
+        note['reference_cases_sha256']=diag.file_sha(Path(job['output'])/'single_frame_val_cases.json')
+        note['prompt_review_source_sha256']=diag.file_sha(review.__file__)
+        # Build every selected prompt on CPU without touching target labels or files.
+        with review.prompt_scope(objective):
+            for key in shard_ids:
+                objective.messages(artifact['records'][key],artifact['records'][key]['image'])
     output.mkdir(parents=True)
     trial.write(output/'receipt.json',note)
     if preflight_only:return note
@@ -195,6 +205,18 @@ def run(job_path, plan_paths, output, device='cuda:0', preflight_only=False, ran
     with torch.no_grad():
         for n,p in params.items():p.copy_(state['trainable'][n].to(device=p.device,dtype=p.dtype))
     del state
+    if prompt_review:
+        cases=review.predict(b,artifact['records'],shard_ids)
+        if diag.file_sha(Path(job['output'])/'single_frame_val_cases.json')!=note['reference_cases_sha256']:
+            raise ValueError('Original reference cases changed during inference')
+        if rank is None:
+            review.save(job,plans,output,{c['id']:c for c in cases},note['prompt_intervention'])
+        else:
+            trial.write(output/'shard.json',dict(rank=rank,world=world,variant=review.VARIANT,cases=cases))
+        note.update(inference_performed=True,unique_prompt_forwards=len(cases),
+                    unique_actual_forwards=0,unique_swapped_forwards=0)
+        trial.write(output/'receipt.json',note)
+        return note
     # Only unique receiver and receiver/donor pairs are inferred across seeds.
     # Recompute actual-image reference under the same runtime as the intervention.
     full_cache={};wrong_cache={}
@@ -218,7 +240,8 @@ def main():
     p.add_argument('--output',type=Path,required=True);p.add_argument('--device',default='cuda:0')
     p.add_argument('--preflight-only',action='store_true')
     p.add_argument('--rank',type=int);p.add_argument('--world',type=int,default=1)
-    a=p.parse_args();print(json.dumps(run(a.job,a.plan,a.output,a.device,a.preflight_only,a.rank,a.world)))
+    p.add_argument('--prompt-review',action='store_true',help='Only evaluate the explicit clarified prompt; keep original weights/labels')
+    a=p.parse_args();print(json.dumps(run(a.job,a.plan,a.output,a.device,a.preflight_only,a.rank,a.world,a.prompt_review)))
 
 
 if __name__=='__main__':main()

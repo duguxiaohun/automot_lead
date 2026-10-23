@@ -1,0 +1,78 @@
+{
+  "schema": "phase3_completion_verification_v1",
+  "date": "2026-10-23",
+  "fix": "Verify base completion inside the validated compatibility runtime; support explicit verification-only recovery",
+  "production_files_changed": [
+    "qwen3vl_local/audit_joint/phase3_compare.py"
+  ],
+  "sources": {
+    "qwen3vl_local/audit_joint/phase3_compare.py": "aa597cab4680daffda113067ed7eb8d872223f3712a00e7e0aaf4ad77cf68862",
+    "qwen3vl_local/audit_joint/tests/test_phase3_compare_completion.py": "5b8ab009aa8834e32896344128a184699552fcc60b6ea59849073f08309fa995",
+    "qwen3vl_local/audit_joint/PHASE3_COMPLETION_FIX_20261023.md": "85f61df66f0b2dd02d5a6b6d3a7c088a3b3ab49d4b9c83d2b2091d5218c43156",
+    "qwen3vl_local/audit_joint/PHASE3_BASE_BOUNDED_RUN_20261023.md": "10efd42b33c944fa4c544bb3dd050ae02ee4137542d2a4ebf75b2bd76e1defb1",
+    "qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md": "ac7f16a24d123ec1bfc611309c597527896bb05f35a4a07f29df82b6a1eb33c4",
+    "../AGENTS.md": "98350e7df3337d0b2051a37f41508baf383cb6c6ff79850b03c6c7d4338bed79",
+    "../PROJECT_CONTEXT.md": "f63183f4dc8a82fd93e80ce896ee76cfc197cfca1023f1f800ad629cbdac4863"
+  },
+  "evidence": {
+    "checkpoints/phase3_completion_review_20261023/regression.xml": "8aac12b3cf557236601ba2aa570c0122f9fe3a80c72cf10d31a9352ad4631cff",
+    "checkpoints/phase3_completion_review_20261023/regression.log": "5bb72d090427bfa900e757231874093f31bc1e3ef1b43d3a76a1f965b7e71e62",
+    "checkpoints/phase3_completion_review_20261023/preservation.json": "f0e305573006e4ff352370e5dd734d2fe503f901b40f69c82a170aaebe0537ea",
+    "checkpoints/phase3_completion_review_20261023/runtime_binding.json": "a894ad2b92464bafcda20815061981afd27b21ed962d5b0f583f4bfd16d917cd"
+  },
+  "tests": {
+    "passed": 108,
+    "new_completion_tests": 9,
+    "seconds": 59.44,
+    "includes_previous_99": true,
+    "real_compatibility_subprocess": true,
+    "training_commands_stubbed": true,
+    "completed_records_and_weights_synthetic": true
+  },
+  "runtime_binding": {
+    "ready_contract_matches": true,
+    "optimizer_steps": [
+      3200,
+      3200,
+      3200
+    ],
+    "runtime": "/home/codon/automot_lead/AutoMoT/checkpoints/generation_cache/phase3_sources/native_v2/a1fd2101cafb6367cf0bcee6d816a884f2f05694677a23efac7f52cb71618150/data",
+    "prior_cpu_sources": 182,
+    "changed_sources": [
+      "qwen3vl_local/audit_joint/phase3_compare.py"
+    ]
+  },
+  "preservation": {
+    "previous_receipt_changes": {
+      "sources": [
+        "qwen3vl_local/audit_joint/phase3_compare.py",
+        "qwen3vl_local/audit_joint/PHASE3_BASE_BOUNDED_RUN_20261023.md",
+        "qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md"
+      ],
+      "evidence": []
+    },
+    "ready": {
+      "phase3_base_bounded_v3": {
+        "sha256": "7137049273c908dcd0e60a4b4c50ac4bdb11ec950e415ccefa980672931fed15",
+        "status": "ready"
+      },
+      "phase3_single_v3": {
+        "sha256": "57c37cf77bf6fa0a2179ce025759deedff024b1570223a63acb119459de8533c",
+        "status": "ready"
+      },
+      "geometry_abc_v2": {
+        "sha256": "ed5d90c9fd1d4256ad0dbf82fa00d6624556902c68e6c221a816cf2d7f7ff6c1",
+        "status": "ready"
+      }
+    }
+  },
+  "formal_data_rebuilt": false,
+  "GPU_executed": false,
+  "remote_executed": false,
+  "pushed": false,
+  "limitations": [
+    "No complete local 4B model or real GPU probe",
+    "Synthetic completion records do not certify actual model training",
+    "Sparse holdout support and pending boundary visual review unchanged"
+  ]
+}

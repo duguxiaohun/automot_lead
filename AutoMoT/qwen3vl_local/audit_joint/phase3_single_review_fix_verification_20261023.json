@@ -1,0 +1,212 @@
+{
+  "schema": "phase3_single_maps_review_fix_v1",
+  "date": "2026-10-23",
+  "sources": {
+    "qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md": "6bf07a4826f6b52a21ea29bf5b1e7ce1392895e05ea278d6db0e2593d28f361f",
+    "qwen3vl_local/audit_joint/PHASE3_SINGLE_REVIEW_FIX_20261023.md": "703f61d50895d7aef0ba86af40ab6626b427003a8437cf9ddc62f2da202a1c9d",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_new_policy.py": "d90e25ddc1c9cab005601fdd5a3f0581e44546a6e575703cd7e6362d122a5de4",
+    "qwen3vl_local/audit_joint/phase3_compare.py": "33b47889003d22d908adcdf1da0ed1c554774e4683663260b3a7924eda479998",
+    "qwen3vl_local/audit_joint/phase3_maps.py": "f29fbb952a718dde45480c53e590ca4fc68ed8edb8ed164d8fc82bf49c6494cc",
+    "qwen3vl_local/audit_joint/phase3_single_v3/__init__.py": "fe6a178aee56d2ae650b7cfc281d90936b8b894f7570343008baf0a96976685b",
+    "qwen3vl_local/audit_joint/phase3_single_v3/__main__.py": "a10504fccecd81315ea6fe8bd8521f231f88283615c9fa3c9a3bd6b01c4bcfb3",
+    "qwen3vl_local/audit_joint/phase3_single_v3/admission.py": "3a63a82aeda8cf6aee48ca1286b0043011a641ec2f8a2b8bd07f4a3e2236c675",
+    "qwen3vl_local/audit_joint/phase3_single_v3/cpu.py": "6a7b560d72b977fc6b270b82c69d0da6b3fa85796431327e515d6ccf26712bef",
+    "qwen3vl_local/audit_joint/phase3_single_v3/dataset.py": "06c225e0d1d048190ec5cf987d93d4cefa099ca746dabd3e8e1d11ed621f1fb3",
+    "qwen3vl_local/audit_joint/phase3_single_v3/expert.py": "3572b7b3e825499e67638a14cf7ca4e90654b6ef91cf300ae20e721f7ff77501",
+    "qwen3vl_local/audit_joint/phase3_single_v3/metrics.py": "bbd33d6e668e5b86f4afb0f2ebea3f6b9a8120852da918bb01f8c8a92c42bc93",
+    "qwen3vl_local/audit_joint/phase3_single_v3/objective.py": "466ec35ab8e5f879d1f310cc12b98266e439018817d5d86c449b69baef214f8e",
+    "qwen3vl_local/audit_joint/phase3_single_v3/planning.py": "ecfb89b780609f22d47c0b71221b04f0aa8955ec342d3ac9ac74837b373424b4",
+    "qwen3vl_local/audit_joint/phase3_single_v3/prepare.py": "c9ba1ff9610ebd33065729175b38e262417a682a207f830320418b0413b0908d",
+    "qwen3vl_local/audit_joint/phase3_single_v3/regions.py": "18d3dde45356908a5711bb7cfd958aaaa9a0a0596db4aeb0b778b0eb94af2468",
+    "qwen3vl_local/audit_joint/phase3_single_v3/remote.sh": "3c6e77ae7da31f1fb973860d61bddf1594e594840a1507cd69233f71672181d1",
+    "qwen3vl_local/audit_joint/phase3_single_v3/run.sh": "1b502fd5f09f086dd10e5d5ed0000708b8dbf8ed51ee4505185a21561b8d763d",
+    "qwen3vl_local/audit_joint/phase3_single_v3/six.py": "0530ea2783d6d00c8887ffbd38e81987f27fc465b82b7892b7207e31c21fd2a1",
+    "qwen3vl_local/audit_joint/phase3_single_v3/splits.py": "c45cab8d680ecea6258052ec0909b2b8482817e0dd677aadadb0ffbf9f5075ce",
+    "qwen3vl_local/audit_joint/phase3_single_v3/startup.py": "dca10e5a93773e85c0fa13b533410013c09a1177e49ee1585a3db54f6124a111",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_expert.py": "ee9f49e40751e91abb8fd6cc3c4b22f58f5c887a5455a6ff78269a812c4b4637",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_native_preparation.py": "12fdbe1ffd2be01995ec1c86b5fe14d716b3ede8917fe7a85a4440c1564c8980",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_qwen.py": "f8f0be43e2bb1d800811d4066e19e3fdc096936d908e625312ca190ef6e30f47",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_single.py": "a851e1801d785b880c493f9b93ffbed99327c01e0beb1caf470516fe20f2b188",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_splits.py": "40d1c0ec483fb861ad797254bd5b933a1d836778ace8a59f44936a48ad17042d",
+    "qwen3vl_local/audit_joint/phase3_single_v3/train.py": "f7232428fc9136396d0c233410b34f637bb239123f2e5b0f256ef1b20ca727f7",
+    "qwen3vl_local/audit_joint/tests/test_phase3_compare_entry.py": "04b421016b75a8d89c37a4b736e07f1c283216e36bca3815f817410cca223080",
+    "qwen3vl_local/audit_joint/tests/test_phase3_maps.py": "c913718aeba25bc439fe0039b633786a525a1c25b102b7911e3433fb281cf5aa"
+  },
+  "changes": {
+    "single_runtime": "phase3_single_v3",
+    "split_policy": "single_native_coverage_preserve_holdouts_v1",
+    "map_resolution": "complete known CARLA or local lead root; explicit override; hashes retained",
+    "old_holdouts_preserved": true,
+    "old_dataset_receipts_modified": false,
+    "geometry_loss_or_thresholds_changed": false,
+    "known_exposure_only": true,
+    "unknown_external_training_exposure_certified": false
+  },
+  "regression": {
+    "passed": 172,
+    "deselected": 1,
+    "seconds": 37.32,
+    "xml": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_review_fix_20261023/final_regression.xml",
+    "deselected_test": "formal_three_epoch_budget_and_repeat_caps_for_both_planners (unchanged existing planners)",
+    "previous_test_counts_not_added": true
+  },
+  "frozen_runtime_files": {
+    "checked": 81,
+    "changed": []
+  },
+  "real_replay": {
+    "parent": "/home/codon/automot_lead/AutoMoT/checkpoints/generation_cache/geometry/geometry_v2/78e0a3db6209f23140b3dffb80a1b8359ea5a4150de0562d880ac1a17dda4179/data/dataset.json",
+    "parent_sha256": "05f9c44906d40ce3eec5aaa5c7c6508854832a9a9727f4293a47191a21455239",
+    "logical_routes": 425,
+    "raw_metadata_files": 48972,
+    "seconds": 43.76265555800637,
+    "events": {
+      "LEAD_BRAKE": {
+        "train": {
+          "candidates": 3305,
+          "retained": 3164,
+          "valid_queries": 11989,
+          "physical_groups": 78
+        },
+        "val": {
+          "candidates": 34,
+          "retained": 34,
+          "valid_queries": 136,
+          "physical_groups": 1
+        },
+        "test": {
+          "candidates": 4,
+          "retained": 0,
+          "valid_queries": 0,
+          "physical_groups": 0
+        }
+      },
+      "SIGNAL_FAILURE": {
+        "train": {
+          "candidates": 2537,
+          "retained": 1430,
+          "valid_queries": 4133,
+          "physical_groups": 119
+        },
+        "val": {
+          "candidates": 13,
+          "retained": 9,
+          "valid_queries": 24,
+          "physical_groups": 1
+        },
+        "test": {
+          "candidates": 10,
+          "retained": 1,
+          "valid_queries": 1,
+          "physical_groups": 1
+        }
+      },
+      "DYNAMIC_CUTIN": {
+        "train": {
+          "candidates": 1410,
+          "retained": 1346,
+          "valid_queries": 4825,
+          "physical_groups": 216
+        },
+        "val": {
+          "candidates": 3,
+          "retained": 3,
+          "valid_queries": 9,
+          "physical_groups": 1
+        },
+        "test": {
+          "candidates": 3,
+          "retained": 3,
+          "valid_queries": 12,
+          "physical_groups": 1
+        }
+      }
+    },
+    "candidate_donor_groups": 14,
+    "first_candidate": {
+      "group": "HardBreakRoute/Town12_4357_0",
+      "eligible_anchors": 58,
+      "valid_queries": 219,
+      "remaining_lead_brake_train_frames": 3106,
+      "parent_events": [
+        "LEAD_BRAKE"
+      ],
+      "frames": [
+        34,
+        37,
+        38,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        89,
+        90,
+        91,
+        93,
+        94,
+        95,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113
+      ],
+      "not_in_recorded_exposure": true
+    },
+    "scope": "three events only; donor evidence, not full single admission",
+    "map_root": "/home/codon/automot_lead/lead/3rd_party/fail2drive/toolbox/carla_xodr",
+    "map_towns": 12,
+    "evidence": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_review_fix_20261023/replay_final.json",
+    "evidence_sha256": "926ca51528809326e358e1173d1beccb4eba7887838098bde8d70d79e5240051"
+  },
+  "formal_full_pool_ready_written": false,
+  "GPU_executed": false,
+  "pushed": false,
+  "limitations": [
+    "Full single v3 CPU admission not executed",
+    "Donor selection is final only after all native events and shared training capacity are checked",
+    "SIGNAL_FAILURE test has one valid query; DYNAMIC_CUTIN test has one physical group",
+    "No new region-boundary RGB audit or 4B GPU/online validation"
+  ]
+}

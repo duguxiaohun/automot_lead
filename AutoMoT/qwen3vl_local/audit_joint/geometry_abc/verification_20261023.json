@@ -1,0 +1,457 @@
+{
+  "date": "2026-10-23",
+  "status": "implementation_and_full_pool_derivation_verified_raw_source_preparation_running",
+  "contract": "current_reference_geometry_abc_v1",
+  "production_package": "geometry_abc",
+  "public_entry": "geometry_study_abc.sh",
+  "old_geometry_study_and_geometry_v1_modified": false,
+  "old_bound_source_files": 165,
+  "old_bound_source_mismatches": [],
+  "tests": {
+    "unique_passed": 129,
+    "batch_passed": 128,
+    "batch_seconds": 22.59,
+    "additional_independent_file_passed": 4,
+    "additional_independent_file_seconds": 1.11,
+    "overlap_with_batch": 3,
+    "includes": [
+      "native route-end six-ineligible geometry-valid counterexample",
+      "all a/b/c native tiny Qwen backward and checkpoint reload",
+      "two real CPU Gloo ranks",
+      "shared-frame allocation and three-epoch exposure",
+      "expert contracts and same-noise reload",
+      "actual CPU coordinator rejection on scoped smoke",
+      "dataset parsing uses the exact hashed bytes",
+      "frozen matched-six regression"
+    ]
+  },
+  "shell_syntax": "passed",
+  "git_diff_check": "passed",
+  "full_pool": {
+    "report": "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_verification_20261023/full_pool_report.json",
+    "report_sha256": "d207a3995cb9a6b504ddcc646d7aebf6a5b301a42d3db8f8fc5d99949763fdcf",
+    "parent_sha256": "05f9c44906d40ce3eec5aaa5c7c6508854832a9a9727f4293a47191a21455239",
+    "scanned": 260719,
+    "retained": 259493,
+    "rejected": {
+      "no_geometric_future_query": 1226
+    },
+    "admission": "admitted",
+    "coverage": {
+      "train": {
+        "missing_events": [],
+        "unexpected_events": [],
+        "events": {
+          "LEAD_BRAKE": {
+            "anchors": 3289,
+            "physical_groups": 83
+          },
+          "STATIC_BLOCKAGE": {
+            "anchors": 66059,
+            "physical_groups": 1535
+          },
+          "DYNAMIC_CUTIN": {
+            "anchors": 1408,
+            "physical_groups": 216
+          },
+          "VULNERABLE_CROSSING": {
+            "anchors": 37343,
+            "physical_groups": 1320
+          },
+          "ONCOMING_INVASION": {
+            "anchors": 4587,
+            "physical_groups": 96
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "anchors": 6855,
+            "physical_groups": 349
+          },
+          "SIGNAL_FAILURE": {
+            "anchors": 2470,
+            "physical_groups": 120
+          },
+          "POST_BYPASS_RETURN": {
+            "anchors": 46465,
+            "physical_groups": 2364
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "anchors": 66917,
+            "physical_groups": 1419
+          },
+          "RAMP_MERGE_EXIT": {
+            "anchors": 21076,
+            "physical_groups": 387
+          }
+        }
+      },
+      "val": {
+        "missing_events": [],
+        "unexpected_events": [],
+        "events": {
+          "LEAD_BRAKE": {
+            "anchors": 34,
+            "physical_groups": 1
+          },
+          "STATIC_BLOCKAGE": {
+            "anchors": 28,
+            "physical_groups": 4
+          },
+          "DYNAMIC_CUTIN": {
+            "anchors": 3,
+            "physical_groups": 1
+          },
+          "VULNERABLE_CROSSING": {
+            "anchors": 159,
+            "physical_groups": 5
+          },
+          "ONCOMING_INVASION": {
+            "anchors": 55,
+            "physical_groups": 1
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "anchors": 209,
+            "physical_groups": 11
+          },
+          "SIGNAL_FAILURE": {
+            "anchors": 13,
+            "physical_groups": 1
+          },
+          "POST_BYPASS_RETURN": {
+            "anchors": 142,
+            "physical_groups": 6
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "anchors": 86,
+            "physical_groups": 4
+          },
+          "RAMP_MERGE_EXIT": {
+            "anchors": 11,
+            "physical_groups": 1
+          }
+        }
+      },
+      "test": {
+        "missing_events": [],
+        "unexpected_events": [],
+        "events": {
+          "LEAD_BRAKE": {
+            "anchors": 2,
+            "physical_groups": 1
+          },
+          "STATIC_BLOCKAGE": {
+            "anchors": 85,
+            "physical_groups": 2
+          },
+          "DYNAMIC_CUTIN": {
+            "anchors": 3,
+            "physical_groups": 1
+          },
+          "VULNERABLE_CROSSING": {
+            "anchors": 524,
+            "physical_groups": 18
+          },
+          "ONCOMING_INVASION": {
+            "anchors": 40,
+            "physical_groups": 1
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "anchors": 359,
+            "physical_groups": 14
+          },
+          "SIGNAL_FAILURE": {
+            "anchors": 9,
+            "physical_groups": 1
+          },
+          "POST_BYPASS_RETURN": {
+            "anchors": 470,
+            "physical_groups": 14
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "anchors": 762,
+            "physical_groups": 11
+          },
+          "RAMP_MERGE_EXIT": {
+            "anchors": 30,
+            "physical_groups": 1
+          }
+        }
+      }
+    },
+    "fixed_validation_support": {
+      "a": {
+        "anchors": 139,
+        "physical_groups": 27,
+        "queries": {
+          "pure": 546,
+          "mixed": 0,
+          "missing": 10
+        },
+        "query_physical_groups": {
+          "pure": 27,
+          "mixed": 0,
+          "missing": 4
+        },
+        "class_support": {
+          "LEFT_NEAR": 0,
+          "LEFT_REFERENCE": 1,
+          "LEFT_FAR": 6,
+          "CENTER_NEAR": 67,
+          "CENTER_REFERENCE": 336,
+          "CENTER_FAR": 105,
+          "RIGHT_NEAR": 7,
+          "RIGHT_REFERENCE": 13,
+          "RIGHT_FAR": 11
+        },
+        "class_physical_groups": {
+          "LEFT_NEAR": 0,
+          "LEFT_REFERENCE": 1,
+          "LEFT_FAR": 4,
+          "CENTER_NEAR": 12,
+          "CENTER_REFERENCE": 25,
+          "CENTER_FAR": 18,
+          "RIGHT_NEAR": 1,
+          "RIGHT_REFERENCE": 4,
+          "RIGHT_FAR": 2
+        },
+        "event_queries": {
+          "LEAD_BRAKE": {
+            "pure": 64
+          },
+          "STATIC_BLOCKAGE": {
+            "pure": 60,
+            "missing": 4
+          },
+          "DYNAMIC_CUTIN": {
+            "pure": 12
+          },
+          "VULNERABLE_CROSSING": {
+            "pure": 64
+          },
+          "ONCOMING_INVASION": {
+            "pure": 61,
+            "missing": 3
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "pure": 64
+          },
+          "SIGNAL_FAILURE": {
+            "pure": 50,
+            "missing": 2
+          },
+          "POST_BYPASS_RETURN": {
+            "pure": 64
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "pure": 63,
+            "missing": 1
+          },
+          "RAMP_MERGE_EXIT": {
+            "pure": 44
+          }
+        },
+        "macro_recall_defined": true
+      },
+      "b": {
+        "anchors": 139,
+        "physical_groups": 27,
+        "queries": {
+          "pure": 546,
+          "mixed": 0,
+          "missing": 10
+        },
+        "query_physical_groups": {
+          "pure": 27,
+          "mixed": 0,
+          "missing": 4
+        },
+        "class_support": {
+          "LEFT_NEAR": 0,
+          "LEFT_MIDDLE": 6,
+          "LEFT_FAR": 1,
+          "CENTER_NEAR": 309,
+          "CENTER_MIDDLE": 171,
+          "CENTER_FAR": 28,
+          "RIGHT_NEAR": 9,
+          "RIGHT_MIDDLE": 15,
+          "RIGHT_FAR": 7
+        },
+        "class_physical_groups": {
+          "LEFT_NEAR": 0,
+          "LEFT_MIDDLE": 4,
+          "LEFT_FAR": 1,
+          "CENTER_NEAR": 23,
+          "CENTER_MIDDLE": 17,
+          "CENTER_FAR": 4,
+          "RIGHT_NEAR": 1,
+          "RIGHT_MIDDLE": 4,
+          "RIGHT_FAR": 2
+        },
+        "event_queries": {
+          "LEAD_BRAKE": {
+            "pure": 64
+          },
+          "STATIC_BLOCKAGE": {
+            "pure": 60,
+            "missing": 4
+          },
+          "DYNAMIC_CUTIN": {
+            "pure": 12
+          },
+          "VULNERABLE_CROSSING": {
+            "pure": 64
+          },
+          "ONCOMING_INVASION": {
+            "pure": 61,
+            "missing": 3
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "pure": 64
+          },
+          "SIGNAL_FAILURE": {
+            "pure": 50,
+            "missing": 2
+          },
+          "POST_BYPASS_RETURN": {
+            "pure": 64
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "pure": 63,
+            "missing": 1
+          },
+          "RAMP_MERGE_EXIT": {
+            "pure": 44
+          }
+        },
+        "macro_recall_defined": true
+      },
+      "c": {
+        "anchors": 139,
+        "physical_groups": 27,
+        "queries": {
+          "pure": 546,
+          "mixed": 0,
+          "missing": 10
+        },
+        "query_physical_groups": {
+          "pure": 27,
+          "mixed": 0,
+          "missing": 4
+        },
+        "class_support": {
+          "LEFT_NEAR": 0,
+          "LEFT_MIDDLE": 6,
+          "LEFT_FAR": 1,
+          "CENTER_NEAR": 284,
+          "CENTER_MIDDLE": 196,
+          "CENTER_FAR": 28,
+          "RIGHT_NEAR": 0,
+          "RIGHT_MIDDLE": 11,
+          "RIGHT_FAR": 20
+        },
+        "class_physical_groups": {
+          "LEFT_NEAR": 0,
+          "LEFT_MIDDLE": 4,
+          "LEFT_FAR": 1,
+          "CENTER_NEAR": 23,
+          "CENTER_MIDDLE": 18,
+          "CENTER_FAR": 4,
+          "RIGHT_NEAR": 0,
+          "RIGHT_MIDDLE": 3,
+          "RIGHT_FAR": 3
+        },
+        "event_queries": {
+          "LEAD_BRAKE": {
+            "pure": 64
+          },
+          "STATIC_BLOCKAGE": {
+            "pure": 60,
+            "missing": 4
+          },
+          "DYNAMIC_CUTIN": {
+            "pure": 12
+          },
+          "VULNERABLE_CROSSING": {
+            "pure": 64
+          },
+          "ONCOMING_INVASION": {
+            "pure": 61,
+            "missing": 3
+          },
+          "JUNCTION_RULE_CONFLICT": {
+            "pure": 64
+          },
+          "SIGNAL_FAILURE": {
+            "pure": 50,
+            "missing": 2
+          },
+          "POST_BYPASS_RETURN": {
+            "pure": 64
+          },
+          "UNSIGNALIZED_PRIORITY": {
+            "pure": 63,
+            "missing": 1
+          },
+          "RAMP_MERGE_EXIT": {
+            "pure": 44
+          }
+        },
+        "macro_recall_defined": true
+      }
+    },
+    "plans": [
+      {
+        "optimizer_steps": 3200,
+        "selected": 12800,
+        "max_frame_repeat": 1,
+        "max_run_frame_repeat": 1,
+        "unseen_physical_frames": 12800,
+        "route_groups": 4990
+      },
+      {
+        "optimizer_steps": 3200,
+        "selected": 12800,
+        "max_frame_repeat": 1,
+        "max_run_frame_repeat": 2,
+        "unseen_physical_frames": 11270,
+        "route_groups": 4865
+      },
+      {
+        "optimizer_steps": 3200,
+        "selected": 12800,
+        "max_frame_repeat": 1,
+        "max_run_frame_repeat": 3,
+        "unseen_physical_frames": 9689,
+        "route_groups": 5025
+      }
+    ],
+    "plan_sha256": "777042f7612a47483bd42093a85f436669c7e538ea99541d220746be52ed9345",
+    "elapsed_seconds": 49.10488595298375,
+    "sources_digest": "86d31cae20661d1abf8cf604f6570ce872faa83d722dc328479855ea60c6981a",
+    "raw_sources_reverified": false,
+    "formal_ready_written": false
+  },
+  "full_source_preparation": {
+    "status_snapshot": {
+      "status": "running",
+      "stage": "geometry_regions_and_admission",
+      "start_unix": 1792716447.8591943,
+      "GPU_executed": false,
+      "parent_geometry": "/home/codon/automot_lead/AutoMoT/checkpoints/generation_cache/geometry/geometry_v2/78e0a3db6209f23140b3dffb80a1b8359ea5a4150de0562d880ac1a17dda4179/data/dataset.json"
+    },
+    "status_path": "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v1/cpu_status.json",
+    "log": "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_cpu_verified_20261023.log",
+    "pid": 195850,
+    "previous_attempt": "This turn PID 195045 interrupted before changing new code; failure directory and log retained. Frozen older jobs untouched."
+  },
+  "limitations": [
+    "Not a 4B GPU training result",
+    "No new RGB blind audit or CARLA online validation",
+    "Local split counts differ from remote; do not copy local ready pointers to another machine",
+    "Test LEAD_BRAKE has only 2 geometry-valid anchors in one physical group",
+    "No publish/push this turn; remote commands require distribution of the new files"
+  ],
+  "GPU_executed": false,
+  "pushed": false,
+  "thresholds_changed": false,
+  "split_members_changed": false
+}

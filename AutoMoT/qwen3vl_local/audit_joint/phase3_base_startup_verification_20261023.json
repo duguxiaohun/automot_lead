@@ -1,0 +1,120 @@
+{
+  "schema": "phase3_base_startup_verification_v1",
+  "date": "2026-10-23",
+  "sources": {
+    "qwen3vl_local/audit_joint/phase3_base_pool.py": "789b378b1194950c5761171ce0f3a4edb9fc2ff4bc8c07361de1afe971cf4730",
+    "qwen3vl_local/audit_joint/phase3_base_coverage.py": "e6bfdc59f3318e838705b2c467b08af74e6a0c03842c108fd55b5802693cee12",
+    "qwen3vl_local/audit_joint/phase3_base_coverage_sampling.py": "2bcba3af71a432bc12a1509e31d1f0d7264f53e165ba9dea169a53007e7feebe",
+    "qwen3vl_local/audit_joint/phase3_launch.py": "2543a063509d91cad266bcd9f6fa705dabe7f12e0e2689947b560570bc4a2ce5",
+    "qwen3vl_local/audit_joint/phase3_launch_worker.py": "db8f44bc946f6379926ced7b8f0422a94974a20ea9073ab3f88ac0995be22a18",
+    "qwen3vl_local/audit_joint/phase3_common_data.py": "722f5af5c385c278ce6608e425baa33f01cf89f9afb01667b0bda90e28d24d86",
+    "qwen3vl_local/audit_joint/phase3_common_runtime.py": "c296e34445d4e3df61b9edabb9946263fc4598833e4cc6a69ccd7977bdb0565f",
+    "qwen3vl_local/audit_joint/phase3_native_runtime.py": "40ed3df42f3b95a3c7642cd13047bdde3ca3305c9864bfd6280f1c9ff956f174",
+    "qwen3vl_local/audit_joint/phase3_compare.py": "63eb4aa257692bd16ea9a20c65e21e530da1fd532e9447419322d4e4e40050cb",
+    "qwen3vl_local/audit_joint/phase3_compare.sh": "7d83ed91075885a39fd9eeba0e6f111394ab34b6a5480bad7ea305dd22d328fb",
+    "qwen3vl_local/audit_joint/phase3_base_coverage.sh": "ee576ac3bcefd53031ca8b59de00048c987b6039cfbc4bf1c8b6d2955bb19f65",
+    "qwen3vl_local/audit_joint/tests/test_phase3_base_pool.py": "a39f00fa8bae94f346d4391c4c6aeac8fbe29e569ff158217fae534553503371",
+    "qwen3vl_local/audit_joint/tests/test_phase3_launch.py": "d6c2ed6caebfce32291dd06de4e17bf3f7c92042cd81b6321f5042060ffaaf1f",
+    "qwen3vl_local/audit_joint/tests/test_phase3_compare_entry.py": "dd1cc15a7844a3975d3fba2eda1810dc3c2060423a9347410f6c12e2b230c4c1",
+    "qwen3vl_local/audit_joint/PHASE3_BASE_STARTUP_REVIEW_20261023.md": "b36ef6b43d5ba6e7e60a2aa2f6d21d412f5dc55d82d72d2f03eb6c26761e74c5",
+    "qwen3vl_local/audit_joint/PHASE3_BASE_COVERAGE_RUN_20261022.md": "0a9b77ac5e38c6bba716215ca945a2772d4df9e42aeb488fbf9931fc6b6cd7a5",
+    "qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md": "ae15c9864c1d1eebdd21fcadb089ee1f26c9ef1fac7e1a2de7506397b1c9d694"
+  },
+  "tests": {
+    "unique_passed": 87,
+    "deduplication": "normalized optional AutoMoT. root prefix in pytest classname, then classname/name",
+    "runs": [
+      {
+        "path": "checkpoints/phase3_startup_review_20261023/probe_regression.xml",
+        "sha256": "5a8f4b3c0c5c9b667e72872a5f337338dfa00fb00fa12d297857aed4145b6ca3",
+        "passed": 85
+      },
+      {
+        "path": "checkpoints/phase3_startup_review_20261023/final_entry_regression.xml",
+        "sha256": "95261e73ffee03adc8d10f344dbea35b9f77f9a313cec8e28c9da2dd87d25035",
+        "passed": 10
+      }
+    ]
+  },
+  "evidence": {
+    "checkpoints/phase3_startup_review_20261023/base_pool_cpu_attempt2.log": "cbeb7bd84b0a15dedf7f9e4c59a2c64979e53eb48867f01893bf30d251e98486",
+    "checkpoints/phase3_startup_review_20261023/cutin_filter_audit.json": "3bbe36a821ac492af5a690f303203748e10665da4916f8dae4a7fa38c6025084",
+    "checkpoints/phase3_startup_review_20261023/audit_cutin.py": "36bd55ad521af08ab3c7646301dac07d74f5de25b5b07982fa10e0f5c3f5d9e4",
+    "checkpoints/phase3_startup_review_20261023/legacy_sampling_replay.json": "439625b563c2deba7eb5324decc3a285251c74e1dccf2f26a0262ed929cc4e6e",
+    "checkpoints/phase3_startup_review_20261023/base_rejected_check.log": "fbfa050bb2e010d75be6c6238859023cd69a7099af5382551d91e309c3ffc809",
+    "checkpoints/phase3_startup_review_20261023/final_status.json": "b8632f1f066e7864873657f19103498ba73b72385940a181434c7cba5ae7f95a",
+    "checkpoints/phase3_base_pool_v1/admissions/29cb07f9d6c98477405902b656f4302fd68799d5ac0fc2bc91b8b0a41e73d02a.json": "15f71de239ddb29456e5162dc8abbd1181ff24e6feb6042ffe81f7cae68ec17d",
+    "checkpoints/phase3_base_pool_v1/ready_1280.json": "0170bcd75e11d1e0d0fdba2b81e69a5e3fdb34318b46e005f33c5149627eb065",
+    "checkpoints/phase3_base_pool_v1/versions/8f6628f4d99ed849e54768e07e05804a79b0be4d66624511d7ff443730e928b3/common_receipt.json": "ecc4972d44175188b5ff3a8ed1385d5990aaf114fca20f75432071a029d4a3bf"
+  },
+  "base": {
+    "status": "rejected",
+    "error": "ValueError: base_pool_capacity_rejected: insufficient_capacity: DYNAMIC_CUTIN; no unlimited repetition",
+    "supply": {
+      "LEAD_BRAKE": {
+        "eligible_anchors": 2782,
+        "physical_frames": 2782
+      },
+      "STATIC_BLOCKAGE": {
+        "eligible_anchors": 58063,
+        "physical_frames": 58063
+      },
+      "DYNAMIC_CUTIN": {
+        "eligible_anchors": 925,
+        "physical_frames": 925
+      },
+      "VULNERABLE_CROSSING": {
+        "eligible_anchors": 28183,
+        "physical_frames": 28183
+      },
+      "ONCOMING_INVASION": {
+        "eligible_anchors": 3641,
+        "physical_frames": 3641
+      },
+      "JUNCTION_RULE_CONFLICT": {
+        "eligible_anchors": 1622,
+        "physical_frames": 1622
+      },
+      "SIGNAL_FAILURE": {
+        "eligible_anchors": 1255,
+        "physical_frames": 1255
+      },
+      "POST_BYPASS_RETURN": {
+        "eligible_anchors": 24568,
+        "physical_frames": 24568
+      },
+      "UNSIGNALIZED_PRIORITY": {
+        "eligible_anchors": 56091,
+        "physical_frames": 56091
+      },
+      "RAMP_MERGE_EXIT": {
+        "eligible_anchors": 9002,
+        "physical_frames": 9002
+      }
+    },
+    "index_sha256": "0cbb09c91649d9f43064a673d8a3d04835670910a88745c102115c7ba221fadc",
+    "common_data_source_validation_completed": true,
+    "three_epoch_projection_passed": false
+  },
+  "independent_prior_admissions": {
+    "single": "ready; native load_ready revalidated [3200,3200,3200]",
+    "abc": "ready; native load_ready revalidated [3200,3200,3200]",
+    "prior_source_count": 182,
+    "unchanged_sources": 181,
+    "changed_sources": [
+      "qwen3vl_local/audit_joint/phase3_compare.py"
+    ]
+  },
+  "constraints_changed": false,
+  "model_inputs_validated": false,
+  "GPU_executed": false,
+  "remote_executed": false,
+  "pushed": false,
+  "pending": "User asked why counts shrink; budget/repetition policy not changed without a decision",
+  "limitations": [
+    "Local data differs from remote counts",
+    "No new RGB semantic review",
+    "Base still rejected under 1280/event and frame cap 1/epoch,3/run",
+    "Old historical run exposures not reconstructed"
+  ]
+}

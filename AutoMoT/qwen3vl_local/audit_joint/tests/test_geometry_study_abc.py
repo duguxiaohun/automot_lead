@@ -27,7 +27,7 @@ def write(path, value):
 
 
 def test_existing_later_arm_blocks_all_before_expensive_checks(tmp_path, monkeypatch):
-    (tmp_path/'checkpoints/geometry_study_v1/runs/c_1280').mkdir(parents=True)
+    (tmp_path/'checkpoints/geometry_abc_v1/runs/c_1280').mkdir(parents=True)
     monkeypatch.setattr(abc, 'ready', lambda *a: pytest.fail('check collisions first'))
     with pytest.raises(FileExistsError):
         abc.preflight(tmp_path, 1280, ['a', 'b', 'c'])
@@ -54,7 +54,7 @@ def test_sequential_three_arms_completion_and_status(tmp_path, monkeypatch):
         variant = command[-1]; calls.append(variant)
         assert kwargs['env']['GPU_IDS'] == '3,2,1,0'
         assert 'STUDY_RUN_NAME' not in kwargs['env']
-        root = tmp_path/f'checkpoints/geometry_study_v1/runs/{variant}_1280'
+        root = tmp_path/f'checkpoints/geometry_abc_v1/runs/{variant}_1280'
         write(root/'training_complete.json', dict(total_steps=9600, selected_checkpoint='epoch_2',
             binding=dict(contract=dict(variant=variant), dataset_sha256='verified')))
         write(root/'test/metrics.json', {'accuracy': .5})

@@ -1,0 +1,518 @@
+{
+  "schema": "phase3_full_cpu_admission_verification_v1",
+  "date": "2026-10-23",
+  "sources": {
+    "qwen3vl_local/audit_joint/geometry_v1/__init__.py": "82c61c02ecc08e80624cef42ce3abe03154092f0b45089302fb41567e7630311",
+    "qwen3vl_local/audit_joint/geometry_v1/__main__.py": "8de44f375828d16864322b7b53884ff4239eec0a5809b3513de3582038efcdad",
+    "qwen3vl_local/audit_joint/geometry_v1/codec.py": "394e1900fe6476a72b5dc4874e74937b98108c8155dc351d34ca3ab86257e314",
+    "qwen3vl_local/audit_joint/geometry_v1/coverage_search.py": "576b3c6621fda80c3f339ac40d7f4aa8fac4d2f94e07f65b41c888241db375e0",
+    "qwen3vl_local/audit_joint/geometry_v1/dataset.py": "db33458bfdb691be6efce41f23a65fcfc46ce56da53c928f467b4c56c769f564",
+    "qwen3vl_local/audit_joint/geometry_v1/expert.py": "a7fc2fac89a7f2dcf0e9a56ccd1c53f0e85205edd31dea895830f44f17a7dd2b",
+    "qwen3vl_local/audit_joint/geometry_v1/identity.py": "ff557af0a2cefd20f0335bbaa437b5bd391d39a2afc7fbaec3b5084bfad20ffc",
+    "qwen3vl_local/audit_joint/geometry_v1/local_check.py": "2c4a5998bd338eb56dc56221ae17e10a328886b3552f744f3c6b7ea70b10b0e3",
+    "qwen3vl_local/audit_joint/geometry_v1/metrics.py": "7b85bc7858d159ece5c42442f70c85ba7a388c9e677efab562f482697837a132",
+    "qwen3vl_local/audit_joint/geometry_v1/objective.py": "e655aa9d2773d14f9f97fc6b1b48a6c6ae43741c0ac81af0ab71d28d19c98f86",
+    "qwen3vl_local/audit_joint/geometry_v1/planning.py": "0c9fc32dae9fb7b715b33b084c667046ebf1a86bf7faee700acc6505c7020750",
+    "qwen3vl_local/audit_joint/geometry_v1/sources.py": "e9baab138bd6bbf1fe26792f1daf66036877a0fcdcf87d84ee95d14d3ba6cb69",
+    "qwen3vl_local/audit_joint/geometry_v1/splits.py": "3062be6ab938b75f198457681b937bcb9251bad34e77c1c48b71d3f41eed3798",
+    "qwen3vl_local/audit_joint/geometry_v1/startup.py": "424a166045d9293ae4c6cdb1b4e15262b8418b4cf8ef2ef9c18a646c92122a76",
+    "qwen3vl_local/audit_joint/geometry_v1/train.py": "30cf5c5ca992a931b68051d8c25af1c61004d136775354e328771871d523eff6",
+    "qwen3vl_local/audit_joint/label_quarantine.py": "cfc1e517f8fd3ff756d4868e0f9aa4eb2a12d7dc6de7f8a63bdd18601a845629",
+    "qwen3vl_local/audit_joint/phase3_base_dense/__init__.py": "e20b69975c7af657d0395002ca9d812178d577f6499015e99462fe23b10c4f7f",
+    "qwen3vl_local/audit_joint/phase3_base_dense/baseline.py": "964f80759b814a74f9e40c01163342c196dd7c687f5cc9e18bc42b9ecd66ff81",
+    "qwen3vl_local/audit_joint/phase3_base_dense/data.py": "80a16a4c0dcb123dd4a83dd2b5b1e482025a947959255669c689fdf103ccf2e4",
+    "qwen3vl_local/audit_joint/phase3_base_dense/evaluation.py": "c9f1f8289c62613d1fc510277afea26ecaedf9858983404229c8cf231b54d5a2",
+    "qwen3vl_local/audit_joint/phase3_base_dense/frame_bank.py": "a471d8a49c9ce88dc5d1e38950a62212795b58845da78d638350dcad97566eed",
+    "qwen3vl_local/audit_joint/phase3_base_dense/objectives.py": "617f574309f6ecfcd34dc160adab647e69b43ffdf6f5316c581fe44e50b798a1",
+    "qwen3vl_local/audit_joint/phase3_base_dense/planning.py": "4638430734e7b42911987440c6519e2b49175e9dad3659e00902b4efd1d43932",
+    "qwen3vl_local/audit_joint/phase3_base_dense/prefix_cache.py": "5e3e4ab0bca5eff9f1f54e9312aad9eb13ce2660e5c4598222fcdaacf9a39b56",
+    "qwen3vl_local/audit_joint/phase3_base_dense/provenance.py": "73805b290edef0e8eaafdf5a2c7b507b32c4ed313d25eb82265bcad84a87c7b0",
+    "qwen3vl_local/audit_joint/phase3_base_dense/runtime.py": "648813cb1a19b87a1a8940695496b7e0ab905ffd4423a73efe9e6a4e77ce2612",
+    "qwen3vl_local/audit_joint/phase3_base_dense/shapes.py": "84cda90cd345e80078c96afd392366a6e3b695eea114ca60726cf169dc195b29",
+    "qwen3vl_local/audit_joint/phase3_base_dense/trajectory_plan.py": "2096be18277c08d3484267daa0c721ee0ebbda22f2c4a5a074a97dfe5d8ef0b1",
+    "qwen3vl_local/audit_joint/phase3_base_dense/trajectory_targets.py": "4369a133db7d21df3fe5c75a4dc71c972ed0be485c4739a06c4c77faaad6083a",
+    "qwen3vl_local/audit_joint/phase3_base_dense/vision_slots.py": "036fc6a02fe6f5c0ed58edcc7bfeecda030eb5be6f879740f70c605893a4c621",
+    "qwen3vl_local/audit_joint/phase3_base_dense/worker.py": "11ff971bee5505e07148a3d215ed1d4bcb84ab74a2cc6de363d515468e59d95a",
+    "qwen3vl_local/audit_joint/phase3_comparison_diagnostics.py": "f5d06ed2eff572075ef9f53fcfda55d89c28267d010dca527c37c56e2656d2f3",
+    "qwen3vl_local/audit_joint/phase3_comparison_policy.py": "b191f0d043aed7a39ee887c71e9d0406f176223cb6eed6b1fd1b7757d669a614",
+    "qwen3vl_local/audit_joint/phase3_maps.py": "f29fbb952a718dde45480c53e590ca4fc68ed8edb8ed164d8fc82bf49c6494cc",
+    "qwen3vl_local/audit_joint/phase3_single_frame/__init__.py": "f2548440bfc9e698c2c0866177a3b8425296d826bc17d03f0f40222ee8807370",
+    "qwen3vl_local/audit_joint/phase3_single_frame/__main__.py": "64128721fbed87303338f83ddac426e1394b0715f342000a0315c0399ec655ed",
+    "qwen3vl_local/audit_joint/phase3_single_frame/dataset.py": "4c960f5527a9e7337a7298a9e76d049a13a5e3578ba58cb5819c251895d6c378",
+    "qwen3vl_local/audit_joint/phase3_single_frame/history.py": "fc8acfd29a79266bdacbe6139f681734a0bd27db623c5fe40a3a5d7feaa3cc87",
+    "qwen3vl_local/audit_joint/phase3_single_frame/local_check.py": "ea37d34e2e269c544d87961771c4d554ca512b9f6ccfbb00913b8366712c7af0",
+    "qwen3vl_local/audit_joint/phase3_single_frame/objective.py": "ede8fd739eb43270473cf69719c937417e39ee97b2a8e1436b348a45f98e6b9a",
+    "qwen3vl_local/audit_joint/phase3_single_frame/planning.py": "358a276e4f97358f42b8a491a0692454ae267b0ad5146ee6b6b2abb6c3c19dcd",
+    "qwen3vl_local/audit_joint/phase3_single_frame/protocol.py": "f66426799f615ed842589719718fad9a94c8968f3c5bb73ca570a56cfa849c41",
+    "qwen3vl_local/audit_joint/phase3_single_frame/refresh_runtime.py": "489d40d064629e7c9deb11acad259a2cd2976828f6c93ddf2a19d57e74a6b1d2",
+    "qwen3vl_local/audit_joint/phase3_single_frame/runtime.py": "cc2a30ff399071165924a94995ff393ea2a0ea263aafbf3a951b241ba05b30c2",
+    "qwen3vl_local/audit_joint/phase3_single_frame/targets.py": "ff10ea8e8d5dd4832b06e60d61fd7b551667e5bed49d24123a40c2555ac2228c",
+    "qwen3vl_local/audit_joint/phase3_single_frame/worker.py": "8cba81b90a513aff37b605ae58edf7ea0079d33828ad03481b87ee4657ece168",
+    "qwen3vl_local/audit_joint/phase3_single_v3/__init__.py": "fe6a178aee56d2ae650b7cfc281d90936b8b894f7570343008baf0a96976685b",
+    "qwen3vl_local/audit_joint/phase3_single_v3/__main__.py": "a10504fccecd81315ea6fe8bd8521f231f88283615c9fa3c9a3bd6b01c4bcfb3",
+    "qwen3vl_local/audit_joint/phase3_single_v3/admission.py": "3a63a82aeda8cf6aee48ca1286b0043011a641ec2f8a2b8bd07f4a3e2236c675",
+    "qwen3vl_local/audit_joint/phase3_single_v3/cpu.py": "c92cfafc07c0e1c845cf1f88bd81f7659f4291ce20db83aa0c5d5f8551076acc",
+    "qwen3vl_local/audit_joint/phase3_single_v3/dataset.py": "06c225e0d1d048190ec5cf987d93d4cefa099ca746dabd3e8e1d11ed621f1fb3",
+    "qwen3vl_local/audit_joint/phase3_single_v3/expert.py": "3572b7b3e825499e67638a14cf7ca4e90654b6ef91cf300ae20e721f7ff77501",
+    "qwen3vl_local/audit_joint/phase3_single_v3/metrics.py": "bbd33d6e668e5b86f4afb0f2ebea3f6b9a8120852da918bb01f8c8a92c42bc93",
+    "qwen3vl_local/audit_joint/phase3_single_v3/objective.py": "466ec35ab8e5f879d1f310cc12b98266e439018817d5d86c449b69baef214f8e",
+    "qwen3vl_local/audit_joint/phase3_single_v3/planning.py": "ecfb89b780609f22d47c0b71221b04f0aa8955ec342d3ac9ac74837b373424b4",
+    "qwen3vl_local/audit_joint/phase3_single_v3/prepare.py": "c9ba1ff9610ebd33065729175b38e262417a682a207f830320418b0413b0908d",
+    "qwen3vl_local/audit_joint/phase3_single_v3/regions.py": "18d3dde45356908a5711bb7cfd958aaaa9a0a0596db4aeb0b778b0eb94af2468",
+    "qwen3vl_local/audit_joint/phase3_single_v3/remote.sh": "3c6e77ae7da31f1fb973860d61bddf1594e594840a1507cd69233f71672181d1",
+    "qwen3vl_local/audit_joint/phase3_single_v3/run.sh": "1b502fd5f09f086dd10e5d5ed0000708b8dbf8ed51ee4505185a21561b8d763d",
+    "qwen3vl_local/audit_joint/phase3_single_v3/six.py": "0530ea2783d6d00c8887ffbd38e81987f27fc465b82b7892b7207e31c21fd2a1",
+    "qwen3vl_local/audit_joint/phase3_single_v3/splits.py": "c45cab8d680ecea6258052ec0909b2b8482817e0dd677aadadb0ffbf9f5075ce",
+    "qwen3vl_local/audit_joint/phase3_single_v3/startup.py": "dca10e5a93773e85c0fa13b533410013c09a1177e49ee1585a3db54f6124a111",
+    "qwen3vl_local/audit_joint/phase3_single_v3/train.py": "f7232428fc9136396d0c233410b34f637bb239123f2e5b0f256ef1b20ca727f7",
+    "qwen3vl_local/audit_joint/versioned_data.py": "a752089ac3502049af2b042ade02f98fb55924eccced8c0996a2f1699dfbe2a7",
+    "qwen3vl_local/sft_new_loop_phase3/__init__.py": "f56089c2333eca53ebff7db850d82690e1d82bf9b3104a3785a8f69036744aca",
+    "qwen3vl_local/sft_new_loop_phase3/action_review.py": "d0543b17af9fb922a924e2835c786317e91dd985f7cc4e261fd969739ef65019",
+    "qwen3vl_local/sft_new_loop_phase3/annotation_repair.py": "499cc3ca3757bb408e002f481576f4035821bef605d0af5bea0344241da33e5c",
+    "qwen3vl_local/sft_new_loop_phase3/audit_action_boundaries.py": "6d147fc57def1a41035bde1c43033b2c70632ecdee76bc1b84ac16253f41f4fe",
+    "qwen3vl_local/sft_new_loop_phase3/audit_annotation_repairs.py": "fdb1d0f0137a8e7446be33f6c9661c3d2a52de8a70a4d275aeef3e092734ba5d",
+    "qwen3vl_local/sft_new_loop_phase3/audit_causal_keep.py": "1920e116e1adb9e2e6f5d166058bcfaa8e081ab300e963ebf241deeede36882d",
+    "qwen3vl_local/sft_new_loop_phase3/audit_development_replay.py": "350d042ce441fc54fed99936c5a1c97c7a6bf58ec58de60ef94b63247d7d8031",
+    "qwen3vl_local/sft_new_loop_phase3/audit_eval_cases.py": "96dee24605cb365b0d8aa57e92e155d70376faed83626106e0731d9f8a6af91e",
+    "qwen3vl_local/sft_new_loop_phase3/audit_label_boundaries.py": "7eace04983471766e3cfc77a03b71ac4787d75baf3aba0dd262c63e8bf6f810b",
+    "qwen3vl_local/sft_new_loop_phase3/audit_mapping.py": "93dba27e214676ac8aa5e832bc56ae0eeb91e0a2a4bc54609772ea92555e3d77",
+    "qwen3vl_local/sft_new_loop_phase3/audit_raw_index.py": "9e766e9a6aa4d0465abf0c928e3b8fd1a1882c6972134e559742e4f23dcb2f16",
+    "qwen3vl_local/sft_new_loop_phase3/audit_rebuilt_index.py": "7a815e246d1b18866771295a17cfacfbcc9c4ddce9ece96c693fc3503be59ef1",
+    "qwen3vl_local/sft_new_loop_phase3/audit_review_transitions.py": "f99b8b9fa41daf80100d7755387e71254c388323ecc9b54e02533a8eb2f45327",
+    "qwen3vl_local/sft_new_loop_phase3/audit_temporal_slices.py": "6586fc76e146a686186c7f26b686dedddb76eb712219656fee84b3ee7a7b9c62",
+    "qwen3vl_local/sft_new_loop_phase3/audit_v21_rule_delta.py": "ed94c674292d54df7f66c697211902a39ea81bb7d83c9d2a43906c91b726e70d",
+    "qwen3vl_local/sft_new_loop_phase3/build_dataset.py": "a63cd3b10479b6b2a20128e0e2b06d7ae3d63d92982538097de4e065af1d34fa",
+    "qwen3vl_local/sft_new_loop_phase3/build_mapping_review.py": "507065eb4316f0ebfda84e8ea340be459776e775c78f28062a1b7369f29c6d78",
+    "qwen3vl_local/sft_new_loop_phase3/build_same_rs_challenge.py": "cd4bcfd0bf41017ea7e311b3192d90a33aed3fa527add96a87bf53589c734436",
+    "qwen3vl_local/sft_new_loop_phase3/calibration_report.py": "e109833d54912d8852ec2b62cbdc93c3de5a1cb91304c47c10ebb5791d5c31dd",
+    "qwen3vl_local/sft_new_loop_phase3/candidate_data.py": "910a574959fdc5ae7ca8779c456a39d593030599cafebf42bf336671851ee667",
+    "qwen3vl_local/sft_new_loop_phase3/choice_semantics.py": "9373e2d1dac1f2749c9c0dc6f9dd6bdc904ee4b2f6bc3dcea488e38f8c76278f",
+    "qwen3vl_local/sft_new_loop_phase3/collection_reader.py": "5273d73c8417d972e5811b8e2e4a48d46ed5be67098248420ff0e7db1bd5cd3f",
+    "qwen3vl_local/sft_new_loop_phase3/context_taxonomy.py": "949ab8786a385df0c1253b3a1e60fe85db9e65d55c0dfabfc6806d6661b03689",
+    "qwen3vl_local/sft_new_loop_phase3/dispatch.py": "291c34a7c9ee885438e26382123bd41d0475e8f45ee382e2b4bb1f2e8eda5351",
+    "qwen3vl_local/sft_new_loop_phase3/eval.py": "ce2d85856795eb455d4b5264678a32caa0816694bb09ebcafdd32d8b6275d3ab",
+    "qwen3vl_local/sft_new_loop_phase3/evaluation_balance.py": "e13ea3354577778651d039656bd5b8569337f5003bbea1de3b5c1840c016f344",
+    "qwen3vl_local/sft_new_loop_phase3/four_runs.py": "ad8b477073a85208d95d8d4edc8bc2568f9c34dfa4b293a6782bb8ba2fb8d588",
+    "qwen3vl_local/sft_new_loop_phase3/history_rgb.py": "9aca0749f2e381e40f1acc3178890950c753d9c2e7d2cc0a8c85770737d2def7",
+    "qwen3vl_local/sft_new_loop_phase3/invalid_balance.py": "94f5c9c177dcadfc6b2d23f2f7e0faa9ce2fac3e158420fc9651d5408bac2a90",
+    "qwen3vl_local/sft_new_loop_phase3/lateral_rgb_audit.py": "e3e4e359bc429a21eaa25052bd9037eca2804bbbdd69d00614dc8dd7fa5c4ef0",
+    "qwen3vl_local/sft_new_loop_phase3/navigation_goal.py": "cd24ac58aacd82a19b3cb3fb81528e12e6ce5362d12d14357a49eda3e5028002",
+    "qwen3vl_local/sft_new_loop_phase3/pack_results.py": "ca5526d4acc66e59e3f980aabeca0b4c0f3cc7ee4c5dc8949412946604510f7c",
+    "qwen3vl_local/sft_new_loop_phase3/paired_eval.py": "14fc4b44b267cec512458141437e414c2245c1c890e8b1863789a09296a85d60",
+    "qwen3vl_local/sft_new_loop_phase3/parallel_scan.py": "ad05443c9d6fbaa8a013c111d78988e1bcb1dac257dca2dc9a06b0aea90a68bc",
+    "qwen3vl_local/sft_new_loop_phase3/pipeline_support.py": "ae4b9776925ea950a1d1b818b25ed0dd2c0760c6631288c5e339318524b2a7ef",
+    "qwen3vl_local/sft_new_loop_phase3/preflight.py": "1b53aec1d214411d3dadab74d93de01eb44c9f90dd160c49e3ebf05addeff82a",
+    "qwen3vl_local/sft_new_loop_phase3/prepare_error_review.py": "2d060edf64f9125e8669fc5962886150fd8d1a2da912137ca0d52006f3917ad1",
+    "qwen3vl_local/sft_new_loop_phase3/primary_action.py": "43c230d0654b001e581047befb60569d0a484f56eb9e791d91cf63fb1da0443f",
+    "qwen3vl_local/sft_new_loop_phase3/probe_ego_frame_sign.py": "1dd1ddd090b1e10fdd6ab2f41d1f65224a4d0ea6a45c8212aabad21fc770875a",
+    "qwen3vl_local/sft_new_loop_phase3/probe_trajectory.py": "4f44bafbc8449baa587abf966845778447cb85b8e2e9a5755dc8fa887079711b",
+    "qwen3vl_local/sft_new_loop_phase3/prompt_candidate.py": "3ed745e6fb0d755929bd2dca8bbb3dc3102b52376d8f9aeca342d76bc22296cb",
+    "qwen3vl_local/sft_new_loop_phase3/prompt_contract.py": "c699ecaa04de8d11ab733c4662678ceb58a10954fe2cb5e829b3b6054000f8e4",
+    "qwen3vl_local/sft_new_loop_phase3/prompts.py": "538cb83afe6a2a23d203e51a8a05308d26d3ab501fa581ab306a1810f5542767",
+    "qwen3vl_local/sft_new_loop_phase3/quality_guards.py": "e3176d3a91aaa10da84431496f30dca6becb46fb86187fdb8c663ddc4d489a80",
+    "qwen3vl_local/sft_new_loop_phase3/regression_gate.py": "8a9802132d6da6af556d86acee7e2b61268c083dbc196f8f75b4e51f508e8ade",
+    "qwen3vl_local/sft_new_loop_phase3/render_action_contact_sheet.py": "f290130d8f0ee27138bc9f04a2d8e7584dca8fe3a504966fb0810e96679abdef",
+    "qwen3vl_local/sft_new_loop_phase3/render_review_notes.py": "540a3f568dc0c14f9a782deb52f9661de0ded0c91345324d97674573818a0a8b",
+    "qwen3vl_local/sft_new_loop_phase3/render_rgb_review.py": "9b3f6c8d86d3f2d498506d5d6e0cb240174adb2dd9aca495d5e4611e706a92e4",
+    "qwen3vl_local/sft_new_loop_phase3/replay_prompt_candidate.py": "71e041ce2c34227bd054dadf315aae2d1b56ad701af709f50e021390490b612f",
+    "qwen3vl_local/sft_new_loop_phase3/same_rs_invalid.py": "3271770d429a7970a1ea507025c7a70a89af1c05a3fc90232071758bb36b5494",
+    "qwen3vl_local/sft_new_loop_phase3/sampling.py": "50a67fa8504be28a0d5d3378b889b620b40d4c2e01275756c0813e33cb2d4b61",
+    "qwen3vl_local/sft_new_loop_phase3/sequence_evaluation.py": "350cac0ea81cc20bfa9252f94e30a6b8f30299115c9b9295cfe794fd2336b259",
+    "qwen3vl_local/sft_new_loop_phase3/source_mapping.py": "0d8dce4e2244ccb5bda25bcfe29b237ed8d7cdf1453635339cfe8d1e28452284",
+    "qwen3vl_local/sft_new_loop_phase3/split_coverage.py": "d3f0ad3f8de9b7df11389b39740b1758842de1fe78694a3fdf07e84072395842",
+    "qwen3vl_local/sft_new_loop_phase3/test_action_contract.py": "bf035b27c38d46967e7b648e0f9d9c8a0b557a4fced9b7e98e54fe494b29fa65",
+    "qwen3vl_local/sft_new_loop_phase3/test_action_review.py": "0171760494f86f28540894109337e1fa55c6a03c0068b85698aefb283706420e",
+    "qwen3vl_local/sft_new_loop_phase3/test_annotation_audit.py": "a5f4401bbb9be0303bbfa07e62b0503d96f69fc7851f89e0ac1c3d5dce193006",
+    "qwen3vl_local/sft_new_loop_phase3/test_annotation_repair.py": "3a743f34a41c29571c001c008677f5390d1dfadc4b5927eb3721646f521c52aa",
+    "qwen3vl_local/sft_new_loop_phase3/test_binary_keep.py": "50c6f636536e2c52189f8290a2307123073e48a5a44ca0ee832871b1ff7c51d8",
+    "qwen3vl_local/sft_new_loop_phase3/test_build_invalid_quota.py": "a43a392172b42c213f9ed3a02e3b62c3eb327baf89985a7114550afeb48c253e",
+    "qwen3vl_local/sft_new_loop_phase3/test_causal_keep.py": "e961bfde311476d194e9bb3dc32ec69311228eef369cc4b840e43e512afa9673",
+    "qwen3vl_local/sft_new_loop_phase3/test_context_purpose.py": "796d10745a7ae01189b3b1d184f5a8c8751663ccbf02c451689a7893b1dce64c",
+    "qwen3vl_local/sft_new_loop_phase3/test_ddp_validation.py": "3441277ee9ab5bb4a808be51787c0c2cffec138118fef83a9d15e4c1d23e70d3",
+    "qwen3vl_local/sft_new_loop_phase3/test_entry_admission.py": "31f2102920addaff4630e38f4abde4e9c0cad5bcd4cd65c416cbeafa87ed69ad",
+    "qwen3vl_local/sft_new_loop_phase3/test_epoch_consumption.py": "90b2863de69a26248b59fc5e2be6bc057c9db5610e7d5b2632f67b741357cbd6",
+    "qwen3vl_local/sft_new_loop_phase3/test_fixed_evaluation.py": "e2cfe0631169e59ea16c263c6675fbca287af7b72a6266859682594a2e314787",
+    "qwen3vl_local/sft_new_loop_phase3/test_four_runs.py": "dfc4009dc2e9c454788157888d9153beef20724f191765353d3c2ad8aa9ee4b2",
+    "qwen3vl_local/sft_new_loop_phase3/test_invalid_combinations.py": "ea7e5f86adacf832d3565cb043af15f3cbde2176fc9eb182039fa2ab73e8b627",
+    "qwen3vl_local/sft_new_loop_phase3/test_mapping_regressions.py": "4d032063fd23fe89bbb6dbcea04fcd1c5ef2e56875952f632ff30f77377ccdc0",
+    "qwen3vl_local/sft_new_loop_phase3/test_pack_results.py": "bcb7dfa60d31d827bae05151d7b2eb2d95f33c8530185e93242a27ad4357e5f2",
+    "qwen3vl_local/sft_new_loop_phase3/test_paired_eval.py": "7f4c3044a07a455b7da28c0e25de5796e3414693052e33511e00017855d9ce56",
+    "qwen3vl_local/sft_new_loop_phase3/test_pipeline_candidate.py": "ceb219b5b57bc16a2b5ef9d3b101d1aaca87597f9a3c8c6a64fcf1ce4a7252e9",
+    "qwen3vl_local/sft_new_loop_phase3/test_prediction_language.py": "78e60b7df0a5c3ed8b66128e053b086a34efe4603602843c269596e513f5a27f",
+    "qwen3vl_local/sft_new_loop_phase3/test_primary_action.py": "2171d33d47c7da50324bd9021aa6cf2acdd6282108568c3723417fab3abb6da5",
+    "qwen3vl_local/sft_new_loop_phase3/test_prompt_candidate.py": "d0bde12260f8a6e260f4a17d9a354a27f723a21d90849698911978b6a2754bf2",
+    "qwen3vl_local/sft_new_loop_phase3/test_repair_contract.py": "792e442fc84cff0798cd97540cb640520da12a225b0e8f2dc266b84733e76718",
+    "qwen3vl_local/sft_new_loop_phase3/test_review_transitions.py": "ffeb3ed24e959e3b0c3c595cf9e8c8d9e18c177cbb66be9aced69834e90cb482",
+    "qwen3vl_local/sft_new_loop_phase3/test_rgb_review_20260911.py": "9887d7eaf0c3094ddf3c56ad22ed9f590379ed2e6ae9787c2c53b18507d9f47a",
+    "qwen3vl_local/sft_new_loop_phase3/test_rgb_review_20260914.py": "6dbf54dcd701db024528a4bc509de0957e823be3f182b414e0b0761bdc801c4e",
+    "qwen3vl_local/sft_new_loop_phase3/test_rgb_review_20260916.py": "a78527bced7a18191a3e3beaa0ff4b85d6ead06424fcbcd5e2bbac5b9215347b",
+    "qwen3vl_local/sft_new_loop_phase3/test_rgb_review_20260920.py": "3847468bf4db35569b7ba5d22a1c985832c77e45414a4a237f5d9ffb626f3573",
+    "qwen3vl_local/sft_new_loop_phase3/test_rgb_review_20260921.py": "2fe972575bba85c585d9a6b9d709fa0ad79832b16d17a02f0ac9c5541901bde4",
+    "qwen3vl_local/sft_new_loop_phase3/test_short_rgb.py": "8de5ef2d3f776461f53d64b6451541944134c7a5d64b0bbf49927e151bfb3f1a",
+    "qwen3vl_local/sft_new_loop_phase3/test_split_coverage.py": "06724fa375ceb642f69094d74fb77f593a49a822a89c492b1946624bb3474802",
+    "qwen3vl_local/sft_new_loop_phase3/test_support_balance.py": "5ec131a46757cbe4bc101d28c71e23ad1332bbcc62a6e659a8899074bf531622",
+    "qwen3vl_local/sft_new_loop_phase3/test_training_state.py": "2c1692eb3391c473c19cf652c26e7588682712c34fa898dcc49d42eac3af00b2",
+    "qwen3vl_local/sft_new_loop_phase3/test_v18_review.py": "a0add637442f4b172c8a5102dcddca7b8dc40cdea589ae8a71be14cef623ad47",
+    "qwen3vl_local/sft_new_loop_phase3/test_v21_pullaway.py": "82b9068c3dcb91cac06f809174f777d155694d76dcc107703b96915dafa3dced",
+    "qwen3vl_local/sft_new_loop_phase3/test_v23_audit.py": "ca887fb8db9f180f5992709e2d43bc65cda19b534542cbbb13c3bf5d3179ab24",
+    "qwen3vl_local/sft_new_loop_phase3/test_validation_balance.py": "f7b5114cd4037f225e341b336bdd82738d866f93f00c8dbde8ad9da1eddeff19",
+    "qwen3vl_local/sft_new_loop_phase3/test_window_contract.py": "abdd7f2e2ea3d2a4e9fc18b0cbd5fe83a3ffacc9e09f2d8f51f743cc08fb06c5",
+    "qwen3vl_local/sft_new_loop_phase3/train.py": "2625704dc5398c7e5c2afb70ef8acc7287cf0fdfcd72d891e6a8378ef698a2bd",
+    "qwen3vl_local/sft_new_loop_phase3/training_schedule.py": "f3e1f2394c297a32394c4beac1f46b3f94b23ce4a12ca8ed5172b2d45187f7ff",
+    "qwen3vl_local/sft_new_loop_phase3/training_state.py": "705f9ba3c175fdb617c257ff20f22e621786ba80e091a832a61e4eb13a4b5c65",
+    "qwen3vl_local/sft_new_loop_phase3/trajectory.py": "b8340603a9ab3a98f430da6edf579a3dba793a815afd7cde05bcb2bdfe2d1ef4",
+    "qwen3vl_local/sft_new_loop_phase3/trajectory_action.py": "ceed89933958fc977e3c577edcc3cf288dd2cbf5f016b37eca88f81f1852750e",
+    "qwen3vl_local/sft_new_loop_phase3/transition_state.py": "217a1ec5dd34cec4deef3eefd4258f7783078c6a85c5f737d820c3998e7aedcc",
+    "qwen3vl_local/sft_new_loop_phase3/visual_audit.py": "cc0baafb351c6cd01759be5e413757eef0be20eefe02293da345dca32475ea3c",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/__init__.py": "ceea129cbaf4937f5fb6e60fc6e8d54e52105c9bb31d8a508438c59975be6154",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/__main__.py": "8ea8105aca45a02a5b9b8cc74478f5975a41d9d3a4a040ba2abaf5fb9df25ef8",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/admission.py": "bdf9522722c178c454b8ce998371ad45d8bbd4f838366a2d0292ad24c23019bf",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/boundary_audit.py": "76adb6d361a9b0fba9948a0634f833c85b37951ea42c67b9b5a370c018af1176",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/cpu.py": "0502ba23dc2e4d66de9742864d8f3a7abfa32b0bafd51af362508b9a69222d72",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/dataset.py": "a4b1fc6242661f00fd3443719f8cc4887724af6a00b90217671689c06a61f55d",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/expert.py": "5aa38d724a6f9d6122d81345ef8a09dec9b22e0e408516aafa4a71764730327d",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/metrics.py": "bbd33d6e668e5b86f4afb0f2ebea3f6b9a8120852da918bb01f8c8a92c42bc93",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/objective.py": "8141cfc3d1b9ac5582cba591e1da3fda6c000f576423d06ad74b337219173688",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/planning.py": "ecfb89b780609f22d47c0b71221b04f0aa8955ec342d3ac9ac74837b373424b4",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/prepare.py": "644638fbf99171e3c027e57a025d80eb50287a7317d389e2e6847da4ba528277",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/regions.py": "3309c89c281d9077d1c04729436890fbbd57301c95e4ec90a1a00098c7a52b9e",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/remote.sh": "254102c267e7ff4036e7ad59e09a89ac7638ed1bcafa4af19fa8ccfbc770e319",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/run.sh": "52b640abc7e9a734bf43210a579ae3d2dd672545747692a0569e7f769252ffe6",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/startup.py": "dca10e5a93773e85c0fa13b533410013c09a1177e49ee1585a3db54f6124a111",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/train.py": "4d2e99803a03b06cdc4c63410f9826e73ac64477eb2892a24d9c4b4c6ae4c434",
+    "qwen3vl_local/audit_joint/phase3_compare.py": "33b47889003d22d908adcdf1da0ed1c554774e4683663260b3a7924eda479998",
+    "qwen3vl_local/audit_joint/phase3_compare.sh": "7d83ed91075885a39fd9eeba0e6f111394ab34b6a5480bad7ea305dd22d328fb",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_native_preparation.py": "814fa5ca96cb86f7a4ddca2a4e4c0941964b22f7d01e51ece9521fa536ae9c66",
+    "qwen3vl_local/audit_joint/PHASE3_CPU_ADMISSION_20261023.md": "45b4f13ac4948a19e953da6783a256bf2b2d9be0269ad6c2d33a162d9546d1e5"
+  },
+  "changed_from_previous_receipt": [
+    "qwen3vl_local/audit_joint/phase3_single_v3/cpu.py",
+    "qwen3vl_local/audit_joint/phase3_single_v3/tests/test_native_preparation.py"
+  ],
+  "runtime_sources_unchanged_during_runs": {
+    "single": 162,
+    "abc": 160
+  },
+  "regression": {
+    "passed": 26,
+    "seconds": 8.49,
+    "xml": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/regression.xml",
+    "previous_test_counts_not_added": true
+  },
+  "formal_cpu": {
+    "single": {
+      "status": "completed",
+      "ready": "ready",
+      "exit_code": 0,
+      "seconds": 1704.146624803543,
+      "anchors": 204910,
+      "split_anchors": {
+        "train": 202516,
+        "val": 573,
+        "test": 1821
+      },
+      "dataset": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/generation/phase3_single_v3/native_six_postfilter_split_v3/b5dc78d90d959af52e017ee2317e94518ac0949633286f6e606a3516de0634cf/data/dataset.json",
+      "dataset_sha256": "bcf1d2fd2f1fc381f20ce7a13b278824e547055e108cbea56846a018e126b031",
+      "admission_sha256": "f6dfb239f64ee8e9dd5d97f1225e0d18c6aaa623abd982658bf2ace55110277b",
+      "plan_sha256": "b0f5a3c5e0b7a19e71456cdfaf8a71e4f90101ccfb1672b98824d5361f096554",
+      "presentations_per_epoch": [
+        12800,
+        12800,
+        12800
+      ],
+      "optimizer_steps_per_epoch": [
+        3200,
+        3200,
+        3200
+      ],
+      "unseen_physical_frames": [
+        12800,
+        10306,
+        9506
+      ],
+      "unsupported_validation_pure_classes": {
+        "six": [
+          "LANE_CHANGE_LEFT"
+        ]
+      },
+      "test_support": {
+        "LEAD_BRAKE": {
+          "anchors": 58,
+          "physical_groups": 1,
+          "valid_queries": 219,
+          "class_mass": [
+            4.5,
+            190.5,
+            23.5,
+            0.0,
+            0.0,
+            0.5
+          ]
+        },
+        "STATIC_BLOCKAGE": {
+          "anchors": 74,
+          "physical_groups": 2,
+          "valid_queries": 267,
+          "class_mass": [
+            5.0,
+            185.20000000000005,
+            0.0,
+            56.800000000000004,
+            20.0,
+            0.0
+          ]
+        },
+        "DYNAMIC_CUTIN": {
+          "anchors": 3,
+          "physical_groups": 1,
+          "valid_queries": 12,
+          "class_mass": [
+            0.0,
+            3.0,
+            9.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "VULNERABLE_CROSSING": {
+          "anchors": 480,
+          "physical_groups": 17,
+          "valid_queries": 1768,
+          "class_mass": [
+            17.0,
+            1623.0,
+            125.0,
+            0.0,
+            0.0,
+            3.0
+          ]
+        },
+        "ONCOMING_INVASION": {
+          "anchors": 37,
+          "physical_groups": 1,
+          "valid_queries": 134,
+          "class_mass": [
+            23.5,
+            68.0,
+            31.5,
+            0.0,
+            0.0,
+            11.0
+          ]
+        },
+        "JUNCTION_RULE_CONFLICT": {
+          "anchors": 359,
+          "physical_groups": 14,
+          "valid_queries": 1387,
+          "class_mass": [
+            9.0,
+            1146.0,
+            210.5,
+            0.0,
+            0.0,
+            21.5
+          ]
+        },
+        "SIGNAL_FAILURE": {
+          "anchors": 1,
+          "physical_groups": 1,
+          "valid_queries": 1,
+          "class_mass": [
+            0.5,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.5
+          ]
+        },
+        "POST_BYPASS_RETURN": {
+          "anchors": 73,
+          "physical_groups": 5,
+          "valid_queries": 276,
+          "class_mass": [
+            27.700000000000003,
+            166.5,
+            10.0,
+            32.8,
+            14.799999999999999,
+            24.199999999999996
+          ]
+        },
+        "UNSIGNALIZED_PRIORITY": {
+          "anchors": 716,
+          "physical_groups": 10,
+          "valid_queries": 2685,
+          "class_mass": [
+            241.5,
+            2016.5,
+            276.0,
+            0.0,
+            0.0,
+            151.0
+          ]
+        },
+        "RAMP_MERGE_EXIT": {
+          "anchors": 20,
+          "physical_groups": 1,
+          "valid_queries": 77,
+          "class_mass": [
+            0.4,
+            0.0,
+            0.0,
+            38.0,
+            0.0,
+            38.599999999999994
+          ]
+        }
+      },
+      "split_moves": {
+        "EnterActorFlowV2/Town12_975_0": {
+          "from_split": "train",
+          "to_split": "test",
+          "events": [
+            "POST_BYPASS_RETURN",
+            "RAMP_MERGE_EXIT"
+          ]
+        },
+        "HardBreakRoute/Town12_4357_0": {
+          "from_split": "train",
+          "to_split": "test",
+          "events": [
+            "LEAD_BRAKE"
+          ]
+        },
+        "MergerIntoSlowTrafficV2/Town13_1398_14": {
+          "from_split": "train",
+          "to_split": "val",
+          "events": [
+            "POST_BYPASS_RETURN",
+            "RAMP_MERGE_EXIT"
+          ]
+        }
+      },
+      "independent_holdout_claim": false
+    },
+    "abc": {
+      "status": "completed",
+      "ready": "ready",
+      "exit_code": 0,
+      "seconds": 907.3784799575806,
+      "anchors": 259493,
+      "split_anchors": {
+        "train": 256469,
+        "val": 740,
+        "test": 2284
+      },
+      "dataset": "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/generation/geometry_abc_v2/geometry_only_v1/fa8fcbe7c5b29a68bf8542f24d2015d23a9cc35812c22283455929bedb8b58bd/data/dataset.json",
+      "dataset_sha256": "db2c6e39fa891c4ebdde0018dec489394119edc7b15a3ffbfde7e38348411fc7",
+      "admission_sha256": "cabe9d641737b580cfaddf26539adb61fceab8b0b1dd158d78858cdc08972141",
+      "plan_sha256": "99c96832b97d2ad10a120c40883fbd9b512efa4408782a47fbf1a768ccb78f33",
+      "presentations_per_epoch": [
+        12800,
+        12800,
+        12800
+      ],
+      "optimizer_steps_per_epoch": [
+        3200,
+        3200,
+        3200
+      ],
+      "unseen_physical_frames": [
+        12800,
+        11272,
+        9689
+      ],
+      "unsupported_validation_pure_classes": {
+        "a": [
+          "LEFT_NEAR"
+        ],
+        "b": [
+          "LEFT_NEAR"
+        ],
+        "c": [
+          "LEFT_NEAR",
+          "RIGHT_NEAR"
+        ]
+      },
+      "test_support": {
+        "LEAD_BRAKE": {
+          "anchors": 2,
+          "physical_groups": 1
+        },
+        "STATIC_BLOCKAGE": {
+          "anchors": 85,
+          "physical_groups": 2
+        },
+        "DYNAMIC_CUTIN": {
+          "anchors": 3,
+          "physical_groups": 1
+        },
+        "VULNERABLE_CROSSING": {
+          "anchors": 524,
+          "physical_groups": 18
+        },
+        "ONCOMING_INVASION": {
+          "anchors": 40,
+          "physical_groups": 1
+        },
+        "JUNCTION_RULE_CONFLICT": {
+          "anchors": 359,
+          "physical_groups": 14
+        },
+        "SIGNAL_FAILURE": {
+          "anchors": 9,
+          "physical_groups": 1
+        },
+        "POST_BYPASS_RETURN": {
+          "anchors": 470,
+          "physical_groups": 14
+        },
+        "UNSIGNALIZED_PRIORITY": {
+          "anchors": 762,
+          "physical_groups": 11
+        },
+        "RAMP_MERGE_EXIT": {
+          "anchors": 30,
+          "physical_groups": 1
+        }
+      },
+      "split_moves": {},
+      "independent_holdout_claim": false
+    }
+  },
+  "evidence_sha256": {
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/cpu_status.json": "aaee01b0f813cb78a92317c424b18c8b623b1b9acfd2f491e7d6d948d8dd6ed4",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/ready_1280.json": "57c37cf77bf6fa0a2179ce025759deedff024b1570223a63acb119459de8533c",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/admissions/f6dfb239f64ee8e9dd5d97f1225e0d18c6aaa623abd982658bf2ace55110277b.json": "d3ffb54a3bf81ad4634a16c6dcfbeaa33f757fd1b36dabed7c8ba44b4662cfb4",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/plans/b0f5a3c5e0b7a19e71456cdfaf8a71e4f90101ccfb1672b98824d5361f096554.json": "03b42dd6739eedff4dbe1b63f6fe8ef167daaf123ad3b04f5419de514e132d8a",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/reports/bcf1d2fd2f1fc381f20ce7a13b278824e547055e108cbea56846a018e126b031/1280/pool_report.json": "61b45d136491ce694dec10c7785f4fcce92a28574b49f3f0c98cdb023963476b",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/generation/phase3_single_v3/native_six_postfilter_split_v3/b5dc78d90d959af52e017ee2317e94518ac0949633286f6e606a3516de0634cf/complete.json": "e711f2de715a0c3cb7d7c35c50b9883d34b0d4075392c98fae9998592db5147c",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_single_v3/generation/phase3_single_v3/native_six_postfilter_split_v3/b5dc78d90d959af52e017ee2317e94518ac0949633286f6e606a3516de0634cf/data/receipt.json": "11c6c3208f6bfa23768c7d99765b68595faecb7c5e7304222e981925b84bc210",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/cpu_status.json": "120deb909e8162d1957f808d02ada6c8071de8634eeb4a2e6dc51d417069e8ec",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/ready_1280.json": "ed5d90c9fd1d4256ad0dbf82fa00d6624556902c68e6c221a816cf2d7f7ff6c1",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/admissions/cabe9d641737b580cfaddf26539adb61fceab8b0b1dd158d78858cdc08972141.json": "cd6d8299902d92e052046a55ee0a3bf13a4bf5bc2034dea3901f235ddb229191",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/plans/99c96832b97d2ad10a120c40883fbd9b512efa4408782a47fbf1a768ccb78f33.json": "57fdb0685699696b6cd3ca16d707589f8e0a29e2b7a67b36bb3e86ad19330791",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/reports/db2c6e39fa891c4ebdde0018dec489394119edc7b15a3ffbfde7e38348411fc7/1280/pool_report.json": "e5533cc2103b42e0ff8e7be4f4e0970dd9117c22897ae5696c55da50c64b447d",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/generation/geometry_abc_v2/geometry_only_v1/fa8fcbe7c5b29a68bf8542f24d2015d23a9cc35812c22283455929bedb8b58bd/complete.json": "48251a57d8ccd478cd04dfcac5c776c9229f1f18eaa95df1e517f97605ca31ef",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/geometry_abc_v2/generation/geometry_abc_v2/geometry_only_v1/fa8fcbe7c5b29a68bf8542f24d2015d23a9cc35812c22283455929bedb8b58bd/data/receipt.json": "8ed98f3bea3eed9df794f6593ac379dad0a0faebe5baac5c261e05c674ccaf7a",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/single_completed_cpu_status.json": "aaee01b0f813cb78a92317c424b18c8b623b1b9acfd2f491e7d6d948d8dd6ed4",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/regression.log": "337675c33bc4dbded4008e14c0818184333aa4032b5336ff887df29cad833eb1",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/single_attempt1_status.json": "cd2cba76983bafe976465c24aa6e279387ed47b0fc8197d72ce8b010fd89ac75",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/single_attempt2.log": "82bec53ab1e25bdbcdef87f226b62da8fe525eaecd408f52a6feddfa16bfc666",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/cutin_crosscheck.json": "4caa74231867473b280e72f7c2fdfa76ca7b46d7546ef879fdf98a0c7268630f",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/runtime_sources.json": "279e3c40832cfc80f96563e6bccec38ffdf4d82f2f11744e08f1dda7df7cd8c9",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/abc_completed_ready_1280.json": "ed5d90c9fd1d4256ad0dbf82fa00d6624556902c68e6c221a816cf2d7f7ff6c1",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/single_completed_ready_1280.json": "57c37cf77bf6fa0a2179ce025759deedff024b1570223a63acb119459de8533c",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/abc_completed_cpu_status.json": "120deb909e8162d1957f808d02ada6c8071de8634eeb4a2e6dc51d417069e8ec",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/abc.log": "a07e4e7949b89ff70099c9f0a2a2e24e4db4e9b5a0624aa7f33566dbc78039f7",
+    "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_cpu_admission_20261023/regression.xml": "969dd2934a120c0d1903e8b4d5b0dd21166576490815e64728fdf8fb6f36c7c3"
+  },
+  "fix": "single CPU map view moved beside study root to preserve protected-input overlap rejection",
+  "base_formal_admission_executed": false,
+  "GPU_executed": false,
+  "RGB_boundary_review_executed": false,
+  "remote_executed": false,
+  "push_executed": false
+}

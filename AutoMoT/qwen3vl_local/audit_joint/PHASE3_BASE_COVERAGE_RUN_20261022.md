@@ -1,5 +1,9 @@
 # 四图独立 base 增步版与新版单帧 six
 
+**当前入口已更新为允许有限重复的 base bounded_v3，正式全池 CPU 已通过。** 请使用 [新版运行说明](PHASE3_BASE_BOUNDED_RUN_20261023.md) 中的 `phase3_compare.sh` 入口。本文的 coverage_v2 保留严格去重合同，不自动改成 v3。
+
+**2026-10-23 复核：下列旧后台命令不能作为当前可开训保证。** 用户真实日志和本机全池均复现 base 动态切入容量不足；新版完整训练池仍只有 925 个有效 train 帧，不能满足 1,280 个不同帧。旧 study six 也不代表当前 single v3。当前状态、修复与证据见 [启动复核](PHASE3_BASE_STARTUP_REVIEW_20261023.md)。下文保留历史预算与发布记录。
+
 用户已明确放弃 sequence，要求补齐四图 base 的增步、未见数据优先与重复限制。新入口为 `phase3_base_coverage.sh`，显式选择 `phase3_launch --method base --base-budget coverage_v2`。旧 base/单帧入口默认配置保留，不把它们冒称新版本。
 
 ## 合同与预算

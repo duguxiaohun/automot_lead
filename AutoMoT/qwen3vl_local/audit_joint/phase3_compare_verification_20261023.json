@@ -1,0 +1,143 @@
+{
+  "schema": "phase3_comparison_implementation_verification_v1",
+  "date": "2026-10-23",
+  "sources": {
+    "qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md": "6cce766e120385ded6eeb81943568ef346726e3445bcb2813352b4d9fadac22b",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/__init__.py": "ceea129cbaf4937f5fb6e60fc6e8d54e52105c9bb31d8a508438c59975be6154",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/__main__.py": "8ea8105aca45a02a5b9b8cc74478f5975a41d9d3a4a040ba2abaf5fb9df25ef8",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/admission.py": "bdf9522722c178c454b8ce998371ad45d8bbd4f838366a2d0292ad24c23019bf",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/boundary_audit.py": "76adb6d361a9b0fba9948a0634f833c85b37951ea42c67b9b5a370c018af1176",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/cpu.py": "0502ba23dc2e4d66de9742864d8f3a7abfa32b0bafd51af362508b9a69222d72",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/dataset.py": "a4b1fc6242661f00fd3443719f8cc4887724af6a00b90217671689c06a61f55d",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/expert.py": "5aa38d724a6f9d6122d81345ef8a09dec9b22e0e408516aafa4a71764730327d",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/metrics.py": "bbd33d6e668e5b86f4afb0f2ebea3f6b9a8120852da918bb01f8c8a92c42bc93",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/objective.py": "8141cfc3d1b9ac5582cba591e1da3fda6c000f576423d06ad74b337219173688",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/planning.py": "ecfb89b780609f22d47c0b71221b04f0aa8955ec342d3ac9ac74837b373424b4",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/prepare.py": "644638fbf99171e3c027e57a025d80eb50287a7317d389e2e6847da4ba528277",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/regions.py": "3309c89c281d9077d1c04729436890fbbd57301c95e4ec90a1a00098c7a52b9e",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/remote.sh": "254102c267e7ff4036e7ad59e09a89ac7638ed1bcafa4af19fa8ccfbc770e319",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/run.sh": "52b640abc7e9a734bf43210a579ae3d2dd672545747692a0569e7f769252ffe6",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/startup.py": "dca10e5a93773e85c0fa13b533410013c09a1177e49ee1585a3db54f6124a111",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_admission.py": "37cddb26037893d3090520d8337cb5d14701dbb4dd099437ceb113e5cff75021",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_expert.py": "fd8daddc01375fa19ed2d110fa3a5e958d8f87e72293352d23737c628186dd86",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_independent.py": "c948d07da72e550f1bd24bce83144bc9aac47bbb800694efd7ec4484d915a6fa",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_new_policy.py": "ccea328265513c4176a220d5f43b615cd189433117ee122b6e39a8e13dd57a77",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_qwen.py": "38d95bf0ccdb7394f0b0713bfd478450f35ed3c962cc0910b64005c321ab75b7",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/tests/test_study.py": "1091e4ff7f95b7d4c38a44077e7d04c34f86acf02391416f84238721cab817d2",
+    "qwen3vl_local/audit_joint/geometry_abc_v2/train.py": "4d2e99803a03b06cdc4c63410f9826e73ac64477eb2892a24d9c4b4c6ae4c434",
+    "qwen3vl_local/audit_joint/phase3_compare.py": "c060db225d34c2ff51da7e87c94104285c328685fbc678db71928af8d3214ce8",
+    "qwen3vl_local/audit_joint/phase3_compare.sh": "7d83ed91075885a39fd9eeba0e6f111394ab34b6a5480bad7ea305dd22d328fb",
+    "qwen3vl_local/audit_joint/phase3_comparison_diagnostics.py": "f5d06ed2eff572075ef9f53fcfda55d89c28267d010dca527c37c56e2656d2f3",
+    "qwen3vl_local/audit_joint/phase3_comparison_policy.py": "b191f0d043aed7a39ee887c71e9d0406f176223cb6eed6b1fd1b7757d669a614",
+    "qwen3vl_local/audit_joint/phase3_single_v2/__init__.py": "d985b7e36de9e51535e01f9c45ca5ca88811993d6e4b80eeea8b9ab5efa62d2f",
+    "qwen3vl_local/audit_joint/phase3_single_v2/__main__.py": "bda0b198329ba93d0537e73dbff162f749cb77cf465a82ef1948941b229f2bde",
+    "qwen3vl_local/audit_joint/phase3_single_v2/admission.py": "8456f34430deda877e29fa0345940dcac1191b02392a868538746611bc0b72fc",
+    "qwen3vl_local/audit_joint/phase3_single_v2/cpu.py": "2bd7dcc08eaed4fd5fcd2d69793be4b94dc69d20dcf471b89c6c2fe66af095b8",
+    "qwen3vl_local/audit_joint/phase3_single_v2/dataset.py": "c121ba250b9c4d989d25881d3ceb9200cdf34ddd3c2747c5f2b99c5231ed488c",
+    "qwen3vl_local/audit_joint/phase3_single_v2/expert.py": "3572b7b3e825499e67638a14cf7ca4e90654b6ef91cf300ae20e721f7ff77501",
+    "qwen3vl_local/audit_joint/phase3_single_v2/metrics.py": "bbd33d6e668e5b86f4afb0f2ebea3f6b9a8120852da918bb01f8c8a92c42bc93",
+    "qwen3vl_local/audit_joint/phase3_single_v2/objective.py": "466ec35ab8e5f879d1f310cc12b98266e439018817d5d86c449b69baef214f8e",
+    "qwen3vl_local/audit_joint/phase3_single_v2/planning.py": "ecfb89b780609f22d47c0b71221b04f0aa8955ec342d3ac9ac74837b373424b4",
+    "qwen3vl_local/audit_joint/phase3_single_v2/prepare.py": "c6701e60877c83531497ce01fc1e3ceb74c630c28eca5e72dd9bd4f8702b882e",
+    "qwen3vl_local/audit_joint/phase3_single_v2/regions.py": "d4e9bb57981b737e862d512dd86d41040ae37e69be93bd94a6c85118e8ddace2",
+    "qwen3vl_local/audit_joint/phase3_single_v2/remote.sh": "981b821c00bfea3b775af7ab39c6987e754a2f0efa192f162a99d3085d568bed",
+    "qwen3vl_local/audit_joint/phase3_single_v2/run.sh": "c5838cc42138736696321ba1f5d879dac9432b027b5f4308f058e3e017ede323",
+    "qwen3vl_local/audit_joint/phase3_single_v2/six.py": "0530ea2783d6d00c8887ffbd38e81987f27fc465b82b7892b7207e31c21fd2a1",
+    "qwen3vl_local/audit_joint/phase3_single_v2/startup.py": "dca10e5a93773e85c0fa13b533410013c09a1177e49ee1585a3db54f6124a111",
+    "qwen3vl_local/audit_joint/phase3_single_v2/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "qwen3vl_local/audit_joint/phase3_single_v2/tests/test_admission.py": "224dc35cb4238e98eb68d4b149bca4b0ecc72aafa740eb37475a8b7642f61f0a",
+    "qwen3vl_local/audit_joint/phase3_single_v2/tests/test_expert.py": "ee9f49e40751e91abb8fd6cc3c4b22f58f5c887a5455a6ff78269a812c4b4637",
+    "qwen3vl_local/audit_joint/phase3_single_v2/tests/test_qwen.py": "f8f0be43e2bb1d800811d4066e19e3fdc096936d908e625312ca190ef6e30f47",
+    "qwen3vl_local/audit_joint/phase3_single_v2/tests/test_single.py": "eeb28d4715de105c16136ab0364a13bac689b5f5cac2511a461d7c83e079d484",
+    "qwen3vl_local/audit_joint/phase3_single_v2/train.py": "f7232428fc9136396d0c233410b34f637bb239123f2e5b0f256ef1b20ca727f7",
+    "qwen3vl_local/audit_joint/tests/test_phase3_compare_entry.py": "45279f97677c1e3fe8a8e18dbd62a79ffcf294d1a3e98f1af5157f995c9a4cc4"
+  },
+  "tests": {
+    "main": {
+      "passed": 171,
+      "seconds": 119.1,
+      "report": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_compare_verification_20261023/regression.xml"
+    },
+    "final": {
+      "passed": 11,
+      "deselected": 1,
+      "seconds": 2.98,
+      "report": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_compare_verification_20261023/final_entry.xml"
+    },
+    "overlap": true,
+    "distinct_tests": 172
+  },
+  "preserved": {
+    "frozen_runtime_files": 61,
+    "changed": [],
+    "old_geometry_abc_ready_preserved": true
+  },
+  "real_small": {
+    "single": {
+      "anchors": 151,
+      "elapsed_seconds": 10.207209207001142,
+      "full_source_validation": true,
+      "dataset_sha256": "c827e68e8a4ce95979f326aa5b3513d781aa625a92033bbba21a6f01d449d154",
+      "admission": "rejected"
+    },
+    "abc": {
+      "anchors": 202,
+      "elapsed_seconds": 4.673286458972143,
+      "full_source_validation": true,
+      "dataset_sha256": "c9948eb3cfd221b0642f0df3cee25e57e1f4428dc337c885cac38a997d140cc7",
+      "admission": "rejected"
+    }
+  },
+  "full_abc": {
+    "parent_sha256": "05f9c44906d40ce3eec5aaa5c7c6508854832a9a9727f4293a47191a21455239",
+    "scanned": 260719,
+    "retained": 259493,
+    "fixed_validation_anchors": 740,
+    "steps": [
+      3200,
+      3200,
+      3200
+    ],
+    "new_frames": [
+      12800,
+      11272,
+      9689
+    ],
+    "max_run_repeat": 3,
+    "plan_sha256": "99c96832b97d2ad10a120c40883fbd9b512efa4408782a47fbf1a768ccb78f33",
+    "raw_sources_reverified": false,
+    "formal_ready_written": false,
+    "report": "/home/codon/automot_lead/AutoMoT/checkpoints/phase3_compare_verification_20261023/full_pool_report.json"
+  },
+  "boundaries": {
+    "current_inner_outer_m": [
+      3,
+      13
+    ],
+    "c_left_right_near": [
+      96,
+      28
+    ],
+    "candidate4_left_right_near": [
+      947,
+      256
+    ],
+    "candidate5_left_right_near": [
+      1822,
+      908
+    ],
+    "new_RGB_review": false,
+    "thresholds_changed": false
+  },
+  "limitations": [
+    "full single real pool capacity not verified",
+    "no new full raw-source formal CPU admission",
+    "no 4B GPU training or online execution",
+    "no new blind RGB audit or model accuracy claim",
+    "not pushed"
+  ],
+  "independent_pools": true,
+  "nine_region_loss": true,
+  "final_epoch_test": true
+}

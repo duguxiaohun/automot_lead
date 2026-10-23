@@ -16,7 +16,8 @@ APP=Path(__file__).resolve().parents[2]
 OVERLAY=('phase3_common_data.py','phase3_common_runtime.py','phase3_launch.py','phase3_launch.sh',
          'phase3_launch_worker.py','phase3_data_ready.py','phase3_prompt_runtime.py','phase3_prompt_review.py',
          'versioned_data.py','data_prepare.py','phase3_native_runtime.py',
-         'phase3_base_coverage.py','phase3_base_coverage_sampling.py')
+         'phase3_base_coverage.py','phase3_base_coverage_sampling.py','phase3_base_pool.py',
+         'phase3_base_bounded.py','phase3_base_bounded_sampling.py','phase3_base_bounded.sh')
 
 
 def prepare(checkpoints, *, app=APP):
@@ -55,12 +56,17 @@ def needed():
 
 
 def execute(module, arguments, *, checkpoints=None):
-    if module not in ('phase3_launch','data_prepare'):raise ValueError('Unsupported compatibility entry')
+    if module not in ('phase3_launch','data_prepare','phase3_base_pool','phase3_base_bounded'):raise ValueError('Unsupported compatibility entry')
     args=list(arguments)
     if module=='phase3_launch':
         defaults={'--data-root':APP/'lead_data','--model-dir':APP/'checkpoints/Qwen3.5-4B',
                   '--common-data-dir':APP/'checkpoints/phase3_common_v1','--collection-dir':APP/'keyframe_filter/collection_output'}
         paths={'--index','--dataset','--resume','--output',*defaults}
+    elif module in ('phase3_base_pool','phase3_base_bounded'):
+        folder='phase3_base_pool_v1' if module=='phase3_base_pool' else 'phase3_base_bounded_v3'
+        defaults={'--data-root':APP/'lead_data','--root':APP/'checkpoints'/folder,
+                  '--collection-dir':APP/'keyframe_filter/collection_output'}
+        paths=set(defaults)
     else:
         defaults={'--data-root':APP/'lead_data','--model-dir':APP/'checkpoints/Qwen3.5-4B',
                   '--checkpoints':checkpoints or APP/'checkpoints','--collection':APP/'keyframe_filter/collection_output'}

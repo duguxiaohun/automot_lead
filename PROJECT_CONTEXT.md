@@ -1,5 +1,77 @@
 # PROJECT_CONTEXT — automot_lead Compact Guide
 
+### 2026-10-23 Phase3 五类发布复核
+
+用户授权修复并 push 精确白名单。当前 canonical 为 base bounded_v3／single v3／abc v2，五类本机正式 CPU ready 已通过；每轮12800呈现、3200更新、三轮9600，允许独立采样，base按授权有限重复。base外层使用已验证兼容快照收尾，verify base支持已完成任务补验收。
+
+本轮补齐 single／abc 原先仅凭完成摘要和metrics文件即可通过的漏洞：包外phase3_completion核验当前来源/数据/准入/计划、三轮state.pt散列、完成步数与累计曝光、完整test成员/标签，并从cases重算metrics；不加载模型、不重新推理，不改绑定的训练代码或ready。compare.sh继承禁core设置，运行说明统一当前版本。精确暂存副本不含.git，350项不同相关CPU测试通过；共享测试文件保留本机Phase4测试、仅暂存本轮范围，16项复核计入350不累加。结果和限制见AutoMoT/qwen3vl_local/audit_joint/PHASE3_RELEASE_REVIEW_20261023.md及phase3_release_verification_20261023.json。原13份base证据及single162/abc160项绑定源码保持，旧回执不重写。数据/权重/RGB/完整日志与其它任务改动不发布。
+
+真实4B四卡探针仍未执行，不能把CPU回归当作正式GPU训练验收。稀疏test、val缺类、已知开发曝光与3/13米边界视觉审查限制保留。服务器同步仍bash ./sync_automot.sh；已有base完成先verify base，按未完成方法继续，不能重跑train all覆盖已有实验。
+
+### 2026-10-23 base 外层完成验收修复
+
+生产代码仅改phase3_compare.py，base外层收尾调用已校验phase3_native_runtime快照中的真实verify_training，固定cwd/PYTHONPATH和-B，保留全部SHA/9600步/38400消费/曝光/adapter完整性检查；成功写回执后train all继续后四组。新增verify base可为已有内层completed_quality_pending任务补验收，不建库、不GPU、不改实验产物，不应因此重训；失败或损坏证据仍拒绝。完成base后按缺少方法train single/abc，不重跑train all绕过碰撞。
+
+108相关CPU测试59.44s通过（含此前99和新增9，不累加），真实兼容子进程+合成完整消费回执，训练与权重为测试替身。正式a1fd2101快照合同仍匹配base ready，13历史证据不变，single/abc182源仅compare外层变、其余181一致。五类CPU已ready，无需重建；未GPU/远程/push。说明PHASE3_COMPLETION_FIX_20261023.md、回执phase3_completion_verification_20261023.json。single切入test12查询STOP/RESUME质量3/9而非全STOP，仍一物理组；缺类和4/13米候选视觉审查待完成。
+
+### 2026-10-23 base 有限重复 v3 正式 CPU 全池通过
+
+用户明确“适当允许部分稀少数据重复”。新增 phase3_base_bounded.py/.sh 与独立 bounded_sampling，canonical phase3_compare base已切bounded_v3，旧coverage_v2不改采样规则、旧拒绝证据保留。完整原生train候选索引复用，不动标签/风险隔离/val-test/source SHA。每事件1280、每轮3200更新、三轮9600/warmup2500不变。稀缺事件先覆盖全部有效帧，同事件单轮最多2，充足事件内最多1；整数最小费用流联合处理共享帧，先最少物理重复再最少累计曝光，跨事件物理帧单轮最多2；同事件run上限ceil(3840/容量)或3，跨事件共享物理上限6并为后续轮次保留容量，无隐式续训。
+
+真实全池发现SIGNAL_FAILURE/JUNCTION_RULE_CONFLICT共享447帧、并集2430<合计2560；不能只补355+25事件内重复。最终每轮额外物理呈现485=380事件内+105跨事件，3.789%；独特物理帧12315，三轮新帧12315/8960/7703；实际累计单帧最大5（dynamic5，signal4，junction同事件3/跨事件4）。正式来源校验/原生复用/三轮投影均通过，checkpoints/phase3_base_bounded_v3/ready_1280.json为ready。旧strict仍rejected。单帧/abc冻结源码不改且既有ready保留。
+
+最终99项CPU回归26.61s通过，含原生小CPU真实优化/失败曝光、共享容量穷举、adapter配置/评测、新旧入口；另真实四Gloo+Linear DDP三轮120次合成呈现、逐rank ID/原生消费一致，不叠加pytest数、不称4B GPU验收。模型权重保存测试替身明确。本机缺完整4B模型，未GPU/SSH/push。发布后sync_automot.sh→前台compare cpu base→check base→probe base全部成功再后台train base；正式run为phase3_compare_base/run_base_bounded_v3，探针另有_probe。老coverage命令和geometry_study six不代表新版本。
+
+说明PHASE3_BASE_BOUNDED_RUN_20261023.md，回执phase3_base_bounded_verification_20261023.json，证据checkpoints/phase3_startup_review_20261023。一次诊断漏-B增加独立缓存62个pyc，校验正确拒绝；原源码不变，带旧回执完整保留到审计目录后原生重建同源快照，未改SHA。中间共享容量拒绝报告保留。保留其它未提交工作。
+
+### 2026-10-23 base 真实启动失败与完整训练池审计
+
+用户补回底层日志确认旧 base 在 prepare 因 DYNAMIC_CUTIN 容量不足退出；旧 geometry_study six 则缺自身版本 ready，不等于新版 single。新增独立 phase3_base_pool：保留全部原生 train 候选，原 val/test/标签/INVALID 不变；兼容运行时绑定，CPU 无需模型/GPU，正式 coverage launcher 同池。主入口提前核验 ready/拒绝原因，底层错误直出；新增前台 probe base 独立目录，不训练、不写 latest、拒绝覆盖。旧冻结源和旧产物保留。
+
+本机完整原生扫描、依赖前后校验、选择题有效性与容量实际执行完毕：train187982（含INVALID1850），动态切入925、信号灯故障1255有效不同帧，正式ready为rejected。不是正式三轮通过。动态切入原始事件候选1416，327旧视觉/标注风险（238主体未确认、89道路上下文），51纵向混合/4速度窗口不足，留下1034=train925/val45/test64；逐帧重放与原生全池一致，本事件没有四图缺失损失。旧原生采样器重放1280时分别重复355/25呈现，最大2；不声称历史某run实际曝光。即使327全部有效且可入train，上界1252仍不足1280。用户追问数量原因，尚未授权改配额/放重复；原1280、单轮1全run3保持，不能提供旧后台开训成功承诺。
+
+85项相关回归+最终入口10项有重叠，去重87项通过。single v3/abc v2原生ready重载仍为三轮3200；此前182源仅公共compare入口变，其余181匹配，旧回执不改。无4B模型，未GPU/远程/push/新RGB人工审查。当前证据checkpoints/phase3_startup_review_20261023，正式base拒绝指针checkpoints/phase3_base_pool_v1/ready_1280.json；说明PHASE3_BASE_STARTUP_REVIEW_20261023.md及phase3_base_startup_verification_20261023.json。旧运行文档已加阻断提示，保留其它工作。
+
+### 2026-10-23 single／abc 新版正式 CPU 全池准入完成
+
+按审计结论推进真实全池，single 首次统一入口复现 output_overlaps_input：CPU 把地图视图放在 study-root/maps，触发 prepare 输入保护。修复为 study-root 同级的 <name>_maps，保留地图校验和重叠拒绝；测试取消地图解析器替身，串接真实默认／显式发现与原生小池 CPU。26 项直接相关测试 8.49s 通过，不与历史批数相加。上轮30文件回执中仅 cpu.py 和对应测试改变，旧回执保留。
+
+修复后 single v3 正式 CPU 退出0／completed／ready，260719父锚点→204910有效（train202516/val573/test1821），三split十事件齐全。完整来源校验、六动作重算、缓存重载和三轮预算通过。移动3个完整已知非曝光train组：HardBreakRoute/Town12_4357_0→test；EnterActorFlowV2/Town12_975_0→test；MergerIntoSlowTrafficV2/Town13_1398_14→val。原val/test不动。test跟车制动58锚点219查询1组，train剩3106；信号灯故障1查询1组。动态切入12查询含STOP／RESUME，目标质量3／9，与上轮replay_final逐字段相同，并非全STOP。val无纯左变道支持。
+
+abc v2 也正式 CPU 退出0／completed／ready，259493有效（train256469/val740/test2284），三split十事件齐全；a/b/c共享成员和计划，本轮源码未改。两包各三轮12800呈现／3200更新，总9600，每帧单轮1全run3；single新帧12800/10306/9506，abc12800/11272/9689，均仅计划投影。abc val a/b缺左近、c缺左右近；test跟车制动2锚点1组，仍沿原划分。
+
+本机正式状态见 checkpoints/phase3_single_v3 与 geometry_abc_v2 的 ready_1280.json、cpu_status.json；任务均已结束，无需重复启动。single162／abc160绑定源码运行前后匹配。说明 PHASE3_CPU_ADMISSION_20261023.md、回执 phase3_cpu_admission_verification_20261023.json，证据 checkpoints/phase3_cpu_admission_20261023，首次失败日志与状态保留。未执行本轮base全池、四卡GPU、在线、RGB边界盲审、远程或push；不称五类训练全部跑通，不认证未知外部曝光，保持其它改动与旧库权重。
+
+### 2026-10-23 single 真实 test 缺失与本机地图入口修复
+
+用户审计确认旧single v2父库test跟车制动4候选全部原生六动作无效；授权修复。新增独立phase3_single_v3，原生六动作有效性过滤后补齐val/test事件，仅从未列入当前development／额外曝光清单的train完整物理组选择；原val/test固定，标签不改，abc不受限制。保护每事件1280训练不同帧并用原生共享帧规划核验，失败回溯；unknown/infeasible不发布部分移动，不放宽准入。保存parent_split、原/新assignment、移动组及曝光来源SHA，缓存/准入/模型绑定；未认证未知远程曝光。额外--exposure-manifest支持已知记录。信号灯故障与动态切入稀疏测试支持仍警示。
+
+phase3_compare.sh的single现指向v3、新输出checkpoints/phase3_single_v3；abc v2运行时保持冻结。新phase3_maps优先项目CARLA完整十二Town，再查应用内/兄弟lead已知目录；统一CPU入口传已校验平坦视图给single/abc，开放--maps/--geometry，显式路径不隐式回退、不混拼不完整源、冲突与旧视图变更拒绝。single v3直接CPU同样接入。真实本机默认根lead/3rd_party/fail2drive/toolbox/carla_xodr十二Town通过，不推断远程缺图。旧abc v2独立CPU默认逻辑保持历史语义，新入口已绕开其本机路径阻断。
+
+本轮真实重放三个事件全部候选425路线：LEAD_BRAKE train3164/val34/test0，SIGNAL_FAILURE 1430/9/1（test1查询），DYNAMIC_CUTIN 1346/3/3（test12查询1组）。发现14个未列入绑定曝光名单的有效跟车制动train供体组；固定哈希首候选HardBreakRoute/Town12_4357_0有58有效锚点219查询、仅该事件，移出后train3106不同帧。此为真实候选证据，非全事件正式新划分；旧test346/347/349/350仍全部无效。重放绑定父SHA、来源代码、metadata前后SHA和地图，不修改父库。
+
+最终本轮172项CPU回归37.32s、1项未改动正式预算大合成测试排除；不能与此前同为172的不同测试批相加。含真实规则合成三split十事件后过滤修复、旧父字节不变、ready/缓存复用/篡改拒绝、曝光禁供体、穷举可行性对照、小Qwen/expert及旧study/abc回归。81个旧运行源码字节未变；新正式全池CPU/4B GPU/在线/新RGB边界审查/push均未执行，不伪造ready。说明PHASE3_SINGLE_REVIEW_FIX_20261023.md，回执phase3_single_review_fix_verification_20261023.json，本机证据checkpoints/phase3_single_review_fix_20261023。保持其它已有工作；发布后远程同步仍bash ./sync_automot.sh。
+
+### 2026-10-23 Phase3 五类预算与区域分类 loss 独立版本
+
+用户根据附件最后澄清授权实现：仅统一数量／更新，允许各自采样；abc明确九类内部softmax分类loss。新增 canonical phase3_compare.py/.sh（base/single/a/b/c，cpu/check/status/train），base沿用coverage_v2；新phase3_single_v2独立重算六动作、仅原生当前与未来有效性，无abc未来交集或采样质量；共享已验证父库的当前观测／划分要求，父库几何未来无效记录仍可进入single。新geometry_abc_v2九logits内部归一化，预测概率和1，保留全词表诊断；阈值不变，旧库／权重不自动迁移。
+
+五组正式固定每轮12800呈现／3200更新，三轮9600，warmup2500，seed20260904/lr1e-5/原生余弦，最终第三轮test；single/abc全有效val诊断，宏最佳轮仅记录。物理帧每轮1全run3、成功优化后曝光、容量不足拒绝。新增支持与留一物理组敏感性诊断（非置信区间）、训练集3/4/5m候选支持，不自动改边界。c左右近3m为96/28，4m947/256，5m1822/908；无新RGB边界验收，保留3/13m。
+
+主回归171项119.10s、收尾11项2.98s，有重叠共172不同测试；原生小Qwen、两Gloo、expert保存重载、原生六动作有效而几何未来全无效、缓存／源码篡改／失败入口等通过。真实26路线父204：single151、abc202，最终源码绑定重载及全原始源验证通过；仅train小池按设计拒绝ready。全池abc流式绑定父SHA复算260719→259493，val740，三轮3200，新帧12800/11272/9689；不代替全量原始来源重校验，不创建新版ready。
+
+旧geometry_v1/study/abc/single_frame共61运行源码字节未变，旧abc v1已完成ready但不代表新版ready；新输出phase3_compare_base/phase3_single_v2/geometry_abc_v2。未运行single真实全池正式容量、4B四卡／在线／新RGB盲审／push。旧公共入口保持旧版本复现含义；本轮新入口和步骤见PHASE3_COMPARE_20261023.md，精确回执phase3_compare_verification_20261023.json，证据checkpoints/phase3_compare_verification_20261023。保留其它已有改动。远程发布后同步仍bash ./sync_automot.sh，不要求Git历史。
+
+### 2026-10-23 a／b／c 与六动作有效性彻底解耦
+
+用户明确区域标定不应依赖旧六动作，授权重新完善代码。新增独立 geometry_abc 包，沿验证后的原生几何父库派生 a/b/c，不调用 six.build/label_actions，无当前六动作门或六动作未来交集mask；只按已知道路/至少一个有效几何端点保留。当前原点、速度、车道参考及过去位置历史沿用；a 阈值、b 高速20/24m其它3/13m、c统一3/13m均不变。三组共享原始成员/有效mask/顺序，标签各异，采样质量只含abc；默认每事件1280/三轮各9600、warmup2500、每帧每轮1/全run3。新合同 current_reference_geometry_abc_v1，模型/准入/计划/expert均绑定；旧四组库和权重不自动迁移。
+
+geometry_study_abc.py/.sh 公共入口现转向新包，默认输出 checkpoints/geometry_abc_v1；cpu/status/check/train all流程保留，CPU新增互斥锁/阶段状态，容量通过不覆盖覆盖拒绝。原 geometry_study/geometry_v1 源码与旧165绑定完全未变。新包为冻结运行时的独立版本，避免破坏six与旧模型复现。读库对同一份原始字节hash及JSON解析；缓存验证后避免立即重复全原始源扫描。已有其它未提交工作保留。
+
+129个不同相关CPU测试通过（整批128项22.59s；独立文件4项1.11s，与整批重叠3项），含真实规则记录结尾six当前/未来全部无效而几何四端点有效、原生小Qwen、两Gloo、expert保存重载、旧study回归。最终代码流式复算本地260719父锚点→259493有效，三split十事件齐全，固定验证三组纯类可定义，正式1280三轮计划各3200更新通过；每轮新帧12800/11270/9689、每帧单轮1全run最多3。此复算绑定父库SHA，但不替代全量原始源校验，不伪造ready。
+
+正式CPU建库仍在运行：checkpoints/geometry_abc_v1/cpu_status.json、geometry_abc_cpu_verified_20261023.log，写本条时PID195850（exec43243）。先读状态，不重复启动或修改其绑定源码。先前本轮PID195045为修正新入口读库绑定主动中断，失败目录及geometry_abc_cpu_20261023.log保留，未动其它任务。未GPU/在线/新RGB盲审/push。test跟车制动仅2锚点1物理组，覆盖不是精度可靠性认证；本地val匝道11与远程25不同，不称两机等价。说明 geometry_abc/README.md，精确边界及运行快照 verification_20261023.json；完整复算 checkpoints/geometry_abc_verification_20261023/full_pool_report.json。
+
 ### 2026-10-22 四图独立 base 增步与白名单入口
 
 用户再次明确 sequence 已彻底放弃，授权补齐四图 base 9600步、独立采样、未见优先及重复限制后发布命令。新包外 phase3_base_coverage.py/.sh 和 sampling：十事件各1280、四卡B1/累积1、三轮9600/warmup2500；基于原生有效choice锚点，独立打乱，事件等额、动作自然/sqrt温和偏好，跨事件同帧每轮1/全run3，容量不足拒绝。CPU先投影三轮并复核实际形状；完整优化与消费后推进历史，失败无隐式续训。原提示词/动作/四RGB/单题loss及最终第三轮test政策保留；新增逐rank ID/曝光/预算验收与最终adapter SHA合同。不是sequence回滚，也不是只改环境变量绕过旧7680校验。

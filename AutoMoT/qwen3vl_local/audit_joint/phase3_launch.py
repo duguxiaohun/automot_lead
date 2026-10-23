@@ -27,7 +27,7 @@ def command(module, *args, distributed=False):
     return prefix+[module, *map(str, args)]
 
 
-def schedule(method, root, *, prepare_only=False):
+def schedule(method, root, *, prepare_only=False, probe_only=False):
     job = root/'experiment'/('job.json' if method == 'base' else 'single_frame_job.json')
     if method == 'base':
         own = 'qwen3vl_local.audit_joint.phase3_launch_worker'
@@ -43,6 +43,9 @@ def schedule(method, root, *, prepare_only=False):
                   ('train', command(own, 'train', '--job', job, distributed=True)),
                   ('val', command(own, 'evaluate', '--split', 'val', '--job', job)),
                   ('test', command(own, 'evaluate', '--split', 'test', '--job', job))]
+    if probe_only:
+        if method!='base':raise ValueError('probe-only applies to coverage/base')
+        return stages[:2]
     return stages[:1] if prepare_only and method == 'base' else [] if prepare_only else stages
 
 
@@ -50,7 +53,8 @@ def launch_sources():
     names = ('phase3_launch.py', 'phase3_launch.sh', 'phase3_launch_worker.py',
              'phase3_common_data.py', 'phase3_common_runtime.py', 'phase3_data_ready.py',
              'versioned_data.py', 'phase3_prompt_runtime.py', 'phase3_prompt_review.py','phase3_native_runtime.py',
-             'phase3_base_coverage.py','phase3_base_coverage_sampling.py')
+             'phase3_base_coverage.py','phase3_base_coverage_sampling.py','phase3_base_pool.py',
+             'phase3_base_bounded.py','phase3_base_bounded_sampling.py','phase3_base_bounded.sh')
     return {n: trial.file_sha(Path(__file__).with_name(n)) for n in names}
 
 
@@ -89,7 +93,7 @@ def package(root, state):
 def parser():
     p = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument('--method', choices=('base', 'single_frame'), required=True)
-    p.add_argument('--base-budget', choices=('original','coverage_v2'), default='original')
+    p.add_argument('--base-budget', choices=('original','coverage_v2','bounded_v3'), default='original')
     p.add_argument('--prompt-version', choices=('original','native_clarified_v1'), default='original',
                    help='Explicit NEW single-frame experiment; labels are reused unchanged')
     p.add_argument('--index', type=Path, help='Optional historical index; omitted builds/reuses the fixed common dataset')
@@ -104,7 +108,9 @@ def parser():
     choice.add_argument('--build-data', action='store_true', help='A only: derive labels once from the frozen index')
     choice.add_argument('--dataset', type=Path, help='A only: reuse explicit current-source dataset.json')
     p.add_argument('--resume', type=Path, help='Complete epoch 1/2; new output, same dataset and source contract')
-    p.add_argument('--prepare-only', action='store_true')
+    mode=p.add_mutually_exclusive_group()
+    mode.add_argument('--prepare-only', action='store_true')
+    mode.add_argument('--probe-only', action='store_true',help='Base CPU inputs and four-GPU probe, no formal training')
     p.add_argument('--gpu-ids', default=os.environ.get('GPU_IDS', ''))
     p.add_argument('--timeout-seconds', type=int, default=172800)
     p.add_argument('--reserve-gib', type=int, default=20)
@@ -114,8 +120,10 @@ def parser():
 def main():
     resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
     a = parser().parse_args()
+    if a.probe_only and (a.method!='base' or a.resume):
+        raise ValueError('probe-only requires a new base run')
     if a.base_budget!='original' and (a.method!='base' or a.resume):
-        raise ValueError('coverage_v2 requires a new base run; no single-frame or resume')
+        raise ValueError('coverage budgets require a new base run; no single-frame or resume')
     if a.method=='base' and a.prompt_version!='original':
         raise ValueError('Clarified four-query prompt only applies to single_frame')
     if (a.method == 'base' and (a.build_data or a.dataset)) or (a.method == 'single_frame' and a.index is not None and not (a.build_data or a.dataset)):
@@ -141,14 +149,18 @@ def main():
     if a.resume: a.resume = a.resume.resolve(strict=True)
     base_dir = a.output.resolve()
     protected = [a.common_data_dir if automatic_index else a.index.parent, a.data_root, a.model_dir]
+    if automatic_index and a.base_budget!='original':
+        protected.append(a.common_data_dir.parent/'phase3_base_pool_v1')
+        protected.append(a.common_data_dir.parent/'phase3_base_bounded_v3')
     if a.dataset: protected.append(a.dataset.parent)
     if a.resume: protected.append(a.resume.parents[2])
     if any(base_dir.is_relative_to(p) or p.is_relative_to(base_dir) for p in protected):
         raise ValueError('Output base overlaps input or previous run; use a separate directory')
     tag = a.run_tag or ('base_independent_v1' if a.method=='base' else 'single_frame_nearest_v1')
-    if a.base_budget!='original' and not a.run_tag:tag='base_coverage_v2'
+    if a.base_budget!='original' and not a.run_tag:tag='base_'+a.base_budget
     if a.prompt_version!='original' and not a.run_tag:tag+='_'+a.prompt_version
     if a.prepare_only: tag += '_plan'
+    if a.probe_only: tag += '_probe'
     if not re.fullmatch(r'[A-Za-z0-9_-]+', tag): raise ValueError('Invalid run tag')
     latest = base_dir/'latest'
     if latest.exists() and not latest.is_symlink():
@@ -185,11 +197,26 @@ def main():
             state['stages'].append(dict(stage=name, **result))
             trial.write(root/'launch_workflow.json', state)
             if result['exit_code']:
+                path=Path(result['log'])
+                if path.is_file():
+                    with path.open('rb') as stream:
+                        stream.seek(max(0,path.stat().st_size-12000))
+                        tail=stream.read().decode('utf-8',errors='replace')
+                    print(f'[failed stage: {name}] {path}\n'+tail,file=sys.stderr,flush=True)
                 code = result['exit_code']; raise RuntimeError(f'{name} exited {code}; see {result["log"]}')
         if automatic_index:
             from . import phase3_common_data as common, phase3_common_runtime as common_runtime
-            a.index, reference = common.ensure(a.common_data_dir,a.data_root,a.collection_dir,run,
-                workers=a.workers,single_frame=a.method=='single_frame' and not a.dataset,discover_existing=True)
+            if a.base_budget=='bounded_v3':
+                from . import phase3_base_bounded
+                a.index,reference=phase3_base_bounded.ensure(a.common_data_dir.parent/'phase3_base_bounded_v3',
+                    a.data_root,a.collection_dir,run,workers=a.workers)
+            elif a.base_budget=='coverage_v2':
+                from . import phase3_base_pool
+                a.index,reference=phase3_base_pool.ensure(a.common_data_dir.parent/'phase3_base_pool_v1',
+                    a.data_root,a.collection_dir,run,workers=a.workers)
+            else:
+                a.index, reference = common.ensure(a.common_data_dir,a.data_root,a.collection_dir,run,
+                    workers=a.workers,single_frame=a.method=='single_frame' and not a.dataset,discover_existing=True)
             contexts.enter_context(common_runtime.activate(reference,a.data_root))
             state['common_data'] = dict(root=str(reference.parent),reference_sha256=trial.file_sha(reference),
                 historical_scores_comparable=trial.reference().get('historical_scores_comparable',True))
@@ -198,12 +225,16 @@ def main():
         if trial.file_sha(a.index) != trial.reference()['index_sha256']:
             raise ValueError('Explicit index differs from frozen reference; omit --index for a new common dataset')
         check_index(a.index, action_output_mode='choice', prompt_variant=trial.reference()['prompt_variant'])
-        if a.base_budget=='coverage_v2':
+        if a.base_budget=='bounded_v3':
+            from . import phase3_base_bounded as coverage_adapter
+            contexts.enter_context(coverage_adapter.activate())
+        elif a.base_budget=='coverage_v2':
             from . import phase3_base_coverage
-            contexts.enter_context(phase3_base_coverage.activate())
+            coverage_adapter=phase3_base_coverage
+            contexts.enter_context(coverage_adapter.activate())
         def worker_command(cmd):
             cmd=common_runtime.wrap(cmd,reference,a.data_root) if reference else cmd
-            if a.base_budget=='coverage_v2':cmd=phase3_base_coverage.wrap(cmd)
+            if a.base_budget!='original':cmd=coverage_adapter.wrap(cmd)
             if a.prompt_version!='original':
                 from . import phase3_prompt_runtime
                 cmd=phase3_prompt_runtime.wrap(cmd)
@@ -229,12 +260,13 @@ def main():
         if reference:
             trial.write(exp/'common_reference.json',trial.reference())
             trial.write(exp/'common_receipt.json',trial.read(reference.parent/'common_receipt.json'))
-        for name, cmd in schedule(a.method, root, prepare_only=a.prepare_only):
+        for name, cmd in schedule(a.method, root, prepare_only=a.prepare_only,probe_only=a.probe_only):
             run(name, worker_command(cmd))
             if name == 'train':
                 state['training'] = trial.verify_training(job)
-        state.update(status='prepared_cpu_no_training' if a.prepare_only else 'completed_quality_pending', active_stage=None)
-        if not a.prepare_only:
+        state.update(status=('prepared_cpu_no_training' if a.prepare_only else
+                            'prepared_gpu_no_training' if a.probe_only else 'completed_quality_pending'), active_stage=None)
+        if not a.prepare_only and not a.probe_only:
             pending = base_dir/('.latest_'+tag)
             # A concurrent completed run may update a symlink, never a real directory.
             if latest.exists() and not latest.is_symlink():

@@ -1,0 +1,119 @@
+{
+  "schema": "phase3_base_bounded_verification_v3",
+  "date": "2026-10-23",
+  "authorization": "User explicitly permitted bounded repetition of scarce data after the strict-capacity audit",
+  "sources": {
+    "qwen3vl_local/audit_joint/phase3_base_bounded.py": "048f926dbe914f9a376837ee5477199a17dbe341a298dc3d8a43ec24f98e7e19",
+    "qwen3vl_local/audit_joint/phase3_base_bounded_sampling.py": "631eaef67ed856ed0656b826b032c76b6572c54898e19f788edcec2e7b2f7463",
+    "qwen3vl_local/audit_joint/phase3_base_bounded.sh": "1b484885250d6650a3e4d2fb44d38f4b8861c636d50e219754b6a0ad61a658ed",
+    "qwen3vl_local/audit_joint/phase3_base_pool.py": "789b378b1194950c5761171ce0f3a4edb9fc2ff4bc8c07361de1afe971cf4730",
+    "qwen3vl_local/audit_joint/phase3_base_coverage.py": "e6bfdc59f3318e838705b2c467b08af74e6a0c03842c108fd55b5802693cee12",
+    "qwen3vl_local/audit_joint/phase3_base_coverage_sampling.py": "2bcba3af71a432bc12a1509e31d1f0d7264f53e165ba9dea169a53007e7feebe",
+    "qwen3vl_local/audit_joint/phase3_launch.py": "5ec8c6cec28b7e8e6f99fa1e5df3acb3f13a30aa8c96a9696f5df7c16497f748",
+    "qwen3vl_local/audit_joint/phase3_launch_worker.py": "db8f44bc946f6379926ced7b8f0422a94974a20ea9073ab3f88ac0995be22a18",
+    "qwen3vl_local/audit_joint/phase3_native_runtime.py": "da3ef40c29ab3828c1a7d4ad4471b6e6a86e010f5c860fd72f4b17a84a4a9ee3",
+    "qwen3vl_local/audit_joint/phase3_common_data.py": "722f5af5c385c278ce6608e425baa33f01cf89f9afb01667b0bda90e28d24d86",
+    "qwen3vl_local/audit_joint/phase3_common_runtime.py": "c296e34445d4e3df61b9edabb9946263fc4598833e4cc6a69ccd7977bdb0565f",
+    "qwen3vl_local/audit_joint/phase3_compare.py": "b04c02336ecb97167cebdc6e2d313386fc4a881110733021f86fa28d138a921f",
+    "qwen3vl_local/audit_joint/phase3_compare.sh": "7d83ed91075885a39fd9eeba0e6f111394ab34b6a5480bad7ea305dd22d328fb",
+    "qwen3vl_local/audit_joint/phase3_comparison_policy.py": "b191f0d043aed7a39ee887c71e9d0406f176223cb6eed6b1fd1b7757d669a614",
+    "qwen3vl_local/audit_joint/tests/test_phase3_base_bounded.py": "48ddef20c216ab33e5c55d5e5e40839f2006c277f1b7ac5beb63de2e7c4e6e2d",
+    "qwen3vl_local/audit_joint/tests/test_phase3_base_pool.py": "a39f00fa8bae94f346d4391c4c6aeac8fbe29e569ff158217fae534553503371",
+    "qwen3vl_local/audit_joint/tests/test_phase3_launch.py": "d6c2ed6caebfce32291dd06de4e17bf3f7c92042cd81b6321f5042060ffaaf1f",
+    "qwen3vl_local/audit_joint/tests/test_phase3_compare_entry.py": "d696c6630df674edf58fa1f7b4da40334e441dbb248b5ee75a650d398d036bdf",
+    "qwen3vl_local/audit_joint/PHASE3_BASE_BOUNDED_RUN_20261023.md": "8929c5bf78d24ae7765d76ee4ec543a3eb91946e9b40a85ba5b69856355d7870",
+    "qwen3vl_local/audit_joint/PHASE3_BASE_STARTUP_REVIEW_20261023.md": "92b2dc5175cd275a298ae92b88e63b7b049622156761b799dde7c48cebdb8fd7",
+    "qwen3vl_local/audit_joint/PHASE3_COMPARE_20261023.md": "3c497c7f1bd6e521ed57b2a4d30ccfc69fc596385f1d0631fad79232cc77607c",
+    "qwen3vl_local/audit_joint/PHASE3_BASE_COVERAGE_RUN_20261022.md": "4cb3502d7ed55ec6881b45c3f401baefba1c43f57f5abb5e2e28f07cc672f583"
+  },
+  "evidence": {
+    "checkpoints/phase3_startup_review_20261023/bounded_admission_verified.log": "361f1ef40ed1fa9d16f8fa4f7859ea34e71ef7bc4a29f1a9d33a62b84353eee7",
+    "checkpoints/phase3_startup_review_20261023/bounded_ready_reload.log": "8e2e23540b027005798158d935a352836fc97e270f70de368d72d10c1f701c15",
+    "checkpoints/phase3_startup_review_20261023/bounded_final_status.json": "9d4d765e0264a73541fe9649c55cc68517ad8cdf63c12cd8e2e7980fff4012de",
+    "checkpoints/phase3_startup_review_20261023/bounded_flow_projection.json": "8bd25c7cdb79236e526d88ff8658c08941d991b38532bee1f4f0a6ed61121226",
+    "checkpoints/phase3_startup_review_20261023/bounded_flow_regression.xml": "a47ec7a7158de162a1bd34ba1bab94b7cdf1b11de5720333ca62e50daff6a37d",
+    "checkpoints/phase3_startup_review_20261023/bounded_gloo.py": "766c18b1d1e2d01cd7a54b44918f315bde57f786c67bf18552a6a2d327c1cfbb",
+    "checkpoints/phase3_startup_review_20261023/bounded_gloo.json": "987a10c54f8798d27191212eda2d6f4f8923ae2aa044175f77a2a2ab15546e01",
+    "checkpoints/phase3_startup_review_20261023/bounded_gloo.log": "8ac33fedd7b52f83169ea332331e10a033fd895a6f6a7dc84eafa6709cd881ca",
+    "checkpoints/phase3_startup_review_20261023/shared_frame_capacity.json": "bb91e7919b6be59da8f1e0b37d7f4d3c5f01c8a7dbba358d70d7703b57f4635f",
+    "checkpoints/phase3_startup_review_20261023/runtime_bytecode_recovery.json": "6c8fb0615424ec26478a62379a3721bab2283dcf80ebf56480a06118923aa8d6",
+    "checkpoints/phase3_base_bounded_v3/ready_1280.json": "7137049273c908dcd0e60a4b4c50ac4bdb11ec950e415ccefa980672931fed15",
+    "checkpoints/phase3_base_bounded_v3/admissions/47b7756dacdddcac09cccd21f2be39cc7aac769450bb4e51646c75d432156bbe.json": "8bd25c7cdb79236e526d88ff8658c08941d991b38532bee1f4f0a6ed61121226",
+    "checkpoints/phase3_base_pool_v1/versions/8f6628f4d99ed849e54768e07e05804a79b0be4d66624511d7ff443730e928b3/common_receipt.json": "ecc4972d44175188b5ff3a8ed1385d5990aaf114fca20f75432071a029d4a3bf"
+  },
+  "tests": {
+    "passed": 99,
+    "xml": "checkpoints/phase3_startup_review_20261023/bounded_flow_regression.xml",
+    "seconds": 26.61,
+    "counts_not_added_to_prior_overlapping_suites": true
+  },
+  "gloo": {
+    "world_size": 4,
+    "real_DDP_backward_optimizer": true,
+    "synthetic_Linear": true,
+    "total_presentations": 120,
+    "full_Qwen_GPU": false
+  },
+  "admission": {
+    "status": "ready",
+    "optimizer_steps": [
+      3200,
+      3200,
+      3200
+    ],
+    "index_sha256": "0cbb09c91649d9f43064a673d8a3d04835670910a88745c102115c7ba221fadc",
+    "index_unchanged_from_strict_pool": true,
+    "report_sha256": "47b7756dacdddcac09cccd21f2be39cc7aac769450bb4e51646c75d432156bbe",
+    "reload_verified": true,
+    "independent_projection_matches": true,
+    "physical_repeats_per_epoch": [
+      485,
+      485,
+      485
+    ],
+    "within_event_repeats_per_epoch": [
+      380,
+      380,
+      380
+    ],
+    "shared_context_presentations_per_epoch": [
+      105,
+      105,
+      105
+    ],
+    "repeat_fraction_per_epoch": 0.037890625,
+    "distinct_physical_frames_per_epoch": [
+      12315,
+      12315,
+      12315
+    ],
+    "new_physical_frames": [
+      12315,
+      8960,
+      7703
+    ],
+    "max_physical_repeat_per_epoch": 2,
+    "max_actual_physical_repeat_across_three_epochs": 5
+  },
+  "single_abc": {
+    "frozen_sources_unchanged": true,
+    "prior_source_proof_count": 182,
+    "unchanged_sources": 181,
+    "changed_orchestration_only": [
+      "qwen3vl_local/audit_joint/phase3_compare.py"
+    ]
+  },
+  "labels_changed": false,
+  "holdout_changed": false,
+  "sequence_enabled": false,
+  "model_inputs_validated": false,
+  "GPU_training_executed": false,
+  "remote_executed": false,
+  "pushed": false,
+  "limitations": [
+    "Server must independently validate its own assets and run foreground 4-GPU probe",
+    "CPU Linear and adapter-config tests do not certify 4B GPU training or learned quality",
+    "Repeated presentations are not independent scenes",
+    "Earlier strict and intermediate rejected reports are preserved as historical evidence"
+  ]
+}

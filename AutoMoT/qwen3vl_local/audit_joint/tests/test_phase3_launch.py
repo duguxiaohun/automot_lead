@@ -136,8 +136,8 @@ def test_launch_failure_stops_before_gpu_and_packages(tmp_path,monkeypatch):
 
 
 @pytest.mark.parametrize('method',['base','single_frame'])
-@pytest.mark.parametrize('fail_at',[None,'probe','train','test'])
-def test_coordinator_order_failure_and_fixed_output(tmp_path,monkeypatch,method,fail_at):
+@pytest.mark.parametrize('fail_at',[None,'prepare','probe','train','test'])
+def test_coordinator_order_failure_and_fixed_output(tmp_path,monkeypatch,method,fail_at,capsys):
     j,_,_=raw_fixture(tmp_path,monkeypatch)
     from qwen3vl_local.sft_new_loop_phase3 import preflight
     monkeypatch.setattr(preflight,'check_model',lambda *a:None)
@@ -160,6 +160,8 @@ def test_coordinator_order_failure_and_fixed_output(tmp_path,monkeypatch,method,
     if method=='single_frame':argv+=['--build-data']
     monkeypatch.setattr(sys,'argv',argv)
     assert launch.main()==(17 if fail_at else 0)
+    if fail_at:
+        assert 'fixture stage '+fail_at in capsys.readouterr().err
     expected=['prepare','probe','train','summarize','test'] if method=='base' else ['derive_data','prepare','probe','train','val','test']
     assert observed==(expected[:expected.index(fail_at)+1] if fail_at else expected)
     folder=root/('run_base_independent_v1' if method=='base' else 'run_single_frame_nearest_v1')
@@ -175,3 +177,24 @@ def test_existing_latest_directory_rejected_before_work(tmp_path,monkeypatch):
         '--data-root',j['data_root'],'--model-dir',j['model_dir'],'--output',str(out)])
     with pytest.raises(ValueError,match='not a symlink'):launch.main()
     assert list(out.iterdir())==[out/'latest']
+
+
+def test_probe_only_stops_after_four_rank_probe_without_training_or_latest(tmp_path,monkeypatch):
+    j,_,_=raw_fixture(tmp_path,monkeypatch)
+    from qwen3vl_local.sft_new_loop_phase3 import preflight
+    monkeypatch.setattr(preflight,'check_model',lambda *a:None)
+    monkeypatch.setattr(trial,'gpu_ids',lambda *a:'0,1,2,3')
+    monkeypatch.setattr(trial,'verify_training',lambda *a:pytest.fail('training'))
+    monkeypatch.setattr(launch.shutil,'disk_usage',lambda p:SimpleNamespace(free=100*1024**3))
+    seen=[]
+    def run(cmd,log,*a,**kw):
+        seen.append(log.stem);log.write_text('passed')
+        assert (('torch.distributed.run' in cmd)==(log.stem=='probe'))
+        return dict(exit_code=0,log=str(log),seconds=0)
+    monkeypatch.setattr(trial,'run_stage',run)
+    out=tmp_path/'runs'
+    monkeypatch.setattr(sys,'argv',['launch','--method','base','--index',j['index'],
+        '--data-root',j['data_root'],'--model-dir',j['model_dir'],'--output',str(out),'--probe-only'])
+    assert launch.main()==0 and seen==['prepare','probe']
+    state=trial.read(out/'run_base_independent_v1_probe/launch_workflow.json')
+    assert state['status']=='prepared_gpu_no_training' and not (out/'latest').exists()
