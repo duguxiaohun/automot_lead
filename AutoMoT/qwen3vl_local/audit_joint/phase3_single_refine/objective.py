@@ -1,0 +1,119 @@
+"""One current image, shared existing letter tokens, four full-vocabulary losses."""
+import torch
+import torch.nn.functional as F
+from . import regions
+from .identity import digest, mass
+from . import prompt
+from ..geometry_v1 import codec
+from ..geometry_v1.objective import locate, readout
+
+
+def instruction(variant, prompt_variant='original'):
+    if variant != 'six': raise ValueError('single_requires_six')
+    return prompt.instruction(prompt_variant)
+
+
+def choice_ids(tokenizer, variant):
+    count = len(regions.names(variant))
+    ids = [tokenizer(chr(65+i), add_special_tokens=False)['input_ids'] for i in range(count)]
+    if any(len(x) != 1 for x in ids) or len({x[0] for x in ids}) != count:
+        raise ValueError('distinct_existing_letter_tokens_required')
+    return [x[0] for x in ids]
+
+
+def allowed_indices(record):
+    if record['variant'] != 'six': return list(range(len(regions.names(record['variant']))))
+    from .frozen.context_taxonomy import CONTEXT_BY_ID
+    allowed = (*CONTEXT_BY_ID[record['event']].action_keys, 'KEEP')
+    return [i for i, name in enumerate(regions.ACTIONS) if name in allowed]
+
+
+def observation_binding(record):
+    keys = ('id', 'scenario', 'route_id', 'frame', 'image', 'event', 'road_structure', 'variant', 'observation')
+    return dict(schema='study_sample_observation_and_representation_v1', sample_id=record['id'],
+                observation_sha256=digest({k:record[k] for k in keys}))
+
+
+def messages(record, image, *, prompt_variant="original"):
+    v = record['variant']; obs = record['observation']; ref = obs['reference']
+    if ref['source'] != codec.REFERENCE_SOURCE or len(obs['history']) != 4:
+        raise ValueError('reference_or_history_contract_mismatch')
+    lines = [f"Current speed: {obs['speed_mps']:.9g} m/s.",
+        f"Current lane tangent relative to ego: {ref['relative_yaw']:.9g} radians.",
+        f"Current navigation [target,next,final] in ego meters: {obs['navigation_xy']}.",
+        f"Observed event: {record['event']}; road: {record['road_structure']}."]
+    if v == 'six':
+        lines.append('Allowed answers for this event (each query): ' + '; '.join(
+            f'{chr(65+i)}={regions.ACTIONS[i]}' for i in allowed_indices(record)) + '.')
+    for i,item in enumerate(obs['history']):
+        if item['valid'] and (type(item['token_id']) is not int or not 0 <= item['token_id'] < len(regions.names(v))):
+            raise ValueError('invalid_history_token')
+        token = chr(65+item['token_id']) if item['valid'] else 'UNKNOWN'
+        when = (f'Native intention origins {-1.75+i*.5:g}s and {-1.5+i*.5:g}s' if v == 'six'
+                else f'Past endpoint {-2+i*.5:g}s minus CURRENT origin')
+        if prompt_variant == 'clarified':
+            when += f'; stored letter is the later origin at {-1.5+i*.5:g}s after native gap handling'
+        lines.append(f'{when}:\n[STUDY_HISTORY_{i}]\n{token}\n[/STUDY_HISTORY_{i}]')
+    for i,t in enumerate(codec.HORIZONS):
+        query = f'Native intention origins +{t-.25:g}s and +{t:g}s' if v == 'six' else f'Endpoint at +{t:g}s from CURRENT origin'
+        lines.append(f'{query}.\n[ACTION_QUERY_{i}]')
+    return [dict(role='system', content=instruction(v,prompt_variant)), dict(role='user', content=[
+        dict(type='image', image=image), dict(type='text', text='\n'.join(lines))])]
+
+
+def pack(bundle, record, image, *, prompt_variant="original", max_length=8192, max_pixels=442368):
+    config = getattr(bundle.model.config, 'text_config', bundle.model.config) if hasattr(bundle.model,'config') else None
+    max_length = min(max_length, getattr(config,'max_position_embeddings',max_length))
+    text = bundle.processor.apply_chat_template(messages(record,image,prompt_variant=prompt_variant), tokenize=False, add_generation_prompt=False)
+    inputs = bundle.processor(text=[text], images=[image], return_tensors='pt', padding=False,
+        images_kwargs={'size':{'shortest_edge':1024,'longest_edge':max_pixels}})
+    if inputs['input_ids'].shape[1] > max_length: raise ValueError('input_budget_exceeded_no_truncation')
+    if len(inputs['image_grid_thw']) != 1: raise ValueError('single_current_RGB_required')
+    positions,text,offsets = locate(bundle.tokenizer, inputs['input_ids'][0])
+    choices = choice_ids(bundle.tokenizer, record['variant'])
+    for i,item in enumerate(record['observation']['history']):
+        start = f'[STUDY_HISTORY_{i}]\n'; end = f'\n[/STUDY_HISTORY_{i}]'
+        if text.count(start) != 1 or text.count(end) != 1: raise ValueError('history_marker_mismatch')
+        a,b = text.index(start)+len(start), text.index(end)
+        expected = chr(65+item['token_id']) if item['valid'] else 'UNKNOWN'
+        if text[a:b] != expected: raise ValueError('history_text_changed')
+        found = [j for j,(x,y) in enumerate(offsets) if x<b and y>a]
+        if item['valid'] and (len(found)!=1 or tuple(offsets[found[0]])!=(a,b) or
+                int(inputs['input_ids'][0,found[0]]) != choices[item['token_id']]):
+            raise ValueError('history_output_token_identity_mismatch')
+    return dict(inputs=inputs, positions=positions, choices=choices, tokens=inputs['input_ids'].shape[1])
+
+
+def loss_from_logits(logits, targets, choices):
+    if logits.ndim != 2 or logits.shape[0] != 4 or len(targets) != 4 or len(choices) != 6:
+        raise ValueError('study_loss_shape')
+    valid = [i for i,t in enumerate(targets) if t['valid']]
+    if not valid: raise ValueError('no_valid_targets')
+    q = torch.tensor([mass(targets[i],len(choices)) for i in valid],device=logits.device,dtype=torch.float32)
+    if q.shape != (len(valid),len(choices)) or not torch.isfinite(q).all() or (q<0).any() or not torch.allclose(q.sum(-1),torch.ones(len(valid),device=q.device)):
+        raise ValueError('invalid_target_distribution')
+    return -(q*F.log_softmax(logits[valid].float(),dim=-1)[:,choices]).sum(-1).mean()
+
+
+@torch.no_grad()
+def predict(bundle, record, image, *, prompt_variant="original"):
+    was_training=bundle.model.training; bundle.model.eval()
+    rope_modules=[m for m in bundle.model.modules() if hasattr(m,"rope_deltas")]
+    for m in rope_modules: m.rope_deltas=None
+    try:
+        packed=pack(bundle,record,image,prompt_variant=prompt_variant); logits=readout(bundle,packed)
+    finally:
+        for m in rope_modules: m.rope_deltas=None
+        bundle.model.train(was_training)
+    if not torch.isfinite(logits).all(): raise ValueError("nonfinite_prediction_logits")
+    choices=packed['choices']; allowed=allowed_indices(record)
+    allowed_tokens=[choices[i] for i in allowed]
+    ids=[allowed[i] for i in logits[:,allowed_tokens].argmax(-1).tolist()]
+    raw=logits.argmax(-1).tolist()
+    return dict(token_ids=ids, names=[regions.names(record['variant'])[i] for i in ids],
+        raw_token_ids=raw, raw_class_ids=[choices.index(i) if i in choices else -1 for i in raw],
+        unrestricted_token_ids=logits[:,choices].argmax(-1).tolist(), allowed_class_ids=allowed,
+        letter_format_valid=[i in choices for i in raw], format_valid=[i in allowed_tokens for i in raw],
+        probabilities=torch.softmax(logits,-1)[:,choices].tolist(), source='diagnostic_predicted', prompt_variant=prompt_variant,
+        contract=regions.contract(record['variant']), reference=dict(record['observation']['reference']),
+        sample_binding=observation_binding(record))
