@@ -7,6 +7,7 @@ from pathlib import Path
 from .audit import APP,sha,write,items,verify_snapshot
 from . import prompt
 from .identity import digest
+from .paths import image_path
 
 MODES=('original','clarified','original_history_unknown','clarified_history_unknown','original_image_black','clarified_image_black')
 
@@ -70,8 +71,7 @@ def prepare(ready,run,data_root,output):
     guards=guard_records(guard_buckets)
     refs=[];guard_refs=[];examples=[]
     for rec in records+guards:
-        image=(data_root/rec['image']).resolve(strict=True)
-        if not image.is_relative_to(data_root.resolve()):raise ValueError('image_escapes_data_root')
+        image=image_path(data_root,rec['image'])
         (refs if rec['split']=='val' else guard_refs).append(dict(id=rec['id'],image=rec['image'],sha256=sha(image)))
         changed=copy.deepcopy(rec);changed['targets']=[];changed['six_audit']={};changed['sampling_mass']={}
         for v in prompt.VARIANTS:
@@ -100,15 +100,15 @@ def load_plan(plan,data_root,run):
     if len(records)!=m['members'] or len({r['id'] for r in records})!=len(records) or set(r['id'] for r in records)!=set(m['binding']['fixed_validation_ids']):raise ValueError('plan_members_changed')
     if [r['id'] for r in records]!=[r['id'] for r in images]:raise ValueError('image_members_changed')
     for r,im in zip(records,images):
-        p=(data_root/im['image']).resolve(strict=True)
-        if r['split']!='val' or r['image']!=im['image'] or not p.is_relative_to(data_root.resolve()) or sha(p)!=im['sha256']:raise ValueError('validation_rgb_changed')
+        p=image_path(data_root,im['image'])
+        if r['split']!='val' or r['image']!=im['image'] or sha(p)!=im['sha256']:raise ValueError('validation_rgb_changed')
     if sha(run/'epoch_3/receipt.json')!=m['checkpoint_receipt_sha256'] or sha(run/'epoch_3/state.pt')!=m['state_sha256']:raise ValueError('single_checkpoint_changed')
     guards=json.loads((plan/'guards.json').read_text());guard_images=json.loads((plan/'guard_images.json').read_text())
     if len(guards)!=m['guard_members'] or len({r['id'] for r in guards})!=len(guards) or {r['id'] for r in guards}&{r['id'] for r in records}:raise ValueError('guard_membership_changed')
     if [r['id'] for r in guards]!=[r['id'] for r in guard_images]:raise ValueError('guard_images_changed')
     for r,im in zip(guards,guard_images):
-        p=(data_root/im['image']).resolve(strict=True)
-        if r['split']!='train' or r['image']!=im['image'] or not p.is_relative_to(data_root.resolve()) or sha(p)!=im['sha256']:raise ValueError('guard_rgb_changed')
+        p=image_path(data_root,im['image'])
+        if r['split']!='train' or r['image']!=im['image'] or sha(p)!=im['sha256']:raise ValueError('guard_rgb_changed')
     return m,records,images
 
 def intervention(record,mode):

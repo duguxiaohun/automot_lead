@@ -6,6 +6,7 @@ from PIL import Image
 from .audit import APP,sha,verify_snapshot
 from .experiment import code,require_received_source,guard_candidates,guard_records
 from .state import atomic
+from .paths import image_path
 from .training import regions
 from ..phase3_single_v3 import dataset,admission,planning
 
@@ -28,8 +29,7 @@ def prepare(native_ready,root):
     for r in artifact['records']:
         counts[r['split']]+=1
         if r['id'] not in used:continue
-        path=(data_root/r['image']).resolve(strict=True)
-        if not path.is_relative_to(data_root):raise ValueError('image_escapes_data_root')
+        path=image_path(data_root,r['image'])
         h=sha(path)
         with Image.open(path) as im:
             im.load()
@@ -74,5 +74,5 @@ def load_ready(root,*,check_images=False):
         native=dataset.load(r['dataset'],check_sources=False,expected_sha256=r['dataset_sha256'])
         base=Path(native['data_root'])
         for im in json.loads((root/'input_manifest.json').read_text()):
-            if sha(base/im['path'])!=im['sha256']:raise ValueError('preflight_RGB_changed')
+            if sha(image_path(base,im['path']))!=im['sha256']:raise ValueError('preflight_RGB_changed')
     return r
