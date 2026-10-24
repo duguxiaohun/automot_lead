@@ -1,0 +1,46 @@
+{
+  "scope": "Phase3 base prompt experiment and offline review only",
+  "fixes": [
+    "Event-local action precision/F1 and event macro/format regressions cannot cancel across events",
+    "Regression CLI accepts replay JSON arrays and existing JSONL; fresh reference binding preserved",
+    "Single-process replay selects GPU before inference imports; GPU_IDS pin and core-dump suppression"
+  ],
+  "tests": {
+    "passed": 64,
+    "seconds": 1.0,
+    "environment": "exact staged application snapshot without .git; CPU; inference orchestration substituted"
+  },
+  "real_validation": {
+    "cases": 320,
+    "image_presentations": 1280,
+    "correct": 251,
+    "reference_sha256": "69a34e8f9ab6c35093bcdd93df921e2ded39644fb089ef518eab57a6c9ba526b",
+    "requests_sha256": "4698d8898db83386e49922152c8d78763329f346679e4f30bf59fdd0c9188e99",
+    "selfcheck": "no_regression_observed"
+  },
+  "training": {
+    "default_prompt_unchanged": true,
+    "labels_unchanged": true,
+    "sampling_unchanged": true,
+    "gpu_executed": false,
+    "candidate_training_integrated": false
+  },
+  "sources": {
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_BASE_PROMPT_IMPROVEMENT_20261024.md": "6c38a797336014ea97210301bb06abf20eb47d53c60fe1bc294d46ebc82e8c62",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_BASE_PROMPT_RUN_20261024.md": "3add1205d9ce16e4791e0997e970bb0d6eb8e90a73f7f423bbe6efb12705ed50",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_BASE_RELABEL_REVIEW_20261024.md": "9a226675249b1156d6e7583e37a0c2dffd963460c7ebdc9f9b74888d080ce1e1",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_BASE_RGB_REVIEW_20261024.md": "39d066e5492585c500ab186cea45deb42bae690b94aefe857baaeefa7a069dda",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_label_lab.py": "64c376586c23d3bf7f7908cbbfc0fc50cdb4fb3a0a98c9b97376b0fc02884979",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_prompt_experiment.py": "54cfb604d92a9acdbba5b5c1d26550c27b4cd26c0c8e74b5944398632690716c",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_base_regression_review.py": "b68559527d6f6f42dfa821a48a3c22f1689286a62984e16f55d28912ba9e0dd9",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_base_label_lab.py": "9705894912544836cd73ab4e5859df4d4c874ce842b694d0a8644f0bb1f3b25d",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_base_prompt_experiment.py": "c1d59d7a4a74222cde1a6cdfe3ee33d50fdeed6805727b3fb40a5ce5d1d70c3a",
+    "AutoMoT/qwen3vl_local/audit_joint/tests/test_phase3_base_regression_review.py": "e91eb5f84ecaadba937ea8eee239ea0424ceaddc610df12f0525430881185f2e"
+  },
+  "local_plan": "checkpoints/phase3_base_prompt_release_v2_20261024",
+  "limitations": [
+    "No new model inference or training; no accuracy improvement certified",
+    "Plans/reference/images/weights/raw logs are local and excluded from Git",
+    "Earlier plans retain original bytes but their source bindings no longer match the revised scorer"
+  ]
+}
