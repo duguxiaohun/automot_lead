@@ -15,7 +15,9 @@ def prepare(native_ready,root):
     require_received_source();verify_snapshot()
     ready=json.loads(Path(native_ready).read_text())
     if ready.get('status')!='ready':raise ValueError('native_single_not_ready: '+str(ready.get('error',ready.get('status'))))
+    print('[single cpu] verifying full native data sources; this may take several minutes',flush=True)
     artifact=dataset.load(ready['dataset'],check_sources=True,expected_sha256=ready['dataset_sha256'])
+    print('[single cpu] source verification passed; checking admission and three-epoch capacity',flush=True)
     check=admission.require(admission.inspect(artifact))
     projection=planning.project(artifact['records'],per_event=1280,epochs=3,world_size=4,seed=20260904)
     if [p['optimizer_steps'] for p in projection['plans']]!=[3200]*3:raise ValueError('budget_mismatch')
@@ -26,6 +28,7 @@ def prepare(native_ready,root):
     guards=guard_records(buckets);used.update(r['id'] for r in guards)
     inputs=[];sizes=Counter();counts=Counter();source_code=code()
     data_root=Path(artifact['data_root']).resolve()
+    print(f'[single cpu] decoding and hashing {len(used)} planned inputs',flush=True)
     for r in artifact['records']:
         counts[r['split']]+=1
         if r['id'] not in used:continue

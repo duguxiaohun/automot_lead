@@ -4,7 +4,6 @@ from collections import Counter, defaultdict
 import hashlib
 import json
 from pathlib import Path
-import ijson
 from .frozen import six, trajectory_action as rule, targets
 from ..geometry_v1 import sources
 from .frozen import label_quarantine
@@ -28,6 +27,12 @@ def verify_snapshot():
     return p
 
 def items(path):
+    try:
+        import ijson
+    except ImportError as exc:
+        import sys, shlex
+        raise RuntimeError('Offline streaming audit requires ijson; install with: '+
+                           shlex.join([sys.executable,'-m','pip','install','ijson'])) from exc
     with Path(path).open('rb') as f:yield from ijson.items(f,'records.item',use_float=True)
 
 def status(case):

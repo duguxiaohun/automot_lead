@@ -106,3 +106,11 @@ bash qwen3vl_local/audit_joint/phase3_single_refine/run.sh all
 ```
 
 新增9项真实外部场景/根目录软链接、内容变更、无效路径以及CPU准备/重载回归。原74项/全池ready为修复前证据，不冒称本修复重新执行过全池或4B GPU。
+
+## 启动与接续复核（2026-10-24）
+
+入口优先使用显式PYTHON、已激活VIRTUAL_ENV、已激活CONDA_PREFIX，之后才尝试项目.venv，最后使用PATH中的python/python3；不要求使用.venv。启动先打印解释器并检查该阶段依赖，缺包或二进制导入失败在CPU准备前报出，不自动安装或升级。正式single训练不需要ijson；只有独立流式审计items()需要它。
+
+all允许重试尚无probe/run的rejected或preparing CPU记录，并保留旧记录到cpu_attempts；现有ready校验失败不会被覆盖。已有probe或run时拒绝cpu重建准入；训练与探针仍不隐式续训。自定义native-ready按其父目录调用原生准备；GPU子进程清除继承的旧torchrun环境。CPU打印来源复核、容量规划和图片解码阶段。
+
+完整目录兼容性检查、当前公开入口与冻结旧入口使用边界见 ../../RUNTIME_PORTABILITY_20261024.md。本轮实际全池CPU重新通过，仍为35231计划输入、三轮各3200更新；原六动作标签、阈值、采样和162来源保持。无4B GPU运行认证。

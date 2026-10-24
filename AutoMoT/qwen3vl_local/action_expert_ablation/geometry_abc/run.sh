@@ -2,6 +2,9 @@
 set -euo pipefail
 ulimit -S -c 0 2>/dev/null || true
 ABC_APP=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+source "$ABC_APP/qwen3vl_local/runtime_env.sh" "$ABC_APP"
+cd "$ABC_APP"
+"$PYTHON" -B "$ABC_APP/qwen3vl_local/runtime_dependencies.py" trajectory "${1:---help}"
 export PYTHONPATH="$ABC_APP${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 exec "${PYTHON:-python}" -B -m qwen3vl_local.action_expert_ablation.geometry_abc "$@"

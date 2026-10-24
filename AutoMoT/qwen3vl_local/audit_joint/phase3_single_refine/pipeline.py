@@ -50,6 +50,11 @@ def execute(command,log,env=None):
 def worker(operation,root,ready,model,ids,output,*,checkpoint=None):
     env=dict(os.environ,PYTHONPATH=str(APP),PYTHONDONTWRITEBYTECODE='1',PYTHONUNBUFFERED='1',
         HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',CUDA_VISIBLE_DEVICES=','.join(ids))
+    # Do not inherit a previous torchrun/elastic job from the invoking shell.
+    for key in tuple(env):
+        if key in ('RANK','LOCAL_RANK','WORLD_SIZE','LOCAL_WORLD_SIZE','GROUP_RANK','GROUP_WORLD_SIZE',
+                   'ROLE_RANK','ROLE_WORLD_SIZE','MASTER_ADDR','MASTER_PORT') or key.startswith('TORCHELASTIC_'):
+            env.pop(key,None)
     module='qwen3vl_local.audit_joint.phase3_single_refine.training'
     cmd=[sys.executable,'-B']
     if operation in ('probe','train'):
@@ -113,26 +118,45 @@ def run(operation,root,native_ready,model):
     if operation=='status':return status(root)
     with lock(root):
         stage='initializing'
+        preparing=False
         def update(name,**kw):
             nonlocal stage
             stage=name;atomic(root/'state.json',dict(status='running',stage=stage,pid=os.getpid(),updated_unix=time.time(),**kw))
         try:
-            if operation in ('cpu','all'):
-                update('cpu')
-                if not native_ready.is_file():
-                    execute([sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase3_single_v3.cpu'],root/'logs/native_cpu.log')
-                if (root/'ready_1280.json').is_file() and operation=='all':
-                    ready=preflight.load_ready(root,check_images=True)
-                else:
-                    atomic(root/'ready_1280.json',dict(status='preparing'))
-                    ready=preflight.prepare(native_ready,root)
-                if operation=='cpu':
-                    atomic(root/'state.json',dict(status='cpu_complete',stage='ready',GPU_executed=False));return ready
-            else:ready=preflight.load_ready(root,check_images=operation in ('check','probe','train'))
+            if operation=='cpu' and any((root/name).exists() for name in ('run','probe')):
+                raise ValueError('cpu_reprepare_refused_existing_run_or_probe; preserve its bound ready')
             if operation in ('all','check','probe','train') and not (root/'run/training_complete.json').is_file():
                 if (root/'run').exists():raise ValueError('incomplete_training_preserved_no_implicit_resume')
                 if (root/'probe').exists() and not (root/'probe/probe_complete.json').is_file():
                     raise ValueError('incomplete_probe_preserved_choose_new_root_or_review')
+            if operation in ('cpu','all'):
+                update('cpu')
+                if not native_ready.is_file():
+                    if native_ready.name!='ready_1280.json':raise ValueError('native_ready_must_be_ready_1280.json')
+                    # Map parsing is required only when preparing the native pool.
+                    import importlib
+                    try:importlib.import_module('carla')
+                    except ImportError as exc:raise RuntimeError('native preparation requires carla in '+sys.executable) from exc
+                    execute([sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase3_single_v3.cpu',
+                             '--study-root',str(native_ready.parent)],root/'logs/native_cpu.log')
+                pointer=root/'ready_1280.json'
+                existing=read(pointer) if pointer.is_file() else None
+                started=any((root/name).exists() for name in ('run','probe'))
+                reusable=existing and (existing.get('status') not in ('rejected','preparing') or started)
+                if reusable and operation=='all':
+                    ready=preflight.load_ready(root,check_images=True)
+                else:
+                    if started:raise ValueError('missing_ready_for_existing_run_or_probe')
+                    if existing:
+                        history=root/'cpu_attempts';history.mkdir(exist_ok=True)
+                        shutil.copy2(pointer,history/(str(time.time_ns())+'_ready.json'))
+                    preparing=True
+                    atomic(root/'ready_1280.json',dict(status='preparing'))
+                    ready=preflight.prepare(native_ready,root)
+                    preparing=False
+                if operation=='cpu':
+                    atomic(root/'state.json',dict(status='cpu_complete',stage='ready',GPU_executed=False));return ready
+            else:ready=preflight.load_ready(root,check_images=operation in ('check','probe','train'))
             if operation=='package':
                 return finish(root,ready,update)
             if (operation in ('all','train','evaluate') and (root/'run/training_complete.json').is_file()
@@ -176,7 +200,7 @@ def run(operation,root,native_ready,model):
             return finish(root,ready,update)
         except BaseException as exc:
             atomic(root/'state.json',dict(status='failed',stage=stage,error=f'{type(exc).__name__}: {exc}',updated_unix=time.time()))
-            if stage=='cpu':atomic(root/'ready_1280.json',dict(status='rejected',error=f'{type(exc).__name__}: {exc}'))
+            if preparing:atomic(root/'ready_1280.json',dict(status='rejected',error=f'{type(exc).__name__}: {exc}'))
             raise
 
 
@@ -214,6 +238,6 @@ def main():
     args=p.parse_args();root=args.root.resolve();model=args.model.resolve()
     for protected in ((APP/'lead_data').resolve(),model,args.native_ready.resolve().parent):
         if root.is_relative_to(protected) or protected.is_relative_to(root):p.error('output_overlaps_inputs')
-    run(args.operation,root,args.native_ready,model)
+    run(args.operation,root,args.native_ready.resolve(),model)
 
 if __name__=='__main__':main()
