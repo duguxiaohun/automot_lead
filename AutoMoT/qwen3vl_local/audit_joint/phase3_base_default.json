@@ -1,0 +1,29 @@
+{
+  "schema": "phase3_base_default_v1",
+  "method": "base",
+  "decision_date": "2026-10-24",
+  "selection": "previous_bounded_v3",
+  "run": "checkpoints/phase3_compare_base/run_base_bounded_v3",
+  "adapter": "experiment/train/final",
+  "archive": "handoff/phase3_report.zip",
+  "archive_sha256": "c7ecb14d5f76d0488c4d7a84a53a2afe5b907859a842e0baf5f75213f7d301f1",
+  "prompt_version": "original",
+  "prompt_variant": "v23_rgb_stage_candidate_20261006",
+  "production_prompt_sha256": "08595f5467af827b0f2f65891a14ea7c2757d1ac81814127f4ed2801abead102",
+  "history_rgb_mode": "4rgb",
+  "action_output_mode": "choice",
+  "calibration": "unchanged_native_base",
+  "sampling_policy": "phase3_independent_base_scarce_repeat_9600_v3",
+  "optimizer_updates": 9600,
+  "metrics": {
+    "val_correct": 251,
+    "val_total": 320,
+    "test_correct": 267,
+    "test_total": 380
+  },
+  "refinement_status": "paused_by_user",
+  "automatic_promotion": false,
+  "unselected_run": "checkpoints/phase3_base_new_20261024/run_base_new_20261024",
+  "single_policy": "independent_branch_unchanged",
+  "quality_note": "User-selected default; historical quality guard failures remain. Not a new quality certification."
+}

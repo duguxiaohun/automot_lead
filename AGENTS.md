@@ -1,5 +1,13 @@
 # AGENTS.md
 
+### 2026-10-24 base 默认回退与 single 分支隔离（当前用户决定）
+
+用户选择上一轮 bounded_v3 作为 phase3 base 默认，暂停进一步 base 标定和提示词审计/改进。默认运行是 checkpoints/phase3_compare_base/run_base_bounded_v3，adapter 为 experiment/train/final，val251/320、test267/380；不是历史四图最佳，也不是最新 phase3_base_new_20261024/run_base_new_20261024。新旧产物都保留。默认不追随 latest/mtime，不因新实验完成自动提升。
+
+机器可读选择：AutoMoT/qwen3vl_local/audit_joint/phase3_base_default.json；包外 phase3_base_default 的 status 查看选择，adapter 核验指定旧交包 SHA、逐文件绑定运行 JSON/JSONL 与 base 四图原提示词身份，再复用原生完成/权重回执校验并输出路径；验收前后复核，拒绝旧包配另一轮运行。独立 shell 入口继承 Python 环境及禁 core 约定。统一 compare 原本指向旧 canonical，本轮不改其入口、生产标定/提示词/采样/ready 或既有合同。本机没有服务器 adapter，不声称完成远程部署或加载权重。本次只固定默认并保存使用边界，不自动恢复训练或候选实验；除非用户重新明确要求，不继续推进 base 改进。
+
+base 与 single 的标定、提示词、数据准入和权重按独立方法分支维护。single 的 phase3_single_v3 与 phase3_single_refine（独立 frozen 规则及 prompt）保留原状态；不将任一方规则、候选提示词、方向参考或历史填补语义复制到另一方。不得通过整个仓库 reset/revert 处理 base 回退。说明见 PHASE3_BASE_PROMPT_RUN_20261024.md 顶部，底部旧实验命令仅为暂停前记录。
+
 ### 2026-10-23 base ctime-only 输入清单恢复
 
 用户要求解决远程probe的input_bindings.json散列中ctime漂移，确认尚未重新启动。新增phase3_base_hash_retry，仅bounded base的receipt绑定清单在首次仅ctime变化时追加两次完整严格读取，身份/size/mtime/ctime稳定且两次SHA匹配原回执才放行；持续变化/内容改写/替换/其它错误拒绝，stderr记rank。通用io、冻结manifest/旧SHA及原生pool生成合同不变；bounded合同显式绑定新助手/策略，旧base ready须重新cpu准入，兼容原生池验证复用。single/abc与Phase4不改，不覆盖失败_probe，不认证远程元信息漂移根因已查明。
