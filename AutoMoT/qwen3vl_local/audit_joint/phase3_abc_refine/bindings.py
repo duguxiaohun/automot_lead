@@ -7,19 +7,10 @@ from . import runtime, regression
 
 def model_identity(directory):
     from ..phase3_suite import model_snapshot
+    directory=Path(directory)
+    if any(directory.rglob('adapter_config.json')) or any(directory.rglob('adapter_model.*')):
+        raise ValueError('original_base_model_required_not_adapter_directory')
     return {k:v['sha256'] for k,v in model_snapshot(Path(directory)).items()}
-
-
-def adapter_identity(checkpoint,model,variant):
-    from ..geometry_abc_v2 import regions
-    checkpoint=Path(checkpoint);receipt=json.loads((checkpoint/'receipt.json').read_text())
-    if receipt['binding']['model']!=model:raise ValueError('baseline_adapter_model_changed')
-    # Baseline adapters always use the frozen old contract.
-    if receipt['binding']['contract']!=runtime.BASE_CONTRACT(variant):
-        raise ValueError('baseline_adapter_variant_changed')
-    value=sha(checkpoint/'state.pt')
-    if receipt['state_sha256']!=value:raise ValueError('baseline_adapter_weights_changed')
-    return dict(path=str(checkpoint.resolve()),state_sha256=value,receipt_sha256=sha(checkpoint/'receipt.json'))
 
 
 def verify_processor(path,dataset_path,model):
@@ -62,25 +53,6 @@ def verify_probe(path,dataset_path,model,variant,processor_path):
     if sorted(holdout,key=lambda x:x['id'])!=sorted(expected_selection['holdout_forward_only'],key=lambda x:x['id']):
         raise ValueError('holdout_forward_coverage_changed')
     return value
-
-
-def verify_replay(path,baseline_dataset,artifact,model,variant,adapter):
-    from ..geometry_abc_v2 import planning
-    path=Path(path);value=json.loads(path.read_text())
-    expected=dict(source=runtime.identity(),baseline_dataset_sha256=sha(baseline_dataset),model=model,
-                  variant=variant,adapter_sha256=adapter['state_sha256'],adapter_receipt_sha256=adapter['receipt_sha256'],
-                  full_validation=True,processor_checked=True,fresh_KV=True)
-    if any(value.get(k)!=v for k,v in expected.items()):raise ValueError('paired_replay_model_or_inputs_changed')
-    original=json.loads(path.with_name('original_cases.json').read_text())
-    candidate=json.loads(path.with_name('candidate_cases.json').read_text())
-    actual=regression.compare(original,candidate)
-    if any(value.get(k)!=v for k,v in actual.items()):raise ValueError('paired_replay_report_changed')
-    if actual['status']!='observed_cohort_protection_passed':raise ValueError('candidate_needs_verified_paired_validation')
-    expected_rows={r['id']:r for r in planning.evaluation(artifact['records'],'val')}
-    observed=regression.indexed(original)
-    if observed.keys()!=expected_rows.keys() or any(observed[k]['record']!=r for k,r in expected_rows.items()):
-        raise ValueError('paired_replay_validation_incomplete')
-    return original,candidate,value
 
 
 def file_proof(path):

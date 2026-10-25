@@ -1,4 +1,4 @@
-# ABC 两路线发布与运行（2026-10-24）
+# ABC 两路线发布与运行（2026-10-25 修正初始化）
 
 两路线独立：Phase3 是只补强 a 提示词的新实验（b/c 与标定不变）；Action 是固定旧 abc v2 的 a/b/c × BEV/Qwen 六组 oracle 区域条件轨迹实验。旧 `phase3_compare.sh train abc` 仍复现旧版本，不是本次 refine 入口。旧任务已经完成时不要重新运行它覆盖旧 run。
 
@@ -13,24 +13,24 @@ ABC_BASE_DATASET=$(python -c 'import json; from pathlib import Path; p=Path("che
 
 bash qwen3vl_local/audit_joint/phase3_abc_refine/run.sh all \
   --baseline-dataset "$ABC_BASE_DATASET" \
-  --baseline-runs-root checkpoints/geometry_abc_v2/runs \
+  --baseline-cases-root checkpoints/geometry_abc_v2/runs \
   --model-dir checkpoints/Qwen3.5-4B \
-  --output checkpoints/abc_refine_v1
+  --output checkpoints/abc_refine_fresh_v2
 ```
 
-若旧 run 使用自定义目录，应将 `--baseline-runs-root` 改为真正包含 `a_1280/b_1280/c_1280` 的目录。三组都需要完整 `epoch_3/state.pt`、receipt、training_complete 和 `test/cases.json`。轻量 `abc_review.tar.gz` 不能代替原 adapter。
+若旧 run 使用自定义目录，应将 `--baseline-cases-root` 改为真正包含 `a_1280/b_1280/c_1280` 的目录。三组只需要原完整 `test/cases.json`，不读取旧权重。Phase3 每组从原始 Qwen3.5-4B 新建 LoRA；旧 adapter 重放不再作为开训门控。保留旧失败 run，使用上面的新 output，不传旧 `--run-dir`。
 
-`all` 自动完成新准备、旧test成员核验、同adapter成对val保护、完整processor、三个四卡探针、三组训练、test、回归与打包。每组3轮/9,600更新。数据与训练分别写到新run内部；已有原始数据、旧模型和旧ready保留。
+`all` 自动完成新准备、旧test成员核验、完整processor、三个四卡探针、三组训练、test、回归与打包。每组3轮/9,600更新。数据与训练分别写到新run内部；已有原始数据、旧模型和旧ready保留。
 
 仅先做CPU数据/计划检查（可选；正式all仍使用自己的新run/data）：
 
 ```bash
 bash qwen3vl_local/audit_joint/phase3_abc_refine/run.sh prepare \
   --baseline-dataset "$ABC_BASE_DATASET" \
-  --output checkpoints/abc_refine_v1_cpu/data
+  --output checkpoints/abc_refine_fresh_v2_cpu/data
 ```
 
-不要将此 prepare 命令误认为同adapter/processor/GPU验收通过。
+prepare 仅为 CPU 数据和计划检查，不能代替真实 processor/GPU 验收。
 
 ## 2. Action ABC 六组
 
@@ -50,7 +50,7 @@ bash qwen3vl_local/action_expert_ablation/geometry_abc/run.sh all \
 
 地图在其它位置时，`resolve` 第三个参数可传该完整地图根的路径；不要直接将带Town子目录的根当成数据构建器要求的平坦xodr目录。
 
-`all` 在数据不存在时建库，随后全量来源/历史/划分/七轮计划检查、processor、容量演练、六组四卡探针，全部探针成功后才开始长训；之后完整test、条件使用审计和自动打包。每组7轮/12,719更新，每轮116,256呈现（十事件各9,688，背景19,376），六组共同计划。训练和主评测用数据集真实未来区域，不接Phase3预测器或CARLA闭环。
+`all` 在数据不存在时建库，随后全量来源/历史/划分/七轮计划检查、processor、容量演练、六组四卡探针，全部探针成功后才开始长训；之后完整test、条件使用审计和自动打包。每组7轮/12,719更新，每轮116,256呈现（十事件各9,688，背景19,376），六组共同计划。训练和主评测用数据集真实未来区域，不接Phase3预测器或CARLA闭环。保留 BEV 感知预训练权重，Qwen 分支用原始 Qwen3.5；decoder 和区域条件参数新建，不加载旧 Phase3 LoRA 或旧 Action/decoder 权重。
 
 仅先建库和CPU检查（可选）：
 
@@ -77,9 +77,9 @@ Action需要服务器原项目提供 `leaderboard/team_code/mot_lead_offline_run
 
 正常交付路径：
 
-- Phase3：`checkpoints/abc_refine_v1/run_<tag>/delivery/abc_refine_audit.zip`
+- Phase3：`checkpoints/abc_refine_fresh_v2/run_<tag>/delivery/abc_refine_audit.zip`
 - Action：`checkpoints/action_expert_ablation/geometry_abc/run_<tag>/delivery/abc_trajectory_audit.zip`
 
 两条路线都自动打印结果目录、包路径、字节数和SHA，主包硬限30,000,000字节。质量需复核时仍交付结果并退出2；前置条件或运行失败保留失败证据，不应当作训练成功。已完成训练需补包，可按各包README的pack入口执行，不重训。
 
-本地独立审计250项不同CPU测试通过；全量Phase3记录及两路线计划保持原值；诊断支持格漏项为0。实际大模型processor、同adapter重放、四卡长输入探针及正式训练尚未执行，合成体积演练不能证明精度或GPU能力。后续以服务器真实回执为准。
+本地独立审计250项不同CPU测试通过；全量Phase3记录及两路线计划保持原值；诊断支持格漏项为0。该 250 项为修正前历史记录；本次初始化修复的验证另见 phase3_abc_refine/FRESH_INIT_FIX_20261025.md。实际大模型processor、四卡长输入探针及新正式训练尚未执行，合成体积演练不能证明精度或GPU能力。后续以服务器真实回执为准。

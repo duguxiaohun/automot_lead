@@ -270,3 +270,33 @@ def test_native_full_checkpoint_with_geometry_contract_and_optimizer(tmp_path,mo
     with ema.apply_to(m),restored_ema.apply_to(restored):
         assert torch.equal(m(**inputs(m,r),flow_sample_noise=noise)['pred_future_waypoints'],
                            restored(**inputs(restored,r),flow_sample_noise=noise)['pred_future_waypoints'])
+
+
+@pytest.mark.parametrize('name',['qwen_adapter_dir','init_from_ckpt','phase1_adapter','phase2_adapter','lora_bundle','resume'])
+def test_fresh_abc_rejects_prior_task_weights(name):
+    args=worker.parser().parse_args(['--abc-variant','a','--branch','bev_only','--suite-root','unused'])
+    setattr(args,name,'prior_weights')
+    with pytest.raises(ValueError):worker.validate_args(args)
+
+
+@pytest.mark.parametrize('operation',['train','probe','evaluate'])
+def test_fresh_abc_checkpoint_only_for_evaluation(operation):
+    args=worker.parser().parse_args(['--abc-variant','b','--branch','qwen_simple','--suite-root','unused',
+        '--operation',operation,'--checkpoint','own_run/best.pt'])
+    if operation=='evaluate':worker.validate_args(args)
+    else:
+        with pytest.raises(ValueError,match='checkpoint_only_allowed'):worker.validate_args(args)
+
+
+@pytest.mark.parametrize('name',['adapter_config.json','adapter_model.safetensors'])
+def test_abc_resource_admission_rejects_automatic_adapter_loading(tmp_path,monkeypatch,name):
+    from qwen3vl_local.action_expert_ablation.geometry_abc import preflight
+    from qwen3vl_local.qwen35 import preflight as qwen_check
+    from qwen3vl_local.action_expert_ablation import common
+    base=tmp_path/'base';base.mkdir();(base/name).write_text('old adapter')
+    bev=tmp_path/'bev.pth';bev.write_bytes(b'fixture')
+    monkeypatch.setattr(qwen_check,'check',lambda *a,**kw:dict(errors=[]))
+    monkeypatch.setattr(common,'leadmot_train',lambda:None)
+    result=preflight.resources(base,bev)
+    assert not result['ready'] and 'original_Qwen35_base_required_no_prior_adapter' in result['errors']
+    assert result['bev'] and not result['qwen']

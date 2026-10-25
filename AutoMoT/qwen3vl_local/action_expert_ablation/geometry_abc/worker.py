@@ -129,6 +129,10 @@ def validate_args(args):
     for k,v in expected.items():
         if getattr(args,k)!=v:raise ValueError('fixed_ABC_budget_or_input_changed: '+k)
     if args.resume:raise ValueError('implicit_resume_not_supported_use_original_validated_run')
+    for name in ('qwen_adapter_dir','init_from_ckpt','phase1_adapter','phase2_adapter','lora_bundle'):
+        if getattr(args,name,None):raise ValueError('prior_task_weights_forbidden: '+name)
+    if args.operation!='evaluate' and args.checkpoint:
+        raise ValueError('checkpoint_only_allowed_for_this_run_evaluation')
     if not args.use_bev or not args.use_final_goal or args.use_subgoal:raise ValueError('ABC_observation_switch_mismatch')
     if args.generate_analysis or args.event_balanced_scene_priors:raise ValueError('ABC_no_generated_or_semantic_scene_priors')
     args.condition_mode=args.branch

@@ -71,3 +71,7 @@ CPU 准入还重放所有缺失历史，记录原生缺失原因；模型输入�
 processor 全池结果现在分别保存 a/b/c × train/val/test 的最大文本长度、最大视觉 token 数、成员 ID 和 image_grid_thw。每组四卡反向探针选本表示的训练集两类极值（去重），再以稳定 ID 补足四条训练样本；val/test 极值只由未包 DDP 的模型在 eval + no_grad 下前向，不参与 optimizer 更新。Qwen 实际 prefill 处记录并核对 processor 形状，反向前即拒绝与报告不一致的极值。六组均保存实际 RGB、LiDAR 点数及 decoder BEV/KV 形状。BEV 使用相同选样和真实形状记录，不将文本长度称为 LiDAR 点数极值。
 
 正式开训及最终打包重新核验选样、split、processor SHA、四 rank 消费回执及 holdout 更新数为零。所有回执收入主包；容量演练加入六组新诊断完整选样报告，保留 4MB 余量和全部 test。旧 processor/probe 因源码及字段改变不能复用，需新输出目录重新 `check`/`all`，不能修改旧 SHA。当前代码和全池验证证据见 `checkpoints/abc_coverage_probe_fixes_20261024`；本机缺完整模型，不能把 CPU 检查当成真实四卡最长输入验收。
+
+## 2026-10-25 初始化约束
+
+保留 BEV 感知预训练权重；Qwen 分支使用原始 Qwen3.5。区域条件嵌入和 Action decoder 从头训练，不加载旧 Phase3 LoRA、旧 Action/decoder。worker 显式拒绝旧 adapter/init/resume，train/probe 不接收 checkpoint；evaluate 只接受本实验合同与完成证据通过的本轮权重。自身探针的保存重载核验保留，探针权重不进入正式训练。worker 源码更新后重新运行 check/probe，旧准入不直接复用；数据标定/划分/七轮计划未改。

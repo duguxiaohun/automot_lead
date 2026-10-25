@@ -74,6 +74,9 @@ def history_check(rows,data_root,output):
 def resources(model_dir,bev_checkpoint):
     from qwen3vl_local.qwen35.preflight import check
     result=check(model_dir,action=True);errors=list(result['errors'])
+    root=Path(model_dir)
+    if any(root.rglob('adapter_config.json')) or any(root.rglob('adapter_model.*')):
+        errors.append('original_Qwen35_base_required_no_prior_adapter')
     bev=Path(bev_checkpoint)
     if not bev.is_file():errors.append('missing_BEV_weights: '+str(bev))
     try:
@@ -82,7 +85,6 @@ def resources(model_dir,bev_checkpoint):
     except (ImportError,OSError,RuntimeError) as exc:errors.append(f'offline_runner_import: {exc}')
     files={}
     if not errors:
-        root=Path(model_dir)
         files={str(p.relative_to(root)):sha(p) for p in sorted(root.rglob('*'))
                if p.is_file() and '.cache' not in p.parts}
     return dict(ready=not errors,errors=errors,qwen=files,bev=sha(bev) if bev.is_file() else None)

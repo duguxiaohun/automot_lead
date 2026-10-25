@@ -50,7 +50,7 @@ def suite(tmp_path,monkeypatch):
     model=bindings.model_identity(model_dir)
     for name in ('dataset.json','status.json','receipt.json','admission.json','members.jsonl'):
         write(root/'data'/name,{})
-    state=dict(groups={},baseline_test={},baseline_dataset=bindings.file_proof(parent),baseline_adapters={},paired_validation={},
+    state=dict(workflow=runtime.WORKFLOW,initialization=runtime.INITIALIZATION,groups={},baseline_test={},baseline_dataset=bindings.file_proof(parent),
                model_binding=dict(path=str(model_dir),model=model))
     processor=dict(code=runtime.identity(),model=model,dataset_sha256=sha(root/'data/dataset.json'),full_pool=True,no_truncation=True)
     write(root/'processor.json',processor)
@@ -58,20 +58,6 @@ def suite(tmp_path,monkeypatch):
     for v in 'abc':
         val=record(8,variant=v);val['split']='val';test=record(9,variant=v);test['split']='test'
         records[v]=[record(i,variant=v) for i in range(10,14)]+[val,test]
-        checkpoint=tmp_path/'baseline_runs'/f'{v}_1280/epoch_3';checkpoint.mkdir(parents=True)
-        (checkpoint/'state.pt').write_bytes(b'synthetic old adapter')
-        write(checkpoint/'receipt.json',dict(binding=dict(model=model,contract=runtime.BASE_CONTRACT(v)),state_sha256=sha(checkpoint/'state.pt')))
-        adapter=bindings.adapter_identity(checkpoint,model,v);state['baseline_adapters'][v]=adapter
-        original=[case(val,runtime.BASE_CONTRACT(v))];candidate=copy.deepcopy(original)
-        replay=tmp_path/'external_replay'/v
-        write(replay/'original_cases.json',original);write(replay/'candidate_cases.json',candidate)
-        report=regression.compare(original,candidate)
-        report.update(source=runtime.identity(),model=model,variant=v,baseline_dataset_sha256=sha(parent),
-                      adapter_sha256=adapter['state_sha256'],adapter_receipt_sha256=adapter['receipt_sha256'],
-                      full_validation=True,processor_checked=True,fresh_KV=True)
-        write(replay/'regression.json',report)
-        state['paired_validation'][v]={k:bindings.file_proof(replay/f) for k,f in
-            [('original','original_cases.json'),('candidate','candidate_cases.json'),('regression','regression.json')]}
         probe=root/'probes'/v;binding=dict(model=model,contract=runtime.contract(v),code=runtime.identity(),dataset_sha256=sha(root/'data/dataset.json'))
         write(probe/'checkpoint/receipt.json',dict(binding=binding,state_sha256='placeholder'))
         (probe/'checkpoint/state.pt').write_bytes(b'synthetic probe state')
@@ -79,7 +65,7 @@ def suite(tmp_path,monkeypatch):
         write(probe/'probe_complete.json',dict(binding=binding,**binding,variant=v,processor_sha256=sha(root/'processor.json'),
              checkpoint_reload_verified=True,checkpoint_sha256=sha(probe/'checkpoint/state.pt'),receipt_sha256=sha(probe/'checkpoint/receipt.json')))
         baseline=[case(test,runtime.BASE_CONTRACT(v))];new=[case(test,runtime.contract(v))]
-        bp=checkpoint.parent/'test/cases.json';write(bp,baseline);state['baseline_test'][v]=bindings.file_proof(bp)
+        bp=tmp_path/'baseline_runs'/f'{v}_1280/test/cases.json';write(bp,baseline);state['baseline_test'][v]=bindings.file_proof(bp)
         write(root/f'eval_{v}/cases.json',new)
         with runtime.activated():write(root/f'eval_{v}/metrics.json',metrics.evaluate(new))
         report=regression.compare(baseline,new);write(root/f'regression_{v}.json',report);state['groups'][v]=report['status']
@@ -106,14 +92,14 @@ def suite(tmp_path,monkeypatch):
     return root,state,model,records
 
 
-def test_actual_final_pack_new_contract_and_paired_evidence(tmp_path,monkeypatch):
+def test_actual_final_pack_new_contract_and_fresh_evidence(tmp_path,monkeypatch):
     root,state,model,records=suite(tmp_path,monkeypatch)
     result=cli.package(root)
     with zipfile.ZipFile(result['package']) as z:
         assert z.testzip() is None
         for v in 'abc':
-            assert f'admission/{v}/paired_validation.json' in z.namelist()
-            assert f'admission/{v}/regression.json' in z.namelist()
+            assert f'admission/{v}/paired_validation.json' not in z.namelist()
+            compact=json.loads(z.read(f'{v}/cases.json'));assert compact['baseline_rows']==compact['rows']
             assert f'admission/{v}/probe_complete.json' in z.namelist()
             for rank in range(4):assert f'admission/{v}/rank{rank}.json' in z.namelist()
         assert 'admission/processor.json' in z.namelist()
@@ -136,7 +122,7 @@ def test_rehashed_probe_rank_cannot_hide_holdout_update_or_member_change(tmp_pat
     with pytest.raises(ValueError):bindings.verify_probe(receipt_path,root/'data/dataset.json',model,'a',root/'processor.json')
 
 
-@pytest.mark.parametrize('changed',['model','tokenizer','probe_variant','probe_weights','external_replay','processor'])
+@pytest.mark.parametrize('changed',['model','tokenizer','probe_variant','probe_weights','baseline_cases','processor'])
 def test_cached_admissions_reject_changed_inputs(tmp_path,monkeypatch,changed):
     root,state,model,records=suite(tmp_path,monkeypatch)
     if changed in ('model','tokenizer'):
@@ -145,7 +131,7 @@ def test_cached_admissions_reject_changed_inputs(tmp_path,monkeypatch,changed):
     elif changed=='probe_variant':
         (root/'probes/a/probe_complete.json').write_bytes((root/'probes/b/probe_complete.json').read_bytes())
     elif changed=='probe_weights':(root/'probes/a/checkpoint/state.pt').write_bytes(b'changed weights')
-    elif changed=='external_replay':Path(state['paired_validation']['a']['candidate']['path']).write_text('[]')
+    elif changed=='baseline_cases':Path(state['baseline_test']['a']['path']).write_text('[]')
     elif changed=='processor':
         p=root/'processor.json';r=json.loads(p.read_text());r['model']={'wrong':'model'};write(p,r)
     with pytest.raises(ValueError):cli.admission_evidence(root,state)
@@ -159,7 +145,7 @@ def test_changed_model_stops_workflow_before_GPU_or_training(tmp_path,monkeypatc
     monkeypatch.setattr(launch,'run_logged',lambda *a:pytest.fail('training must not run'))
     args=SimpleNamespace(operation='all',run_dir=str(root),output=str(root),model_dir=state['model_binding']['path'],
         baseline_runs_root=str(tmp_path/'baseline_runs'),baseline_dataset=state['baseline_dataset']['path'])
-    with pytest.raises(ValueError,match='adapter_model_changed'):cli.workflow(args)
+    with pytest.raises(ValueError,match='frozen_suite_inputs_changed'):cli.workflow(args)
 
 
 def test_native_probe_save_restore_checks_all_trainable_weights(tmp_path,monkeypatch):
@@ -179,13 +165,10 @@ def test_native_probe_save_restore_checks_all_trainable_weights(tmp_path,monkeyp
     with pytest.raises(ValueError,match='checkpoint_changed'):preflight.reload_probe(bundle,tmp_path/'checkpoint',artifact,dataset_path)
 
 
-@pytest.mark.parametrize('gate',['replay','processor','probe'])
+@pytest.mark.parametrize('gate',['processor','probe'])
 def test_every_cached_gate_independently_binds_model_content(tmp_path,monkeypatch,gate):
     root,state,model,records=suite(tmp_path,monkeypatch)
     wrong=dict(model);wrong['tokenizer.json']='changed tokenizer hash'
     with pytest.raises(ValueError):
-        if gate=='replay':
-            bindings.verify_replay(state['paired_validation']['a']['regression']['path'],state['baseline_dataset']['path'],
-                                  {'records':records['a']},wrong,'a',state['baseline_adapters']['a'])
-        elif gate=='processor':bindings.verify_processor(root/'processor.json',root/'data/dataset.json',wrong)
+        if gate=='processor':bindings.verify_processor(root/'processor.json',root/'data/dataset.json',wrong)
         else:bindings.verify_probe(root/'probes/a/probe_complete.json',root/'data/dataset.json',wrong,'a',root/'processor.json')

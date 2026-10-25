@@ -64,3 +64,22 @@ def test_failed_evaluation_retry_preserves_old_evidence(tmp_path):
     out.mkdir();(out/'metrics.json').write_text('{}')
     with pytest.raises(ValueError,match='completed'):preserve_partial_evaluation(tmp_path,out)
     assert (out/'metrics.json').read_text()=='{}'
+
+
+def test_native_fresh_lora_initialization_does_not_reuse_previous_adapter(processor,model,tmp_path):
+    from qwen3vl_local.sft_v2.train import load_model_with_lora
+    base=tmp_path/'base';model.save_pretrained(base);processor.save_pretrained(base)
+    def fresh():
+        return load_model_with_lora(base,device=torch.device('cpu'),lora_rank=4,lora_alpha=8,
+            lora_dropout=0.,lora_vision_scope='off',strict_vision_scope=True,gradient_checkpointing=False)
+    first=fresh()
+    params=dict(first.model.named_parameters())
+    lora_b=[p for n,p in params.items() if '.lora_B.' in n]
+    assert lora_b and all(torch.count_nonzero(p)==0 for p in lora_b)
+    assert all(not p.requires_grad for n,p in params.items() if 'lora_' not in n)
+    with torch.no_grad():
+        for p in lora_b:p.fill_(7)
+    first.model.save_pretrained(tmp_path/'old_adapter')
+    second=fresh()
+    assert all(torch.count_nonzero(p)==0 for n,p in second.model.named_parameters() if '.lora_B.' in n)
+    assert any(torch.count_nonzero(p)>0 for n,p in second.model.named_parameters() if '.lora_A.' in n)
