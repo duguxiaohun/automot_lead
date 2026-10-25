@@ -13,6 +13,7 @@ def parser():
     p.add_argument('--data-root',default='lead_data');p.add_argument('--collection',default='keyframe_filter/collection_output')
     p.add_argument('--maps');p.add_argument('--data-dir',default='checkpoints/abc_trajectory_v1')
     p.add_argument('--output',default='checkpoints/action_expert_ablation/geometry_abc')
+    p.add_argument('--recover-from',help='preparation-only old run; create a new run and reuse only compatible processor evidence')
     p.add_argument('--run-dir',help='explicit existing suite for probe/evaluation/pack retries')
     p.add_argument('--model-dir',default='checkpoints/Qwen3.5-4B')
     p.add_argument('--lead-bev-ckpt',default='checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth')
@@ -22,6 +23,11 @@ def parser():
 
 def main(argv=None):
     args=parser().parse_args(argv)
+    from . import recovery
+    if args.recover_from:
+        if args.run_dir or args.operation not in ('all','check'):raise ValueError('recover_requires_new_all_or_check_run')
+        recovery.inspect_old(args.recover_from)
+        args.data_dir=str(recovery.data_directory(args.data_dir))
     from . import data,preflight,audit
     from qwen3vl_local.action_prior.launch import prepare_run_directory,ensure_gpu,run_logged
     if args.operation=='status':
@@ -40,6 +46,9 @@ def main(argv=None):
     root=Path(args.run_dir).resolve(strict=True) if args.run_dir else prepare_run_directory(args.output).resolve()
     with lock(root):
         status_path=root/'pipeline.json'
+        if os.environ.get('QWEN_EXECUTION_VERSION'):
+            write(root/'execution_version.json',dict(directory=os.environ['QWEN_EXECUTION_VERSION'],
+                origin=os.environ.get('QWEN_EXECUTION_ORIGIN'),schema='qwen_local_execution_v1'))
         state=json.loads(status_path.read_text()) if status_path.exists() else dict(schema='abc_six_group_pipeline_v1',groups={})
         try:
             if args.operation in ('all','check'):
@@ -51,10 +60,15 @@ def main(argv=None):
                                      collection=args.collection,maps=args.maps)
                 audit.drill(args.data_dir,root/'package_drill');gate['package_ready']=True
                 if gate['resources']['ready']:
-                    preflight.processor_check(args.data_dir,args.model_dir,args.data_root,root/'processor.json')
+                    reused=args.recover_from and recovery.reuse_processor(args.recover_from,gate,root/'processor.json')
+                    if not reused:preflight.processor_check(args.data_dir,args.model_dir,args.data_root,root/'processor.json')
                     gate['processor_ready']=True;gate['processor_sha256']=sha(root/'processor.json')
                 else:gate['processor_ready']=False
                 write(root/'admission.json',gate)
+                if gate['processor_ready']:
+                    recovery.require_current(gate,output=root/'source_mismatch.json')
+                    from .probe_inputs import verify_processor
+                    verify_processor(root/'processor.json',gate)
                 state.update(status='cpu_admitted' if gate['processor_ready'] else 'resources_missing',admission=gate)
                 write(status_path,state)
                 if args.operation=='check' or not gate['processor_ready']:
@@ -64,6 +78,9 @@ def main(argv=None):
             if args.operation in ('all','probe','evaluate'):
                 gate=json.loads((root/'admission.json').read_text())
                 if not gate.get('processor_ready'):raise ValueError('complete_CPU_admission_required')
+                recovery.require_current(gate,output=root/'source_mismatch.json')
+                from .probe_inputs import verify_processor
+                verify_processor(root/'processor.json',gate)
                 if ensure_gpu(4)!=4:raise ValueError('six_group_suite_requires_four_GPUs')
                 def command(group,operation,output):
                     v,branch=group.split('_',1)
@@ -107,7 +124,8 @@ def main(argv=None):
             state.update(status='failed' if not isinstance(exc,SystemExit) else state.get('status','rejected'),
                          error=f'{type(exc).__name__}: {exc}')
             write(status_path,state)
-            pack(root/'failure_delivery'/'diagnostic.zip',{'pipeline.json':status_path},summary={'final_results':False})
+            try:recovery.failure_package(root,state)
+            except Exception as packing_error:print(f'[ABC failure delivery] {packing_error}; original error retained',file=sys.stderr)
             raise
 
 

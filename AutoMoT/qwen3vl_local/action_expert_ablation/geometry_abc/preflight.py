@@ -119,7 +119,10 @@ def plan_digest(projection):
 def processor_check(directory,model_dir,data_root,output):
     import time
     from .probe_inputs import update,shape
-    started=time.monotonic();extrema={}
+    started=time.monotonic();extrema={};initial_code=contracts.source_identity()
+    model_root=Path(model_dir)
+    def model_files():return {str(p.relative_to(model_root)):sha(p) for p in sorted(model_root.rglob('*')) if p.is_file() and '.cache' not in p.parts}
+    initial_model=model_files()
     from PIL import Image
     from qwen3vl_local.qwen35.backend import AutoProcessor
     from qwen3vl_local.engine import LocalQwen3VLInstructEngine
@@ -144,8 +147,10 @@ def processor_check(directory,model_dir,data_root,output):
                 if tokens>maximum:maximum=tokens;longest=dict(id=r['id'],variant=variant,split=split)
                 count+=1;per_variant[variant]+=1
             if count%3000==0:print(f'[ABC processor] texts={count} longest={maximum}',flush=True)
-    result=dict(schema='abc_full_pool_processor_v1',dataset=manifest['identity'],splits=manifest['splits'],
-                code=contracts.source_identity(),checked=count,per_variant=per_variant,max_tokens=maximum,
+    if contracts.source_identity()!=initial_code or model_files()!=initial_model:
+        raise ValueError('processor_inputs_changed_during_scan_use_versioned_run')
+    result=dict(model=initial_model,schema='abc_full_pool_processor_v1',dataset=manifest['identity'],splits=manifest['splits'],
+                code=initial_code,checked=count,per_variant=per_variant,max_tokens=maximum,
                 longest=longest,extrema=extrema,seconds=time.monotonic()-started,full_pool=True,no_truncation=True)
     write(output,result);return result
 
@@ -176,6 +181,7 @@ def verify_derivation_sources(manifest,collection,maps):
 
 
 def check(directory,model_dir,bev_checkpoint,data_root,output,*,raw=True,collection=None,maps=None):
+    initial_code=contracts.source_identity()
     state=dict(data_ready=False,plan_ready=False,runtime_ready=False,package_ready=False,errors=[])
     # Resource inventory is cheap and reports all missing prerequisites together.
     resource=resources(model_dir,bev_checkpoint);state['resources']=resource
@@ -195,8 +201,10 @@ def check(directory,model_dir,bev_checkpoint,data_root,output,*,raw=True,collect
     projection=verify_plan(directory,rows)
     state.update(data_ready=True,plan_ready=True,dataset=manifest['identity'],splits=manifest['splits'],
                  manifest_sha256=manifest_sha256,
-                 plan_sha256=projection['sha256'],code=contracts.source_identity(),raw_sources_verified=raw,history_ready=raw,
+                 record_counts={s:len(values) for s,values in rows.items()},
+                 plan_sha256=projection['sha256'],code=initial_code,raw_sources_verified=raw,history_ready=raw,
                  development_ready=raw)
     checked_bytes(Path(directory)/'manifest.json',manifest_sha256)
+    if contracts.source_identity()!=initial_code:raise ValueError('source_changed_during_admission_use_versioned_run')
     state['errors'].extend(resource['errors'])
     write(output,state);return state

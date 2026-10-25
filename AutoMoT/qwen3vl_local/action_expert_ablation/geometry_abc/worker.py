@@ -149,6 +149,9 @@ def numerical_config(args):
 
 def main(argv=None):
     args=parser().parse_args(argv);validate_args(args)
+    # Reject version mismatch before importing the runner or allocating NCCL/GPU resources.
+    from .recovery import require_current
+    require_current(json.loads((Path(args.suite_root)/'admission.json').read_text()))
     from qwen3vl_local.action_expert_ablation import common
     from qwen3vl_local.action_prior import training_core as core
     from qwen3vl_local.action_prior.flow_matching import FlowMatchingConfig,make_training_flow,flow_matching_loss
@@ -165,7 +168,7 @@ def main(argv=None):
         gate=json.loads((suite/'admission.json').read_text())
         if not all(gate.get(k) for k in ('data_ready','plan_ready','package_ready','processor_ready','raw_sources_verified','history_ready','development_ready')):
             raise ValueError('all_CPU_gates_required_before_probe_or_training')
-        if gate['code']!=contracts.source_identity():raise ValueError('admission_source_changed')
+        require_current(gate)
         from .preflight import resources
         resource=[resources(args.model_dir,args.lead_bev_ckpt) if rank==0 else None]
         dist.broadcast_object_list(resource,src=0)

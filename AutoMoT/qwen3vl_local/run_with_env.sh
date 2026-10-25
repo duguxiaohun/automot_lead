@@ -8,4 +8,5 @@ if [[ $# -lt 1 ]]; then echo 'Usage: bash qwen3vl_local/run_with_env.sh qwen3vl_
 QWEN_TARGET=$1
 shift
 cd "$QWEN_APP"
-exec bash "$QWEN_TARGET" "$@"
+if [[ "${QWEN_EXECUTION_VERSION:-}/app" == "$QWEN_APP" ]]; then exec bash "$QWEN_TARGET" "$@"; fi
+exec "$PYTHON" -B "$QWEN_APP/qwen3vl_local/runtime_version.py" --app "$QWEN_APP" -- "$QWEN_TARGET" "$@"

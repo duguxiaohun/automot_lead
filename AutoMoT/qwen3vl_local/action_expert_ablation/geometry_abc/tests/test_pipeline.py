@@ -3,16 +3,16 @@ import json
 from pathlib import Path
 import pytest
 from qwen3vl_local.audit_joint.abc_delivery import write,sha
-from qwen3vl_local.action_expert_ablation.geometry_abc import __main__ as cli,audit,preflight
+from qwen3vl_local.action_expert_ablation.geometry_abc import __main__ as cli,audit,preflight,contracts
 from qwen3vl_local.action_prior import launch
 
 
 def fixture(tmp_path,monkeypatch,*,ready=True,fail_probe=False):
     data=tmp_path/'data';write(data/'status.json',{'data_ready':True})
     root=tmp_path/'run';root.mkdir();calls=[]
-    gate=dict(data_ready=True,plan_ready=True,resources={'ready':ready,'errors':[] if ready else ['missing weights']})
+    gate=dict(code=contracts.source_identity(),dataset='fixture',splits={},data_ready=True,plan_ready=True,resources={'ready':ready,'errors':[] if ready else ['missing weights']})
     monkeypatch.setattr(preflight,'check',lambda *a,**kw:dict(gate))
-    monkeypatch.setattr(preflight,'processor_check',lambda *a,**kw:write(a[3],{'full_pool':True}))
+    monkeypatch.setattr(preflight,'processor_check',lambda *a,**kw:write(a[3],dict(full_pool=True,no_truncation=True,code=gate['code'],dataset=gate['dataset'],splits=gate['splits'])))
     monkeypatch.setattr(audit,'drill',lambda *a,**kw:None)
     monkeypatch.setattr(audit,'build',lambda *a,**kw:{'package':'test-substitute.zip'})
     monkeypatch.setattr(launch,'ensure_gpu',lambda n:4)

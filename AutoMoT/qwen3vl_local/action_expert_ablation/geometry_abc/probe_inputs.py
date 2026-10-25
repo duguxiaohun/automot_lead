@@ -49,6 +49,8 @@ def verify_processor(path,gate):
     result=json.loads(path.read_text())
     if (result['code']!=gate['code'] or result['dataset']!=gate['dataset'] or result['splits']!=gate['splits']
         or not result['full_pool'] or not result['no_truncation']):raise ValueError('processor_contract_changed')
+    if 'model' in result and result['model']!=gate['resources']['qwen']:
+        raise ValueError('processor_base_model_changed_since_admission')
     return result
 
 

@@ -50,3 +50,7 @@ bash qwen3vl_local/audit_joint/phase3_abc_refine/run.sh pack \
 processor 分 a/b/c 和 train/val/test 记录文本及视觉网格极值；反向探针只选训练集极值并补足四条。val/test 极值只 eval/no_grad 前向，零优化更新。真实输入形状必须匹配 processor 记录。probe 保存后原生重载并逐参数核验，回执绑定模型、表示、数据、源码和 processor；正式开训及打包重新核验。原生训练代码和旧运行不改。
 
 RGB 人工审阅仍只有四个训练物理组共 68 帧，不是全场景边界盲审。本机 CPU 验证和合成打包不能替代真实模型 processor、四卡探针、长训或精度验收；重新训练的效果尚待实测。
+
+## 运行期间源码固定
+
+run.sh 自动在本地源码版本中执行整条流程，后续同步主树不会影响已启动的新任务。其它阶段的外部包装方式及显式原版本补包见 [运行版本说明](../../RUNTIME_VERSIONING_20261025.md)。此改动不迁移旧训练权重、数据或 processor/probe 合同。

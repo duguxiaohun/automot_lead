@@ -233,6 +233,8 @@ def build(root,directory):
     required['data/region_support.json']=support_path
     for name in ('admission.json','processor.json','history_support.json','raw_source_verification.json'):
         required['admission/'+name]=root/name
+    for name in ('execution_version.json','recovery.json'):
+        if (root/name).is_file():required['admission/'+name]=root/name
     for name in ('manifest.json','split_report.json','status.json'):
         required['data/'+name]=Path(directory)/name
     for group in GROUPS:

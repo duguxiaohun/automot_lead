@@ -1,0 +1,44 @@
+{
+  "schema": "reviewed_processor_source_transition_v1",
+  "scope": "Only orchestration and source/model stability checks changed; observation text, packing, image verification, extrema, data and sampling unchanged. Full raw-source/plan/resource admission reruns; no training/probe reuse.",
+  "changes": {
+    "qwen3vl_local/action_expert_ablation/geometry_abc/__main__.py": {
+      "before": [
+        "80a57ce66d050727821b98c052bb2a8b41467e1f65e4d3dca0c5ac7f1b8c2e19"
+      ],
+      "after": "917633690236fe9a1bc00d2530577a47ca4aa727fcdf1a4d92a7d4f3f02cad4b"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/preflight.py": {
+      "before": [
+        "1d8be0f346f61c7d6d06eb6323648f026a46506da36789dbb69ce1c94c228b9b",
+        "4edcafb0fd523e4a8b77245087c47d30cfb9c520088e18ce797631a05d6ed845"
+      ],
+      "after": "17c717dc3c7c59766f0c343b922696cd338eca28eb6f6426ada29d7ef8d16409"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/worker.py": {
+      "before": [
+        "3f99061ba88df48600aca6f3b10491b8192f6ad6f969438737e6ba77accfd083",
+        "2eaf6ebcbddf979597bf22ddba29368e9c7236fdd9bba5fa5ba4aa7ddab3638b"
+      ],
+      "after": "97bc2e374f63425100273b07aa5a76953923711942e10ec27a3e9bc2374f1dcb"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/recovery.py": {
+      "before": [
+        null
+      ],
+      "after": "76f4da72aa40251a77c7d674df2e892bd32f208607ea64a8f9c6fb1f362e980f"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/audit.py": {
+      "before": [
+        "18cff43a5a8d20a52a951145d083df6b8ab25225b47e9a462d38c870dfafca54"
+      ],
+      "after": "ecc2921e11826bcf129a0b85caf5d892927b80256f401a35feb3c150ce233197"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/probe_inputs.py": {
+      "before": [
+        "7bc4f3e309e41d8ef90822b9688a4d50bbda8b948785f37c62af32edf00465c0"
+      ],
+      "after": "c285f707e456fedeca0c7c74ca764a6f5de7d956555beaefb769334eb07dea97"
+    }
+  }
+}

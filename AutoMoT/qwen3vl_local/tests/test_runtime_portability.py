@@ -37,11 +37,14 @@ def test_public_launchers_keep_active_python_and_project_cwd(tmp_path,entry,sele
 
 def test_legacy_environment_wrapper(tmp_path):
     app=tmp_path/'app';package=app/'qwen3vl_local';package.mkdir(parents=True)
-    for file in ('runtime_env.sh','run_with_env.sh'):shutil.copy2(ROOT/file,package/file)
+    for file in ('runtime_env.sh','run_with_env.sh','runtime_version.py'):shutil.copy2(ROOT/file,package/file)
     legacy=package/'legacy.sh';legacy.write_text('#!/bin/bash\nprintf "%s\\n" "$PYTHON" "$PWD" "$@"\n')
     env=dict(os.environ,PYTHON=sys.executable)
     result=subprocess.run(['bash',str(package/'run_with_env.sh'),'qwen3vl_local/legacy.sh','status'],cwd=tmp_path,env=env,capture_output=True,text=True)
-    assert result.returncode==0 and result.stdout.splitlines()==[sys.executable,str(app),'status']
+    assert result.returncode==0,result.stderr
+    lines=result.stdout.splitlines();assert lines[-3]==sys.executable and lines[-1]=='status'
+    assert Path(lines[-2]).parent.parent==app/'checkpoints/runtime_versions'
+    assert Path(lines[-2]).name=='app'
 
 
 @pytest.mark.parametrize('operation,needed',[('prepare',True),('all',True),('replay',False),('pack',False),('--help',False)])

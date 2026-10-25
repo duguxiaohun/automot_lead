@@ -75,3 +75,7 @@ processor 全池结果现在分别保存 a/b/c × train/val/test 的最大文本
 ## 2026-10-25 初始化约束
 
 保留 BEV 感知预训练权重；Qwen 分支使用原始 Qwen3.5。区域条件嵌入和 Action decoder 从头训练，不加载旧 Phase3 LoRA、旧 Action/decoder。worker 显式拒绝旧 adapter/init/resume，train/probe 不接收 checkpoint；evaluate 只接受本实验合同与完成证据通过的本轮权重。自身探针的保存重载核验保留，探针权重不进入正式训练。worker 源码更新后重新运行 check/probe，旧准入不直接复用；数据标定/划分/七轮计划未改。
+
+## 准入期间更新代码的恢复
+
+run.sh 现在自动固定本次源码版本。尚未正式训练的旧失败运行用 `all --recover-from <旧run>` 创建新运行，重新校验来源/计划/资源，按精确白名单复用或重做 processor；旧 probe 不复用。正式训练目录存在时不自动重训。具体命令和边界见 [运行版本说明](../../RUNTIME_VERSIONING_20261025.md)。
