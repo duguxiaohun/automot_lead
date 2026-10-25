@@ -1,5 +1,13 @@
 # AGENTS.md
 
+### 2026-10-25 single 默认回退与 refine 暂停（当前用户决定）
+
+用户选择上一版 single v3 为默认，暂停新的 single 审计/标定/提示词改进。默认标定、历史、提示词、训练与测试沿用 phase3_single_v3；默认运行 checkpoints/phase3_single_v3/runs/six_1280，模型 epoch_3/state.pt，9600更新，旧test纯5768/6707、集合6092/7077。保留 phase3_single_refine 全部代码、结果、权重和审计材料，不删改/自动提升，不继续新的实验，除非用户重新明确要求。
+
+统一 phase3_compare single 本来已指向 v3，本次不修改其入口或两版绑定代码、ready、标签及合同；新增包外 phase3_single_default.json/.py/.sh 固定旧版选择、18份运行JSON SHA及第三轮权重SHA。status只读；checkpoint先核验旧运行，再复用原生完成校验，前后复核并输出checkpoint目录，拒绝缺失、错配或latest替代，不推理/训练/写回执。shell继承已激活环境，不强制.venv。base/abc/Phase4保持原状，不把两版single或base规则互相复制。说明PHASE3_SINGLE_DEFAULT_20261025.md；本机无服务器权重，不能声称远程部署/闭环加载完成。不得用全仓库reset/revert实现默认选择。
+
+本轮31项相关CPU回归34.26秒通过，含默认路由、错配权重/证据拒绝与原有完成校验测试；真实旧18份运行JSON与206绑定源逐字复核通过。已激活Conda式环境/非项目cwd的status与shell语法通过。未GPU/远程/push；记录checkpoints/phase3_single_default_20261025/verification.json。
+
 ### 2026-10-24 base 默认回退与 single 分支隔离（当前用户决定）
 
 用户选择上一轮 bounded_v3 作为 phase3 base 默认，暂停进一步 base 标定和提示词审计/改进。默认运行是 checkpoints/phase3_compare_base/run_base_bounded_v3，adapter 为 experiment/train/final，val251/320、test267/380；不是历史四图最佳，也不是最新 phase3_base_new_20261024/run_base_new_20261024。新旧产物都保留。默认不追随 latest/mtime，不因新实验完成自动提升。
