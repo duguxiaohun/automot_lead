@@ -102,13 +102,19 @@ def test_probe_selects_train_text_and_visual_maxima_holdout_forward_only():
 
 def test_probe_consumed_shape_and_rank_evidence_are_rechecked(tmp_path):
     rows,p=fixture_processor();selected=probe_inputs.selection(rows,p,'a')
-    receipt=dict(input_selection=selected,processor_sha256='p',binding={'branch':'qwen_simple'},rank_receipts={})
+    receipt=dict(input_selection=selected,processor_sha256='p',binding={'branch':'qwen_simple'},rank_receipts={},
+        post_checkpoint_backward_verified=True)
     for rank,item in enumerate(selected['backward']):
         dims={k:item.get(k,1) for k in ('tokens','visual_tokens','image_grid_thw')}
         proof=dict(input=dict(id=item['id'],split='train',processor=dims,rgb_shape=[1,2,2,3],lidar_points=[4],decoder_shapes={'bev':[1,2]}),
+            post_checkpoint_backward=dict(id=item['id'],split='train',optimizer_updates=0,loss=1.),
             holdout_forward_only=[dict(h,updates=0,decoder_shapes={'bev':[1,2]}) for h in selected['holdout_forward_only'][rank::4]])
         write(tmp_path/f'rank{rank}.json',proof);receipt['rank_receipts'][f'rank{rank}.json']=sha(tmp_path/f'rank{rank}.json')
     probe_inputs.verify_probe_inputs(receipt,selected,'p',tmp_path)
+    receipt['post_checkpoint_backward_verified']=False
+    with pytest.raises(ValueError,match='post_checkpoint_backward_evidence_required'):
+        probe_inputs.verify_probe_inputs(receipt,selected,'p',tmp_path)
+    receipt['post_checkpoint_backward_verified']=True
     path=tmp_path/'rank0.json';proof=json.loads(path.read_text());proof['input']['processor']['tokens']-=1
     write(path,proof);receipt['rank_receipts'][path.name]=sha(path)
     with pytest.raises(ValueError,match='shape_changed'):probe_inputs.verify_probe_inputs(receipt,selected,'p',tmp_path)

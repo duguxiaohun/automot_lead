@@ -95,6 +95,8 @@ def failure_package(root,state):
     root=Path(root);required={'pipeline.json':root/'pipeline.json'}
     for name in ('admission.json','processor.json','source_mismatch.json','recovery.json','execution_version.json'):
         if (root/name).is_file():required[name]=root/name
+    for p in sorted(root.glob('**/progress/*.json')):
+        required[str(p.relative_to(root))]=p
     for p in sorted((root/'logs').glob('*.log')):
         with p.open('rb') as f:f.seek(max(0,p.stat().st_size-64000));tail=f.read()
         target=root/'failure_delivery/log_tails'/p.name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(tail)

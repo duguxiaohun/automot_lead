@@ -1,5 +1,6 @@
 """Actual processor extrema split by variant and train/val/test."""
 import json
+import math
 from pathlib import Path
 from qwen3vl_local.audit_joint.abc_delivery import sha
 
@@ -71,6 +72,11 @@ def verify_probe_inputs(receipt,selection,processor_sha256,rank_directory):
         path=Path(rank_directory)/f'rank{rank}.json'
         if sha(path)!=files[path.name]:raise ValueError('probe_rank_evidence_changed')
         proof=json.loads(path.read_text());actual=proof['input']
+        continued=proof.get('post_checkpoint_backward',{})
+        if (not receipt.get('post_checkpoint_backward_verified') or continued.get('id')!=actual['id']
+            or continued.get('split')!='train' or continued.get('optimizer_updates')!=0
+            or not isinstance(continued.get('loss'),(int,float)) or not math.isfinite(continued['loss'])):
+            raise ValueError('post_checkpoint_backward_evidence_required')
         if actual['id']!=selection['backward'][rank]['id'] or actual['split']!='train':raise ValueError('probe_backward_split_changed')
         verify_actual_shape(actual['processor'],selection['backward'][rank],receipt['binding']['branch'])
         for item in proof['holdout_forward_only']:

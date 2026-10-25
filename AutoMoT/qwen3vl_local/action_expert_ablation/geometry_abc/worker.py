@@ -147,6 +147,25 @@ def numerical_config(args):
     return {key:getattr(args,key) for key in keys}
 
 
+def post_checkpoint_backward(runtime,chosen,prepared,decoder,model,config,dtype,fc,args,optimizer):
+    """Exercise the next real DDP forward after saving, without a formal update."""
+    import torch
+    from qwen3vl_local.action_prior.flow_matching import make_training_flow,flow_matching_loss
+    if chosen['abc_record']['split']!='train':raise ValueError('post_checkpoint_probe_train_only')
+    optimizer.zero_grad(set_to_none=True)
+    flow=make_training_flow(prepared['gt_route'][None].to(runtime.device),
+                            prepared['gt_waypoints'][None].to(runtime.device),fc)
+    output=runtime.forward_sample(chosen,decoder,config,dtype,clip=prepared['clip'],
+        flow_state=flow['flow_state'],flow_time=flow['flow_time'],sample_trajectory=False)
+    loss=flow_matching_loss(output,flow['flow_target_velocity'],10,args.route_loss_weight,args.waypoint_loss_weight)[0]
+    loss.backward()
+    if not torch.isfinite(loss) or any(p.grad is None or not torch.isfinite(p.grad).all() for p in model.parameters()):
+        raise ValueError('post_checkpoint_probe_invalid_gradient')
+    result=dict(id=chosen['abc_record']['id'],split='train',loss=float(loss.detach()),optimizer_updates=0)
+    optimizer.zero_grad(set_to_none=True)
+    return result
+
+
 def main(argv=None):
     args=parser().parse_args(argv);validate_args(args)
     # Reject version mismatch before importing the runner or allocating NCCL/GPU resources.
@@ -199,6 +218,7 @@ def main(argv=None):
                 if (proof['representation']!=contracts.contract(variant) or proof['branch']!=branch
                     or proof['source']!=gate['code'] or proof['dataset']!=gate['dataset']
                     or proof['resources']!=gate['resources'] or not receipt.get('checkpoint_reload_verified')
+                    or not receipt.get('post_checkpoint_backward_verified')
                     or receipt['checkpoint_sha256']!=sha(p.with_name('probe.pt'))):
                     raise ValueError('six_probe_contract_or_checkpoint_changed')
         projection=json.loads((Path(args.data_dir)/'plan.json').read_text())
@@ -291,7 +311,11 @@ def main(argv=None):
             core.save_training_checkpoint(out/'probe.pt',model,optimizer,scheduler,ema,args,binding,manifest['splits'],
                 {'epoch':0,'micro':1},1,math.inf,rank,world,
                 schema='abc_trajectory_checkpoint_v1',contract_key='condition_contract')
-            dist.barrier()
+            # No extra barrier here: the save itself must keep all ranks together.
+            continued=post_checkpoint_backward(runtime,chosen,prepared,decoder,model,config,dtype,fc,args,optimizer)
+            rank_receipt=json.loads((out/f'rank{rank}.json').read_text())
+            rank_receipt['post_checkpoint_backward']=continued
+            write(out/f'rank{rank}.json',rank_receipt)
             saved=torch.load(out/'probe.pt',map_location='cpu',weights_only=False)
             if saved['condition_contract']!=binding or saved['step']!=1:raise ValueError('probe_checkpoint_binding_changed')
             model.load_state_dict(saved['decoder'],strict=True);ema.load_state_dict(saved['ema_state_dict'])
@@ -300,7 +324,8 @@ def main(argv=None):
             if rank==0:
                 receipt=dict(binding=binding,ranks=4,formal_training=False,input_selection=input_selection,
                     processor_sha256=gate['processor_sha256'],rank_receipts={f'rank{i}.json':sha(out/f'rank{i}.json') for i in range(world)},
-                    admission_sha256=sha(suite/'admission.json'),checkpoint_reload_verified=True,checkpoint_sha256=sha(out/'probe.pt'))
+                    admission_sha256=sha(suite/'admission.json'),checkpoint_reload_verified=True,
+                    post_checkpoint_backward_verified=True,checkpoint_sha256=sha(out/'probe.pt'))
                 verify_probe_inputs(receipt,input_selection,gate['processor_sha256'],out)
                 write(out/'probe_complete.json',receipt)
             return

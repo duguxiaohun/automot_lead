@@ -68,11 +68,13 @@ def test_outer_rejects_before_gpu_and_packs_differences(tmp_path,monkeypatch):
     from qwen3vl_local.action_prior import launch
     monkeypatch.setattr(launch,'ensure_gpu',lambda *a:pytest.fail('GPU must not be selected'))
     root=tmp_path/'run';write(root/'admission.json',dict(processor_ready=True,code={'stale.py':'old'}))
+    write(root/'a_bev_only/progress/train_rank0.json',dict(stage='checkpoint/write'))
     with pytest.raises(ValueError,match='admission_source_changed'):
         cli.main(['probe','--run-dir',str(root),'--data-dir',str(tmp_path/'data'),'--data-root',str(tmp_path/'raw')])
     import zipfile
     with zipfile.ZipFile(root/'failure_delivery/diagnostic.zip') as z:
         assert 'source_mismatch.json' in z.namelist() and 'admission.json' in z.namelist()
+        assert json.loads(z.read('a_bev_only/progress/train_rank0.json'))['stage']=='checkpoint/write'
 
 
 def test_policy_binds_current_targets_and_rejects_arbitrary_new_source(tmp_path):

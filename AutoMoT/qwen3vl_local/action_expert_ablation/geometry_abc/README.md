@@ -79,3 +79,5 @@ processor 全池结果现在分别保存 a/b/c × train/val/test 的最大文本
 ## 准入期间更新代码的恢复
 
 run.sh 现在自动固定本次源码版本。尚未正式训练的旧失败运行用 `all --recover-from <旧run>` 创建新运行，重新校验来源/计划/资源，按精确白名单复用或重做 processor；旧 probe 不复用。正式训练目录存在时不自动重训。具体命令和边界见 [运行版本说明](../../RUNTIME_VERSIONING_20261025.md)。
+
+首次保存后继续训练的同步修复与重跑说明：[CHECKPOINT_FIX_20261025.md](CHECKPOINT_FIX_20261025.md)。新探针包含保存后继续前向/反向，旧 probe 不复用。

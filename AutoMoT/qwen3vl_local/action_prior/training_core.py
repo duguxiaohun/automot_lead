@@ -1013,11 +1013,8 @@ def save_training_checkpoint(
         dist.all_gather_object(states, rng)
     else:
         states[0] = rng
-    if rank == 0:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        model = getattr(model, "module", model)
-        report("checkpoint/write", announce=True)
+    model = getattr(model, "module", model)
+    def payload_factory():
         payload = dict(
             schema=schema,
             trajectory_decoder="conditional_joint_trajectory_flow_matching_v2",
@@ -1046,10 +1043,9 @@ def save_training_checkpoint(
         )
         payload[contract_key] = contract
         payload.update(extra or {})
-        tmp = path.with_suffix(".tmp")
-        torch.save(payload, tmp)
-        tmp.replace(path)
-        report("checkpoint/saved", announce=True)
+        return payload
+    from qwen3vl_local.action_prior.checkpoint_io import save
+    return save(path, payload_factory, rank, world)
 
 
 
