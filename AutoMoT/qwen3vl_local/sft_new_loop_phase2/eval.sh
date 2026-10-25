@@ -349,20 +349,13 @@ def skip_existing_bundle_artifact(src: pathlib.Path) -> bool:
         return False
     return first == "audit_bundle" or first.endswith("_audit_bundle") or src.name.endswith("_audit_bundle.tar.gz")
 
-def copy_text(src: pathlib.Path, dst: pathlib.Path, max_jsonl_lines: int = 500) -> None:
+def copy_text(src: pathlib.Path, dst: pathlib.Path, max_jsonl_lines=None) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if src.suffix == ".jsonl":
-        with src.open("r", encoding="utf-8", errors="replace") as f, dst.open("w", encoding="utf-8") as g:
-            for idx, line in enumerate(f):
-                if idx >= max_jsonl_lines:
-                    g.write(json.dumps({"truncated_after_lines": max_jsonl_lines, "source": str(src)}, ensure_ascii=False) + "\n")
-                    break
-                g.write(line)
-        return
-    if src.stat().st_size > 8 * 1024 * 1024:
-        dst.write_text(f"Skipped large text file: {src} size={src.stat().st_size}\n", encoding="utf-8")
+    if src.suffix not in {".json", ".jsonl"} and src.stat().st_size > 8 * 1024 * 1024:
+        dst.write_text(f"Optional large log omitted: {src} size={src.stat().st_size}\n")
         return
     shutil.copy2(src, dst)
+
 
 def copy_image(src: pathlib.Path, dst: pathlib.Path, max_side: int, quality: int) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -479,6 +472,7 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
             continue
         if src.suffix.lower() in text_suffixes and "/rgb/" not in src.as_posix():
             copy_text(src, bundle / src.relative_to(root))
+    shutil.copytree(root / "code", bundle / "code", dirs_exist_ok=True)
     manifest["adapter_metadata_files"] = copy_adapter_metadata()
     manifest["dataset_metadata_files"] = copy_dataset_metadata()
     cases = selected_case_dirs(case_limit, audit_limit)
@@ -488,11 +482,19 @@ def build_attempt(case_limit: int, audit_limit: int, max_side: int, quality: int
             if img.suffix.lower() in {".jpg", ".jpeg", ".png"}:
                 copy_image(img, bundle / img.relative_to(root), max_side=max_side, quality=quality)
     (bundle / "bundle_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    from qwen3vl_local.sft_new_loop_phase1.delivery import seal
+    seal(bundle)
     if archive.exists():
         archive.unlink()
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(bundle, arcname=bundle.name)
     return archive.stat().st_size
+
+from qwen3vl_local.sft_new_loop_phase1.delivery import prepare
+validate_expected_artifacts()
+prepare(root, 2, adapter_path, os.environ["INDEX"],
+        dataset_receipt=os.environ.get("DATASET_RECEIPT") or None,
+        preflight=os.environ.get("PREFLIGHT_RECEIPT") or None)
 
 attempts = [(24, 4, 768, 60), (16, 3, 640, 55), (10, 2, 560, 50), (6, 1, 448, 45)]
 final_size = 0
@@ -503,7 +505,8 @@ for attempt in attempts:
 else:
     final_size = build_attempt(3, 1, 384, 40)
     if final_size > limit_bytes:
-        raise SystemExit(f"bundle still exceeds limit: {final_size} > {limit_bytes}")
+        archive.unlink(missing_ok=True)
+        raise SystemExit(f"Full evidence exceeds limit: {final_size} > {limit_bytes}; no truncated audit archive published")
 print(json.dumps({"archive": str(archive), "bundle_dir": str(bundle), "bytes": final_size, "max_bytes": limit_bytes}, ensure_ascii=False, indent=2))
 PY
 }

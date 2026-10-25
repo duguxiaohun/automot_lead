@@ -145,7 +145,7 @@ COMMON_ARGS=(
   --num-epochs "${NUM_EPOCHS:-3}"
   --max-frames "${MAX_FRAMES:-0}"
   --max-steps "${MAX_STEPS:-0}"
-  --focus-balance-count "${FOCUS_BALANCE_COUNT:-1536}"
+  --focus-balance-count "${FOCUS_BALANCE_COUNT:-1024}"
   --regular-focus-multiplier "${REGULAR_FOCUS_MULTIPLIER:-2.0}"
   --invalid-focus-multiplier "${INVALID_FOCUS_MULTIPLIER:-1.0}"
   --highway-regular-fraction "${HIGHWAY_REGULAR_FRACTION:-0.25}"
@@ -225,6 +225,11 @@ elif [[ "${NPROC}" -gt 1 ]]; then
     -- qwen3vl_local/sft_new_loop_phase2/train.py "${COMMON_ARGS[@]}"
 else
   python qwen3vl_local/sft_new_loop_phase2/train.py "${COMMON_ARGS[@]}"
+fi
+
+# Validate actual consumption and content identities before publishing latest.
+if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
+  python -m qwen3vl_local.sft_new_loop_phase1.run_integrity "${OUTPUT_DIR}"
 fi
 
 # Publish latest only after successful training; failures preserve the previous target.

@@ -99,6 +99,7 @@ from qwen3vl_local.sft_new_loop_phase1.training_policy import (
 )
 
 from qwen3vl_local.sft_new_loop_phase1.exposure_sampling import CoverageSampler, ExposureLedger, prepare_epoch_templates
+from qwen3vl_local.sft_new_loop_phase1 import run_integrity
 
 FORMAT_COMPONENT_ID = -1
 DEFAULT_NON_FOCUS_SEMANTIC_LOSS_WEIGHT = 0.1
@@ -2202,6 +2203,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "generation_format_valid_gate": float(args.generation_format_valid_gate),
     }
     (final_dir / "sft_new_loop_phase1_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    run_integrity.stamp_adapter(final_dir)
     return final_dir
 
 
@@ -2438,6 +2440,7 @@ def train(args: argparse.Namespace) -> None:
     if world_size > 1:
         _ddp_barrier(local_rank)
 
+    run_integrity.begin_training(args, phase=1, rank=rank, distributed=dist)
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -2706,6 +2709,7 @@ def train(args: argparse.Namespace) -> None:
                 max_length=int(args.max_length),
                 format_loss_weight=float(args.format_loss_weight),
             )
+            run_integrity.require_packed(packed, device=device, distributed=dist)
             if packed is None:
                 skipped += 1
                 loss, stats = _dummy_ddp_forward_zero_loss(
@@ -2716,12 +2720,14 @@ def train(args: argparse.Namespace) -> None:
                 )
             else:
                 loss, stats = _loss_one(bundle, packed)
+            run_integrity.finite_loss(loss, supervised=packed is None or stats.get("denom", 1) > 0, distributed=dist)
             (loss / max(1, int(args.grad_accum))).backward()
             args._exposure.record(item, valid=packed is not None, padded=padded_step)
             optimizer_stepped = False
             if (global_step + 1) % max(1, int(args.grad_accum)) == 0:
-                torch.nn.utils.clip_grad_norm_(params, float(args.max_grad_norm))
+                torch.nn.utils.clip_grad_norm_(params, float(args.max_grad_norm), error_if_nonfinite=True)
                 optimizer.step()
+                args._integrity_updates += 1
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 optimizer_stepped = True
@@ -2817,8 +2823,9 @@ def train(args: argparse.Namespace) -> None:
         epoch += 1
 
     if global_step > 0 and global_step % max(1, int(args.grad_accum)) != 0:
-        torch.nn.utils.clip_grad_norm_(params, float(args.max_grad_norm))
+        torch.nn.utils.clip_grad_norm_(params, float(args.max_grad_norm), error_if_nonfinite=True)
         optimizer.step()
+        args._integrity_updates += 1
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
         args._exposure.optimizer_applied()
@@ -2834,11 +2841,13 @@ def train(args: argparse.Namespace) -> None:
     if world_size > 1:
         _ddp_barrier(local_rank)
     args._exposure.finish_run(output_dir, rank=rank, step=global_step, distributed=dist)
+    run_integrity.before_final(args, rank=rank, distributed=dist)
     final_dir = _save_adapter(bundle, output_dir, args, step=global_step) if rank == 0 else None
     if writer:
         writer.close()
     if rank == 0:
         print(f"[done] saved adapter to {final_dir}")
+    run_integrity.finish_training(args, rank=rank, distributed=dist)
     cleanup_distributed()
 
 

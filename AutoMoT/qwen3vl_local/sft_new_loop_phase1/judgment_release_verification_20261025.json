@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-25",
+  "status": "release_verified",
+  "base_commit": "98174d4678cdf033324d78e48f301347b7f85777",
+  "tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "177",
+    "time": "143.436",
+    "timestamp": "2026-10-25T15:26:45.293689+08:00",
+    "hostname": "codon"
+  },
+  "shell_syntax_checks": 8,
+  "sampler_functions_unchanged": 27,
+  "key_files_unchanged": 10,
+  "phase1_default_quota": 768,
+  "phase2_default_quota": 1024,
+  "four_gpu_three_epoch_updates_per_run": {
+    "phase1": 9216,
+    "phase2": 5376
+  },
+  "modes": [
+    "2rgb_endpoints",
+    "4rgb"
+  ],
+  "question_type": "YES/NO",
+  "phase1_phase2_independent": true,
+  "files_sha256": {
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/BOUNDED_TRAINING_20261020.md": "161548172b345c99530f605146ff0313f01af20b881cf8153fb06a518570857c",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/INDEPENDENT_DATA_20261025.md": "4f3a310b7fcd295d83e479c51bd8c68c9f28d77a418d9019566f132a904858f1",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/INTEGRITY_DELIVERY_20261025.md": "4645b8693ab305e84b1a49fe60fdf5ead0a84ac39daf6e62e548d69a3cda6b28",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/PHASE12_JUDGMENT_RUN_20261025.md": "c21de8d07e1170baf33b51288798eccf21afbac14323a98ecf98fe28934e4e2b",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/SFT_NEW_LOOP_PHASE1_RUN.md": "318a6af227265386297265492e59d885e3c73b14886dcf311634cd653090d23e",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/data_stage.py": "e25a4c3d2e5089df931958cd126d59937083d8bf39bc6d4ac8ef39ccb0154d6e",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/delivery.py": "f8ffba5dcebca528f9ab1720acc715777c12d9a599ec60f058ea847b5dde574f",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/eval.py": "078db75102a79873d1c436dede83095b1091896031c5684f06241b4907560f07",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/eval.sh": "6bacc55dcff02b3044fe2250aaa7382cb5b0d11e3ba7324a8d77ba1617580161",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/evaluation_integrity.py": "164e47af3ed5aa1043a2b5808f55528dad0e904560264f92bcffb6cc11a459a4",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/independent_data_verification_20261025.json": "4f80b3af1f57a1a295502335d06370aa61936493f5625605d1611bd17a5ab6b1",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/integrity_verification_20261025.json": "93f09490626fd4a0c597f7eeb588dac082186e20b480c2ff412dec33df98a44c",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/pipeline_preflight.py": "a91d2b7d27b4a5a3a40d0c6aa8beb221c7eca12a4865786225f2a7e0ff7ce970",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/prepare_data.sh": "20ddb004db15164417199477c041976d2ddf3cf5c3a4e1a0f2ba8da250952712",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh": "5953634b0203f2f1eec36445bb3fd7da49693ca6e755b010f426e0069a16e0d7",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/run_integrity.py": "b5d00a4cbe727e78d36e9e0faae967b10a52d245e45aa99ceb07e12cb5628561",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/sampling_preservation_20261025.json": "d3dc05ad686be2e79db7a4cdac43983311747e91e46b1e32fe34091a0ed7d7df",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_independent_data.py": "c5f7a8e2a4c2f6f98075bac3223a1f65ce97c7cb8066f140be5bacd67fc49362",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_integrity.py": "c15762289641328c6d01caec66690364f6cf0a9edc20f570652eb56ce1a32d9a",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_pipeline_release.py": "8fb8038c25c650383e5f33dc29002833b83f58f4898b88a8c919ac935fa752d9",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/test_training_policy.py": "cfdc774a992f3d2a3cbb3eee4291f8a5bb2f0cff5132f90c4d70793f9b330751",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/train.py": "6a761045c29c39b3073304973385762226f9bde56b0fe16ab93a587a7ba70395",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase1/train.sh": "52e7b7d575490e7d18aa994fc38761008da3962b01b7adaa6e8dc3b569183776",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/SFT_NEW_LOOP_PHASE2_RUN.md": "a124909fa7494ad4d2dc79c099faec06e291dcfd968e6e09b7e05f95752b676b",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/default1024_verification_20261025.json": "ca40c889944fd5f56fd9d6077930debece755df7806b4405ab9d14910b95d6c3",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/eval.py": "be5c3d3151d7b90697a29f05d86d9bd3b052c9634f21e76a2dbcb1af7062c332",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/eval.sh": "fe6d9857395457414177de7dd283994480ae330b43a34c7185cfba8f3d969b02",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/prepare_data.sh": "c3cdefcd141a7f02d7d6ec8698807a5330ad887da820418378463e03fb99e90a",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh": "b7e9fbd1bc3f84398317715d58ef333a032f73579014d11dacac33ebb5043b3c",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/train.py": "f5a309eccaf6a5a522667904adcb5186632f93222b3ad6aff61945f5a030497c",
+    "AutoMoT/qwen3vl_local/sft_new_loop_phase2/train.sh": "272759ce1406d9601058d89a06ed204ec3b59e373f1abafcd63a6a116279e3d0"
+  },
+  "limits": [
+    "No full 4B GPU run or new accuracy result",
+    "Datasets, RGB, checkpoints and complete logs are not published",
+    "Target machine must independently validate its dataset and model assets"
+  ]
+}

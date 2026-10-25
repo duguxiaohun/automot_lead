@@ -42,8 +42,14 @@ def phase2_rows(n=128):
         for row in _balance_rows(p2) for i in range(n)]
 
 
-@pytest.mark.parametrize('samples,reference,steps,total,warmup',[(12288,110592,3072,9216,167),(10752,10752,2688,8064,1500)])
-def test_default_budgets(samples,reference,steps,total,warmup):
+@pytest.mark.parametrize('samples,reference,steps,total,warmup',[(12288,110592,3072,9216,167),(7168,10752,1792,5376,1000)])
+def test_default_budgets(samples,reference,steps,total,warmup,monkeypatch):
+    if reference == 10752:
+        monkeypatch.setattr(sys, 'argv', ['train'])
+        native_args = p2.parse_args()
+        assert native_args.focus_balance_count == 1024
+        assert native_args.regular_focus_multiplier == 2.0
+        assert native_args.invalid_focus_multiplier == 1.0
     plan=budget_plan(args(warmup_reference_steps=reference),samples,4)
     assert (plan['steps_per_epoch'],plan['total_steps'],plan['warmup_updates'])==(steps,total,warmup)
 
@@ -240,7 +246,7 @@ def test_real_pipeline_cpu_plan_reuses_data_and_rejects_second_run(tmp_path,phas
     assert len(plans)==1
     assert not list(root.glob('checkpoints/sft_new_loop_phase*_runs/**/latest'))
     plan=json.loads(plans[0].read_text())
-    assert (plan['steps_per_epoch'],plan['total_steps'])==((3072,9216) if phase==1 else (2688,8064))
+    assert (plan['steps_per_epoch'],plan['total_steps'])==((3072,9216) if phase==1 else (1792,5376))
     assert {x.name:x.read_bytes() for x in index.parent.iterdir()}==before
     second=subprocess.run(command,env=env,cwd=root,capture_output=True,text=True,timeout=10)
     assert second.returncode!=0 and 'Output already exists' in second.stderr
@@ -250,51 +256,25 @@ def test_real_pipeline_cpu_plan_reuses_data_and_rejects_second_run(tmp_path,phas
 @pytest.mark.parametrize('phase',[1,2])
 @pytest.mark.parametrize('max_steps',[5,0])
 def test_real_training_loop_cpu_optimizer_and_time_guard(tmp_path,monkeypatch,phase,max_steps):
-    import torch
-    module=p1 if phase==1 else p2
-    monkeypatch.setattr(sys,'argv',['train','--output-dir',str(tmp_path/'run'),'--device','cpu',
-        '--focus-balance-count','6','--max-steps',str(max_steps),'--grad-accum','2',
-        '--eval-steps','0','--generation-eval-steps','0','--save-steps','0',
-        '--action-index','off','--no-tb','--budget-probe-steps','2'])
-    config=module.parse_args()
-    rows=phase1_rows(32) if phase==1 else phase2_rows(8)
-    monkeypatch.setattr(module,'_read_rows',lambda *a,**k:rows)
-    monkeypatch.setattr(module,'_load_images',lambda *a:[None])
-    build_calls=[]
-    def pack(*a,**k):
-        build_calls.append(1)
-        return None if len(build_calls)==2 else {}
-    monkeypatch.setattr(module,'_build_inputs',pack)
-    model=torch.nn.Linear(2,1,bias=False)
-    before=model.weight.detach().clone()
-    bundle=SimpleNamespace(model=model,unwrap=lambda:model)
-    monkeypatch.setattr(module,'load_model_with_lora',lambda *a,**k:bundle)
-    monkeypatch.setattr(module,'_loss_one',lambda *a,**k:((model(torch.ones(1,2))-1).square().sum(),{}))
-    if phase==1:
-        monkeypatch.setattr(module,'_dummy_ddp_forward_zero_loss',lambda *a,**k:(model(torch.ones(1,2)).sum()*0,{}))
-    else:
-        monkeypatch.setattr(module,'_ddp_sync_zero_loss',lambda *a,**k:model(torch.ones(1,2)).sum()*0)
-    saved=[]
-    def save(bundle,output,args,*,step,name='final'):
-        path=output/name;path.mkdir()
-        (path/f'sft_new_loop_phase{phase}_adapter_config.json').write_text(json.dumps({'step':step}))
-        saved.append((name,step));return path
-    monkeypatch.setattr(module,'_save_adapter',save)
-    module.train(config)
-    assert not torch.equal(model.weight,before)
+    # Completion is now strict: skipped input is a separate rejection test.
+    from qwen3vl_local.sft_new_loop_phase1.test_integrity import fixture_assets, train_fixture
+    from qwen3vl_local.sft_new_loop_phase1.run_integrity import verify_training
+    index, model = fixture_assets(tmp_path, phase)
+    run = train_fixture(phase, ['--index',str(index),'--data-root',str(tmp_path),
+        '--model-dir',str(model),'--output-dir',str(tmp_path/'run')], max_steps=max_steps)
     total=max_steps or (288 if phase==1 else 126)
-    assert saved==[('final',total)]
-    plan=json.loads((tmp_path/'run/training_budget.json').read_text())
-    assert plan['optimizer_updates']==(total+1)//2
-    receipt=json.loads((tmp_path/'run/exposure_summary.json').read_text())
-    assert receipt['successful_backward']==receipt['applied_backward']==total-1
-    assert receipt['skipped']==1 and receipt['pending_backward']==0
-    epochs=json.loads((tmp_path/'run/exposure_epochs.json').read_text())
+    complete=verify_training(run)
+    assert complete['budget']['optimizer_updates']==(total+1)//2
+    receipt=json.loads((run/'exposure_summary.json').read_text())
+    assert receipt['successful_backward']==receipt['applied_backward']==total
+    assert receipt['skipped']==0 and receipt['pending_backward']==0
+    epochs=json.loads((run/'exposure_epochs.json').read_text())
     assert len(epochs)==(1 if max_steps else 3)
-    assert sum(x['actual_presentations'] for x in epochs)==total-1
-    assert (tmp_path/'run/training_eta.json').is_file()
-    # Same output never restarts over the existing adapter.
-    with pytest.raises(ValueError,match='already contains'): module.train(config)
+    assert sum(x['actual_presentations'] for x in epochs)==total
+    assert (run/'training_eta.json').is_file()
+    with pytest.raises(ValueError,match='already contains'):
+        train_fixture(phase, ['--index',str(index),'--data-root',str(tmp_path),
+            '--model-dir',str(model),'--output-dir',str(run)], max_steps=max_steps)
 
 
 def test_two_real_gloo_ranks_wait_for_saved_adapter_before_budget_exit(tmp_path):

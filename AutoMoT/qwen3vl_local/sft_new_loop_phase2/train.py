@@ -104,6 +104,7 @@ from qwen3vl_local.sft_new_loop_phase1.training_policy import (
 )
 
 from qwen3vl_local.sft_new_loop_phase1.exposure_sampling import CoverageSampler, ExposureLedger, prepare_epoch_templates
+from qwen3vl_local.sft_new_loop_phase1 import run_integrity
 
 FORMAT_COMPONENT_ID = -1
 
@@ -819,7 +820,7 @@ def _optimizer_step(
 ) -> None:
     """统一执行一次 optimizer step，避免累积/保存路径各写一份逻辑。"""
 
-    torch.nn.utils.clip_grad_norm_(params, float(max_grad_norm))
+    torch.nn.utils.clip_grad_norm_(params, float(max_grad_norm), error_if_nonfinite=True)
     optimizer.step()
     scheduler.step()
     optimizer.zero_grad(set_to_none=True)
@@ -1441,6 +1442,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "save_final": bool(args.save_final),
     }
     (final_dir / "sft_new_loop_phase2_adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    run_integrity.stamp_adapter(final_dir)
     return final_dir
 
 
@@ -1701,6 +1703,7 @@ def train(args: argparse.Namespace) -> None:
 
     if rank == 0:
         print("[startup] loading Qwen + LoRA...", flush=True)
+    run_integrity.begin_training(args, phase=2, rank=rank, distributed=dist)
     bundle = load_model_with_lora(
         pathlib.Path(args.model_dir),
         device=device,
@@ -1847,6 +1850,7 @@ def train(args: argparse.Namespace) -> None:
                 max_length=int(args.max_length),
                 format_loss_weight=float(args.format_loss_weight),
             )
+            run_integrity.require_packed(packed, device=device, distributed=dist)
             if packed is None:
                 skipped += 1
                 loss = _ddp_sync_zero_loss(bundle, images)
@@ -1870,6 +1874,7 @@ def train(args: argparse.Namespace) -> None:
                     if stat_key in stats:
                         window_metric_ok[metric_key] += float(stats[stat_key])
                         window_metric_count[metric_key] += 1
+            run_integrity.finite_loss(loss, supervised=packed is None or stats.get("denom", 1) > 0, distributed=dist)
             (loss / grad_accum).backward()
             args._exposure.record(item, valid=packed is not None, padded=padded_step)
             accum_steps += 1
@@ -1881,6 +1886,7 @@ def train(args: argparse.Namespace) -> None:
                     scheduler=scheduler,
                     max_grad_norm=float(args.max_grad_norm),
                 )
+                args._integrity_updates += 1
                 accum_steps = 0
                 optimizer_stepped = True
             if writer:
@@ -2131,6 +2137,7 @@ def train(args: argparse.Namespace) -> None:
             scheduler=scheduler,
             max_grad_norm=float(args.max_grad_norm),
         )
+        args._integrity_updates += 1
         if writer:
             writer.add_scalar("train/flushed_partial_grad_accum", 1.0, global_step)
         if rank == 0:
@@ -2150,6 +2157,7 @@ def train(args: argparse.Namespace) -> None:
     if world_size > 1:
         ddp_barrier(local_rank)
     args._exposure.finish_run(output_dir, rank=rank, step=global_step, distributed=dist)
+    run_integrity.before_final(args, rank=rank, distributed=dist)
     final_dir = (
         _save_adapter(bundle, output_dir, args, step=global_step)
         if rank == 0 and bool(args.save_final)
@@ -2203,6 +2211,7 @@ def train(args: argparse.Namespace) -> None:
                 "[done] final adapter disabled; retain best_generation or fallback_generation selected by validation",
                 flush=True,
             )
+    run_integrity.finish_training(args, rank=rank, distributed=dist)
     cleanup_distributed()
 
 
@@ -2224,7 +2233,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--focus-balance-count",
         type=int,
-        default=1536,
+        default=1024,
         help="per EVENT class; 0 uses only the smallest UE1/UE3/UE5/UE6/RE/INVALID class, positive values set a fixed target and repeat scarce bins when needed",
     )
     p.add_argument(

@@ -27,6 +27,15 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
+# Missing data must not consume the run slot or start a hidden CPU build.
+if [[ "${RUN_BUILD:-0}" == "0" ]]; then
+  REQUIRED_INDEX="${INDEX:-${DATA_OUTPUT_DIR:-checkpoints/sft_new_loop_phase2_data}/frame_index.jsonl}"
+  if [[ ! -f "${REQUIRED_INDEX}" || ! -f "$(dirname "${REQUIRED_INDEX}")/manifest.json" ]]; then
+    echo "RUN_BUILD=0 but dataset missing/incomplete: ${REQUIRED_INDEX}. Run this phase's prepare_data.sh first." >&2
+    exit 1
+  fi
+fi
+
 PIPELINE_TIMESTAMP="${PIPELINE_TIMESTAMP:-coverage_v2}"
 if [[ "${PLAN_ONLY:-0}" == "1" ]]; then PIPELINE_TIMESTAMP="${PIPELINE_TIMESTAMP}_plan"; fi
 PIPELINE_MODE_TAG="${HISTORY_RGB_MODES:-4rgb}"
@@ -37,7 +46,7 @@ python -m qwen3vl_local.sft_new_loop_phase1.local_assets reserve-output --path "
 PIPELINE_LOG="${PIPELINE_LOG:-${PIPELINE_ROOT}/pipeline.log}"
 exec > >(tee -a "${PIPELINE_LOG}") 2>&1
 
-RUN_BUILD="${RUN_BUILD:-auto}"
+RUN_BUILD="${RUN_BUILD:-0}"
 RUN_TRAIN="${RUN_TRAIN:-1}"
 RUN_EVAL_SH="${RUN_EVAL_SH:-1}"
 # eval.sh 已覆盖 base/LoRA production+audit 与错例抽样。默认关闭旧的内联评测，避免
@@ -57,7 +66,7 @@ INDEX="${INDEX:-${DATA_OUTPUT_DIR}/frame_index.jsonl}"
 COLLECTION_DIR="${COLLECTION_DIR:-keyframe_filter/collection_output}"
 DATA_ROOT="${DATA_ROOT:-lead_data}"
 HISTORY_RGB_MODES="${HISTORY_RGB_MODES:-4rgb}"
-TRAIN_FOCUS_BALANCE_COUNT="${TRAIN_FOCUS_BALANCE_COUNT:-${FOCUS_BALANCE_COUNT:-1536}}"
+TRAIN_FOCUS_BALANCE_COUNT="${TRAIN_FOCUS_BALANCE_COUNT:-${FOCUS_BALANCE_COUNT:-1024}}"
 TRAIN_REGULAR_FOCUS_MULTIPLIER="${TRAIN_REGULAR_FOCUS_MULTIPLIER:-${REGULAR_FOCUS_MULTIPLIER:-2.0}}"
 TRAIN_INVALID_FOCUS_MULTIPLIER="${TRAIN_INVALID_FOCUS_MULTIPLIER:-${INVALID_FOCUS_MULTIPLIER:-1.0}}"
 TRAIN_NUM_EPOCHS="${TRAIN_NUM_EPOCHS:-${NUM_EPOCHS:-3}}"
@@ -201,6 +210,12 @@ if [[ "${DATA_ACTION}" == "build" && "${INDEX}" != "${DATA_OUTPUT_DIR}/frame_ind
   exit 1
 fi
 
+if [[ "${DATA_ACTION}" == "build" && "${PLAN_ONLY:-0}" != "1" ]]; then
+  python -m qwen3vl_local.sft_new_loop_phase1.data_stage run \
+    --status "${PIPELINE_ROOT}/model_before_build.json" --timeout "${DATA_STAGE_TIMEOUT_SECONDS:-7200}" -- \
+    python -m qwen3vl_local.qwen35.preflight --model-dir "${MODEL_DIR}"
+fi
+
 if [[ "${DATA_ACTION}" == "build" ]]; then
   echo
   echo "========== 1/build dataset =========="
@@ -222,8 +237,12 @@ if [[ "${DATA_ACTION}" == "build" ]]; then
   if [[ "${INCLUDE_VISUAL_RISK:-0}" == "1" ]]; then
     BUILD_ARGS+=(--include-visual-risk)
   fi
-  python qwen3vl_local/sft_new_loop_phase2/build_dataset.py "${BUILD_ARGS[@]}"
-  python qwen3vl_local/sft_new_loop_phase2/highway_ue3_audit.py \
+  python -m qwen3vl_local.sft_new_loop_phase1.data_stage run \
+    --status "${PIPELINE_ROOT}/build_status.json" --timeout "${DATA_STAGE_TIMEOUT_SECONDS:-7200}" -- \
+    python -u qwen3vl_local/sft_new_loop_phase2/build_dataset.py "${BUILD_ARGS[@]}"
+  python -m qwen3vl_local.sft_new_loop_phase1.data_stage run \
+    --status "${PIPELINE_ROOT}/highway_audit_status.json" --timeout "${DATA_STAGE_TIMEOUT_SECONDS:-7200}" -- \
+    python qwen3vl_local/sft_new_loop_phase2/highway_ue3_audit.py \
     --decisions "${HIGHWAY_UE3_RGB_DECISIONS:-qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v1.jsonl}" \
     --collection-dir "${COLLECTION_DIR}" \
     --index "${INDEX}" \
@@ -253,7 +272,9 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
   if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
     PREFLIGHT_EXTRA=()
     if [[ "${ROUTE_DIVERSE_SAMPLING:-0}" == "1" ]]; then PREFLIGHT_EXTRA+=(--route-diverse); fi
-    python -m qwen3vl_local.sft_new_loop_phase1.pipeline_preflight \
+    python -m qwen3vl_local.sft_new_loop_phase1.data_stage run \
+      --status "${MODE_ROOT}/preflight_status.json" --timeout "${DATA_STAGE_TIMEOUT_SECONDS:-7200}" -- \
+      python -m qwen3vl_local.sft_new_loop_phase1.pipeline_preflight \
       --phase 2 --model-dir "${MODEL_DIR}" --index "${INDEX}" --data-root "${DATA_ROOT}" \
       --history-rgb-mode "${HISTORY_RGB_MODE}" --eval-split "${FINAL_EVAL_SPLIT:-test}" \
       --max-frames "${FINAL_MAX_EVAL_FRAMES:-${LORA_MAX_EVAL_FRAMES:-0}}" \
@@ -393,6 +414,8 @@ for HISTORY_RGB_MODE in ${HISTORY_RGB_MODES}; do
     BUNDLE_MAX_MB="${BUNDLE_MAX_MB:-30}" \
     BUNDLE_BASENAME="${MODE_BUNDLE_BASENAME}" \
     TIMESTAMP="${PIPELINE_TIMESTAMP}" \
+    DATASET_RECEIPT="${PIPELINE_ROOT}/dataset_receipt.json" \
+    PREFLIGHT_RECEIPT="${MODE_ROOT}/preflight.json" \
     OUTPUT_ROOT="${FINAL_EVAL_ROOT}" \
     bash qwen3vl_local/sft_new_loop_phase2/eval.sh
     echo "[pipeline] audit bundle: ${FINAL_EVAL_ROOT}/${MODE_BUNDLE_BASENAME}.tar.gz"

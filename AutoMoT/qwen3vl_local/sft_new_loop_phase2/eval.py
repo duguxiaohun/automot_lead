@@ -226,6 +226,9 @@ def cleanup_distributed() -> None:
         dist.destroy_process_group()
 
 
+from qwen3vl_local.sft_new_loop_phase1 import evaluation_integrity
+
+
 @dataclass
 class FrameRow:
     """评估帧。"""
@@ -736,12 +739,15 @@ def _generate(
 ) -> str:
     """单次 fresh prefill + decode。"""
 
+    timer = evaluation_integrity.GenerationTimer(bundle)
     with torch.inference_mode():
         state = _kv_start_state(
             bundle,
             _messages(images, spec=spec, audit=bool(audit), history_rgb_mode=history_rgb_mode),
         )
-        text, _, _ = _student_generate_kv(bundle, state, int(max_new_tokens))
+        input_tokens = state.decoded_input_ids.numel()
+        text, _, token_ids = _student_generate_kv(bundle, state, int(max_new_tokens))
+    bundle._generation_measurement = timer.finish(input_tokens, token_ids.numel())
     return text
 
 
@@ -999,6 +1005,10 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             f"sampled={len(cases)} expected={int(args.expected_total_cases)} "
             f"exclusion={exclusion_report}"
         )
+    auditing = not getattr(args, "_integrity_replay", False)
+    if auditing:
+        evaluation_integrity.begin(args, 2, cases, output_dir, history_rgb_mode, rank=rank, distributed=dist)
+    performance_records = []
     local_cases = cases[rank::world_size]
     device = torch.device(f"cuda:{local_rank}") if world_size > 1 else torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
     bundle = load_eval_bundle(
@@ -1007,6 +1017,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         device,
         merge_lora=bool(args.merge_lora),
     )
+    if auditing:
+        evaluation_integrity.record_base(output_dir, bundle, rank=rank, distributed=dist)
     total = 0
     exact = 0
     answer_only_exact = 0
@@ -1167,6 +1179,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
                     ),
                     "prompt": prompt if bool(args.save_prompts) else None,
                 }
+                if auditing:
+                    performance_records.append(evaluation_integrity.performance_record(bundle, case_idx))
                 encoded = json.dumps(payload, ensure_ascii=False)
                 f.write(encoded + "\n")
                 variant_fps[spec.variant].write(encoded + "\n")
@@ -1177,6 +1191,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         finally:
             for fp in variant_fps.values():
                 fp.close()
+
+    if auditing:
+        evaluation_integrity.write_performance(output_dir, rank, performance_records, args=args, bundle=bundle)
 
     local_payload = {
         "total": total,
@@ -1419,6 +1436,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     lines.append("Copied RGB files are exactly the images fed to the model; their filenames retain original four-frame indices.")
     lines.append("All evaluated RGB histories are copied under `rgb_cases/<TASK>/` only when `--save-all-rgb` is enabled.")
     (output_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if auditing:
+        evaluation_integrity.finish(args, output_dir, world=world_size)
     print(f"[done] metrics={output_dir / 'metrics.json'} cases={case_path}")
     cleanup_distributed()
     return metrics

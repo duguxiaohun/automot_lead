@@ -1,0 +1,730 @@
+{
+  "date": "2026-10-25",
+  "status": "independent_pipelines_verified_phase1_ready_phase2_default_rejected_1024_candidate_ready",
+  "phase2_quota_user_choice": "pending_default_remains_1536",
+  "sampler_functions_preserved": 27,
+  "sampler_files_preserved": 10,
+  "test_suites": [
+    {
+      "file": "regression.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "177",
+      "time": "146.823",
+      "timestamp": "2026-10-25T12:39:16.833920+08:00",
+      "hostname": "codon"
+    },
+    {
+      "file": "final_launch.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "16",
+      "time": "41.793",
+      "timestamp": "2026-10-25T12:42:37.699127+08:00",
+      "hostname": "codon"
+    }
+  ],
+  "distinct_tests_passed": 177,
+  "repeat_tests_not_added": true,
+  "shell_syntax_passed": 10,
+  "git_diff_check": "passed",
+  "native_builds": {
+    "1": {
+      "build_exit_code": 0,
+      "frames": {
+        "train": 569269,
+        "val": 37450,
+        "test": 65525
+      },
+      "routes": {
+        "test": 714,
+        "train": 6058,
+        "val": 396
+      }
+    },
+    "2": {
+      "build_exit_code": 0,
+      "frames": {
+        "train": 5430,
+        "val": 234,
+        "test": 798
+      },
+      "routes": {
+        "test": 177,
+        "train": 1363,
+        "val": 60
+      }
+    }
+  },
+  "cpu_admission": {
+    "phase1_coverage_v2": {
+      "status": "ready",
+      "status_path": "AutoMoT/checkpoints/sft_new_loop_phase1_data_cpu/coverage_v2/status.json",
+      "status_sha256": "131efa98fa0c51cd503c4d59aa0d85a8126ee59fb059523066f29da1221a232b",
+      "model_loaded": false,
+      "data": {
+        "status": "data_checked",
+        "model_checked": false,
+        "dataset": {
+          "method": "sft_new_loop_phase1",
+          "index": "/home/codon/automot_lead/AutoMoT/checkpoints/phase12_independent_20261025/phase1_data/frame_index.jsonl",
+          "resolved_index": "/home/codon/automot_lead/AutoMoT/checkpoints/phase12_independent_20261025/phase1_data/frame_index.jsonl",
+          "index_sha256": "893f9ddfa52adc32eb9e1ecfc299ef18b0249b30c458d102fc1350360f76a271",
+          "manifest_sha256": "e2ddca5f88b23233b6b9a9cf236900cc5c867bbc520098517ed0283731ff78ae",
+          "counts": {
+            "train": 569269,
+            "test": 65525,
+            "val": 37450
+          },
+          "hostname": "codon",
+          "reused": true,
+          "note": "Same method name on two machines does not imply equal data. No source/RGB/label regeneration."
+        },
+        "split_rows": {
+          "train": 569269,
+          "val": 37450,
+          "test": 65525
+        },
+        "image_headers_verified": 683245,
+        "history_rgb_mode": "4rgb",
+        "final_eval_balance": {
+          "val": {
+            "STATIC_OBSTACLE:NO": 64,
+            "RS5:YES": 64,
+            "HIGHWAY:NO": 64,
+            "VULNERABLE:YES": 64,
+            "RS4:YES": 64,
+            "RS2:NO": 64,
+            "TRAFFIC_LIGHT_ABNORMAL:YES": 64,
+            "RS1:NO": 64,
+            "RS2:YES": 64,
+            "RS5:NO": 64,
+            "STATIC_OBSTACLE:YES": 64,
+            "HIGHWAY:YES": 64,
+            "RS4:NO": 64,
+            "VULNERABLE:NO": 64,
+            "TRAFFIC_LIGHT_ABNORMAL:NO": 64,
+            "RS1:YES": 64
+          },
+          "test": {
+            "RS4:NO": 64,
+            "HIGHWAY:YES": 64,
+            "VULNERABLE:NO": 64,
+            "TRAFFIC_LIGHT_ABNORMAL:YES": 64,
+            "HIGHWAY:NO": 64,
+            "RS2:NO": 64,
+            "RS5:NO": 64,
+            "RS1:YES": 64,
+            "STATIC_OBSTACLE:NO": 64,
+            "RS5:YES": 64,
+            "RS1:NO": 64,
+            "VULNERABLE:YES": 64,
+            "RS2:YES": 64,
+            "RS4:YES": 64,
+            "TRAFFIC_LIGHT_ABNORMAL:NO": 64,
+            "STATIC_OBSTACLE:YES": 64
+          }
+        },
+        "limits": "Image headers checked, not a guarantee against future file changes, truncated pixel payloads, GPU/OOM or hardware failures."
+      },
+      "budget": {
+        "policy": "coverage_task_action_v2",
+        "world_size": 4,
+        "samples_per_epoch_global": 12288,
+        "steps_per_epoch": 3072,
+        "total_steps": 9216,
+        "optimizer_updates": 9216,
+        "warmup_updates": 167,
+        "grad_accum": 1,
+        "epoch_hours_limit": 10.0,
+        "timing_status": "unmeasured",
+        "warning": "Step budget is not a wall-time guarantee; live ETA follows after the probe."
+      },
+      "projection": {
+        "scope": "projection_not_actual_consumption",
+        "assumption": "all planned presentations succeed; real skips may change later selection",
+        "epochs": [
+          {
+            "epoch": 1,
+            "seed": 20260810,
+            "presentations": 12288,
+            "unique_frames": 12288,
+            "new_frames": 12288,
+            "max_frame_repeat": 1
+          },
+          {
+            "epoch": 2,
+            "seed": 21260813,
+            "presentations": 12288,
+            "unique_frames": 12288,
+            "new_frames": 12288,
+            "max_frame_repeat": 1
+          },
+          {
+            "epoch": 3,
+            "seed": 22260816,
+            "presentations": 12288,
+            "unique_frames": 12288,
+            "new_frames": 11862,
+            "max_frame_repeat": 1
+          }
+        ]
+      }
+    },
+    "phase2_coverage_v2": {
+      "status": "rejected",
+      "status_path": "AutoMoT/checkpoints/sft_new_loop_phase2_data_cpu/coverage_v2/status.json",
+      "status_sha256": "47d4bf990b1257329f97d63a372057d0de18e0dd7a4c81ac2c256a2b30f2587b",
+      "model_loaded": false,
+      "data": {
+        "status": "data_checked",
+        "model_checked": false,
+        "dataset": {
+          "method": "sft_new_loop_phase2",
+          "index": "/home/codon/automot_lead/AutoMoT/checkpoints/phase12_independent_20261025/phase2_data/frame_index.jsonl",
+          "resolved_index": "/home/codon/automot_lead/AutoMoT/checkpoints/phase12_independent_20261025/phase2_data/frame_index.jsonl",
+          "index_sha256": "939d43b273ab6fc844a142249d69aea3851b3793ffcd3897eae9263ff4b71442",
+          "manifest_sha256": "bb56adff1b308d2f3738454102015c2f968589a257bb6cd70b139a1142fd3e96",
+          "counts": {
+            "train": 5430,
+            "val": 234,
+            "test": 798
+          },
+          "hostname": "codon",
+          "reused": true,
+          "note": "Same method name on two machines does not imply equal data. No source/RGB/label regeneration."
+        },
+        "split_rows": {
+          "train": 5430,
+          "val": 234,
+          "test": 798
+        },
+        "image_headers_verified": 14871,
+        "history_rgb_mode": "4rgb",
+        "final_eval_balance": {
+          "val": {
+            "all_random_order/class/UE1": 64,
+            "all_random_order/class/UE6": 64,
+            "all_random_order/class/INVALID": 64,
+            "all_random_order/class/UE3": 64,
+            "all_random_order/class/RE": 64,
+            "all_random_order/class/UE5": 64
+          },
+          "test": {
+            "all_random_order/class/INVALID": 64,
+            "all_random_order/class/RE": 64,
+            "all_random_order/class/UE3": 64,
+            "all_random_order/class/UE5": 64,
+            "all_random_order/class/UE1": 64,
+            "all_random_order/class/UE6": 64
+          }
+        },
+        "limits": "Image headers checked, not a guarantee against future file changes, truncated pixel payloads, GPU/OOM or hardware failures."
+      }
+    },
+    "phase2_coverage_v2_1024": {
+      "status": "ready",
+      "status_path": "AutoMoT/checkpoints/sft_new_loop_phase2_data_cpu/coverage_v2_1024/status.json",
+      "status_sha256": "872618c9f132f4daa14fa0fa5ef63f92973768207006e3a3a06df9c29dbede90",
+      "model_loaded": false,
+      "data": {
+        "status": "data_checked",
+        "model_checked": false,
+        "dataset": {
+          "method": "sft_new_loop_phase2",
+          "index": "/home/codon/automot_lead/AutoMoT/checkpoints/phase12_independent_20261025/phase2_data/frame_index.jsonl",
+          "resolved_index": "/home/codon/automot_lead/AutoMoT/checkpoints/phase12_independent_20261025/phase2_data/frame_index.jsonl",
+          "index_sha256": "939d43b273ab6fc844a142249d69aea3851b3793ffcd3897eae9263ff4b71442",
+          "manifest_sha256": "bb56adff1b308d2f3738454102015c2f968589a257bb6cd70b139a1142fd3e96",
+          "counts": {
+            "train": 5430,
+            "val": 234,
+            "test": 798
+          },
+          "hostname": "codon",
+          "reused": true,
+          "note": "Same method name on two machines does not imply equal data. No source/RGB/label regeneration."
+        },
+        "split_rows": {
+          "train": 5430,
+          "val": 234,
+          "test": 798
+        },
+        "image_headers_verified": 14871,
+        "history_rgb_mode": "4rgb",
+        "final_eval_balance": {
+          "val": {
+            "all_random_order/class/UE1": 64,
+            "all_random_order/class/UE6": 64,
+            "all_random_order/class/INVALID": 64,
+            "all_random_order/class/UE3": 64,
+            "all_random_order/class/RE": 64,
+            "all_random_order/class/UE5": 64
+          },
+          "test": {
+            "all_random_order/class/INVALID": 64,
+            "all_random_order/class/RE": 64,
+            "all_random_order/class/UE3": 64,
+            "all_random_order/class/UE5": 64,
+            "all_random_order/class/UE1": 64,
+            "all_random_order/class/UE6": 64
+          }
+        },
+        "limits": "Image headers checked, not a guarantee against future file changes, truncated pixel payloads, GPU/OOM or hardware failures."
+      },
+      "budget": {
+        "policy": "coverage_task_action_v2",
+        "world_size": 4,
+        "samples_per_epoch_global": 7168,
+        "steps_per_epoch": 1792,
+        "total_steps": 5376,
+        "optimizer_updates": 5376,
+        "warmup_updates": 1000,
+        "grad_accum": 1,
+        "epoch_hours_limit": 10.0,
+        "timing_status": "unmeasured",
+        "warning": "Step budget is not a wall-time guarantee; live ETA follows after the probe."
+      },
+      "projection": {
+        "scope": "projection_not_actual_consumption",
+        "assumption": "all planned presentations succeed; real skips may change later selection",
+        "epochs": [
+          {
+            "epoch": 1,
+            "seed": 20260810,
+            "presentations": 7168,
+            "unique_frames": 5027,
+            "new_frames": 5027,
+            "max_frame_repeat": 9
+          },
+          {
+            "epoch": 2,
+            "seed": 21260813,
+            "presentations": 7168,
+            "unique_frames": 4785,
+            "new_frames": 0,
+            "max_frame_repeat": 9
+          },
+          {
+            "epoch": 3,
+            "seed": 22260816,
+            "presentations": 7168,
+            "unique_frames": 4776,
+            "new_frames": 0,
+            "max_frame_repeat": 9
+          }
+        ]
+      }
+    }
+  },
+  "phase2_capacity": {
+    "index_sha256": "939d43b273ab6fc844a142249d69aea3851b3793ffcd3897eae9263ff4b71442",
+    "action_source": {
+      "status": "unavailable",
+      "path": "/home/codon/automot_lead/AutoMoT/checkpoints/sft_new_loop_phase3_data_v23/frame_index.jsonl",
+      "labels_generated": false,
+      "warning": "No legacy action index: task balance only. Set ACTION_INDEX to an existing local index."
+    },
+    "results": [
+      {
+        "quota": 1536,
+        "global_presentations_per_epoch": 10752,
+        "total_four_gpu_steps": 8064,
+        "status": "rejected",
+        "reason": "Epoch 1 capacity preflight BEFORE model loading: Coverage quota exceeds compatible frame capacity under repeat cap 10: task=all_random_order/class/INVALID, slots=154, unique_candidates=28. Reduce the quota; no silent duplication or relabeling.",
+        "capacity_proof": {
+          "scope": "Exact frozen stratum demands and physical-frame repeat cap 10; diagnosis only, not a replacement sampler",
+          "required": 10752,
+          "max_feasible": 10686,
+          "deficit": 66,
+          "bottleneck_physical_frames": 28,
+          "bottleneck_capacity": 280,
+          "bottleneck_strata": [
+            {
+              "signature": [
+                [
+                  [
+                    "DOMAIN_LOCAL_JUNCTION",
+                    true
+                  ],
+                  [
+                    "DOMAIN_ROAD_CORRIDOR",
+                    false
+                  ],
+                  [
+                    "INVALID_EVENT_CONTEXT",
+                    true
+                  ],
+                  [
+                    "UE1",
+                    false
+                  ],
+                  [
+                    "UE3",
+                    false
+                  ],
+                  [
+                    "UE5",
+                    false
+                  ],
+                  [
+                    "UE6",
+                    false
+                  ]
+                ],
+                "R-E1",
+                "",
+                "R3",
+                "LOCAL_JUNCTION",
+                "source=UE3|true_rs=R3|question_domain=LOCAL_JUNCTION",
+                ""
+              ],
+              "annotation_available": false,
+              "demand": 154,
+              "candidates": 28,
+              "task_counts": {
+                "all_random_order/class/INVALID": 154
+              }
+            },
+            {
+              "signature": [
+                [
+                  [
+                    "DOMAIN_LOCAL_JUNCTION",
+                    false
+                  ],
+                  [
+                    "DOMAIN_ROAD_CORRIDOR",
+                    true
+                  ],
+                  [
+                    "INVALID_EVENT_CONTEXT",
+                    false
+                  ],
+                  [
+                    "UE1",
+                    false
+                  ],
+                  [
+                    "UE3",
+                    true
+                  ],
+                  [
+                    "UE5",
+                    false
+                  ],
+                  [
+                    "UE6",
+                    false
+                  ]
+                ],
+                "R-E1",
+                "",
+                "R3",
+                "ROAD_CORRIDOR",
+                "",
+                "HIGHWAY_CUTIN"
+              ],
+              "annotation_available": false,
+              "demand": 192,
+              "candidates": 28,
+              "task_counts": {
+                "all_random_order/class/UE3": 192
+              }
+            }
+          ]
+        }
+      },
+      {
+        "quota": 1280,
+        "global_presentations_per_epoch": 8960,
+        "total_four_gpu_steps": 6720,
+        "status": "rejected",
+        "reason": "Epoch 1 capacity preflight BEFORE model loading: Coverage quota exceeds compatible frame capacity under repeat cap 10: task=all_random_order/class/UE3, slots=160, unique_candidates=28. Reduce the quota; no silent duplication or relabeling.",
+        "capacity_proof": {
+          "scope": "Exact frozen stratum demands and physical-frame repeat cap 10; diagnosis only, not a replacement sampler",
+          "required": 8960,
+          "max_feasible": 8952,
+          "deficit": 8,
+          "bottleneck_physical_frames": 28,
+          "bottleneck_capacity": 280,
+          "bottleneck_strata": [
+            {
+              "signature": [
+                [
+                  [
+                    "DOMAIN_LOCAL_JUNCTION",
+                    true
+                  ],
+                  [
+                    "DOMAIN_ROAD_CORRIDOR",
+                    false
+                  ],
+                  [
+                    "INVALID_EVENT_CONTEXT",
+                    true
+                  ],
+                  [
+                    "UE1",
+                    false
+                  ],
+                  [
+                    "UE3",
+                    false
+                  ],
+                  [
+                    "UE5",
+                    false
+                  ],
+                  [
+                    "UE6",
+                    false
+                  ]
+                ],
+                "R-E1",
+                "",
+                "R3",
+                "LOCAL_JUNCTION",
+                "source=UE3|true_rs=R3|question_domain=LOCAL_JUNCTION",
+                ""
+              ],
+              "annotation_available": false,
+              "demand": 128,
+              "candidates": 28,
+              "task_counts": {
+                "all_random_order/class/INVALID": 128
+              }
+            },
+            {
+              "signature": [
+                [
+                  [
+                    "DOMAIN_LOCAL_JUNCTION",
+                    false
+                  ],
+                  [
+                    "DOMAIN_ROAD_CORRIDOR",
+                    true
+                  ],
+                  [
+                    "INVALID_EVENT_CONTEXT",
+                    false
+                  ],
+                  [
+                    "UE1",
+                    false
+                  ],
+                  [
+                    "UE3",
+                    true
+                  ],
+                  [
+                    "UE5",
+                    false
+                  ],
+                  [
+                    "UE6",
+                    false
+                  ]
+                ],
+                "R-E1",
+                "",
+                "R3",
+                "ROAD_CORRIDOR",
+                "",
+                "HIGHWAY_CUTIN"
+              ],
+              "annotation_available": false,
+              "demand": 160,
+              "candidates": 28,
+              "task_counts": {
+                "all_random_order/class/UE3": 160
+              }
+            }
+          ]
+        }
+      },
+      {
+        "quota": 1024,
+        "global_presentations_per_epoch": 7168,
+        "total_four_gpu_steps": 5376,
+        "status": "passed_native_three_epoch_plan",
+        "projection": {
+          "scope": "projection_not_actual_consumption",
+          "assumption": "all planned presentations succeed; real skips may change later selection",
+          "epochs": [
+            {
+              "epoch": 1,
+              "seed": 20260810,
+              "presentations": 7168,
+              "unique_frames": 5027,
+              "new_frames": 5027,
+              "max_frame_repeat": 9
+            },
+            {
+              "epoch": 2,
+              "seed": 21260813,
+              "presentations": 7168,
+              "unique_frames": 4785,
+              "new_frames": 0,
+              "max_frame_repeat": 9
+            },
+            {
+              "epoch": 3,
+              "seed": 22260816,
+              "presentations": 7168,
+              "unique_frames": 4776,
+              "new_frames": 0,
+              "max_frame_repeat": 9
+            }
+          ]
+        }
+      },
+      {
+        "quota": 768,
+        "global_presentations_per_epoch": 5376,
+        "total_four_gpu_steps": 4032,
+        "status": "passed_native_three_epoch_plan",
+        "projection": {
+          "scope": "projection_not_actual_consumption",
+          "assumption": "all planned presentations succeed; real skips may change later selection",
+          "epochs": [
+            {
+              "epoch": 1,
+              "seed": 20260810,
+              "presentations": 5376,
+              "unique_frames": 4444,
+              "new_frames": 4444,
+              "max_frame_repeat": 7
+            },
+            {
+              "epoch": 2,
+              "seed": 21260813,
+              "presentations": 5376,
+              "unique_frames": 4257,
+              "new_frames": 583,
+              "max_frame_repeat": 7
+            },
+            {
+              "epoch": 3,
+              "seed": 22260816,
+              "presentations": 5376,
+              "unique_frames": 4222,
+              "new_frames": 0,
+              "max_frame_repeat": 7
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "independent_bundle_checks": {
+    "fixture_only": true,
+    "independently_launched": true,
+    "results": [
+      {
+        "phase": 1,
+        "archive": "sft_new_loop_phase1_coverage_v2_2rgb_endpoints_audit_bundle.tar.gz",
+        "sha256": "df206fea3f8c5cb350a9f688447af806caf89fa2f7a5a99145a782a3ed3e6092",
+        "verification": {
+          "status": "verified",
+          "phase": 1,
+          "files": 472,
+          "weights_included": false,
+          "selected_slot": "final"
+        },
+        "other_phase_training_code_included": false
+      },
+      {
+        "phase": 2,
+        "archive": "sft_new_loop_phase2_coverage_v2_2rgb_endpoints_audit_bundle.tar.gz",
+        "sha256": "a18880814d5233eb58afda60fed841ac36daa45764acb8bdca4a16a8902a033e",
+        "verification": {
+          "status": "verified",
+          "phase": 2,
+          "files": 379,
+          "weights_included": false,
+          "selected_slot": "final"
+        },
+        "other_phase_training_code_included": false
+      }
+    ]
+  },
+  "source_sha256": {
+    "qwen3vl_local/sft_new_loop_phase1/INDEPENDENT_DATA_20261025.md": "21c35ffb0b25325d67d88a57c144761c10041a12333563eb923095b7587338d8",
+    "qwen3vl_local/sft_new_loop_phase1/INTEGRITY_DELIVERY_20261025.md": "150dbaf03e9ce1bdc6ff8493186221fa146abc63cae293189582ebb5b56daad8",
+    "qwen3vl_local/sft_new_loop_phase1/__init__.py": "d2c3663f26d04caa885424f5b1a7d755f87c99dc62e4d0e273ccb1bac2b80fe6",
+    "qwen3vl_local/sft_new_loop_phase1/audit_eval_cases.py": "3ee651e9d518781bd3ea97e36894c135e772c5c44b24fadcaa8392f1f23bdb44",
+    "qwen3vl_local/sft_new_loop_phase1/build_dataset.py": "67dd421329f236038207b2da0359329ed697a095c3f0626488c31864337097e7",
+    "qwen3vl_local/sft_new_loop_phase1/data_stage.py": "8637c22a70b6f7fa09598b92f871a5304fda91520a26f1e15a22f448c2f6451e",
+    "qwen3vl_local/sft_new_loop_phase1/delivery.py": "f8ffba5dcebca528f9ab1720acc715777c12d9a599ec60f058ea847b5dde574f",
+    "qwen3vl_local/sft_new_loop_phase1/eval.py": "078db75102a79873d1c436dede83095b1091896031c5684f06241b4907560f07",
+    "qwen3vl_local/sft_new_loop_phase1/eval.sh": "6bacc55dcff02b3044fe2250aaa7382cb5b0d11e3ba7324a8d77ba1617580161",
+    "qwen3vl_local/sft_new_loop_phase1/evaluation_integrity.py": "164e47af3ed5aa1043a2b5808f55528dad0e904560264f92bcffb6cc11a459a4",
+    "qwen3vl_local/sft_new_loop_phase1/exposure_sampling.py": "297cd5dde8c848b2c87a90da4ec7a69bfddffad493dff2f76ab4858cd57c4692",
+    "qwen3vl_local/sft_new_loop_phase1/history_rgb.py": "742e33c70c085e87a6c972fcc6304cacebe1e28a5bc53fa21b19e42cf2e6d074",
+    "qwen3vl_local/sft_new_loop_phase1/local_assets.py": "ee76917a42d509be097dbcfb2701d21276f31d807975278a772b4d77d38abb05",
+    "qwen3vl_local/sft_new_loop_phase1/pipeline_preflight.py": "a91d2b7d27b4a5a3a40d0c6aa8beb221c7eca12a4865786225f2a7e0ff7ce970",
+    "qwen3vl_local/sft_new_loop_phase1/prepare_data.sh": "20ddb004db15164417199477c041976d2ddf3cf5c3a4e1a0f2ba8da250952712",
+    "qwen3vl_local/sft_new_loop_phase1/prompts.py": "53574f9543005b351d574af976651f4e5b2d0b7d2b9e9c3ea4d5eb44ad16e471",
+    "qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh": "5953634b0203f2f1eec36445bb3fd7da49693ca6e755b010f426e0069a16e0d7",
+    "qwen3vl_local/sft_new_loop_phase1/run_integrity.py": "b5d00a4cbe727e78d36e9e0faae967b10a52d245e45aa99ceb07e12cb5628561",
+    "qwen3vl_local/sft_new_loop_phase1/run_rgb_mode_matrix.sh": "bfb088cc1bdac1d15e11b1a0aa00e9e6292ab7b65735ea73ef68cce7ad1a13f8",
+    "qwen3vl_local/sft_new_loop_phase1/sampling_preservation_20261025.json": "d3dc05ad686be2e79db7a4cdac43983311747e91e46b1e32fe34091a0ed7d7df",
+    "qwen3vl_local/sft_new_loop_phase1/test_exposure_sampling.py": "4e50ba9465993766eee3992ce31ab3d1fd1bd4448f0787179a2ae9cc0f401a49",
+    "qwen3vl_local/sft_new_loop_phase1/test_independent_data.py": "c5f7a8e2a4c2f6f98075bac3223a1f65ce97c7cb8066f140be5bacd67fc49362",
+    "qwen3vl_local/sft_new_loop_phase1/test_integrity.py": "c15762289641328c6d01caec66690364f6cf0a9edc20f570652eb56ce1a32d9a",
+    "qwen3vl_local/sft_new_loop_phase1/test_pipeline_release.py": "8fb8038c25c650383e5f33dc29002833b83f58f4898b88a8c919ac935fa752d9",
+    "qwen3vl_local/sft_new_loop_phase1/test_refined_contract.py": "f09e08e0bc451ba27edf6813f0b046c3f958c8e81c87cba00c875a196f0045fd",
+    "qwen3vl_local/sft_new_loop_phase1/test_training_policy.py": "4cb004d68e370a8dc77c5a1bbccc7bfdeb9e014a271655f9a0e920c72b36b832",
+    "qwen3vl_local/sft_new_loop_phase1/train.py": "6a761045c29c39b3073304973385762226f9bde56b0fe16ab93a587a7ba70395",
+    "qwen3vl_local/sft_new_loop_phase1/train.sh": "52e7b7d575490e7d18aa994fc38761008da3962b01b7adaa6e8dc3b569183776",
+    "qwen3vl_local/sft_new_loop_phase1/training_policy.py": "c6bf183fdd7bc5cf0dbf9443db1927ece3ae49d902105e2c1d6af20f824a76d8",
+    "qwen3vl_local/sft_new_loop_phase1/visual_audit.py": "746ac6475102f4ec25ab0ccf50df84e682894550e679f5bedb86c3026047e872",
+    "qwen3vl_local/sft_new_loop_phase2/__init__.py": "a94ceb2eb1b18969acc1a3b7f572a0ee112eeba0cb70e9828e94d341c5ae7770",
+    "qwen3vl_local/sft_new_loop_phase2/audit_eval_cases.py": "66332bdcb207630c33b76a0b862348b96c3b5bb9057aaa395f79f1a9a5a98786",
+    "qwen3vl_local/sft_new_loop_phase2/build_dataset.py": "6ad51b9a9102d70b79aa5fda58bdf7ea715bd7ccb36d62e18b0390c85763cbc4",
+    "qwen3vl_local/sft_new_loop_phase2/eval.py": "be5c3d3151d7b90697a29f05d86d9bd3b052c9634f21e76a2dbcb1af7062c332",
+    "qwen3vl_local/sft_new_loop_phase2/eval.sh": "fe6d9857395457414177de7dd283994480ae330b43a34c7185cfba8f3d969b02",
+    "qwen3vl_local/sft_new_loop_phase2/highway_ue3_audit.py": "9cddc3b0a6c33962acfdd107b7fb4b1fdbf573197fae88aa04225dde327d5090",
+    "qwen3vl_local/sft_new_loop_phase2/history_rgb.py": "a6b954ae2278c0a3d889df1f9c81906ebf24c54f272c41fe7ba3347d62ff55ed",
+    "qwen3vl_local/sft_new_loop_phase2/invalid_balance.py": "a029d51d3645329b4dd9733783105a69974f3d27f9f25bbd15068b180f69d462",
+    "qwen3vl_local/sft_new_loop_phase2/prepare_data.sh": "810ba8fc23d4e4ef472e3747a21b5aef21fadb77e141a86ff5d29525eb860b1a",
+    "qwen3vl_local/sft_new_loop_phase2/prompts.py": "62d3ca5b7bbd9b36d0c30e0b4221609ffc7fdc5d9e117afcad46d12dd1d4c9ae",
+    "qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh": "58f058404bae27c2bf3f0eea8c66ffab615f034b51ec9b686a3ec5f70351f087",
+    "qwen3vl_local/sft_new_loop_phase2/run_rgb_mode_matrix.sh": "6d1590716945f4255c95b6ddf71f1225a1aeee8e0cea0b4147d8094825e06a6e",
+    "qwen3vl_local/sft_new_loop_phase2/sampling.py": "80543c99dc7ffd0bc8b9133de6a87edae2550d221a9a6c3457ee053fb82a279e",
+    "qwen3vl_local/sft_new_loop_phase2/test_direct_event_contract.py": "163b6b4990d525bcb1a41ec86cb6d9833145f0584f0c57adf7e72853327ecab7",
+    "qwen3vl_local/sft_new_loop_phase2/train.py": "ab10d7c868f34e60400436f12734849c042e393e2ffe712ed6df488e36a19c6f",
+    "qwen3vl_local/sft_new_loop_phase2/train.sh": "f841fd6c25826894cf81c881a89a81208592b1e1a0e00080fb05374962ddf62c",
+    "qwen3vl_local/sft_new_loop_phase2/visual_audit.py": "83c72373882ced0931a5e374ebea0e1ad89ecada29983a4a64608facb9d10ee7"
+  },
+  "evidence_sha256": {
+    "native_build_results.json": "2b27f184f7b5fc5bbe2acab47b39c32215a35450a9bd2f281bd8c1b60f0b4884",
+    "phase1_build.log": "3330827c595f072ea104d97a673e901e07b11577940499e2fcf460c800eee9a4",
+    "phase2_build.log": "e1ecfffdd0dc22c3909e9654bae8495cce82efb4887cf898ce5ce4c59513d14c",
+    "phase1_cpu.log": "09c6984da91ff9279fc2232be72c0a4c21fab2a45cace1fd90ff1186d270f382",
+    "phase2_cpu.log": "50788fe911eb36c2c69033032722c21970378e1510cab5ece8af9b81b68914a1",
+    "phase2_cpu_1024.log": "551d5162e9574456cb82381b89f3f5733bfcc7b7a4b2ba001a39dfc70e21af23",
+    "phase2_capacity_diagnostic.json": "c18150d1f58d1e4be2b20f2ca298c58059f9e0fc8d92761638b1b61550e047fb",
+    "diagnose_phase2_capacity.py": "771528815f3d498fdf20aa1ec86cb7d57511311259cb819bb05921908fe72c02",
+    "local_bindings.json": "22a6b04c8d43b9e1b575185f9077ac2ced7abbdcc566b6916afbee47bc117b0f",
+    "independent_test_bundles/verification.json": "1dbab9149dcdd77328947fbdd775adcb94bfba476a56c598072ca577af656a0e",
+    "regression.xml": "9d7d4b8642d673e63ddf2be1ada12e28ec58a962c490e7d82669f96d507c38bd",
+    "regression.log": "976a56c23e737c29b13b191b792522a4cad04cfa3d2c0432e1ff2e5a47ad618b",
+    "final_launch.xml": "83483038f4360adabbed74e1811ef700276151697f664c1b4dcf38bd5084ae6d",
+    "final_launch.log": "47decd74bce15f46ce56c50a0fe7ba039e944ec0dd241b9a99c8b0318e42cfc0"
+  },
+  "limits": [
+    "No 4B GPU training/real performance comparison/remote/push",
+    "RGB headers verified, not full pixel decoding or new manual visual review",
+    "Phase2 default 1536 is infeasible for this exact dataset; 1024 candidate ready is not a silent default migration",
+    "Action side index is unavailable locally; original fallback retained",
+    "Sources and data must be rechecked on other machines; same method name is not identity"
+  ],
+  "phase2_default_quota_changed": false
+}

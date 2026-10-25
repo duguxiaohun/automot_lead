@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-25",
+  "status": "user_selected_default1024_verified",
+  "user_choice": "Phase2 default 1024; original sampling method preserved",
+  "phase2_default_quota": 1024,
+  "phase1_default_quota": 768,
+  "cpu_admission": {
+    "1": {
+      "status": "ready",
+      "path": "AutoMoT/checkpoints/sft_new_loop_phase1_data_cpu/coverage_v2_after_phase2_default1024/status.json",
+      "sha256": "7793eff0cbcaac8f459196802e8d53ce3eaffb95299a0d7c67762fe92d8cd223",
+      "budget": {
+        "policy": "coverage_task_action_v2",
+        "world_size": 4,
+        "samples_per_epoch_global": 12288,
+        "steps_per_epoch": 3072,
+        "total_steps": 9216,
+        "optimizer_updates": 9216,
+        "warmup_updates": 167,
+        "grad_accum": 1,
+        "epoch_hours_limit": 10.0,
+        "timing_status": "unmeasured",
+        "warning": "Step budget is not a wall-time guarantee; live ETA follows after the probe."
+      },
+      "same_plan_as_previous": true,
+      "same_data_as_previous": true
+    },
+    "2": {
+      "status": "ready",
+      "path": "AutoMoT/checkpoints/sft_new_loop_phase2_data_cpu/coverage_v2_default1024/status.json",
+      "sha256": "3786f1a5a35becaaf8da39355f77163b4e8f3b5bce66c10ecfebe19ac7911488",
+      "budget": {
+        "policy": "coverage_task_action_v2",
+        "world_size": 4,
+        "samples_per_epoch_global": 7168,
+        "steps_per_epoch": 1792,
+        "total_steps": 5376,
+        "optimizer_updates": 5376,
+        "warmup_updates": 1000,
+        "grad_accum": 1,
+        "epoch_hours_limit": 10.0,
+        "timing_status": "unmeasured",
+        "warning": "Step budget is not a wall-time guarantee; live ETA follows after the probe."
+      },
+      "same_plan_as_previous": true,
+      "same_data_as_previous": true
+    }
+  },
+  "tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "177",
+    "time": "142.620",
+    "timestamp": "2026-10-25T15:13:34.988663+08:00",
+    "hostname": "codon"
+  },
+  "sampler_functions_unchanged": 27,
+  "key_files_unchanged": 10,
+  "historical_receipts_rewritten": false,
+  "phase3_or_phase4_changed": false,
+  "source_sha256": {
+    "sft_new_loop_phase2/train.py": "f5a309eccaf6a5a522667904adcb5186632f93222b3ad6aff61945f5a030497c",
+    "sft_new_loop_phase2/train.sh": "272759ce1406d9601058d89a06ed204ec3b59e373f1abafcd63a6a116279e3d0",
+    "sft_new_loop_phase2/run_full_pipeline.sh": "b7e9fbd1bc3f84398317715d58ef333a032f73579014d11dacac33ebb5043b3c",
+    "sft_new_loop_phase2/prepare_data.sh": "c3cdefcd141a7f02d7d6ec8698807a5330ad887da820418378463e03fb99e90a",
+    "sft_new_loop_phase1/data_stage.py": "e25a4c3d2e5089df931958cd126d59937083d8bf39bc6d4ac8ef39ccb0154d6e",
+    "sft_new_loop_phase1/test_training_policy.py": "cfdc774a992f3d2a3cbb3eee4291f8a5bb2f0cff5132f90c4d70793f9b330751",
+    "sft_new_loop_phase1/INDEPENDENT_DATA_20261025.md": "4f3a310b7fcd295d83e479c51bd8c68c9f28d77a418d9019566f132a904858f1",
+    "sft_new_loop_phase1/INTEGRITY_DELIVERY_20261025.md": "4645b8693ab305e84b1a49fe60fdf5ead0a84ac39daf6e62e548d69a3cda6b28",
+    "sft_new_loop_phase1/BOUNDED_TRAINING_20261020.md": "161548172b345c99530f605146ff0313f01af20b881cf8153fb06a518570857c",
+    "sft_new_loop_phase2/SFT_NEW_LOOP_PHASE2_RUN.md": "a124909fa7494ad4d2dc79c099faec06e291dcfd968e6e09b7e05f95752b676b"
+  },
+  "evidence_sha256": {
+    "regression.xml": "d8ebb9b75a6cb6f8e99080cb827897b9b0c6f4ad15d95f74f2360a5ce2f0264b",
+    "regression.log": "6269c61d9601cf44f7223fc11c890a9c11c8fa28b43622861d6d6a46ef7c60e2",
+    "phase1_cpu.log": "a0e2c5cfd451ef4e79522a6bdce87a0564256cccff6a8a15faca817fb8c362f5",
+    "phase2_cpu.log": "d2890e85bcf94d01b50648cd189a626998e4e4486df0516bfefccfdb00556fab"
+  },
+  "limits": [
+    "CPU admission only, no full 4B GPU training or performance claim",
+    "No dataset regeneration, remote operation or push",
+    "Old 1536 rejection and prior 1024 candidate evidence retained"
+  ]
+}

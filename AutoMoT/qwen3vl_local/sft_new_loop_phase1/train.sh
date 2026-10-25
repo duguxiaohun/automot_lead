@@ -180,6 +180,11 @@ else
   python qwen3vl_local/sft_new_loop_phase1/train.py "${COMMON_ARGS[@]}"
 fi
 
+# Validate actual consumption and content identities before publishing latest.
+if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
+  python -m qwen3vl_local.sft_new_loop_phase1.run_integrity "${OUTPUT_DIR}"
+fi
+
 # Publish latest only after successful training; failures preserve the previous target.
 if [[ "${PLAN_ONLY:-0}" != "1" ]]; then
 LATEST_TARGET="$(python -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "${OUTPUT_DIR}")"

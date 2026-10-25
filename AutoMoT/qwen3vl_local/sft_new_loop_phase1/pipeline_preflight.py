@@ -31,20 +31,11 @@ def check_images(rows, *, mode, checked):
                 print(f"[pipeline-preflight] verified RGB headers={len(checked)}", flush=True)
 
 
-def check(args):
+def check_data(args):
     if args.cases_per_bin < 0 or args.expected_excluded < 0 or args.expected_total < 0:
         raise ValueError("Evaluation counts must be nonnegative before training")
     if not 0 <= args.highway_ue3_fraction <= 1:
         raise ValueError("Evaluation highway fraction must be in [0, 1]")
-    from qwen3vl_local.qwen35.preflight import check as check_model
-    model = check_model(args.model_dir)
-    if not model['ready']:
-        raise ValueError("Local model/runtime preflight: " + "; ".join(model['errors']))
-    # Import required runtime components now, rather than discovering missing
-    # packages after dataset scans or when saving the first adapter.
-    import peft  # noqa: F401
-    from qwen3vl_local.qwen35.backend import LocalProcessor
-    LocalProcessor.from_pretrained(args.model_dir)
     receipt = inspect_index(args.index, args.phase)
     module = importlib.import_module(f"qwen3vl_local.sft_new_loop_phase{args.phase}.eval")
     counts, checked, eval_counts = {}, set(), {}
@@ -69,16 +60,31 @@ def check(args):
             if split == args.eval_split and args.expected_total and len(cases) != args.expected_total:
                 raise ValueError(f"Final eval count mismatch before training: {len(cases)} != {args.expected_total}")
             eval_counts[split] = dict(Counter(item.balance_key for item in cases))
-    return dict(status="passed_before_training", model_dir=str(Path(args.model_dir).resolve()),
+    return dict(status="data_checked", model_checked=False,
                 dataset=receipt, split_rows=counts, image_headers_verified=len(checked),
                 history_rgb_mode=args.history_rgb_mode, final_eval_balance=eval_counts,
                 limits="Image headers checked, not a guarantee against future file changes, truncated pixel payloads, GPU/OOM or hardware failures.")
 
 
+def check(args):
+    from qwen3vl_local.qwen35.preflight import check as check_model
+    model = check_model(args.model_dir)
+    if not model['ready']:
+        raise ValueError("Local model/runtime preflight: " + "; ".join(model['errors']))
+    import peft  # noqa: F401
+    from qwen3vl_local.qwen35.backend import LocalProcessor
+    LocalProcessor.from_pretrained(args.model_dir)
+    report = check_data(args)
+    report.update(status="passed_before_training", model_checked=True, model_dir=str(Path(args.model_dir).resolve()))
+    return report
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--phase', type=int, choices=(1,2), required=True)
-    p.add_argument('--model-dir', required=True)
+    p.add_argument('--model-dir', default='checkpoints/Qwen3.5-4B')
+    p.add_argument('--data-only', action='store_true', help='CPU data checks only; no model/runtime admission')
+    p.add_argument('--device', choices=('cpu',), default='cpu', help='Preflight is CPU-only')
     p.add_argument('--index', required=True)
     p.add_argument('--data-root', required=True)
     p.add_argument('--history-rgb-mode', choices=('4rgb','2rgb_endpoints'), required=True)
@@ -93,7 +99,7 @@ def main():
     p.add_argument('--expected-total', type=int, default=0)
     p.add_argument('--output', required=True)
     args = p.parse_args()
-    report = check(args)
+    report = check_data(args) if args.data_only else check(args)
     Path(args.output).write_text(json.dumps(report, indent=2)+"\n")
     print('[pipeline-preflight] '+json.dumps(report), flush=True)
 

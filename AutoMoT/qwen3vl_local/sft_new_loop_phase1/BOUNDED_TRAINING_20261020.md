@@ -1,5 +1,7 @@
 # Phase1/2：适中预算、跨轮覆盖、旧 action 辅助与固定方法目录
 
+> 2026-10-25：采样保持；用户已确认Phase2默认配额1024；新运行增加严格完成验收、完整审计打包和比较工具，使用步骤见 [INTEGRITY_DELIVERY_20261025.md](INTEGRITY_DELIVERY_20261025.md)。
+
 2026-10-20，coverage_v2。本页更新同日 bounded_v1 的过小默认配额；沿用历史任务均衡，增加跨轮未见优先。覆盖旧运行文档中的默认配额、目录与 RUN_BUILD 说明；历史指标保留。
 本轮为本地代码与 CPU 验证；用户已授权白名单发布。没有服务器 GPU 训练、SSH 或重新标定。
 
@@ -23,11 +25,11 @@
 | 方法 | 每类基础配额 | 每轮全局呈现 | 每轮训练步 | 三轮训练步/更新 | warmup 更新 |
 |---|---:|---:|---:|---:|---:|
 | Phase1 | 每 focus×YES/NO 768 | 12288 | 3072 | 9216 | 167 |
-| Phase2 | 每 UE/INVALID 1536；RE 3072 | 10752 | 2688 | 8064 | 1500 |
+| Phase2 | 每 UE/INVALID 1024；RE 2048 | 7168 | 1792 | 5376 | 1000 |
 
 Phase1 原默认 9216/桶、三轮 110592 步已关闭。新 768/桶是原采样预算的 1/12，比上一版 576/桶增加 1/3。
 不能简单使用 512：原算法按整数保持精确 4:1:1，512 存在配额冲突；新训练入口要求配额为 6 的倍数。
-Phase2 统一 train.sh / run_full_pipeline.sh / Python 默认配额为 1536，比上一版 1024 增加 50%，并消除旧流水线与直接训练不一致的问题。
+Phase2 在2026-10-25真实全池审计后，经用户选择统一 Python / train.sh / run_full_pipeline.sh / prepare_data.sh 默认配额为1024。原1536因稀缺高速UE3与INVALID共享帧容量不足拒绝；类别比例、算法和重复上限均保留。
 默认 val/generation 每 1000 步、adapter 保存每 2000 步；评测成员配额不变。
 自动 warmup 按各阶段历史预算比例缩放；显式 WARMUP_STEPS 可覆盖，不能吞掉整个正式训练预算。
 
@@ -35,11 +37,11 @@ Phase2 统一 train.sh / run_full_pipeline.sh / Python 默认配额为 1536，�
 单卡不会假装获得四卡速度：同配额单卡超限会明确退出。梯度累积不会缩短 forward/backward 步数。
 `MAX_STEPS` 是显式截断，可能没有完整消费一个均衡 epoch；不能拿计划的整轮配额宣称截断 run 已实际达到 1:1。
 
-默认开始后每约 100 步在已应用 optimizer 更新的位置测算 ETA（包含此前评测时间），预计单轮超过 10 小时即提前停止。所有 rank 统一决定，rank0 保存 `budget_stop/` 后一起退出；失败会阻止 shell 的 `&&` 自动启动 Phase2。
+默认开始后每约 100 步在已应用 optimizer 更新的位置测算 ETA（包含此前评测时间），预计单轮超过 10 小时即提前停止。所有 rank 统一决定，rank0 保存 `budget_stop/` 后一起退出；失败仅停止当前阶段；两阶段独立启动，不建立成功依赖。
 `budget_stop` 只有 adapter，不含 optimizer/RNG 恢复状态，只能按明确路径评测，不能声称无损续训。
 模型加载后还会打印已加载 Qwen3.5 实现的 fast-path 可用状态；缺 FLA/causal-conv1d 时明确提示，不自动安装软件。
 
-**步数缩短不保证一天完成。** 按此次约 9.5 秒/步，仅训练算术估计 Phase1 每轮约 8.1 小时、三轮 24.3 小时；若 Phase2 也为同样速度，每轮约 7.1 小时、三轮 21.3 小时。Phase2 的真实单步耗时未测，两个阶段加总也不能承诺一天完成。每阶段还包含构建（仅缺库时）、加载和最终评测；服务器速度问题仍需实际启动日志核对。
+**步数缩短不保证一天完成。** 按此次约 9.5 秒/步，仅训练算术估计 Phase1 每轮约 8.1 小时、三轮 24.3 小时；若 Phase2 也为同样速度，每轮约 4.7 小时、三轮 14.2 小时。Phase2 的真实单步耗时未测，两个阶段加总也不能承诺一天完成。每阶段还包含构建（仅缺库时）、加载和最终评测；服务器速度问题仍需实际启动日志核对。
 
 ## 跨 epoch 覆盖与真实消费
 
@@ -70,7 +72,7 @@ checkpoints/sft_new_loop_phase1_data/frame_index.jsonl
 checkpoints/sft_new_loop_phase2_data/frame_index.jsonl
 ```
 
-`RUN_BUILD=auto` 是默认值。兼容旧命令的 `RUN_BUILD=1` 现在表示“确保有完整数据”：已有完整 index/manifest 就核验并复用，缺数据才构建；坏数据、残缺目录不自动重建。`RUN_BUILD=0` 只允许复用。
+2026-10-25 独立运行更正：训练入口默认 `RUN_BUILD=0`，只核验并复用已有数据；缺失立即退出，不隐式开始全池建库。各阶段独立 `prepare_data.sh` 默认 `RUN_BUILD=auto`，先完成 CPU 数据检查和原生三轮计划，再单独启动该阶段训练。显式 `RUN_BUILD=1` 仍表示“确保有完整数据”：已有完整 index/manifest 就核验并复用，坏数据、残缺目录不自动重建。详见[独立准备与训练说明](INTEGRITY_DELIVERY_20261025.md)。
 新采样预算和 action 辅助不需要重建这两个索引，更不需要运行 Phase3/4 teacher。
 直接 build_dataset.py 也拒绝覆盖既有 index/manifest；并发构建使用目录 flock，不删除锁文件。
 

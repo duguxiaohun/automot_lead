@@ -115,7 +115,8 @@ def test_real_qwen35_two_images_loss_save_reload_generate(tmp_path,monkeypatch,m
     assert json.loads((saved/f'sft_new_loop_phase{phase}_adapter_config.json').read_text())['history_rgb_mode']=='2rgb_endpoints'
 
 
-def test_shell_phase1_then_phase2_eval_and_real_bundle(tmp_path):
+@pytest.mark.parametrize("phase", [1,2])
+def test_independent_shell_eval_and_real_bundle(tmp_path, phase):
     """Run real launchers and packers; stand in only for expensive model jobs.
 
     The shim is confined to this temporary fixture. Separate tests above execute
@@ -128,9 +129,17 @@ def test_shell_phase1_then_phase2_eval_and_real_bundle(tmp_path):
             shutil.copytree(child,package/child.name,ignore=shutil.ignore_patterns('__pycache__','probe_output','.pytest_cache'))
         else:
             (package/child.name).symlink_to(child,target_is_directory=child.is_dir())
-    for phase in (1,2):
-        folder=root/f'checkpoints/sft_new_loop_phase{phase}_data';folder.parent.mkdir(exist_ok=True)
-        write_dataset(folder,phase)
+    for selected_phase in (phase,):
+        folder=root/f'checkpoints/sft_new_loop_phase{selected_phase}_data';folder.parent.mkdir(exist_ok=True)
+        write_dataset(folder,selected_phase)
+    for index in root.glob('checkpoints/sft_new_loop_phase*_data/frame_index.jsonl'):
+        for line in index.read_text().splitlines():
+            for name in json.loads(line)['history_rgb_paths']:
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True)
+                if not path.exists():Image.new('RGB',(32,32)).save(path)
+    base=root/'checkpoints/fixture_base';base.mkdir()
+    (base/'model.safetensors').write_bytes(b'fixture base, never loaded')
+    (base/'config.json').write_text('{"model_type":"qwen3_5","fixture_only":true}')
     bindir=tmp_path/'bin';bindir.mkdir()
     shim=bindir/'python'
     shim.write_text('#!'+sys.executable+'\n'+r'''
@@ -140,19 +149,17 @@ args=sys.argv[1:]
 def get(key,default=None):return args[args.index(key)+1] if key in args else default
 target=args[0] if args else ''
 if args[:2]==['-m','qwen3vl_local.sft_new_loop_phase1.pipeline_preflight']:
-    Path(get('--output')).write_text('{"fixture_only":true}')
+    from qwen3vl_local.sft_new_loop_phase1.local_assets import inspect_index
+    Path(get('--output')).write_text(json.dumps({'fixture_only':True,'dataset':inspect_index(get('--index'),int(get('--phase')))}))
 elif target.endswith('/train.py') and 'sft_new_loop_phase' in target:
     phase=1 if 'phase1/' in target else 2
     if os.environ.get('FAIL_FIXTURE_PHASE')==str(phase):sys.exit(17)
-    root=Path(get('--output-dir'));slot='best_generation' if phase==1 else 'final'
-    dest=root/slot;dest.mkdir()
-    (dest/f'sft_new_loop_phase{phase}_adapter_config.json').write_text(json.dumps({'history_rgb_mode':get('--history-rgb-mode'),'global_step':4}))
-    (dest/'adapter_model.safetensors').write_bytes(b'fixture, not a model')
-    (root/'exposure_summary.json').write_text('{"fixture_only":true}')
+    from qwen3vl_local.sft_new_loop_phase1.test_integrity import train_fixture
+    train_fixture(phase,args[1:])
 elif target.endswith('/eval.py') and 'sft_new_loop_phase' in target:
-    dest=Path(get('--output-dir'));dest.mkdir(parents=True)
-    (dest/'metrics.json').write_text(json.dumps({'fixture_only':True,'total':1,'history_rgb_mode':get('--history-rgb-mode','2rgb_endpoints')}))
-    (dest/'cases.jsonl').write_text('')
+    phase=1 if 'phase1/' in target else 2
+    from qwen3vl_local.sft_new_loop_phase1.test_integrity import eval_fixture
+    eval_fixture(phase,args[1:])
 elif target.endswith('/audit_eval_cases.py'):
     dest=Path(get('--output-dir'));dest.mkdir(parents=True)
     (dest/'summary.json').write_text('{"fixture_only":true}')
@@ -165,23 +172,33 @@ else:
     runner=bindir/'torchrun'
     runner.write_text('#!'+sys.executable+'\nimport os,sys\na=sys.argv[1:];a=a[a.index("--")+1:]\nos.execv(os.environ["FIXTURE_PYTHON"],[os.environ["FIXTURE_PYTHON"]]+a)\n');runner.chmod(0o755)
     env=os.environ.copy();env.update(PATH=str(bindir)+':'+env['PATH'],REAL_PYTHON=sys.executable,
-        FIXTURE_PYTHON=str(shim),PYTHONPATH=str(root),GPU_IDS='0,1,2,3',HISTORY_RGB_MODES='2rgb_endpoints',RUN_BUILD='1')
-    command='bash qwen3vl_local/sft_new_loop_phase1/run_full_pipeline.sh && bash qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh'
-    result=subprocess.run(['bash','-c',command],cwd=root,env=env,capture_output=True,text=True,timeout=60)
+        FIXTURE_PYTHON=str(shim),PYTHONPATH=str(root),GPU_IDS='0,1,2,3',HISTORY_RGB_MODES='2rgb_endpoints',RUN_BUILD='0',
+        MODEL_DIR=str(base),DATA_ROOT=str(root),TRAIN_FOCUS_BALANCE_COUNT='6',TRAIN_MAX_STEPS='5',FINAL_CASES_PER_BIN='4')
+    other=3-phase
+    failed=root/f'checkpoints/sft_new_loop_phase{other}_pipeline/failed_existing/status.json'
+    failed.parent.mkdir(parents=True);failed.write_text('{"status":"rejected"}')
+    command=['bash',f'qwen3vl_local/sft_new_loop_phase{phase}/run_full_pipeline.sh']
+    result=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=180)
     assert result.returncode==0,result.stdout+result.stderr
     archives=list(root.glob('checkpoints/sft_new_loop_phase*_pipeline/**/*.tar.gz'))
-    assert len(archives)==2
+    assert len(archives)==1
     for archive in archives:
         assert archive.stat().st_size<30*1024*1024
         with tarfile.open(archive) as tf:
             names=tf.getnames()
             assert any(x.endswith('/bundle_manifest.json') for x in names)
             assert any(x.endswith('/exposure_summary.json') for x in names)
-            assert not any(x.endswith('.safetensors') for x in names)
-    assert (root/'checkpoints/sft_new_loop_phase1_runs/latest/best_generation').is_dir()
-    assert (root/'checkpoints/sft_new_loop_phase2_runs/latest/final').is_dir()
-    env.update(PIPELINE_TIMESTAMP='failed_fixture',FAIL_FIXTURE_PHASE='1')
-    result=subprocess.run(['bash','-c',command],cwd=root,env=env,capture_output=True,text=True,timeout=30)
+            assert not any(x.endswith(('.safetensors','.bin','.pt')) for x in names)
+            assert any(x.endswith('/integrity_files.json') for x in names)
+            assert any(x.endswith('/dataset_receipt.json') for x in names)
+            assert any(x.endswith('/pipeline_preflight.json') for x in names)
+    assert (root/f'checkpoints/sft_new_loop_phase{phase}_runs/latest/final').is_dir()
+    assert not (root/f'checkpoints/sft_new_loop_phase{other}_runs').exists()
+    assert not (root/f'checkpoints/sft_new_loop_phase{other}_data').exists()
+    assert failed.read_text()=='{"status":"rejected"}'
+    env.update(PIPELINE_TIMESTAMP='failed_fixture',FAIL_FIXTURE_PHASE=str(phase))
+    result=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=30)
     assert result.returncode==17
-    assert not (root/'checkpoints/sft_new_loop_phase2_pipeline/failed_fixture_2rgb_endpoints').exists()
-    assert 'failed_fixture' not in str((root/'checkpoints/sft_new_loop_phase1_runs/latest').resolve())
+    assert not (root/f'checkpoints/sft_new_loop_phase{other}_pipeline/failed_fixture_2rgb_endpoints').exists()
+    assert 'failed_fixture' not in str((root/f'checkpoints/sft_new_loop_phase{phase}_runs/latest').resolve())
+    assert failed.read_text()=='{"status":"rejected"}'
