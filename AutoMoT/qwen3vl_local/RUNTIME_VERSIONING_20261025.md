@@ -32,7 +32,7 @@ bash qwen3vl_local/run_versioned.sh -- qwen3vl_local/sft_new_loop_phase4/run_ful
 bash qwen3vl_local/run_versioned.sh -- -m qwen3vl_local.audit_joint.phase3_compare status abc
 ```
 
-以上为包装方式示例，不代表本轮授权启动这些实验；Phase2 原默认容量拒绝仍有效，base/single 暂停的新实验仍不启动。训练预算、prompt、标定、采样和原生阶段代码未改。自定义输入/输出推荐用绝对路径；默认 checkpoints/lead_data 等保持原项目目录。输出应放共享 checkpoints 或显式绝对目录，不写入冻结的源码/配置目录。
+以上为包装方式示例，不代表本轮授权启动这些实验；各阶段原有容量准入仍须通过，base/single 暂停的新实验仍不启动。训练预算、prompt、标定、采样和原生阶段代码未改。自定义输入/输出推荐用绝对路径；默认 checkpoints/lead_data 等保持原项目目录。输出应放共享 checkpoints 或显式绝对目录，不写入冻结的源码/配置目录。
 
 入口打印版本目录与执行记录：`checkpoints/runtime_versions/<SHA>/manifest.json`、`checkpoints/runtime_executions/*.json`。后续评测、补包或原生允许的恢复可显式选择相同版本：
 
@@ -73,3 +73,15 @@ bash qwen3vl_local/action_expert_ablation/geometry_abc/run.sh all \
 证据位于 checkpoints/runtime_version_fix_20261025。原始数据和模型不随源码快照上传，快照仅存本机；最终审计交包仍硬限 30MB，不把整份源码快照或权重塞入主包。
 
 本轮最终 355 项不同 CPU 测试通过（完整批次 351 项，最后相关复测 111 项，按测试名称去重）；122 个 shell 语法及快照字节检查通过。真实 Action 数据 843,059 条的 train/val/test 文件散列重新核对不变，数据构建源码及既有七轮计划散列不变；本轮没有重新扫描全部原始传感器，恢复入口会重新执行该检查。
+
+## 2026-10-25 固定依赖路径兼容修复
+
+远程恢复 run_20261025_155610 在数据准入、GPU 初始化之前失败。旧 snapshot 把 keyframe_filter 整目录链接回主目录，原生 Phase3 stable 的 verify_release 同时要求依赖 SHA 正确且 resolve() 后位于本项目 ROOT 内；链接跳出了快照 ROOT，因而即使字节正确也报 `Phase3 stable dependency changed`。本机原目录通过、旧快照同位置失败，已复现。上一轮只做 CLI help/status 与源码合同核验，没有覆盖这条真实延迟导入链，是验收遗漏。
+
+新版按已存在的 frozen release.json 外部依赖清单，将审计 JSON、JSONL 及辅助源码逐文件复制到快照内部；仅展开必要父目录，其它数据/输出仍共享。原生 release、expected SHA、背景确认规则、Action 数据构建代码、prompt、标定、划分和训练预算均不改。真实内容不匹配仍由原生校验拒绝，不更新旧回执掩盖变化。旧失败快照和运行保留。
+
+同步后重新执行上面的 all --recover-from 原始 run_20261024_232223 命令即可；创建新的执行版本与新运行。不要用 --version 指向失败的 4e4f5e16... 快照，也不要用 --run-dir 继续这个准备失败的目录，否则会按设计固定回有问题的旧执行版本。仍从原始 run 恢复，才能尝试复用其中完整的 processor 证据。
+
+本轮回归 156 项通过；额外一个历史测试 test_historical_v23_matches_restored_phase3 仍失败，该测试要求冻结 v23 与当前开发 Phase3 的 mapping hash 相同。装入修复前 b91758a48f 的运行器也同样失败，属于已有的跨版本等同假设；本轮保留测试与两个方法，未修改它使之通过。新增测试实际调用原生 verify_release，覆盖目录内依赖、JSONL、缺失/篡改/路径越界拒绝与共享数据保留。证据 checkpoints/runtime_dependency_fix_20261025；不代表真实四卡训练验收。
+
+真实全量候选扫描：原目录与新快照均得到 7,241 条路线、901,221 个事件/背景候选锚点，逐条顺序/字段摘要、事件计数及 169 份数据源码/324 份运行源码身份完全相同。这里是过滤前候选，不是 843,059 条最终有效训练库；本轮未重建训练库或重新解码全部 RGB/LiDAR。

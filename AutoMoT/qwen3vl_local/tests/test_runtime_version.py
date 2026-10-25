@@ -113,3 +113,73 @@ def test_sigterm_stops_only_own_child_and_records_interruption(tmp_path):
         r=json.loads(next((root/'checkpoints/runtime_executions').glob('*.json')).read_text());assert r['exit_code']==143
     finally:
         if p.poll() is None:p.kill();p.wait()
+
+
+def frozen_release(root):
+    """Use the actual native verifier, not a replacement for its path guard."""
+    import shutil
+    from qwen3vl_local.action_prior import phase3_release
+    base=root/'qwen3vl_local/action_prior';base.mkdir()
+    shutil.copyfile(phase3_release.__file__,base/'phase3_release.py')
+    release=base/'phase3_releases/v23';release.mkdir(parents=True)
+    files={}
+    for name in ('__init__.py','build_dataset.py','prompts.py','sampling.py','source_mapping.py',
+                 'trajectory_action.py','choice_semantics.py'):
+        (release/name).write_text('# frozen\n');files[name]=version.sha(release/name)
+    dependencies={}
+    for name in ('keyframe_filter/collection_output/audit/table.json','keyframe_filter/evidence.py',
+                 'lead_video_tools/filter.py','qwen3vl_local/audit/decisions.jsonl'):
+        p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('{}\n')
+        dependencies[name]=version.sha(p)
+    other=root/'keyframe_filter/collection_output/raw';other.mkdir();(other/'large.json').write_text('shared')
+    (release/'release.json').write_text(json.dumps(dict(schema='action_phase3_release_v1',release='v23',
+        files=files,external_dependencies=dependencies)))
+    return dependencies
+
+
+def verify_native(tree):
+    return subprocess.run([sys.executable,'-B','-c',
+        'from qwen3vl_local.action_prior.phase3_release import verify_release; verify_release("v23")'],
+        cwd=tree,env=dict(os.environ,PYTHONPATH=str(tree)),capture_output=True,text=True)
+
+
+def test_frozen_external_dependencies_pass_actual_native_path_guard(tmp_path):
+    root=app(tmp_path);dependencies=frozen_release(root)
+    assert verify_native(root).returncode==0
+    one=version.prepare(root);tree=one/'app'
+    result=verify_native(tree);assert result.returncode==0,result.stderr
+    for name in dependencies:
+        p=tree/name
+        assert not p.is_symlink() and p.resolve().is_relative_to(tree)
+        assert p.read_bytes()==(root/name).read_bytes()
+    shared=tree/'keyframe_filter/collection_output/raw'
+    assert shared.is_symlink() and shared.resolve()==root/'keyframe_filter/collection_output/raw'
+    assert (tree/'checkpoints').is_symlink() and (tree/'lead_data').is_symlink()
+    (root/next(iter(dependencies))).write_text('changed')
+    assert verify_native(tree).returncode==0
+    two=version.prepare(root)
+    result=verify_native(two/'app')
+    assert result.returncode!=0 and 'Phase3 stable dependency changed' in result.stderr
+    version.verify(one)
+
+
+def test_frozen_dependency_ancestor_link_tampering_rejected(tmp_path):
+    import shutil
+    root=app(tmp_path);frozen_release(root);one=version.prepare(root)
+    parent=one/'app/keyframe_filter';shutil.rmtree(parent);parent.symlink_to(root/'keyframe_filter')
+    with pytest.raises(ValueError,match='execution_snapshot_changed'):version.verify(one)
+
+
+def test_missing_frozen_dependency_is_not_fabricated(tmp_path):
+    root=app(tmp_path);dependencies=frozen_release(root);name=next(iter(dependencies));(root/name).unlink()
+    one=version.prepare(root);version.verify(one)
+    assert not (one/'app'/name).exists()
+    assert verify_native(one/'app').returncode!=0
+
+
+@pytest.mark.parametrize('name',['../outside.json','/absolute.json'])
+def test_unsafe_frozen_dependency_rejected(tmp_path,name):
+    root=app(tmp_path);frozen_release(root)
+    manifest=root/'qwen3vl_local/action_prior/phase3_releases/v23/release.json'
+    r=json.loads(manifest.read_text());r['external_dependencies'][name]='invalid';manifest.write_text(json.dumps(r))
+    with pytest.raises(ValueError,match='invalid_frozen_dependency_path'):version.prepare(root)

@@ -72,6 +72,30 @@ def inventory(app):
         if p.name in CODE_ROOTS or p.name in EXCLUDED:continue
         if p.is_file() and p.suffix in SOURCE_SUFFIXES:files[p.name]=sha(p)
         else:links[p.name]=str(p.resolve())
+    # Frozen releases require both exact bytes and a path within their app root.
+    # Materialize only declared dependency leaves; keep large sibling data shared.
+    dependencies=set()
+    for manifest in sorted((app/'qwen3vl_local/action_prior/phase3_releases').glob('*/release.json')):
+        for name in json.loads(manifest.read_text()).get('external_dependencies',{}):
+            relative=Path(name)
+            if relative.is_absolute() or '..' in relative.parts or not relative.parts:
+                raise ValueError('invalid_frozen_dependency_path: '+name)
+            dependencies.add(str(relative))
+    for name in sorted(dependencies):
+        if name in files:continue
+        relative=Path(name)
+        # Expand each shared ancestor into immediate links, without scanning or
+        # copying unrelated RGB, weights, collection JSON, or output directories.
+        for i in range(1,len(relative.parts)):
+            parent=Path(*relative.parts[:i]);key=str(parent)
+            if key in links:
+                del links[key]
+                for child in sorted((app/parent).iterdir()):
+                    if child.name in EXCLUDED:continue
+                    links[str(parent/child.name)]=str(child.resolve())
+        links.pop(name,None)
+        if (app/name).is_file():files[name]=sha(app/name)
+        # Missing dependencies remain missing: native validation reports them.
     # Preserve existing relative ../lead map discovery without copying its data.
     siblings={p.name:str(p.resolve()) for p in app.parent.iterdir()
               if p.name in ('lead','CARLA_0915')}
@@ -84,7 +108,8 @@ def verify(directory):
     tree=directory/'app'
     for name,value in record['files'].items():
         p=tree/name
-        if p.is_symlink() or sha(p)!=value:raise ValueError('execution_snapshot_changed: '+name)
+        if p.is_symlink() or not p.resolve().is_relative_to(tree) or sha(p)!=value:
+            raise ValueError('execution_snapshot_changed: '+name)
     # Detect additions as well as mutations: added .py changes lazy imports/fingerprints.
     actual=set()
     for name in CODE_ROOTS:
@@ -94,7 +119,8 @@ def verify(directory):
                 if (Path(folder)/d).is_symlink():raise ValueError('execution_source_link_added')
             for filename in names:
                 p=Path(folder)/filename;rel=str(p.relative_to(tree))
-                if p.suffix in SOURCE_SUFFIXES or p.name in ('Makefile','Dockerfile'):actual.add(rel)
+                if p.suffix in SOURCE_SUFFIXES or p.name in ('Makefile','Dockerfile') or rel in record['files']:
+                    actual.add(rel)
     expected={p for p in record['files'] if Path(p).parts[0] in CODE_ROOTS}
     if actual!=expected:raise ValueError('execution_snapshot_members_changed')
     for name,target in record['assets'].items():
