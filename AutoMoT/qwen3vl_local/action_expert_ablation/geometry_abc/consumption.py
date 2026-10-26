@@ -1,6 +1,7 @@
 """Hash the exact bytes decoded at consumption, using frozen route receipts."""
 import hashlib
 import json
+from collections import OrderedDict
 from pathlib import Path
 from qwen3vl_local.audit_joint.abc_delivery import digest
 
@@ -21,7 +22,7 @@ class Sources:
             raise ValueError('consumed_dataset_changed')
         from .contracts import source_identity
         if self.manifest['code']!=source_identity(data_only=True):raise ValueError('consumed_data_contract_changed')
-        self.receipts={}
+        self.receipts=OrderedDict()
 
     def receipt(self,record):
         key=digest([record['scenario'],record['route_id']])
@@ -30,6 +31,8 @@ class Sources:
         if key not in self.receipts:
             raw=checked_bytes(self.directory/'routes'/key/'receipt.json',self.manifest['routes'][key])
             self.receipts[key]=json.loads(raw)
+            if len(self.receipts)>32:self.receipts.popitem(last=False)
+        self.receipts.move_to_end(key)
         return self.receipts[key]
 
     def read(self,record,route,kind,suffix):

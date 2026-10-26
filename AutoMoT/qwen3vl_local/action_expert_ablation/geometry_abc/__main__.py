@@ -29,7 +29,8 @@ def main(argv=None):
         recovery.inspect_old(args.recover_from)
         args.data_dir=str(recovery.data_directory(args.data_dir))
     from . import data,preflight,audit
-    from qwen3vl_local.action_prior.launch import prepare_run_directory,ensure_gpu,run_logged
+    from qwen3vl_local.action_prior.launch import prepare_run_directory,ensure_gpu
+    from qwen3vl_local.action_prior.host_memory import run_logged
     if args.operation=='status':
         path=Path(args.run_dir)/'pipeline.json' if args.run_dir else Path(args.data_dir)/'status.json'
         print(path.read_text());return

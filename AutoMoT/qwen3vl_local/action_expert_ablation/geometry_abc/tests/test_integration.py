@@ -161,7 +161,8 @@ def test_training_sampler_bound_to_epoch_and_restored():
     assert event_balance.build_balanced_epoch is old
 
 
-def test_tail_windows_and_actual_exposure_through_shared_training_loop(tmp_path,monkeypatch):
+@pytest.mark.parametrize('storage',['list','indexed'])
+def test_tail_windows_and_actual_exposure_through_shared_training_loop(tmp_path,monkeypatch,storage):
     monkeypatch.setattr(torch.cuda,'reset_peak_memory_stats',lambda *a:None)
     monkeypatch.setattr(torch.cuda,'max_memory_allocated',lambda *a:0)
     from qwen3vl_local.action_prior.tests.test_training_loop import lightweight_old_helpers
@@ -171,6 +172,15 @@ def test_tail_windows_and_actual_exposure_through_shared_training_loop(tmp_path,
     old=lightweight_old_helpers();records=[record(i) for i in range(5)]
     rows=[runtime.sample(r,'/unused') for r in records]
     for row in rows:row['consumed_sources']={k:'0'*64 for k in ('metas','rgb','lidar')}
+    if storage=='indexed':
+        from qwen3vl_local.action_expert_ablation.geometry_abc.indexed_rows import Store,Rows
+        original=runtime.sample
+        def with_proof(r,root):
+            return dict(original(r,root),consumed_sources={k:'0'*64 for k in ('metas','rgb','lidar')})
+        monkeypatch.setattr(runtime,'sample',with_proof)
+        path=tmp_path/'train.jsonl';path.write_text(''.join(json.dumps(r)+'\n' for r in records))
+        from qwen3vl_local.audit_joint.abc_delivery import sha
+        rows=Rows(Store(path,sha(path),'train','/unused'))
     args=SimpleNamespace(**dict(DEFAULTS,num_epochs=2,grad_accum_steps=2,num_workers=0,
         high_level_action_token=False,action_token_separation_weight=0.,sampling_mode='abc_regions',
         event_balance_max_frame_repeats=1,decoder_dtype='float32',save_steps=1,logging_steps=1,

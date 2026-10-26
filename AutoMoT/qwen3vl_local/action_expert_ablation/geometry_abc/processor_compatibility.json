@@ -1,12 +1,13 @@
 {
   "schema": "reviewed_processor_source_transition_v1",
-  "scope": "Only orchestration and source/model stability checks changed; observation text, packing, image verification, extrema, data and sampling unchanged. Full raw-source/plan/resource admission reruns; no training/probe reuse.",
+  "scope": "Reviewed orchestration, memory-bounded input access, checkpoint I/O and telemetry only; observation text, packing, image verification, extrema, data and sampling unchanged. Full raw-source/plan/resource admission reruns; no training/probe reuse.",
   "changes": {
     "qwen3vl_local/action_expert_ablation/geometry_abc/__main__.py": {
       "before": [
-        "80a57ce66d050727821b98c052bb2a8b41467e1f65e4d3dca0c5ac7f1b8c2e19"
+        "80a57ce66d050727821b98c052bb2a8b41467e1f65e4d3dca0c5ac7f1b8c2e19",
+        "917633690236fe9a1bc00d2530577a47ca4aa727fcdf1a4d92a7d4f3f02cad4b"
       ],
-      "after": "917633690236fe9a1bc00d2530577a47ca4aa727fcdf1a4d92a7d4f3f02cad4b"
+      "after": "cf1796a609a3af3b21caef0b2ede6343f321e4fbcfbc01b11d1ebc6152be1f17"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/preflight.py": {
       "before": [
@@ -19,29 +20,33 @@
       "before": [
         "3f99061ba88df48600aca6f3b10491b8192f6ad6f969438737e6ba77accfd083",
         "2eaf6ebcbddf979597bf22ddba29368e9c7236fdd9bba5fa5ba4aa7ddab3638b",
-        "97bc2e374f63425100273b07aa5a76953923711942e10ec27a3e9bc2374f1dcb"
+        "97bc2e374f63425100273b07aa5a76953923711942e10ec27a3e9bc2374f1dcb",
+        "6f506e9677333e62238fbb864a4d1dbaf123476b9905beee812e3ce91dd37908"
       ],
-      "after": "6f506e9677333e62238fbb864a4d1dbaf123476b9905beee812e3ce91dd37908"
+      "after": "fe79427e44c66bf80324c4998c3209bb6a2640b4e465234a1954b42385558017"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/recovery.py": {
       "before": [
         null,
-        "76f4da72aa40251a77c7d674df2e892bd32f208607ea64a8f9c6fb1f362e980f"
+        "76f4da72aa40251a77c7d674df2e892bd32f208607ea64a8f9c6fb1f362e980f",
+        "4913fdf014f8a4a7b6bbdcb41aea730a3146cb31903e3dfd44e2c55af1bbac7d"
       ],
-      "after": "4913fdf014f8a4a7b6bbdcb41aea730a3146cb31903e3dfd44e2c55af1bbac7d"
+      "after": "c2f13977d8cf400e5a63cf11ed6121ef232a765493d9a152596d940c8a60793c"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/audit.py": {
       "before": [
-        "18cff43a5a8d20a52a951145d083df6b8ab25225b47e9a462d38c870dfafca54"
+        "18cff43a5a8d20a52a951145d083df6b8ab25225b47e9a462d38c870dfafca54",
+        "ecc2921e11826bcf129a0b85caf5d892927b80256f401a35feb3c150ce233197"
       ],
-      "after": "ecc2921e11826bcf129a0b85caf5d892927b80256f401a35feb3c150ce233197"
+      "after": "88a43ca384f91c4281b5154f4f1e6767cffe7851f22b8ad7904a6f9bf6e07a08"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/probe_inputs.py": {
       "before": [
         "7bc4f3e309e41d8ef90822b9688a4d50bbda8b948785f37c62af32edf00465c0",
-        "c285f707e456fedeca0c7c74ca764a6f5de7d956555beaefb769334eb07dea97"
+        "c285f707e456fedeca0c7c74ca764a6f5de7d956555beaefb769334eb07dea97",
+        "e8e06f1aa8db727e8c990dbc1738e796f7e6f2e07b33fd9031a8df31871cc946"
       ],
-      "after": "e8e06f1aa8db727e8c990dbc1738e796f7e6f2e07b33fd9031a8df31871cc946"
+      "after": "4879ecae17deb47e97ad0a3d2f8e08adeae59b42a0dd78cf5160204bd6fc4a69"
     },
     "qwen3vl_local/action_prior/checkpoint_io.py": {
       "before": [
@@ -54,6 +59,36 @@
         "b61606711b7ca4a0c0dd34ab4e7692a2aab4ba2aec2e381f8119bb52a0770798"
       ],
       "after": "d38a8af004d698a0240de58e47073655ef8e1e0f54e772afa5b4d73cecf76e64"
+    },
+    "qwen3vl_local/action_prior/host_memory.py": {
+      "before": [
+        null
+      ],
+      "after": "d969e52eb0d2725a7224e46397355b8cb1ec1d9305e847679bd4c8e2b6df08bd"
+    },
+    "qwen3vl_local/action_prior/progress.py": {
+      "before": [
+        "0947858c2a3afa0bf83eecd9738d0996240c8acf174c7c0696f2f5cdf9789da8"
+      ],
+      "after": "6631e6ea7084d74024bf11cd5bc4494baac3d41248b50ce10af6ff75c8ca8538"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/indexed_rows.py": {
+      "before": [
+        null
+      ],
+      "after": "f5ba8d86c4cf5a8be4bbf5e709436a145fdfe9ed76ccc154e32bca93dca27b58"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/consumption.py": {
+      "before": [
+        "c6f94902498f0671cbe8df12833b2e2704be6b921c5d5426ea8752e088f976a9"
+      ],
+      "after": "3011e7f039c5b9a8c66f7909ae8a85fa121914365d09ba484e8a65b2fd9a589e"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/probe_loader.py": {
+      "before": [
+        null
+      ],
+      "after": "9b004fca7cf3747136514444f9e4de46cbefa2cd6a91d307615e2587856697a2"
     }
   }
 }

@@ -56,6 +56,8 @@ class Progress:
         now = time.monotonic()
         payload = dict(self.state, rank=self.rank, pid=os.getpid(), kind=kind,
                        timestamp=time.time(), stage_elapsed_s=round(now - self.stage_started, 1))
+        from .host_memory import snapshot
+        payload['host_memory'] = snapshot()
         stage = payload.get("stage", "startup")
         # 详细阶段留在文件；终端仅 rank0 定时单行，错误仍由每个 rank 报告。
         first_update = stage == "train/update_done" and not self.update_announced

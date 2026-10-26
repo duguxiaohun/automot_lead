@@ -68,7 +68,8 @@ def validation_members(rows,seed,max_samples=0):
         if e==contracts.BACKGROUND:continue
         key=(r['scenario'],r['run_id'],r['anchor']);bucket=CONTEXT_TO_BUCKET[e]
         lookup[key,bucket]=r
-        if key not in merged:merged[key]=dict(r,event_balance_all_special_buckets=[])
+        if key not in merged:merged[key]=dict(scenario=r['scenario'],run_id=r['run_id'],anchor=r['anchor'],
+                                             event_balance_all_special_buckets=[])
         merged[key]['event_balance_all_special_buckets'].append(bucket)
     selected,plan=equal_event_evaluation(list(merged.values()),seed=seed,max_samples=max_samples)
     return [lookup[(r['scenario'],r['run_id'],r['anchor']),r['_evaluation_event']] for r in selected],plan
@@ -97,8 +98,12 @@ def planned_sampler(projection,seed):
         if mode!='abc_regions' or not 0<=epoch<len(projection['plans']):raise ValueError('wrong_ABC_epoch_request')
         p=projection['plans'][epoch]
         if total!=p['samples']:raise ValueError('ABC_budget_changed')
-        lookup={r['abc_record']['id']:r for r in rows}
-        return [lookup[k] for k in p['ordered_ids']],{k:v for k,v in p.items() if k!='ordered_ids'}
+        if hasattr(rows,'ordered'):
+            selected=rows.ordered(p['ordered_ids'])
+        else:
+            lookup={r['abc_record']['id']:r for r in rows}
+            selected=[lookup[k] for k in p['ordered_ids']]
+        return selected,{k:v for k,v in p.items() if k!='ordered_ids'}
     base_seed=seed;event_balance.build_balanced_epoch=build
     try:yield
     finally:event_balance.build_balanced_epoch=original
@@ -182,6 +187,7 @@ def main(argv=None):
     old=Helpers(common.leadmot_train());rank,local,world=old._init_distributed()
     if world!=4:raise ValueError('ABC_requires_four_ranks_including_probe')
     device=torch.device('cuda',local);torch.cuda.set_device(device)
+    active_probe_loader=None
     try:
         suite=Path(args.suite_root)
         gate=json.loads((suite/'admission.json').read_text())
@@ -195,7 +201,8 @@ def main(argv=None):
         from .consumption import checked_bytes
         manifest_path=Path(args.data_dir)/'manifest.json'
         admitted_manifest=json.loads(checked_bytes(manifest_path,gate['manifest_sha256']))
-        rows,manifest=data.load(args.data_dir,data_root=args.data_root,check_raw=False)
+        from . import indexed_rows
+        rows,manifest=indexed_rows.load(args.data_dir,data_root=args.data_root,manifest_sha256=gate['manifest_sha256'])
         if manifest!=admitted_manifest:raise ValueError('manifest_changed_after_admission')
         from .preflight import verify_development
         verify_development(manifest)
@@ -204,9 +211,7 @@ def main(argv=None):
         args.abc_manifest_sha256=gate['manifest_sha256']
         from .probe_inputs import verify_processor,selection,verify_probe_inputs,verify_actual_shape
         processor=verify_processor(suite/'processor.json',gate)
-        flat=[r for values in rows.values() for r in values]
-        probe_selections={v:selection(flat,processor,v) for v in 'abc'}
-        del flat
+        probe_selections={v:selection((r for values in rows.values() for r in values.probe_records()),processor,v) for v in 'abc'}
         if args.operation=='train':
             from .audit import GROUPS
             for group in GROUPS:
@@ -215,6 +220,7 @@ def main(argv=None):
                 if receipt['admission_sha256']!=sha(suite/'admission.json'):raise ValueError('six_current_probes_required')
                 variant,branch=group.split('_',1);proof=receipt['binding']
                 verify_probe_inputs(receipt,probe_selections[variant],gate['processor_sha256'],p.parent)
+                if receipt.get('loader_workers')!=args.num_workers:raise ValueError('probe_loader_worker_count_changed')
                 if (proof['representation']!=contracts.contract(variant) or proof['branch']!=branch
                     or proof['source']!=gate['code'] or proof['dataset']!=gate['dataset']
                     or proof['resources']!=gate['resources'] or not receipt.get('checkpoint_reload_verified')
@@ -226,7 +232,15 @@ def main(argv=None):
         stored=projection['sha256']
         if plan_digest(projection)!=stored or gate['plan_sha256']!=stored:raise ValueError('plan_digest_changed')
         if projection['total_updates']!=12719 or projection['total_presentations']!=813792:raise ValueError('wrong_ABC_plan')
-        rows={s:[abc_runtime.sample(r,args.data_root) for r in values] for s,values in rows.items()}
+        if args.operation=='probe':
+            # Retain only the exact original extrema/filler members before any model allocation.
+            chosen_ids={item['id'] for p in probe_selections.values()
+                        for scope in ('backward','holdout_forward_only') for item in p[scope]}
+            rows={s:[dict(values.store.sample(values.store.lookup[k])) for k in sorted(chosen_ids)
+                     if k in values.store.lookup] for s,values in rows.items()}
+            del projection
+        elif args.operation=='evaluate':
+            del rows['train'],projection
         out=Path(args.output_dir)
         config=LeadMoTPlanningDecoderConfig(num_route_queries=10,num_waypoint_queries=8,
             rope_type=args.leadmot_rope_type,dropout=args.decoder_dropout,use_bev=True,
@@ -249,11 +263,12 @@ def main(argv=None):
             if (completion['step']!=12719 or completion['best_sha256']!=sha(args.checkpoint)
                 or completion['latest_sha256']!=sha(Path(args.checkpoint).parent/'latest.pt')):
                 raise ValueError('test_requires_completed_seven_epoch_budget')
-            state=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
+            state=indexed_rows.checkpoint(args.checkpoint)
             if state['schema']!='abc_trajectory_checkpoint_v1' or state['condition_contract']!=binding:
                 raise ValueError('ABC_checkpoint_binding_changed')
             model.load_state_dict(state['decoder'],strict=True)
             ema=old._DecoderEMA(model,args.ema_decay);ema.load_state_dict(state['ema_state_dict'])
+            del state
             args.abc_eval_scope='test'
             with ema.apply_to(model):
                 result=evaluate(runtime,model,config,rows['test'],args,dtype,rank,world,0,out/'cases')
@@ -277,8 +292,8 @@ def main(argv=None):
             selected=input_selection['backward'][rank]
             chosen=next(r for r in rows['train'] if r['abc_record']['id']==selected['id'])
             if chosen['abc_record']['split']!='train':raise ValueError('backward_probe_train_only')
-            prepared=Dataset([chosen],args)[0]
-            if prepared.get('_error'):raise ValueError(prepared['_error'])
+            from .probe_loader import prepare as prepare_probe_loader
+            active_probe_loader,prepared,loader_proof=prepare_probe_loader(chosen,args)
             gt_r=prepared['gt_route'][None].to(device);gt_w=prepared['gt_waypoints'][None].to(device)
             flow=make_training_flow(gt_r,gt_w,fc)
             result=runtime.forward_sample(chosen,decoder,config,dtype,clip=prepared['clip'],
@@ -307,7 +322,7 @@ def main(argv=None):
                     holdout_proofs.append(dict(item,updates=0,decoder_shapes=runtime.last_decoder_shapes))
             finally:model.train()
             write(out/f'rank{rank}.json',dict(loss=float(loss),binding=binding,embedding=abc_model.embedding_diagnostics(model),
-                input=input_proof,holdout_forward_only=holdout_proofs))
+                input=input_proof,holdout_forward_only=holdout_proofs,loader=loader_proof))
             core.save_training_checkpoint(out/'probe.pt',model,optimizer,scheduler,ema,args,binding,manifest['splits'],
                 {'epoch':0,'micro':1},1,math.inf,rank,world,
                 schema='abc_trajectory_checkpoint_v1',contract_key='condition_contract')
@@ -316,13 +331,14 @@ def main(argv=None):
             rank_receipt=json.loads((out/f'rank{rank}.json').read_text())
             rank_receipt['post_checkpoint_backward']=continued
             write(out/f'rank{rank}.json',rank_receipt)
-            saved=torch.load(out/'probe.pt',map_location='cpu',weights_only=False)
+            saved=indexed_rows.checkpoint(out/'probe.pt')
             if saved['condition_contract']!=binding or saved['step']!=1:raise ValueError('probe_checkpoint_binding_changed')
             model.load_state_dict(saved['decoder'],strict=True);ema.load_state_dict(saved['ema_state_dict'])
             del saved
             dist.barrier()
             if rank==0:
                 receipt=dict(binding=binding,ranks=4,formal_training=False,input_selection=input_selection,
+                    loader_workers=args.num_workers,
                     processor_sha256=gate['processor_sha256'],rank_receipts={f'rank{i}.json':sha(out/f'rank{i}.json') for i in range(world)},
                     admission_sha256=sha(suite/'admission.json'),checkpoint_reload_verified=True,
                     post_checkpoint_backward_verified=True,checkpoint_sha256=sha(out/'probe.pt'))
@@ -365,12 +381,15 @@ def main(argv=None):
                 verified={k.removeprefix('verified_exposure/'):v for k,v in counts.items() if k.startswith('verified_exposure/')}
                 if verified!=actual:raise ValueError('actual_consumption_source_proof_missing')
                 receipts[str(epoch)]=sha(paths[0])
-            latest=torch.load(out/'latest.pt',map_location='cpu',weights_only=False)
+            latest=indexed_rows.checkpoint(out/'latest.pt')
             if not core.budget_complete(latest['step'],plan,latest['cursor']):raise ValueError('incomplete_budget')
             write(out/'training_complete.json',dict(binding=binding,step=latest['step'],epochs=receipts,
                 token_diagnostics={p.name:sha(p) for p in sorted((out/'token_diagnostics').glob('*.json'))},
                 latest_sha256=sha(out/'latest.pt'),best_sha256=sha(out/'best.pt')))
     finally:
+        if active_probe_loader is not None:
+            from .probe_loader import close as close_probe_loader
+            close_probe_loader(active_probe_loader)
         if dist.is_initialized():dist.destroy_process_group()
 
 

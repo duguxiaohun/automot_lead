@@ -64,7 +64,8 @@ def verify_training(run,manifest,projection,variant,branch,*,manifest_sha256):
     for name in ('latest','best'):
         path=run/(name+'.pt')
         if complete[name+'_sha256']!=sha(path):raise ValueError('completed_checkpoint_changed')
-        state=torch.load(path,map_location='cpu',weights_only=False)
+        from .indexed_rows import checkpoint
+        state=checkpoint(path)
         if state['schema']!='abc_trajectory_checkpoint_v1' or state['condition_contract']!=binding:
             raise ValueError('completed_checkpoint_content_changed')
         if not 0<state['step']<=12719:raise ValueError('checkpoint_step_outside_budget')
@@ -229,6 +230,8 @@ def build(root,directory):
         raise ValueError('admitted_source_manifest_changed')
     sources=Sources(directory,manifest['data_root'],manifest['identity'],manifest_sha256)
     lookup,required=members_archive(rows,root/'audit');summary={};gt_identity={};quality_reviews=[]
+    for p in sorted((root/'memory').glob('*.json')):required['memory/'+p.name]=p
+    for p in sorted(root.glob('**/progress/*.json')):required[str(p.relative_to(root))]=p
     support_path=root/'audit'/'region_support.json';write(support_path,region_support(rows))
     required['data/region_support.json']=support_path
     for name in ('admission.json','processor.json','history_support.json','raw_source_verification.json'):

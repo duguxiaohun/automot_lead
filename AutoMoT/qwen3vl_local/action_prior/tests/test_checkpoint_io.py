@@ -122,7 +122,7 @@ def _distributed_save(rank, rendezvous, directory, fail):
 def test_four_ranks_native_save_then_real_abc_backward_or_shared_failure(tmp_path,fail):
     import torch.multiprocessing as mp
     context=mp.start_processes(_distributed_save,args=(str(tmp_path/'rendezvous'),str(tmp_path),fail),
-                               nprocs=4,join=False,start_method='fork')
+                               nprocs=4,join=False,start_method='spawn')
     until=time.monotonic()+40
     try:
         while time.monotonic()<until:

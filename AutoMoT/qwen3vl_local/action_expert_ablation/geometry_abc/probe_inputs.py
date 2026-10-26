@@ -1,6 +1,7 @@
 """Actual processor extrema split by variant and train/val/test."""
 import json
 import math
+import heapq
 from pathlib import Path
 from qwen3vl_local.audit_joint.abc_delivery import sha
 
@@ -22,9 +23,15 @@ def update(extrema,record,variant,dimensions):
 
 
 def selection(rows,processor,variant):
-    records=[r.get('abc_record',r) for r in rows];lookup={r['id']:r for r in records}
-    if len(lookup)!=len(records):raise ValueError('duplicate_probe_members')
     extrema=processor['extrema'][variant];selected=[];heldout=[]
+    required={item['id'] for cell in extrema.values() for item in cell.values()}
+    lookup={};seen=set();train=[]
+    for row in rows:
+        r=row.get('abc_record',row);key=r['id']
+        if key in seen:raise ValueError('duplicate_probe_members')
+        seen.add(key)
+        if key in required:lookup[key]=dict(id=key,split=r['split'])
+        if r['split']=='train':train=heapq.nsmallest(4,train+[key])
     for split in ('train','val','test'):
         if split not in extrema:raise ValueError('missing_split_processor_extrema')
         for metric in ('tokens','visual_tokens'):
@@ -34,10 +41,9 @@ def selection(rows,processor,variant):
             if item['tokens']<=0 or item['visual_tokens']<=0:raise ValueError('invalid_probe_length')
             target=selected if split=='train' else heldout
             if not any(x['id']==item['id'] for x in target):target.append(item)
-    train=sorted((r for r in records if r['split']=='train'),key=lambda r:r['id'])
-    for r in train:
+    for key in train:
         if len(selected)==4:break
-        if not any(x['id']==r['id'] for x in selected):selected.append(dict(id=r['id'],split='train',variant=variant))
+        if not any(x['id']==key for x in selected):selected.append(dict(id=key,split='train',variant=variant))
     if len(selected)!=4:raise ValueError('four_distinct_train_probe_members_required')
     return dict(schema='abc_train_extrema_probe_v2',variant=variant,backward=selected,
                 holdout_forward_only=heldout,holdout_updates=False,
@@ -72,6 +78,11 @@ def verify_probe_inputs(receipt,selection,processor_sha256,rank_directory):
         path=Path(rank_directory)/f'rank{rank}.json'
         if sha(path)!=files[path.name]:raise ValueError('probe_rank_evidence_changed')
         proof=json.loads(path.read_text());actual=proof['input']
+        workers=receipt.get('loader_workers');loader=proof.get('loader',{})
+        if (type(workers) is not int or workers<0 or loader.get('configured_workers')!=workers
+            or loader.get('decoded_copies')!=max(1,workers) or loader.get('formal_training_exposures')!=0
+            or loader.get('lifetime')!='through checkpoint reload'):
+            raise ValueError('probe_loader_evidence_required')
         continued=proof.get('post_checkpoint_backward',{})
         if (not receipt.get('post_checkpoint_backward_verified') or continued.get('id')!=actual['id']
             or continued.get('split')!='train' or continued.get('optimizer_updates')!=0

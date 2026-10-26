@@ -1,5 +1,7 @@
 # ABC 区域条件轨迹消融
 
+2026-10-26：主机 OOM 修复、全池内存验证与恢复命令见 [MEMORY_FIX_20261026.md](MEMORY_FIX_20261026.md)。保存后 SIGKILL 的旧探针需用新版本重新执行。
+
 独立于旧语义 Action 实验。固定使用 `audit_joint/geometry_abc_v2` 的标定和提示词，运行 `a/b/c × bev_only/qwen_simple` 六组；不引用路线一的新提示词，不修改旧训练入口、库或权重。
 
 四个未来区域为数据集真值，时距为 0.5/1/1.5/2 秒，测试的是条件表示的上限。两个分支都使用当前速度、Phase3 定义的导航三点、当前车道参考方向，以及过去 -2/-1.5/-1/-0.5 秒的位置区域。历史缺失为独立 UNKNOWN，不补成近区。Qwen 只接当前一张 RGB，BEV 使用当前 RGB/LiDAR；导航实际数值不再采用旧 Action 的 route-lookahead。未来区域只进 decoder，不作为文本答案进入 Qwen。尚未接 Phase3 预测器或 CARLA 闭环。
