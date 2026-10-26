@@ -18,6 +18,10 @@ SCHEMA='qwen_local_execution_v1'
 SOURCE_SUFFIXES={'.py','.sh','.json','.yaml','.yml','.toml','.ini','.cfg','.jinja','.txt','.md','.css','.html'}
 CODE_ROOTS=('qwen3vl_local','Automot','leaderboard','scenario_runner')
 EXCLUDED={'.git','__pycache__','.pytest_cache','.venv','node_modules'}
+# This deployment stores model/run assets beneath a code root. Keep the exact
+# known asset path shared, like application-level checkpoints; never allow
+# arbitrary source-directory symlinks (mot/team_code/etc.) through this rule.
+NESTED_ASSET_DIRS={'Automot/checkpoints'}
 
 
 def sha(path):
@@ -58,11 +62,19 @@ def inventory(app):
             dirs[:]=sorted(d for d in dirs if d not in EXCLUDED)
             for d in list(dirs):
                 p=Path(folder)/d
+                rel=str(p.relative_to(app))
+                if rel in NESTED_ASSET_DIRS:
+                    links[rel]=str(p.resolve());dirs.remove(d);continue
                 if p.is_symlink():
                     # Source directory links would allow lazy imports to escape isolation.
                     raise ValueError('linked_source_directory_requires_real_directory: '+str(p))
             for filename in sorted(names):
                 p=Path(folder)/filename;rel=str(p.relative_to(app))
+                if rel in NESTED_ASSET_DIRS:
+                    # os.walk lists dangling directory links as files. Preserve
+                    # the link; the native model/resource gate reports absence.
+                    if p.is_symlink() and not p.exists():links[rel]=str(p.resolve());continue
+                    raise ValueError('nested_asset_requires_directory: '+str(p))
                 if p.suffix in ('.pyc','.pyo','.log','.lock'):continue
                 if p.suffix in SOURCE_SUFFIXES or p.name in ('Makefile','Dockerfile'):
                     files[rel]=sha(p)
@@ -115,8 +127,13 @@ def verify(directory):
     for name in CODE_ROOTS:
         for folder,dirs,names in os.walk(tree/name,followlinks=False):
             dirs[:]=[d for d in dirs if d not in EXCLUDED]
-            for d in dirs:
-                if (Path(folder)/d).is_symlink():raise ValueError('execution_source_link_added')
+            for d in list(dirs):
+                p=Path(folder)/d;rel=str(p.relative_to(tree))
+                if rel in NESTED_ASSET_DIRS and rel in record['assets']:
+                    # Exact target and symlink type are checked below; do not
+                    # recursively scan a shared weight tree, even if replaced.
+                    dirs.remove(d);continue
+                if p.is_symlink():raise ValueError('execution_source_link_added')
             for filename in names:
                 p=Path(folder)/filename;rel=str(p.relative_to(tree))
                 if p.suffix in SOURCE_SUFFIXES or p.name in ('Makefile','Dockerfile') or rel in record['files']:

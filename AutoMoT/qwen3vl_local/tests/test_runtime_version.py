@@ -183,3 +183,83 @@ def test_unsafe_frozen_dependency_rejected(tmp_path,name):
     manifest=root/'qwen3vl_local/action_prior/phase3_releases/v23/release.json'
     r=json.loads(manifest.read_text());r['external_dependencies'][name]='invalid';manifest.write_text(json.dumps(r))
     with pytest.raises(ValueError,match='invalid_frozen_dependency_path'):version.prepare(root)
+
+
+@pytest.mark.parametrize('layout',['absolute_link','relative_link','real_directory','dangling_link'])
+def test_nested_automot_checkpoints_are_shared_not_source(tmp_path,layout,monkeypatch):
+    root=app(tmp_path);code=root/'Automot';code.mkdir();(code/'model.py').write_text('VALUE=1\n')
+    assets=root/'checkpoints';(assets/'config.json').write_text('{"model":"asset"}')
+    (assets/'model.safetensors').write_bytes(b'weight fixture')
+    p=code/'checkpoints'
+    if layout=='absolute_link':p.symlink_to(assets,target_is_directory=True)
+    elif layout=='relative_link':p.symlink_to('../checkpoints',target_is_directory=True)
+    elif layout=='real_directory':
+        p.mkdir();(p/'config.json').write_text('{}')
+    else:p.symlink_to(root/'missing_weights',target_is_directory=True)
+    original=version.sha
+    def source_hash(path):
+        if 'checkpoints' in Path(path).relative_to(root).parts and Path(path).is_relative_to(root):
+            pytest.fail('must not hash weight/config subtree')
+        return original(path)
+    # Check traversal directly; snapshot verification also hashes copied source.
+    with monkeypatch.context() as m:
+        m.setattr(version,'sha',source_hash)
+        record=version.inventory(root)
+    assert record['assets']['Automot/checkpoints']==str(p.resolve())
+    assert 'Automot/model.py' in record['files']
+    assert not any(k.startswith('Automot/checkpoints/') for k in record['files'])
+    one=version.prepare(root);version.verify(one)
+    assert (one/'app/Automot/checkpoints').is_symlink()
+    assert (one/'app/Automot/checkpoints').resolve()==p.resolve()
+    if layout!='dangling_link':
+        (p/'config.json').write_text('{"updated":"asset"}')
+        assert version.prepare(root)==one
+        version.verify(one)
+    (code/'model.py').write_text('VALUE=2\n')
+    assert version.prepare(root)!=one
+
+
+@pytest.mark.parametrize('name',['mot','team_code','unknown_assets'])
+def test_other_nested_directory_links_still_refused(tmp_path,name):
+    root=app(tmp_path);code=root/'Automot';code.mkdir();target=tmp_path/'external';target.mkdir()
+    (target/'lazy.py').write_text('VALUE=1\n');(code/name).symlink_to(target,target_is_directory=True)
+    with pytest.raises(ValueError,match='linked_source_directory_requires_real_directory'):
+        version.prepare(root)
+
+
+@pytest.mark.parametrize('change',['retarget','replace_directory','add_source_link'])
+def test_nested_asset_fix_does_not_weaken_snapshot_checks(tmp_path,change):
+    root=app(tmp_path);code=root/'Automot';code.mkdir();(code/'checkpoints').symlink_to(root/'checkpoints',target_is_directory=True)
+    (code/'model.py').write_text('VALUE=1\n');one=version.prepare(root);asset=one/'app/Automot/checkpoints'
+    if change=='retarget':asset.unlink();asset.symlink_to(root/'lead_data',target_is_directory=True)
+    elif change=='replace_directory':asset.unlink();asset.mkdir()
+    else:(one/'app/Automot/team_code').symlink_to(root/'lead_data',target_is_directory=True)
+    with pytest.raises(ValueError):version.verify(one)
+
+
+def test_legacy_snapshot_with_real_checkpoint_source_is_still_verified(tmp_path):
+    root=app(tmp_path);code=root/'Automot/checkpoints';code.mkdir(parents=True);(code/'config.json').write_text('{}')
+    # Historical v1 manifest, before nested asset recognition: don't rewrite it.
+    record=version.inventory(root);record['assets'].pop('Automot/checkpoints')
+    record['files']['Automot/checkpoints/config.json']=version.sha(code/'config.json')
+    one=tmp_path/version.digest(record);tree=one/'app';tree.mkdir(parents=True)
+    import shutil
+    for name in record['files']:
+        p=tree/name;p.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(root/name,p)
+    for name,target in record['assets'].items():(tree/name).symlink_to(target)
+    version.write(one/'manifest.json',record);version.verify(one)
+    (tree/'Automot/checkpoints/config.json').write_text('changed')
+    with pytest.raises(ValueError,match='snapshot_changed'):version.verify(one)
+
+
+def test_nested_asset_subprocess_reads_weights_and_writes_shared_result(tmp_path):
+    root=app(tmp_path);code=root/'Automot';code.mkdir()
+    (code/'checkpoints').symlink_to('../checkpoints',target_is_directory=True)
+    (root/'checkpoints/weight.bin').write_bytes(b'original asset')
+    (root/'qwen3vl_local/job.py').write_text("from pathlib import Path\np=Path('Automot/checkpoints')\nassert p.joinpath('weight.bin').read_bytes()==b'original asset'\np.joinpath('result.json').write_text('{}')\n")
+    p=subprocess.run([sys.executable,'-B',version.__file__,'--app',str(root),'--','-m','qwen3vl_local.job'],capture_output=True,text=True)
+    assert p.returncode==0,p.stderr
+    assert (root/'checkpoints/result.json').read_text()=='{}'
+    r=json.loads(next((root/'checkpoints/runtime_executions').glob('*.json')).read_text())
+    assert r['status']=='completed'
+    version.verify(Path(r['snapshot']))
