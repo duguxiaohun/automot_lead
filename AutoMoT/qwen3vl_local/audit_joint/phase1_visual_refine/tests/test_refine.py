@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 from qwen3vl_local.audit_joint.phase1_visual_refine import CONTRACT, calibration as c, prompts, regression as g, experiment as e
 from qwen3vl_local.sft_new_loop_phase1 import prompts as native, eval as ev
+from qwen3vl_local.audit_joint.phase1_visual_refine import rgb_inputs
 
 
 @pytest.fixture
@@ -80,6 +81,53 @@ def test_asset_root_symlink_and_escape(fixture,layout):
     assert c.apply(f.row,f.decision,project/'lead_data')['rs']=='R5'
     with pytest.raises(ValueError):c.resolve_rgb(project/'lead_data','../escape')
     with pytest.raises(ValueError):c.derive(project/'checkpoints/frame_index.jsonl',f.review,project/'lead_data',project/'checkpoints/candidate')
+
+
+@pytest.mark.parametrize('layout',['cr02','dsw'])
+@pytest.mark.parametrize('level',['scenario','route','rgb','file'])
+@pytest.mark.parametrize('mode',['2rgb_endpoints','4rgb'])
+def test_external_nested_rgb_links_still_require_frozen_hashes(fixture,layout,level,mode):
+    f=fixture;disk=f.tmp/'external_disk';disk.mkdir();project=f.tmp/layout/'AutoMoT';project.mkdir(parents=True)
+    (project/'lead_data').symlink_to(f.root,target_is_directory=True)
+    relative={'scenario':'Scenario','route':'Scenario/Route','rgb':'Scenario/Route/rgb','file':f.row['history_rgb_paths'][0]}[level]
+    logical=f.root/relative;target=disk/logical.name;logical.rename(target);logical.symlink_to(target,target_is_directory=target.is_dir())
+    frozen=copy.deepcopy(f.frozen);frozen['history_rgb_mode']=mode;f.inputs.write_text(json.dumps(frozen))
+    _,_,report=e.prepare(f.inputs,project/'lead_data')
+    assert report['images_verified']==(2 if mode=='2rgb_endpoints' else 4)
+    assert c.apply(f.row,f.decision,project/'lead_data')['rs']=='R5'
+    (f.root/f.row['history_rgb_paths'][0]).write_bytes(b'wrong image in external disk')
+    with pytest.raises(ValueError,match='SHA mismatch'):e.prepare(f.inputs,project/'lead_data')
+    with pytest.raises(ValueError,match='content changed'):c.apply(f.row,f.decision,project/'lead_data')
+
+
+def test_missing_and_broken_rgb_link_show_physical_paths(fixture):
+    f=fixture;path=f.root/f.row['history_rgb_paths'][0];path.unlink();missing=f.tmp/'missing_disk/0000.jpg';path.symlink_to(missing)
+    with pytest.raises(FileNotFoundError) as error:c.resolve_rgb(f.root,f.row['history_rgb_paths'][0])
+    assert str(path) in str(error.value) and str(missing) in str(error.value) and 'symlinks=' in str(error.value)
+
+
+def test_admit_uses_recorded_root_and_strict_explicit_root(fixture):
+    f=fixture;frozen=copy.deepcopy(f.frozen);frozen['arguments']['data_root']=str(f.root);f.inputs.write_text(json.dumps(frozen))
+    root,receipt=rgb_inputs.admit(f.inputs,app=f.tmp/'project')
+    assert root==f.root and receipt['images']==4
+    with pytest.raises(FileNotFoundError,match='No complete frozen RGB'):rgb_inputs.admit(f.inputs,f.tmp/'absent',app=f.tmp)
+
+
+def test_admit_known_nested_layout_but_no_wrong_hash_fallback(fixture):
+    f=fixture;app=f.tmp/'project';(app/'Automot').mkdir(parents=True)
+    (app/'Automot/lead_data').symlink_to(f.root,target_is_directory=True)
+    root,receipt=rgb_inputs.admit(f.inputs,app=app)
+    assert root==app/'Automot/lead_data' and receipt['absent_candidates']
+    wrong=app/'lead_data'/f.row['history_rgb_paths'][0];wrong.parent.mkdir(parents=True);wrong.write_bytes(b'wrong')
+    with pytest.raises(ValueError,match='SHA mismatch'):rgb_inputs.admit(f.inputs,app=app)
+
+
+def test_rgb_admission_import_does_not_load_model_runtime(fixture):
+    import subprocess,sys
+    result=subprocess.run([sys.executable,'-B','-c',
+        'import sys; from qwen3vl_local.audit_joint.phase1_visual_refine.rgb_inputs import admit; '
+        'assert "torch" not in sys.modules; assert "transformers" not in sys.modules'],capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
 
 
 def records(frozen):

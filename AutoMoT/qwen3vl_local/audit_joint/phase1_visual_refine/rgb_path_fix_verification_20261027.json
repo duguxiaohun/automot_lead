@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-27",
+  "status": "cpu_nested_rgb_fix_verified",
+  "base_commit": "db87f1e7e1936639f8af0de2c2d064be8ad0c865",
+  "tests": 49,
+  "native_sampling_preserved": {
+    "functions": 27,
+    "files": 10
+  },
+  "real_image_simulations": {
+    "cr02/2rgb_endpoints": {
+      "old_guard_error": "Missing or escaping RGB: OppositeVehicleRunningRedLight/Town12_Rep0_2343_0_route0_01_09_09_21_17/rgb/0037.jpg",
+      "cases": 1024,
+      "images": 1996,
+      "correct": [
+        707,
+        707
+      ],
+      "new_guard": "passed_frozen_sha",
+      "simulation_only": true
+    },
+    "cr02/4rgb": {
+      "old_guard_error": "Missing or escaping RGB: OppositeVehicleRunningRedLight/Town12_Rep0_2343_0_route0_01_09_09_21_17/rgb/0037.jpg",
+      "cases": 1024,
+      "images": 3835,
+      "correct": [
+        709,
+        709
+      ],
+      "new_guard": "passed_frozen_sha",
+      "simulation_only": true
+    },
+    "dsw/2rgb_endpoints": {
+      "old_guard_error": "Missing or escaping RGB: OppositeVehicleRunningRedLight/Town12_Rep0_2343_0_route0_01_09_09_21_17/rgb/0037.jpg",
+      "cases": 1024,
+      "images": 1996,
+      "correct": [
+        707,
+        707
+      ],
+      "new_guard": "passed_frozen_sha",
+      "simulation_only": true
+    },
+    "dsw/4rgb": {
+      "old_guard_error": "Missing or escaping RGB: OppositeVehicleRunningRedLight/Town12_Rep0_2343_0_route0_01_09_09_21_17/rgb/0037.jpg",
+      "cases": 1024,
+      "images": 3835,
+      "correct": [
+        709,
+        709
+      ],
+      "new_guard": "passed_frozen_sha",
+      "simulation_only": true
+    }
+  },
+  "limits": [
+    "Server error does not distinguish missing mount from symlink rejection; actual remote filesystem not inspected",
+    "Local simulated layouts only; no GPU inference",
+    "Old failures, labels, sampling, model weights and historical receipts unchanged"
+  ],
+  "source_sha256": {
+    "README.md": "e3c8d394375f89eb6b724053a18a1c8105f8dfd8700efeab5ca12432bb2bd174",
+    "__init__.py": "0302df0b117c0bdb73fdc3339e716f8404027b6fc327c410d0d62ee62bd041e7",
+    "__main__.py": "adba41aeeb0915f32c7fc4a115ee26a168db9669667adb81557e5088fdac72fd",
+    "calibration.py": "68cac33ed6c048d8952a3b1fb1b857e83e6c383db0450f8833d99e200c632cc5",
+    "experiment.py": "1de08be47dfc2e1771ca66dded05a94c0121c1d15a5be2081ac1e3d186f1566e",
+    "prompts.py": "b001fce3b7f4bb5181d26c4d7e8b21dba8d4fe2bd225960fd90d84bca5448c85",
+    "regression.py": "6d814175974acc71e1573b59c1531c89024296a72c0e9797068cf554f0c72e24",
+    "remote.py": "d07b3dc2205f5b87efb386cf6cda052b2b4c0ce2ec3057c8001898a9e33aeda3",
+    "rgb_inputs.py": "d2168f038737e782dcfa75e919780b8bcb0ac91ca35cbc33bafb1366962c53d6",
+    "run.sh": "512dc68e309b9d795d8cfe4dd55dd08c493759d1c0b230c5770a2d36d927cab6",
+    "tests/test_refine.py": "9bd9b3b9ff10047ef1dd4514127535b484b0af75f4a9b8343beaa5656c5f7749",
+    "tests/test_remote.py": "636b048747037e3c4fed049e183e31ddb9612da2f171a433c1b0b4921039ec13"
+  }
+}

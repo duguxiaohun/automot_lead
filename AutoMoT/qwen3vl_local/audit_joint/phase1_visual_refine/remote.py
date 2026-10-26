@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tarfile
+from .rgb_inputs import admit
 
 APP = Path(__file__).resolve().parents[3]
 MODES = ('2rgb_endpoints', '4rgb')
@@ -81,23 +82,28 @@ def main():
     p.add_argument('mode',choices=('all',*MODES),default='all',nargs='?')
     p.add_argument('--pipeline-root',default=DEFAULT_PIPELINE)
     p.add_argument('--model-dir',default='checkpoints/Qwen3.5-4B')
-    p.add_argument('--data-root',default='lead_data')
+    p.add_argument('--data-root',default=None,help='Explicit RGB root (no fallback); default checks original recorded root and current known layouts')
     p.add_argument('--output-root',default='checkpoints/phase1_visual_refine_remote')
     args=p.parse_args();modes=MODES if args.mode=='all' else (args.mode,)
     # Validate every selected mode before loading a model; do not start a costly partial run.
     jobs=[(mode,*discover(args.pipeline_root,mode)) for mode in modes]
     if not Path(args.model_dir,'model.safetensors.index.json').is_file():
         raise FileNotFoundError(f'Missing local sharded Qwen3.5 base: {args.model_dir}')
-    if not Path(args.data_root).is_dir(): raise FileNotFoundError(args.data_root)
+    admissions=[]
+    for mode,inputs,adapter in jobs:
+        data_root,receipt=admit(inputs,args.data_root,app=APP)
+        admissions.append((mode,inputs,adapter,data_root,receipt))
+    # All selected modes must pass full frozen RGB verification before GPU/model work.
     gpu=choose_gpu();os.environ['GPU_IDS']=gpu;os.environ['CUDA_VISIBLE_DEVICES']=gpu
     print(f'[gpu] physical GPU {gpu}; one process, fresh KV per arm',flush=True)
     # Import the backend only after selecting the GPU; use the activated interpreter.
     from .experiment import replay
     root=Path(args.output_root)/('run_'+datetime.now().strftime('%Y%m%d_%H%M%S')+f'_{os.getpid()}')
     root.mkdir(parents=True,exist_ok=False);review=False
-    for mode,inputs,adapter in jobs:
+    for mode,inputs,adapter,data_root,admission in admissions:
+        (root/f'{mode}_rgb_admission.json').write_text(json.dumps(admission,indent=2)+'\n')
         print(f'[START] {mode}: {inputs}; adapter={adapter}',flush=True)
-        report=replay(inputs,args.data_root,args.model_dir,adapter,root/mode)
+        report=replay(inputs,data_root,args.model_dir,adapter,root/mode)
         archive=package(root/mode,inputs)
         print(f'[BUNDLE] {archive}',flush=True)
         if report['status']=='review_required':

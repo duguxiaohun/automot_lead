@@ -1,5 +1,9 @@
 # Phase1 RGB 标定与提示词候选（2026-10-26）
 
+2026-10-27 RGB 路径修复：旧版仅允许 `lead_data` 根软链接，误拒绝其下场景／路线／rgb目录／图片指向外部资产盘的布局。现按逻辑成员路径校验身份，允许上述RGB资产链接；原始图像SHA仍必须逐张相同，路径穿越、错图、断链仍拒绝，不放宽源码目录规则。无法从旧版合并错误信息断定用户服务器究竟缺图还是被软链接检查误拒。
+
+`run.sh` 默认先检查原评测记录的 data_root，再检查当前工程的 `lead_data`、`Automot/lead_data`；只对确实缺失的根尝试下一处，不扫描磁盘、不混拼多个库，任何SHA不符直接报错。显式 `--data-root /实际数据根` 不回退。两种模式的全部冻结RGB检查均在GPU选择／模型导入之前完成；日志含 `[RGB-ROOT]`、`[RGB-CHECK]`，真正缺图时列出逻辑路径、实际目标和软链接，便于区分路径错误与挂载缺失。旧失败目录保留，重新执行原命令创建新目录。
+
 2026-10-27 发布入口：在当前服务器 AutoMoT 根激活原环境后，执行 `bash qwen3vl_local/audit_joint/phase1_visual_refine/run.sh all`。默认按用户已完成的 `judgment_release_20261025_2rgb_endpoints_4rgb` pipeline，分别复用两图/四图 `eval_review/lora_production/evaluation_inputs.json` 及其中记载的原 adapter。支持 `--pipeline-root` 指定当前机器的另一份完整运行，不猜 latest，不跨机拷贝权重。缺任何所选模式的原产物，加载模型前报错。
 
 该命令只做同权重旧/新提示词配对验证，不训练、不重建数据、不应用测试标签修正。默认自动选一张显存占用较低的 GPU；显式指定示例：`GPU_IDS=0 bash qwen3vl_local/audit_joint/phase1_visual_refine/run.sh all`。`2rgb_endpoints`、`4rgb` 也可以独立运行。继承激活环境（可设置 `PYTHON`），资产软链接兼容；在前台输出进度，禁止 core dump。

@@ -5,7 +5,8 @@ not a migrated adapter. Each arm calls the native fresh-KV generator separately.
 """
 import json
 from pathlib import Path
-from .calibration import sha, resolve_rgb
+from .calibration import sha
+from .rgb_inputs import read_inputs, verify_images
 from . import prompts
 from .regression import expected, compare
 from qwen3vl_local.sft_new_loop_phase1 import eval as native_eval
@@ -28,28 +29,13 @@ def verify_source_identity(record):
 
 
 def prepare(inputs, data_root):
-    path = Path(inputs); before = sha(path); frozen = json.loads(path.read_text())
-    if frozen['phase'] != 1 or len(frozen['items']) != frozen['expected_total'] or not frozen['items']:
-        raise ValueError('Full Phase1 frozen membership required')
+    path = Path(inputs); frozen, before = read_inputs(path)
     mode = frozen['history_rgb_mode']
-    if mode not in ('4rgb', '2rgb_endpoints'): raise ValueError('Unsupported RGB mode')
-    if frozen['arguments'].get('audit_prompt', False): raise ValueError('Use production judgment cases for this experiment')
-    checked = {}; prepared = []; hashes = frozen['image_sha256']
-    for index, value in enumerate(frozen['items']):
-        item = item_from_json(1, value); paths = []
-        selected = native_eval.select_history_rgb_paths(item.row.history_rgb_paths, mode)
-        for raw in selected:
-            # The frozen server path is used only as a hash key. Resolve locally.
-            parts = Path(raw).parts
-            if '..' in parts or tuple(parts[-4:-2]) != (item.row.scenario, item.row.route_id):
-                raise ValueError('Frozen RGB identity differs from its frame')
-            local = resolve_rgb(data_root, str(Path(*parts[-4:])))
-            digest = checked.setdefault(str(local), sha(local)) if str(local) not in checked else checked[str(local)]
-            if hashes.get(raw) != digest: raise ValueError(f'Frozen RGB SHA mismatch: {raw}')
-            paths.append(str(local))
-        prepared.append((item, paths))
+    paths_by_case, checked = verify_images(frozen,data_root)
+    prepared=[(item_from_json(1,value),paths) for value,paths in zip(frozen['items'],paths_by_case)]
     if sha(path) != before: raise ValueError('Frozen inputs changed')
     receipt = dict(status='prepared_cpu_only', frozen_input_sha256=before, mode=mode,
+                   data_root=str(Path(data_root).absolute()),
                    cases=len(prepared), images_verified=len(checked), local_image_sha256=checked,
                    candidate_prompt_sha256=prompts.fingerprint(history_rgb_mode=mode),
                    parent_prompt_sha256=native.phase1_prompt_sha256(history_rgb_mode=mode),

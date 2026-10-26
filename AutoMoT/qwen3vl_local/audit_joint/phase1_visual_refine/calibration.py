@@ -32,9 +32,15 @@ def relative_rgb(value):
     return str(Path(*parts))
 
 def resolve_rgb(root,value):
-    # The asset root may itself be a symlink on either server. Content hashes bind it.
-    root=Path(root).expanduser().resolve();p=(root/relative_rgb(value)).resolve()
-    if not p.is_relative_to(root) or not p.is_file(): raise ValueError(f'Missing or escaping RGB: {value}')
+    # RGB assets may be mounted via root/scenario/route/rgb/file symlinks.
+    # Validate the logical member path, not physical disk containment. Callers
+    # still require the frozen SHA; this policy does not apply to source code.
+    root=Path(root).expanduser().absolute();logical=root/relative_rgb(value)
+    p=logical.resolve()
+    if not p.is_file():
+        links=[f'{v} -> {v.readlink()}' for v in [root,*logical.parents,logical] if v.is_symlink()]
+        raise FileNotFoundError(f'Missing RGB: requested={logical}; resolved={p}; data_root={root}; '
+                                f'symlinks={links}. Check the dataset mount or pass --data-root with the actual RGB root.')
     return p
 
 def load_reviews(path):

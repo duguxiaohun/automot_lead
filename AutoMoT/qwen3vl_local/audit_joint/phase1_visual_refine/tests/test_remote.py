@@ -45,6 +45,7 @@ def test_review_required_preserves_both_modes_and_returns_two(tmp_path,monkeypat
     from qwen3vl_local.audit_joint.phase1_visual_refine import experiment
     model=tmp_path/'model';model.mkdir();(model/'model.safetensors.index.json').write_text('{}')
     monkeypatch.setattr(r,'discover',lambda p,m:(tmp_path/(m+'.json'),tmp_path/m))
+    monkeypatch.setattr(r,'admit',lambda *a,**kw:(tmp_path,{'status':'fixture_rgb_ready'}))
     monkeypatch.setattr(r,'choose_gpu',lambda:'0');monkeypatch.setenv('GPU_IDS','0');monkeypatch.setenv('CUDA_VISIBLE_DEVICES','0')
     calls=[]
     def replay(*args):
@@ -55,3 +56,16 @@ def test_review_required_preserves_both_modes_and_returns_two(tmp_path,monkeypat
     with pytest.raises(SystemExit) as exc:r.main()
     assert exc.value.code==2 and calls==list(r.MODES)
     status=json.loads(next((tmp_path/'outputs').glob('*/status.json')).read_text());assert status['status']=='review_required'
+
+
+def test_missing_second_mode_rgb_stops_before_gpu_or_output(tmp_path,monkeypatch):
+    model=tmp_path/'model';model.mkdir();(model/'model.safetensors.index.json').write_text('{}')
+    monkeypatch.setattr(r,'discover',lambda p,m:(tmp_path/(m+'.json'),tmp_path/m))
+    def admit(inputs,*args,**kwargs):
+        if inputs.name=='4rgb.json':raise FileNotFoundError('fixture missing 4rgb')
+        return tmp_path,{'status':'fixture_rgb_ready'}
+    monkeypatch.setattr(r,'admit',admit)
+    monkeypatch.setattr(r,'choose_gpu',lambda:pytest.fail('GPU selection must follow all RGB checks'))
+    monkeypatch.setattr(r.sys,'argv',['remote','all','--model-dir',str(model),'--output-root',str(tmp_path/'outputs')])
+    with pytest.raises(FileNotFoundError,match='missing 4rgb'):r.main()
+    assert not (tmp_path/'outputs').exists()
