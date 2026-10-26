@@ -22,6 +22,16 @@ CORE='qwen3vl_local/action_prior/training_core.py'
 WORKER='qwen3vl_local/action_expert_ablation/geometry_abc/worker.py'
 SUPPORTED={CORE:'d38a8af004d698a0240de58e47073655ef8e1e0f54e772afa5b4d73cecf76e64',
            WORKER:'fe79427e44c66bf80324c4998c3209bb6a2640b4e465234a1954b42385558017'}
+AUDIT='qwen3vl_local/action_expert_ablation/geometry_abc/audit.py'
+GROUP_SCOPE='qwen3vl_local/action_expert_ablation/geometry_abc/group_scope.py'
+PROFILES={
+    'original_six':dict(SUPPORTED,**{AUDIT:'88a43ca384f91c4281b5154f4f1e6767cffe7851f22b8ad7904a6f9bf6e07a08'}),
+    'admitted_scope':{CORE:SUPPORTED[CORE],
+        WORKER:'4baea56622720bdd3f5b7058031e031422f536951453c51c7619e5d009ef6e11',
+        AUDIT:'df0ada6a0082e5e7b7b479b04872d2e2694d2220fa3e87f805e2530500e488ec',
+        GROUP_SCOPE:'3f03250acf48b719d3042fd0776ccd79e080db15ebba158d4f677502f1e4c26a'},
+}
+PREVIOUS_RUNNER_SHA='94dbb61b35b7e096d0fae01cc659cbafbca0161cbbc81e9b58b25b7799485a88'
 SCHEMA='abc_post_training_completion_recovery_v1'
 
 
@@ -43,6 +53,25 @@ def write(path,value):
         os.replace(name,path)
     finally:
         if os.path.exists(name):os.unlink(name)
+
+
+def source_profile(files):
+    for name,expected in PROFILES.items():
+        if all(files.get(k)==v for k,v in expected.items()):return name
+    raise ValueError('unsupported_frozen_recovery_version')
+
+
+def selected_groups(gate):
+    # Read the original admission, never infer scope from a directory name.
+    profile=source_profile(gate['code'])
+    all_groups=tuple(f'{v}_{b}' for v in 'abc' for b in ('bev_only','qwen_simple'))
+    selected=gate.get('selected_groups',list(all_groups))
+    valid=[list(all_groups)]
+    if profile=='admitted_scope':
+        valid.extend([[f'{v}_{b}' for v in 'abc'] for b in ('bev_only','qwen_simple')])
+    if not isinstance(selected,list) or selected not in valid:
+        raise ValueError('invalid_original_recovery_group_scope')
+    return tuple(selected)
 
 
 def pinned_loop(core,**kw):
@@ -67,15 +96,15 @@ def source_gate(root):
     from qwen3vl_local.action_expert_ablation.geometry_abc import contracts
     gate=read(root/'admission.json');current=contracts.source_identity()
     if current!=gate['code']:raise ValueError('frozen_source_differs_from_original_admission')
-    if any(current.get(k)!=v for k,v in SUPPORTED.items()):
-        raise ValueError('unreviewed_recovery_source_version')
+    selected_groups(gate)
     for k in ('data_ready','plan_ready','processor_ready','raw_sources_verified','history_ready','development_ready','package_ready'):
         if not gate.get(k):raise ValueError('incomplete_original_admission: '+k)
     return gate
 
 
 def paths(root):
-    config=read(root/'a_bev_only/config.json')
+    first=selected_groups(read(root/'admission.json'))[0]
+    config=read(root/first/'config.json')
     if Path(config['suite_root']).resolve()!=root:raise ValueError('run_root_moved_requires_separate_review')
     return config
 
@@ -97,10 +126,11 @@ def verify_environment(root,gate,config):
     processor=probe_inputs.verify_processor(root/'processor.json',gate)
     selections={v:probe_inputs.selection((r for rs in rows.values() for r in rs.probe_records()),processor,v) for v in 'abc'}
     from qwen3vl_local.action_expert_ablation.geometry_abc import audit,contracts
-    for group in audit.GROUPS:
+    for group in selected_groups(gate):
         p=root/'probes'/group/'probe_complete.json';receipt=read(p);v,b=group.split('_',1);binding=receipt['binding']
         probe_inputs.verify_probe_inputs(receipt,selections[v],gate['processor_sha256'],p.parent)
-        if (receipt['admission_sha256']!=sha(root/'admission.json') or not receipt.get('checkpoint_reload_verified')
+        if (receipt.get('loader_workers')!=config['num_workers']
+            or receipt['admission_sha256']!=sha(root/'admission.json') or not receipt.get('checkpoint_reload_verified')
             or not receipt.get('post_checkpoint_backward_verified') or receipt['checkpoint_sha256']!=sha(p.with_name('probe.pt'))
             or binding['source']!=gate['code'] or binding['dataset']!=gate['dataset'] or binding['resources']!=gate['resources']
             or binding['representation']!=contracts.contract(v) or binding['branch']!=b):
@@ -185,7 +215,7 @@ def worker_command(root,config,group,task,script):
 
 def run_inside(root,mode,worker_args,check_only):
     from qwen3vl_local.audit_joint.abc_delivery import lock
-    gate=source_gate(root);config=paths(root)
+    gate=source_gate(root);groups=selected_groups(gate);config=paths(root)
     recovery=root/'completion_recovery';script=Path(__file__).resolve()
     proof=read(recovery/'supplement.json')
     if proof['script_sha256']!=sha(script) or proof['admission_sha256']!=sha(root/'admission.json'):
@@ -201,18 +231,18 @@ def run_inside(root,mode,worker_args,check_only):
     from qwen3vl_local.action_expert_ablation.geometry_abc import audit
     from qwen3vl_local.action_prior.host_memory import run_logged
     with lock(root):
-        state=dict(schema=SCHEMA,status='verifying',groups={});write(recovery/'status.json',state)
+        state=dict(schema=SCHEMA,status='verifying',selected_groups=list(groups),groups={});write(recovery/'status.json',state)
         try:
             manifest,projection=verify_environment(root,gate,config)
             # Inspect every occupied group before starting any new long job.
-            for group in audit.GROUPS:
+            for group in groups:
                 run=root/group
                 if run.exists():
                     report=validate_completed(run,manifest,projection,gate,publish=not check_only)
                     write(recovery/(group+'_completion.json'),report)
             if check_only:
                 state['status']='check_passed';write(recovery/'status.json',state);print(json.dumps(state));return
-            for group in audit.GROUPS:
+            for group in groups:
                 run=root/group
                 if not run.exists():
                     state.update(status='training',active=group);write(recovery/'status.json',state)
@@ -261,6 +291,40 @@ def run_inside(root,mode,worker_args,check_only):
             raise
 
 
+def prepare_supplement(root,directory,record):
+    profile=source_profile(record['files']);gate=read(root/'admission.json')
+    if any(gate['code'].get(k)!=v for k,v in PROFILES[profile].items()):
+        raise ValueError('admission_differs_from_frozen_recovery_profile')
+    groups=selected_groups(gate)
+    recovery=root/'completion_recovery';recovery.mkdir(exist_ok=True)
+    target=recovery/'runner.py';current=Path(__file__).read_bytes()
+    path=recovery/'supplement.json'
+    # A previous six-group recovery may already be running. Reuse only that
+    # exact published runner and its unchanged contract; never hot-replace it.
+    if target.exists() and target.read_bytes()!=current:
+        expected=dict(schema=SCHEMA,script_sha256=PREVIOUS_RUNNER_SHA,
+            admission_sha256=sha(root/'admission.json'),frozen_version=directory.name,
+            source_overrides=SUPPORTED,
+            change='default process group destroyed by worker after performance and completion, not inner loop',
+            numerical_loop_unchanged=True,scope='original six groups; completed optimizer runs only; no weight migration')
+        if (profile!='original_six' or sha(target)!=PREVIOUS_RUNNER_SHA
+            or not path.is_file() or read(path)!=expected):
+            raise ValueError('existing_recovery_supplement_version_changed')
+        print('[completion recovery] preserving previously pinned six-group runner',flush=True)
+        return target
+    supplement=dict(schema=SCHEMA,script_sha256=hashlib.sha256(current).hexdigest(),
+        admission_sha256=sha(root/'admission.json'),frozen_version=directory.name,
+        source_overrides={k:PROFILES[profile][k] for k in (CORE,WORKER)},
+        reviewed_profile=profile,selected_groups=list(groups),
+        change='default process group destroyed by worker after performance and completion, not inner loop',
+        numerical_loop_unchanged=True,scope='original admitted groups; completed optimizer runs only; no weight migration')
+    if path.exists() and read(path)!=supplement:raise ValueError('existing_supplement_contract_changed')
+    if not target.exists():target.write_bytes(current)
+    if not path.exists():write(path,supplement)
+    print('[completion recovery] original admitted groups: '+', '.join(groups),flush=True)
+    return target
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-dir',type=Path,required=True)
     p.add_argument('--check-only',action='store_true');p.add_argument('--internal',choices=['suite','worker'])
@@ -270,24 +334,13 @@ def main(argv=None):
         worker_args=args.worker_args[1:] if args.worker_args[:1]==['--'] else args.worker_args
         raise SystemExit(run_inside(root,args.internal,worker_args,args.check_only) or 0)
     app=Path(__file__).resolve().parent.parent
-    if not root.is_relative_to(app/'checkpoints'):raise ValueError('run_must_belong_to_this_server_AutoMoT_checkpoints')
+    if not root.is_relative_to((app/'checkpoints').resolve()):raise ValueError('run_must_belong_to_this_server_AutoMoT_checkpoints')
     saved=read(root/'execution_version.json');directory=Path(saved['directory']).resolve(strict=True)
-    if not directory.is_relative_to(app/'checkpoints/runtime_versions'):raise ValueError('frozen_version_not_on_current_server')
+    if not directory.is_relative_to((app/'checkpoints/runtime_versions').resolve()):raise ValueError('frozen_version_not_on_current_server')
     spec=importlib.util.spec_from_file_location('recovery_runtime_version',app/'qwen3vl_local/runtime_version.py')
     version=importlib.util.module_from_spec(spec);spec.loader.exec_module(version);record=version.verify(directory)
     if Path(record['origin']).resolve()!=app:raise ValueError('snapshot_belongs_to_other_server')
-    if any(record['files'].get(k)!=v for k,v in SUPPORTED.items()):raise ValueError('unsupported_frozen_recovery_version')
-    recovery=root/'completion_recovery';recovery.mkdir(exist_ok=True)
-    target=recovery/'runner.py';current=Path(__file__).read_bytes()
-    if target.exists() and target.read_bytes()!=current:raise ValueError('existing_recovery_supplement_version_changed')
-    if not target.exists():target.write_bytes(current)
-    supplement=dict(schema=SCHEMA,script_sha256=sha(target),admission_sha256=sha(root/'admission.json'),
-        frozen_version=directory.name,source_overrides=SUPPORTED,
-        change='default process group destroyed by worker after performance and completion, not inner loop',
-        numerical_loop_unchanged=True,scope='original six groups; completed optimizer runs only; no weight migration')
-    path=recovery/'supplement.json'
-    if path.exists() and read(path)!=supplement:raise ValueError('existing_supplement_contract_changed')
-    if not path.exists():write(path,supplement)
+    target=prepare_supplement(root,directory,record)
     tree=directory/'app'
     env=dict(os.environ,PYTHONPATH=str(tree),PYTHONDONTWRITEBYTECODE='1',PYTHONUNBUFFERED='1',
         QWEN_EXECUTION_VERSION=str(directory),QWEN_EXECUTION_ORIGIN=str(app))

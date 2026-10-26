@@ -1,5 +1,26 @@
 # ABC 已完成训练在收尾报错：原六组接续
 
+## 2026-10-27：兼容 cr02 的原 BEV 三组
+
+已核验新诊断包 `diagnostic(2).zip` 的 32 个成员，包 SHA256 为 `6dc42e47ded325901dd3de6209420b1290ef3c539828ff8752dad605769f62f0`。cr02 运行是 `geometry_abc_bev_only/run_20261026_122636`，固定源码 `03d54a7b338d815c80a2b92a9777dc9f8d000d27f81e6bafb852615649a32c1b`。四 rank 均已到第 7 轮 / 12719 步；320 条最终 val、两次 checkpoint 保存和 training_audit 已完成，随后同样在性能 all_gather 使用已销毁的进程组时报错。内存回执的 oom / oom_kill 前后均为 0。权重本体不在诊断包中，仍须在服务器严格验收。
+
+本次仅扩展包外恢复入口，训练核心、worker、数据、提示词、标定、划分和预算均不改。入口按已审查的 core / worker / audit / group_scope 精确源码组合选择兼容路径，读取原 admission 的 selected_groups；该 cr02 运行只能继续 a_bev_only / b_bev_only / c_bev_only，不启动或要求 Qwen 组探针。a 完成核验后直接测试，b/c 各按原预算新训、测试，原生审计重算和 30MB 自动打包保持。其余验收要求见下文。
+
+在 cr02 已激活 automot 环境下执行：
+
+```bash
+cd /home/cruser1/lda/AutoMoT
+bash ./sync_automot.sh && \
+python -B qwen3vl_local/abc_completion_recovery.py \
+  --run-dir checkpoints/action_expert_ablation/geometry_abc_bev_only/run_20261026_122636
+```
+
+可加 `--check-only` 先做 CPU 验收。数据和模型路径读取这台机器原配置，包括实际 BEV 权重路径；不复制另一台机器的权重或准入。不要重跑普通 all / --recover-from。新状态在原 run 的 `completion_recovery/status.json`；失败时保留原诊断并另写 `completion_recovery/failure_delivery/diagnostic.zip`。
+
+另一台服务器的六组接续命令保持下文所列。若它已经安装 2026-10-26 发布的恢复 runner，入口核验该文件已知 SHA 及原 supplement 后继续使用它，不替换正在运行的版本；未知文件或变化的绑定仍拒绝。新恢复目录按原 admission 自动确定六组或单分支三组，不能用 CLI 偷换范围。源码未知、训练实际未完成、缺权重或消费证据时不会伪造通过。
+
+以下为 2026-10-26 首次六组故障和恢复协议记录；其中“原六组”描述该次六组运行。本次 cr02 采用同等完成验收，仅按自己的三组准入接续。
+
 收到 `diagnostic(1).zip` 对应 `geometry_abc_memory_fixed/run_20261026_100720`，固定源码版本 `16915828325dfb81b7f8bfff24d3f3886d7cc7a7eff12848a27564740fee27cf`。实际命令未指定 branch，用户确认继续原六组。
 
 完整日志显示 a_bev_only 已完成 7/7 轮、12719/12719 次更新、每 rank 203448 次呈现。最终 320 条验证于 18:32:52 完成，日志 val loss=0.0149121132、route ADE=0.1239496m、waypoint ADE=0.3404772m。18:33:03/06 完成 best/latest 保存，约各 1.8GB；训练审计包生成后四 rank 都在 worker 的性能 all_gather_object 报“Default process group has not been initialized”。这些是日志证据，不替代实际权重/消费验收，也不是 test 成绩。

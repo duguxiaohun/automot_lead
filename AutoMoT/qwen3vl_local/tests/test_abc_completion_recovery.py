@@ -143,14 +143,16 @@ def test_command_preserves_six_groups_and_current_server_paths(tmp_path):
             assert cmd[cmd.index('--branch')+1]==group.split('_',1)[1]
 
 
+@pytest.mark.parametrize('branch',['legacy_six','bev_only','qwen_simple','both'])
 @pytest.mark.parametrize('incomplete',[False,True])
-def test_suite_preserves_a_and_only_trains_missing_groups(tmp_path,monkeypatch,incomplete):
+def test_suite_preserves_a_and_only_trains_missing_groups(tmp_path,monkeypatch,incomplete,branch):
     from qwen3vl_local.action_expert_ablation.geometry_abc import audit
     from qwen3vl_local.action_prior import host_memory
-    root=tmp_path/'run';(root/'a_bev_only').mkdir(parents=True);write(root/'admission.json',{})
+    gate=scope_gate(branch);groups=recovery.selected_groups(gate)
+    root=tmp_path/'run';(root/groups[0]).mkdir(parents=True);write(root/'admission.json',gate)
     directory=root/'completion_recovery';write(directory/'supplement.json',dict(script_sha256=sha(recovery.__file__),admission_sha256=sha(root/'admission.json')))
     config={k:str(tmp_path/k) for k in ('data_dir','data_root','model_dir','lead_bev_ckpt')}
-    monkeypatch.setattr(recovery,'source_gate',lambda root:{})
+    monkeypatch.setattr(recovery,'source_gate',lambda root:gate)
     monkeypatch.setattr(recovery,'paths',lambda root:config)
     monkeypatch.setattr(recovery,'verify_environment',lambda *a:({},{}))
     def validate(run,*a,publish=False):
@@ -178,9 +180,10 @@ def test_suite_preserves_a_and_only_trains_missing_groups(tmp_path,monkeypatch,i
         assert (root/'completion_recovery/failure_delivery/diagnostic.zip').exists()
     else:
         recovery.run_inside(root,'suite',[],False)
-        assert [p.name for op,p in calls if op=='train']==list(audit.GROUPS[1:])
-        assert [p.parent.name for op,p in calls if op=='evaluate']==list(audit.GROUPS)
+        assert [p.name for op,p in calls if op=='train']==list(groups[1:])
+        assert [p.parent.name for op,p in calls if op=='evaluate']==list(groups)
         assert recovery.read(directory/'status.json')['status']=='completed'
+        assert recovery.read(directory/'status.json')['selected_groups']==list(groups)
         calls.clear();recovery.run_inside(root,'suite',[],False)
         assert not calls
 
@@ -200,3 +203,131 @@ def test_bridge_exception_closes_iterator_writer_leaves_group_for_outer_cleanup(
     with pytest.raises(RuntimeError,match='real failure'):
         recovery.pinned_loop(core,out=Path('/unused'),rank=0,world=1,writer=writer)
     assert events==['signals_restored','iterators_closed','writer_closed'] and core._ACTIVE_TERMINATION is None
+
+
+def scope_gate(branch):
+    from qwen3vl_local.action_expert_ablation.geometry_abc.group_scope import groups
+    gate={'code':dict(recovery.PROFILES['original_six' if branch=='legacy_six' else 'admitted_scope'])}
+    if branch!='legacy_six':gate['selected_groups']=list(groups(branch))
+    return gate
+
+
+@pytest.mark.parametrize('change',['worker','core','audit','scope_code','mixed','reordered','legacy_subset'])
+def test_source_and_scope_rejected_before_any_recovery_files(tmp_path,change):
+    gate=scope_gate('bev_only');files=dict(gate['code'])
+    if change in ('worker','core','audit','scope_code'):
+        files[{'worker':recovery.WORKER,'core':recovery.CORE,'audit':recovery.AUDIT,'scope_code':recovery.GROUP_SCOPE}[change]]='changed'
+    elif change=='mixed':gate['selected_groups'][-1]='c_qwen_simple'
+    elif change=='reordered':gate['selected_groups'].reverse()
+    else:gate['code']=dict(recovery.PROFILES['original_six']);files=gate['code']
+    write(tmp_path/'admission.json',gate)
+    with pytest.raises(ValueError):recovery.prepare_supplement(tmp_path,Path('/frozen'),{'files':files})
+    assert not (tmp_path/'completion_recovery').exists()
+
+
+@pytest.mark.parametrize('branch',['legacy_six','bev_only','qwen_simple','both'])
+def test_supplement_scope_idempotent_preserves_admission_and_config(tmp_path,branch):
+    gate=scope_gate(branch);write(tmp_path/'admission.json',gate);before=sha(tmp_path/'admission.json')
+    groups=recovery.selected_groups(gate)
+    write(tmp_path/groups[0]/'config.json',dict(suite_root=str(tmp_path),branch=groups[0].split('_',1)[1]))
+    assert recovery.paths(tmp_path)['branch']==groups[0].split('_',1)[1]
+    path=recovery.prepare_supplement(tmp_path,Path('/frozen'),{'files':gate['code']})
+    saved=path.read_bytes();proof=recovery.read(path.with_name('supplement.json'))
+    assert proof['selected_groups']==list(groups)
+    assert recovery.prepare_supplement(tmp_path,Path('/frozen'),{'files':gate['code']})==path
+    assert path.read_bytes()==saved and sha(tmp_path/'admission.json')==before
+
+
+@pytest.mark.parametrize('branch',['legacy_six','bev_only'])
+@pytest.mark.parametrize('bad_loader',[False,True])
+def test_preflight_requires_only_original_probes_and_checks_loader(tmp_path,monkeypatch,branch,bad_loader):
+    from qwen3vl_local.action_expert_ablation.geometry_abc import probe_inputs,indexed_rows
+    gate=scope_gate(branch);gate.update(resources={'ready':True},dataset='fixture',splits={},
+        manifest_sha256='manifest',plan_sha256='plan',processor_sha256='processor')
+    write(tmp_path/'admission.json',gate);write(tmp_path/'plan.json',{'sha256':'plan'})
+    config=dict(data_dir=str(tmp_path),data_root=str(tmp_path),model_dir='model',lead_bev_ckpt='bev',num_workers=2)
+    monkeypatch.setattr(preflight,'resources',lambda *a:gate['resources'])
+    monkeypatch.setattr(indexed_rows,'load',lambda *a,**kw:({},dict(identity='fixture',splits={})))
+    monkeypatch.setattr(preflight,'verify_development',lambda *a:None)
+    monkeypatch.setattr(preflight,'plan_digest',lambda *a:'plan')
+    monkeypatch.setattr(probe_inputs,'verify_processor',lambda *a:{})
+    monkeypatch.setattr(probe_inputs,'selection',lambda *a:{})
+    checked=[];monkeypatch.setattr(probe_inputs,'verify_probe_inputs',lambda *a:checked.append(a[-1].name))
+    groups=recovery.selected_groups(gate)
+    for group in groups:
+        v,b=group.split('_',1);root=tmp_path/'probes'/group;root.mkdir(parents=True)
+        (root/'probe.pt').write_bytes(b'fixture')
+        write(root/'probe_complete.json',dict(loader_workers=3 if bad_loader else 2,
+            admission_sha256=sha(tmp_path/'admission.json'),checkpoint_reload_verified=True,
+            post_checkpoint_backward_verified=True,checkpoint_sha256=sha(root/'probe.pt'),
+            binding=dict(source=gate['code'],dataset='fixture',resources=gate['resources'],representation=contracts.contract(v),branch=b)))
+    if bad_loader:
+        with pytest.raises(ValueError,match='original_probe_changed'):recovery.verify_environment(tmp_path,gate,config)
+    else:
+        recovery.verify_environment(tmp_path,gate,config)
+        assert checked==list(groups)
+
+
+def test_previous_runner_reuse_requires_exact_published_bytes_and_contract(tmp_path,monkeypatch):
+    # Small substitute solely for immutable-runner selection; actual published
+    # bytes are independently checked in the release audit.
+    gate=scope_gate('legacy_six');write(tmp_path/'admission.json',gate)
+    target=tmp_path/'completion_recovery/runner.py';target.parent.mkdir();target.write_text('# previous fixture\n')
+    expected_sha=sha(target);monkeypatch.setattr(recovery,'PREVIOUS_RUNNER_SHA',expected_sha)
+    proof=dict(schema=recovery.SCHEMA,script_sha256=expected_sha,admission_sha256=sha(tmp_path/'admission.json'),
+        frozen_version='frozen',source_overrides=recovery.SUPPORTED,
+        change='default process group destroyed by worker after performance and completion, not inner loop',
+        numerical_loop_unchanged=True,scope='original six groups; completed optimizer runs only; no weight migration')
+    write(target.with_name('supplement.json'),proof)
+    assert recovery.prepare_supplement(tmp_path,Path('/frozen'),{'files':gate['code']})==target
+    assert sha(target)==expected_sha
+    proof['admission_sha256']='changed';write(target.with_name('supplement.json'),proof)
+    with pytest.raises(ValueError):recovery.prepare_supplement(tmp_path,Path('/frozen'),{'files':gate['code']})
+    write(target.with_name('supplement.json'),dict(proof,admission_sha256=sha(tmp_path/'admission.json')))
+    target.write_text('changed')
+    with pytest.raises(ValueError):recovery.prepare_supplement(tmp_path,Path('/frozen'),{'files':gate['code']})
+
+
+@pytest.mark.parametrize('server',['home/cruser1/lda','mnt/workspace/cee3sgh'])
+@pytest.mark.parametrize('change',['none','tamper','missing_run'])
+def test_bootstrap_native_snapshot_verifier_both_server_layouts(tmp_path,monkeypatch,server,change):
+    import shutil
+    from qwen3vl_local import runtime_version as version
+    app=tmp_path/server/'AutoMoT';(app/'qwen3vl_local').mkdir(parents=True)
+    checkpoints=app/'checkpoints'
+    # Exercise shared checkpoints as well as the nested cr02 model link.
+    if server.startswith('home'):
+        assets=tmp_path/'shared_checkpoints';assets.mkdir();checkpoints.symlink_to(assets)
+        nested=app/'Automot';nested.mkdir();(nested/'checkpoints').symlink_to(assets)
+    else:checkpoints.mkdir()
+    script=app/'qwen3vl_local/abc_completion_recovery.py';shutil.copyfile(recovery.__file__,script)
+    shutil.copyfile(version.__file__,app/'qwen3vl_local/runtime_version.py')
+    files={}
+    for name in recovery.PROFILES['admitted_scope']:
+        path=app/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('# fixture source '+name+'\n');files[name]=sha(path)
+    monkeypatch.setattr(recovery,'PROFILES',{'admitted_scope':files})
+    frozen=version.prepare(app);root=checkpoints/'run';root.mkdir()
+    gate=dict(code=files,selected_groups=['a_bev_only','b_bev_only','c_bev_only'])
+    write(root/'admission.json',gate);write(root/'execution_version.json',dict(directory=str(frozen)))
+    if change=='tamper':
+        path=frozen/'app'/recovery.WORKER;path.chmod(0o644);path.write_text('# tampered\n')
+    # A main-tree update must not alter the selected original snapshot.
+    (app/recovery.CORE).write_text('# new main tree\n')
+    monkeypatch.setattr(recovery,'__file__',str(script));calls=[]
+    class Process:
+        def __init__(self,command,**kw):calls.append((command,kw))
+        def wait(self):return 0
+    monkeypatch.setattr(recovery.subprocess,'Popen',Process)
+    args=['--run-dir',str(root if change!='missing_run' else checkpoints/'absent'),'--check-only']
+    if change!='none':
+        with pytest.raises((ValueError,FileNotFoundError)):recovery.main(args)
+        assert not calls and not (root/'completion_recovery').exists()
+    else:
+        with pytest.raises(SystemExit) as exc:recovery.main(args)
+        assert exc.value.code==0 and len(calls)==1
+        cmd,kw=calls[0]
+        assert '--check-only' in cmd and kw['cwd']==frozen/'app'
+        assert kw['env']['PYTHONPATH']==str(frozen/'app')
+        assert str(root.resolve()) in cmd
+        assert recovery.read(root/'completion_recovery/supplement.json')['selected_groups']==gate['selected_groups']
+        version.verify(frozen)
