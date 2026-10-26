@@ -5,9 +5,10 @@
     "qwen3vl_local/action_expert_ablation/geometry_abc/__main__.py": {
       "before": [
         "80a57ce66d050727821b98c052bb2a8b41467e1f65e4d3dca0c5ac7f1b8c2e19",
-        "917633690236fe9a1bc00d2530577a47ca4aa727fcdf1a4d92a7d4f3f02cad4b"
+        "917633690236fe9a1bc00d2530577a47ca4aa727fcdf1a4d92a7d4f3f02cad4b",
+        "cf1796a609a3af3b21caef0b2ede6343f321e4fbcfbc01b11d1ebc6152be1f17"
       ],
-      "after": "cf1796a609a3af3b21caef0b2ede6343f321e4fbcfbc01b11d1ebc6152be1f17"
+      "after": "af5566fbdaa8ed00a04cf1c8a85a11398a74a120b82ee24a06ce4dd4bc0d28cd"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/preflight.py": {
       "before": [
@@ -21,9 +22,10 @@
         "3f99061ba88df48600aca6f3b10491b8192f6ad6f969438737e6ba77accfd083",
         "2eaf6ebcbddf979597bf22ddba29368e9c7236fdd9bba5fa5ba4aa7ddab3638b",
         "97bc2e374f63425100273b07aa5a76953923711942e10ec27a3e9bc2374f1dcb",
-        "6f506e9677333e62238fbb864a4d1dbaf123476b9905beee812e3ce91dd37908"
+        "6f506e9677333e62238fbb864a4d1dbaf123476b9905beee812e3ce91dd37908",
+        "fe79427e44c66bf80324c4998c3209bb6a2640b4e465234a1954b42385558017"
       ],
-      "after": "fe79427e44c66bf80324c4998c3209bb6a2640b4e465234a1954b42385558017"
+      "after": "4baea56622720bdd3f5b7058031e031422f536951453c51c7619e5d009ef6e11"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/recovery.py": {
       "before": [
@@ -36,9 +38,10 @@
     "qwen3vl_local/action_expert_ablation/geometry_abc/audit.py": {
       "before": [
         "18cff43a5a8d20a52a951145d083df6b8ab25225b47e9a462d38c870dfafca54",
-        "ecc2921e11826bcf129a0b85caf5d892927b80256f401a35feb3c150ce233197"
+        "ecc2921e11826bcf129a0b85caf5d892927b80256f401a35feb3c150ce233197",
+        "88a43ca384f91c4281b5154f4f1e6767cffe7851f22b8ad7904a6f9bf6e07a08"
       ],
-      "after": "88a43ca384f91c4281b5154f4f1e6767cffe7851f22b8ad7904a6f9bf6e07a08"
+      "after": "df0ada6a0082e5e7b7b479b04872d2e2694d2220fa3e87f805e2530500e488ec"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/probe_inputs.py": {
       "before": [
@@ -89,6 +92,12 @@
         null
       ],
       "after": "9b004fca7cf3747136514444f9e4de46cbefa2cd6a91d307615e2587856697a2"
+    },
+    "qwen3vl_local/action_expert_ablation/geometry_abc/group_scope.py": {
+      "before": [
+        null
+      ],
+      "after": "3f03250acf48b719d3042fd0776ccd79e080db15ebba158d4f677502f1e4c26a"
     }
   }
 }

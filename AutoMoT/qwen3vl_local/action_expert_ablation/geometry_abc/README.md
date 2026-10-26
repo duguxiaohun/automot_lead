@@ -1,5 +1,7 @@
 # ABC 区域条件轨迹消融
 
+只训练 BEV 的 a/b/c：使用 `run.sh all --branch bev_only`；三组探针、测试及交包同步限定。完整恢复命令见 [BRANCH_SELECTION_20261026.md](BRANCH_SELECTION_20261026.md)。默认仍为六组。
+
 2026-10-26：主机 OOM 修复、全池内存验证与恢复命令见 [MEMORY_FIX_20261026.md](MEMORY_FIX_20261026.md)。保存后 SIGKILL 的旧探针需用新版本重新执行。
 
 独立于旧语义 Action 实验。固定使用 `audit_joint/geometry_abc_v2` 的标定和提示词，运行 `a/b/c × bev_only/qwen_simple` 六组；不引用路线一的新提示词，不修改旧训练入口、库或权重。

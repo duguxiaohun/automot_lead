@@ -222,6 +222,8 @@ def build(root,directory):
     projection=json.loads((Path(directory)/'plan.json').read_text())
     from .probe_inputs import verify_processor,selection,verify_probe_inputs
     gate=json.loads((root/'admission.json').read_text());processor=verify_processor(root/'processor.json',gate)
+    from .group_scope import admitted
+    selected_groups=admitted(gate)
     flat=[r for records in rows.values() for r in records]
     probe_selections={v:selection(flat,processor,v) for v in 'abc'};del flat
     from .consumption import Sources
@@ -240,7 +242,7 @@ def build(root,directory):
         if (root/name).is_file():required['admission/'+name]=root/name
     for name in ('manifest.json','split_report.json','status.json'):
         required['data/'+name]=Path(directory)/name
-    for group in GROUPS:
+    for group in selected_groups:
         variant,branch=group.split('_',1);run=root/group;compact=[];ids=set();core_errors={}
         complete=verify_training(run,manifest,projection,variant,branch,manifest_sha256=manifest_sha256)
         metrics=json.loads((run/'test'/'metrics.json').read_text())
@@ -259,7 +261,7 @@ def build(root,directory):
             if not np.allclose(np.asarray(c['gt_waypoints'])[0],r['waypoint_xy'],rtol=1e-6,atol=1e-6):
                 raise ValueError('continuous_GT_differs_from_dataset')
             truth=[c['gt_route'],c['gt_waypoints']]
-            if key in gt_identity and gt_identity[key]!=truth:raise ValueError('six_group_GT_differs')
+            if key in gt_identity and gt_identity[key]!=truth:raise ValueError('selected_group_GT_differs')
             gt_identity[key]=truth;error=trajectory_errors(c)
             predicted_regions,zero_regions=reclassified_regions(c,r,variant)
             core_errors[key]=[c['metrics'][k] for k in ('route_ade_m','route_fde_m','waypoint_ade_m','waypoint_fde_m')]
@@ -312,6 +314,6 @@ def build(root,directory):
             columns=['route_ADE','route_FDE','waypoint_ADE','waypoint_FDE'],
             compact_recomputes='all/event/physical-group ADE and FDE; per-time errors require full bound predictions')
     summary_path=root/'audit'/'summary.json';write(summary_path,summary);required['summary.json']=summary_path
-    receipt=pack(root/'delivery'/'abc_trajectory_audit.zip',required,summary=dict(groups=list(GROUPS),test_cases=len(expected),
+    receipt=pack(root/'delivery'/'abc_trajectory_audit.zip',required,summary=dict(groups=list(selected_groups),test_cases=len(expected),
         all_core_cases=True,condition_source='oracle',old_semantic_comparison='historical_only',condition_reviews=quality_reviews))
     return dict(receipt,quality_status='condition_use_review_required' if quality_reviews else 'observed_condition_response')

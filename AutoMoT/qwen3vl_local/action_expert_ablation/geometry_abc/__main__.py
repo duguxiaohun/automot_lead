@@ -18,6 +18,8 @@ def parser():
     p.add_argument('--model-dir',default='checkpoints/Qwen3.5-4B')
     p.add_argument('--lead-bev-ckpt',default='checkpoints/tfv6_resnet34/model_0030_0_backbone_only.pth')
     p.add_argument('--workers',type=int,default=4)
+    p.add_argument('--branch',choices=['both','bev_only','qwen_simple'],default=None,
+                   help='new suites default to both; existing suites retain their admitted branch scope')
     return p
 
 
@@ -39,6 +41,11 @@ def main(argv=None):
         result=data.prepare(args.data_root,args.collection,args.maps,args.data_dir,workers=args.workers)
         audit.drill(args.data_dir,Path(args.data_dir)/'package_drill')
         print(json.dumps(result));return
+    from . import group_scope
+    previous=None
+    if args.run_dir and (Path(args.run_dir)/'admission.json').exists():
+        previous=json.loads((Path(args.run_dir)/'admission.json').read_text())
+    selected_groups=group_scope.resolve(args.branch,previous)
     destination=Path(args.run_dir or args.output).resolve()
     for source in (args.data_dir,args.data_root,args.model_dir,args.lead_bev_ckpt):
         protected=Path(source).resolve()
@@ -59,6 +66,7 @@ def main(argv=None):
                     data.prepare(args.data_root,args.collection,args.maps,args.data_dir,workers=args.workers)
                 gate=preflight.check(args.data_dir,args.model_dir,args.lead_bev_ckpt,args.data_root,root/'admission.json',
                                      collection=args.collection,maps=args.maps)
+                gate['selected_groups']=list(selected_groups)
                 audit.drill(args.data_dir,root/'package_drill');gate['package_ready']=True
                 if gate['resources']['ready']:
                     reused=args.recover_from and recovery.reuse_processor(args.recover_from,gate,root/'processor.json')
@@ -78,6 +86,7 @@ def main(argv=None):
                     return
             if args.operation in ('all','probe','evaluate'):
                 gate=json.loads((root/'admission.json').read_text())
+                if group_scope.admitted(gate)!=selected_groups:raise ValueError('admitted_group_scope_changed')
                 if not gate.get('processor_ready'):raise ValueError('complete_CPU_admission_required')
                 recovery.require_current(gate,output=root/'source_mismatch.json')
                 from .probe_inputs import verify_processor
@@ -94,8 +103,8 @@ def main(argv=None):
                     if operation=='evaluate':cmd+=['--checkpoint',str(root/group/'best.pt')]
                     return cmd
                 if args.operation in ('all','probe'):
-                    # Finish all six short probes before allowing the first long run.
-                    for group in audit.GROUPS:
+                    # Finish every selected short probe before its suite trains.
+                    for group in selected_groups:
                         output=root/'probes'/group;receipt=output/'probe_complete.json'
                         if receipt.exists():
                             if json.loads(receipt.read_text())['admission_sha256']!=sha(root/'admission.json'):
@@ -103,9 +112,9 @@ def main(argv=None):
                         else:
                             state.update(status='probing',active=group);write(status_path,state)
                             run_logged(command(group,'probe',output),root/'logs'/(group+'_probe.log'))
-                    state.update(status='all_six_probes_passed');write(status_path,state)
+                    state.update(status='selected_probes_passed',selected_groups=list(selected_groups));write(status_path,state)
                     if args.operation=='probe':print(json.dumps(state));return
-                for group in audit.GROUPS:
+                for group in selected_groups:
                     run=root/group
                     if args.operation=='all' and not (run/'training_complete.json').exists():
                         state.update(status='training',active=group);write(status_path,state)

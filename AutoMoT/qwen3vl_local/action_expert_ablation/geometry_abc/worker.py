@@ -175,7 +175,10 @@ def main(argv=None):
     args=parser().parse_args(argv);validate_args(args)
     # Reject version mismatch before importing the runner or allocating NCCL/GPU resources.
     from .recovery import require_current
-    require_current(json.loads((Path(args.suite_root)/'admission.json').read_text()))
+    initial_gate=json.loads((Path(args.suite_root)/'admission.json').read_text())
+    require_current(initial_gate)
+    from .group_scope import require_group
+    selected_groups=require_group(initial_gate,args.abc_variant,args.branch)
     from qwen3vl_local.action_expert_ablation import common
     from qwen3vl_local.action_prior import training_core as core
     from qwen3vl_local.action_prior.flow_matching import FlowMatchingConfig,make_training_flow,flow_matching_loss
@@ -194,6 +197,7 @@ def main(argv=None):
         if not all(gate.get(k) for k in ('data_ready','plan_ready','package_ready','processor_ready','raw_sources_verified','history_ready','development_ready')):
             raise ValueError('all_CPU_gates_required_before_probe_or_training')
         require_current(gate)
+        if require_group(gate,args.abc_variant,args.branch)!=selected_groups:raise ValueError('admitted_group_scope_changed')
         from .preflight import resources
         resource=[resources(args.model_dir,args.lead_bev_ckpt) if rank==0 else None]
         dist.broadcast_object_list(resource,src=0)
@@ -213,11 +217,10 @@ def main(argv=None):
         processor=verify_processor(suite/'processor.json',gate)
         probe_selections={v:selection((r for values in rows.values() for r in values.probe_records()),processor,v) for v in 'abc'}
         if args.operation=='train':
-            from .audit import GROUPS
-            for group in GROUPS:
+            for group in selected_groups:
                 p=suite/'probes'/group/'probe_complete.json'
                 receipt=json.loads(p.read_text())
-                if receipt['admission_sha256']!=sha(suite/'admission.json'):raise ValueError('six_current_probes_required')
+                if receipt['admission_sha256']!=sha(suite/'admission.json'):raise ValueError('all_selected_current_probes_required')
                 variant,branch=group.split('_',1);proof=receipt['binding']
                 verify_probe_inputs(receipt,probe_selections[variant],gate['processor_sha256'],p.parent)
                 if receipt.get('loader_workers')!=args.num_workers:raise ValueError('probe_loader_worker_count_changed')
@@ -226,7 +229,7 @@ def main(argv=None):
                     or proof['resources']!=gate['resources'] or not receipt.get('checkpoint_reload_verified')
                     or not receipt.get('post_checkpoint_backward_verified')
                     or receipt['checkpoint_sha256']!=sha(p.with_name('probe.pt'))):
-                    raise ValueError('six_probe_contract_or_checkpoint_changed')
+                    raise ValueError('selected_probe_contract_or_checkpoint_changed')
         projection=json.loads((Path(args.data_dir)/'plan.json').read_text())
         from .preflight import plan_digest
         stored=projection['sha256']
