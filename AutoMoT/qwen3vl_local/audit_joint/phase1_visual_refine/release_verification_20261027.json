@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-27",
+  "status": "cpu_release_verified_model_replay_pending",
+  "base_commit": "6c1c1e1f56576d9964b96642b4bed095c5ced145",
+  "tests": {
+    "candidate_and_remote": 28,
+    "native_sampling_ast_functions": 27,
+    "native_frozen_files": 10
+  },
+  "real_received_validation": {
+    "2rgb_endpoints": {
+      "cases": 1024,
+      "images": 1996,
+      "self_correct": 707
+    },
+    "4rgb": {
+      "cases": 1024,
+      "images": 3835,
+      "self_correct": 709
+    }
+  },
+  "limits": [
+    "No live server or real 4B inference in this release",
+    "Both directory/symlink layouts tested locally only",
+    "Native Qwen backend test module unavailable in current environment because transformers is absent; native preservation contract checked directly",
+    "Inference orchestration tests use a fixture generator"
+  ],
+  "source_sha256": {
+    "README.md": "3656b00e471da77673f991925bacdd891980d2ee6927b28f80449465e7b6896c",
+    "__init__.py": "0302df0b117c0bdb73fdc3339e716f8404027b6fc327c410d0d62ee62bd041e7",
+    "__main__.py": "adba41aeeb0915f32c7fc4a115ee26a168db9669667adb81557e5088fdac72fd",
+    "calibration.py": "37f6b2d0f690102a41dc99f06d4c186c3751104ed9303a613f1d21b8e17a713d",
+    "experiment.py": "8d992b9644ae2dc8ea7ed615f49e23e64ca2ae008cdbb2db767bb1b2e6b5d3a4",
+    "prompts.py": "b001fce3b7f4bb5181d26c4d7e8b21dba8d4fe2bd225960fd90d84bca5448c85",
+    "regression.py": "6d814175974acc71e1573b59c1531c89024296a72c0e9797068cf554f0c72e24",
+    "remote.py": "0c7e24ecd7a15291052c8e538484f03dd40955edb835096561befc0de079502e",
+    "run.sh": "512dc68e309b9d795d8cfe4dd55dd08c493759d1c0b230c5770a2d36d927cab6",
+    "tests/test_refine.py": "c45c7573eb09a0253dce5d2e25f0438aae306616f39632a98d2f8115c117d993",
+    "tests/test_remote.py": "4bbb18ba27c32ca63b6c5256e9c0af3f9dfff860feabec5200d656a81e130e1a"
+  }
+}
