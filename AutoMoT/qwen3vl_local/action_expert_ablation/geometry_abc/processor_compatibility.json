@@ -23,9 +23,10 @@
         "2eaf6ebcbddf979597bf22ddba29368e9c7236fdd9bba5fa5ba4aa7ddab3638b",
         "97bc2e374f63425100273b07aa5a76953923711942e10ec27a3e9bc2374f1dcb",
         "6f506e9677333e62238fbb864a4d1dbaf123476b9905beee812e3ce91dd37908",
-        "fe79427e44c66bf80324c4998c3209bb6a2640b4e465234a1954b42385558017"
+        "fe79427e44c66bf80324c4998c3209bb6a2640b4e465234a1954b42385558017",
+        "4baea56622720bdd3f5b7058031e031422f536951453c51c7619e5d009ef6e11"
       ],
-      "after": "4baea56622720bdd3f5b7058031e031422f536951453c51c7619e5d009ef6e11"
+      "after": "c5387974737148b90cb28c277e662b8579c2951f1be36277c5d29c463d6fd15b"
     },
     "qwen3vl_local/action_expert_ablation/geometry_abc/recovery.py": {
       "before": [
@@ -59,9 +60,10 @@
     },
     "qwen3vl_local/action_prior/training_core.py": {
       "before": [
-        "b61606711b7ca4a0c0dd34ab4e7692a2aab4ba2aec2e381f8119bb52a0770798"
+        "b61606711b7ca4a0c0dd34ab4e7692a2aab4ba2aec2e381f8119bb52a0770798",
+        "d38a8af004d698a0240de58e47073655ef8e1e0f54e772afa5b4d73cecf76e64"
       ],
-      "after": "d38a8af004d698a0240de58e47073655ef8e1e0f54e772afa5b4d73cecf76e64"
+      "after": "0a8e73427c556d0e6a0dd1b7ac80944876e4da3f40bd78404b3ea7d44fe4b578"
     },
     "qwen3vl_local/action_prior/host_memory.py": {
       "before": [

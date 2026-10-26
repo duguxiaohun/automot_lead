@@ -1,5 +1,7 @@
 # ABC 区域条件轨迹消融
 
+2026-10-26：已跑完七轮却在性能汇总报进程组未初始化时，使用[完成恢复入口](../../ABC_COMPLETION_RECOVERY_20261026.md)，先核验已训结果，避免重训。该入口只支持文档指定的旧版本，默认继续原六组。
+
 只训练 BEV 的 a/b/c：使用 `run.sh all --branch bev_only`；三组探针、测试及交包同步限定。完整恢复命令见 [BRANCH_SELECTION_20261026.md](BRANCH_SELECTION_20261026.md)。默认仍为六组。
 
 2026-10-26：主机 OOM 修复、全池内存验证与恢复命令见 [MEMORY_FIX_20261026.md](MEMORY_FIX_20261026.md)。保存后 SIGKILL 的旧探针需用新版本重新执行。

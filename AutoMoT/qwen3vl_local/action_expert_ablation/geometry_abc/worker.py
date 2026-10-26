@@ -365,7 +365,8 @@ def main(argv=None):
             stopped=core.run_training_loop(args=args,rows=rows,plan=plan,runtime=runtime,model=model,decoder=decoder,
                 config=config,flow_config=fc,optimizer=optimizer,scheduler=scheduler,ema=ema,
                 cursor={'epoch':0,'micro':0},step=0,best=math.inf,device=device,dtype=dtype,
-                rank=rank,world=world,out=out,writer=writer,old=old,hooks=hooks(),evaluate_fn=evaluate,checkpoint=save)
+                rank=rank,world=world,out=out,writer=writer,old=old,hooks=hooks(),evaluate_fn=evaluate,checkpoint=save,
+                destroy_process_group=False)
         if stopped:raise core.GracefulTerminationExit(stopped)
         gradients.close()
         torch.cuda.synchronize(device)

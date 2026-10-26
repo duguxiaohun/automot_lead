@@ -485,7 +485,8 @@ def evaluate(
 
 def run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flow_config,
                       optimizer, scheduler, ema, cursor, step, best, device, dtype,
-                      rank, world, out, writer, old, hooks: MetricHooks, evaluate_fn, checkpoint):
+                      rank, world, out, writer, old, hooks: MetricHooks, evaluate_fn, checkpoint,
+                      destroy_process_group=True):
     """共用累积、更新、日志、验证与保存调度；checkpoint 接收 path/cursor/step/best。"""
     import torch
     import torch.distributed as dist
@@ -508,7 +509,7 @@ def run_training_loop(*, args, rows, plan, runtime, model, decoder, config, flow
         _ACTIVE_TERMINATION = None
         if writer:
             writer.close()
-        if dist.is_initialized():
+        if destroy_process_group and dist.is_initialized():
             dist.destroy_process_group()
 
 
