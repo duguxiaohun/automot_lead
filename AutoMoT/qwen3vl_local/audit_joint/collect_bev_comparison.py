@@ -40,6 +40,24 @@ def read(p):
     if prior!=before:raise RuntimeError('input changed between reads: '+str(p))
     return b
 
+def optional_source_snapshot(p, attempts=3):
+    """Capture a stable optional reference, never bind a live source to run validity."""
+    errors=[]
+    for attempt in range(1,attempts+1):
+        try:
+            before=signature(p)
+            first=p.read_bytes();middle=signature(p)
+            second=p.read_bytes();after=signature(p)
+            if before==middle==after and first==second:
+                return first,dict(status='captured_snapshot',attempts=attempt,
+                    signature=list(after),scope='collection_time_reference_not_live_training_source')
+            errors.append('source_changed_during_snapshot')
+        except OSError as exc:
+            errors.append(type(exc).__name__+': '+str(exc))
+        if attempt<attempts:time.sleep(0.05)
+    return None,dict(status='omitted_unstable_or_unavailable',attempts=attempts,
+                     errors=errors,scope='optional_reference_only')
+
 def flatten(x):
     if isinstance(x,list):
         if not x:return [0],[]
@@ -65,6 +83,7 @@ def main():
     ap.add_argument('--run',required=True,help='Existing old BEV run; no training is performed')
     ap.add_argument('--abc-run',help='Optional existing ABC suite on this same server')
     ap.add_argument('--output',default='checkpoints/audit_exports')
+    ap.add_argument('--no-current-source-reference',action='store_true',help='Skip optional current-code snapshots; retain original contracts and all saved results')
     ap.add_argument('--data-dir',help='Optional relocated old data directory on THIS server')
     ap.add_argument('--lead-bev-ckpt',help='Optional relocated BEV pretrained file on THIS server')
     a=ap.parse_args();app=Path.cwd().resolve();old=Path(a.run).expanduser().resolve()
@@ -236,9 +255,18 @@ def main():
         code=contract.get('identity_payload',{}).get('execution',{}).get('code',{})
         for rel in ('qwen3vl_local/action_prior/flow_matching.py','qwen3vl_local/action_prior/metrics.py','qwen3vl_local/action_prior/training_core.py','qwen3vl_local/action_expert_ablation/common.py'):
             p=app/rel
-            if p.is_file():
-                b=read(p);put('current_source_reference/'+rel,b)
-                manifest.setdefault('source_comparison',{})[rel]=dict(current=hashlib.sha256(b).hexdigest(),training_recorded=code.get(rel),matches=hashlib.sha256(b).hexdigest()==code.get(rel))
+            if a.no_current_source_reference:
+                b=None;info=dict(status='omitted_by_request',scope='optional_reference_only')
+            else:
+                b,info=optional_source_snapshot(p)
+            info['training_recorded']=code.get(rel)
+            if b is not None:
+                put('current_source_reference/'+rel,b)
+                info.update(current=hashlib.sha256(b).hexdigest(),matches=hashlib.sha256(b).hexdigest()==code.get(rel))
+            else:
+                info.update(current=None,matches=None)
+                manifest['warnings'].append('Optional current source reference omitted: '+rel+' ('+info['status']+'); original run evidence retained')
+            manifest.setdefault('source_comparison',{})[rel]=info
         put('collector.py',Path(__file__).read_bytes())
         def build(mode):
             manifest['trajectory_coordinates_included']=mode=='all'

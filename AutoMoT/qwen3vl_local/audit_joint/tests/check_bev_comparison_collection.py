@@ -67,6 +67,53 @@ with tempfile.TemporaryDirectory(prefix='bev_collector_validation_') as tmp:
  with zipfile.ZipFile(ap) as z:
   for v in 'abc':assert len(z.read(v+'_bev_only/training_audit.jsonl').splitlines())==1
  checks.append('explicit three-group ABC suite includes each full epoch record')
+ # Optional current sources can drift without invalidating saved training evidence.
+ source=app/'qwen3vl_local/action_prior/training_core.py';source.parent.mkdir(parents=True)
+ source.write_text('# optional reference before synchronization\n')
+ injected=app/'drifting_source.py'
+ hook="\n_real_signature=signature\n_drift=0\ndef signature(p):\n global _drift\n value=_real_signature(p)\n if p.name=='training_core.py':\n  _drift+=1\n  return (*value,_drift)\n return value\n"
+ injected.write_text(TOOL.read_text().replace("if __name__=='__main__':main()",hook+"if __name__=='__main__':main()"))
+ dp,dr=execute(injected,'source_drift')
+ with zipfile.ZipFile(dp) as z:
+  m=json.loads(z.read('COLLECTION_MANIFEST.json'));entry=m['source_comparison']['qwen3vl_local/action_prior/training_core.py']
+  assert entry['status']=='omitted_unstable_or_unavailable' and entry['attempts']==3
+  assert entry['matches'] is None
+  assert 'current_source_reference/qwen3vl_local/action_prior/training_core.py' not in z.namelist()
+  assert len(z.read('old_bev/cases.jsonl').splitlines())==513
+ assert any('training_core.py' in w for w in dr['warnings'])
+ checks.append('persistent optional source drift omits reference after three attempts and publishes complete saved metrics')
+ sp,sr=execute(TOOL,'skip_sources',['--no-current-source-reference'])
+ with zipfile.ZipFile(sp) as z:
+  m=json.loads(z.read('COLLECTION_MANIFEST.json'));assert all(v['status']=='omitted_by_request' for v in m['source_comparison'].values())
+  assert not any(n.startswith('current_source_reference/') for n in z.namelist())
+ checks.append('explicit source-reference skip retains original contracts and all case metrics')
+ # A later update cannot change the already captured reference or invalidate publication.
+ snapshot=source.read_bytes();later=app/'later_source.py'
+ later.write_text(TOOL.read_text().replace("        put('collector.py',Path(__file__).read_bytes())", "        (app/'qwen3vl_local/action_prior/training_core.py').write_text('# changed after snapshot\\n')\n        put('collector.py',Path(__file__).read_bytes())"))
+ lp,lr=execute(later,'later_source')
+ with zipfile.ZipFile(lp) as z:assert z.read('current_source_reference/qwen3vl_local/action_prior/training_core.py')==snapshot
+ checks.append('post-snapshot source update does not invalidate captured reference or run evidence')
+ # Core results retain the original strict behavior.
+ core=app/'drifting_core.py';core.write_text(TOOL.read_text().replace("if __name__=='__main__':main()",hook.replace("p.name=='training_core.py'","p.name=='config.json'")+"if __name__=='__main__':main()"))
+ failed=subprocess.run([sys.executable,'-B',str(core),'--run',str(run),'--output',str(app/'core_drift')],cwd=app,capture_output=True,text=True)
+ assert failed.returncode and 'input changed while reading' in failed.stderr
+ assert not list((app/'core_drift').glob('*/bev_comparison_review.zip'))
+ checks.append('core run configuration drift still rejects publication')
+ # Real filesystem metadata-only change is retried before a stable snapshot is accepted.
+ import importlib.util,stat
+ spec=importlib.util.spec_from_file_location('collector_under_test',TOOL);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+ original_read=Path.read_bytes;changed=[False]
+ def ctime_once(path):
+  value=original_read(path)
+  if path==source and not changed[0]:
+   changed[0]=True;path.chmod(stat.S_IMODE(path.stat().st_mode)^0o100)
+  return value
+ Path.read_bytes=ctime_once
+ try:captured,info=module.optional_source_snapshot(source)
+ finally:Path.read_bytes=original_read
+ assert info['status']=='captured_snapshot' and info['attempts']==2 and captured==source.read_bytes()
+ assert str(source) not in module.READ_SIGNATURES
+ checks.append('actual ctime-only file change recovers via two identical stable reads without entering core receipt registry')
  # Missing optional cases is reported, never fabricated.
  shutil.rmtree(run/'eval_test/cases');mp,mr=execute(TOOL,'missing');assert any('no saved rank' in x for x in mr['missing']);checks.append('missing saved cases explicitly reported without inference')
  # Too-small core must not publish an oversized/partial result.
