@@ -131,9 +131,59 @@ class CollectionTests(unittest.TestCase):
             app=self.root/layout;(app/'qwen3vl_local').mkdir(parents=True)
             # Absolute input here deliberately belongs to this fixture, not another server.
             with patch.dict('os.environ',{'ABC_AUDIT_RUN':str(self.run)}),patch.object(Path,'cwd',return_value=app):
-                with redirect_stdout(io.StringIO()):c.main()
-            result=list((app/'checkpoints/audit_exports').glob('*/*.zip'))
-            self.assertEqual(len(result),1)
+                with redirect_stdout(io.StringIO()):c.main([])
+            result=list((app/'checkpoints/audit_exports').glob('*/*/*.zip'))
+            self.assertEqual(len(result),3)
+            self.assertEqual({p.name for p in result},{v+'_metrics_supplement.zip' for v in 'abc'})
+
+
+    def test_split_independent_caps_and_exact_source_partition(self):
+        expected = {}
+        for v in 'abc':
+            p = self.run/(v+'_bev_only')/'metrics.json'
+            b = json.dumps({'route_fm_mse':0.123, 'diagnostic':random.Random(ord(v)).randbytes(4000).hex()}).encode()
+            p.write_bytes(b);expected[v] = b
+        with self.assertRaises(RuntimeError):
+            self.collect('combined_too_large',limit=8000)
+        with redirect_stdout(io.StringIO()):
+            receipt=c.collect_split(self.run,self.root/'separate',limit=8000)
+        self.assertEqual(receipt['status'],'completed')
+        self.assertEqual(set(receipt['groups']),set('abc'))
+        for v,result in receipt['groups'].items():
+            self.assertLessEqual(result['bytes'],8000)
+            m,files=self.contents(result)
+            self.assertEqual(m['variants'],[v])
+            self.assertTrue(all(name.startswith(v+'_bev_only/') for name in files))
+            self.assertEqual(files[v+'_bev_only/metrics.json'],expected[v])
+            self.assertEqual(Path(result['package']).name,v+'_metrics_supplement.zip')
+
+    def test_one_oversized_group_does_not_block_remaining(self):
+        p=self.run/'a_bev_only/metrics.json'
+        p.write_text(json.dumps({'diagnostic':random.Random(90).randbytes(30000).hex()}))
+        with redirect_stdout(io.StringIO()):
+            receipt=c.collect_split(self.run,self.root/'partial',limit=8000)
+        self.assertEqual(receipt['status'],'partial')
+        self.assertEqual(set(receipt['groups']),set('bc'))
+        self.assertEqual(set(receipt['errors']),{'a'})
+        self.assertTrue((self.root/'partial/a/collection_inventory.json').exists())
+        self.assertFalse((self.root/'partial/a/a_metrics_supplement.zip').exists())
+        for result in receipt['groups'].values():self.contents(result)
+        self.assertEqual(json.loads((self.root/'partial/delivery.json').read_text()),receipt)
+
+    def test_missing_group_and_single_group_retry(self):
+        (self.run/'b_bev_only/config.json').unlink()
+        with redirect_stdout(io.StringIO()):
+            receipt=c.collect_split(self.run,self.root/'missing')
+        self.assertEqual(set(receipt['groups']),set('ac'))
+        self.assertEqual(set(receipt['errors']),{'b'})
+        with redirect_stdout(io.StringIO()):
+            result=c.collect_split(self.run,self.root/'only_c',variants='c')
+        self.assertEqual(result['status'],'completed')
+        self.assertEqual(set(result['groups']),{'c'})
+
+    def test_invalid_group_list(self):
+        for variants in ('', 'aa', 'd'):
+            with self.assertRaises(ValueError):c.collect_split(self.run,self.root/'invalid',variants=variants)
 
     def test_real_30mb_previous_core_failure_regression(self):
         # Large repeated contracts/metadata: old per-file ZIP plus opaque nested

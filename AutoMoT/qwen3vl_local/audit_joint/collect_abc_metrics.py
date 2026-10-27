@@ -7,6 +7,7 @@ ZIP container bytes are identified by SHA but not redundantly embedded.
 from pathlib import Path
 from zipfile import ZipFile, ZIP_LZMA
 from datetime import datetime
+import argparse
 import hashlib
 import json
 import os
@@ -30,11 +31,14 @@ def sha_file(path):
     return h.hexdigest()
 
 
-def collect(run, out, limit=LIMIT):
+def collect(run, out, limit=LIMIT, variants="abc"):
+    variants = tuple(variants)
+    if not variants or len(set(variants)) != len(variants) or any(v not in "abc" for v in variants):
+        raise ValueError("variants must be distinct members of a/b/c")
     if not 0 < limit <= LIMIT:
         raise ValueError('limit must be between 1 and 30,000,000 bytes')
     run = Path(run).resolve()
-    for v in 'abc':
+    for v in variants:
         if not (run / (v + '_bev_only') / 'config.json').is_file():
             raise ValueError('当前机器缺少 ABC 分组，请修改 ABC_AUDIT_RUN：' + str(run / (v + '_bev_only')))
     out = Path(out).resolve()
@@ -42,7 +46,7 @@ def collect(run, out, limit=LIMIT):
         raise ValueError('output must be outside input run')
     out.mkdir(parents=True, exist_ok=False)
     core, tb, archives, missing = [], [], [], []
-    for v in 'abc':
+    for v in variants:
         group = run / (v + '_bev_only')
         core += [p for p in group.glob('*.json') if p.is_file()]
         for name in ('training_audit', 'validation', 'performance', 'progress', 'test', 'eval_test'):
@@ -64,7 +68,7 @@ def collect(run, out, limit=LIMIT):
         if (group / 'tb').is_dir():
             tb += [p for p in (group / 'tb').rglob('*tfevents*') if p.is_file()]
     core, tb = sorted(set(core)), sorted(set(tb))
-    package = out / 'abc_metrics_supplement.zip'
+    package = out / ((variants[0] + '_metrics_supplement.zip') if len(variants) == 1 else 'abc_metrics_supplement.zip')
     sources, archive_records, unique = {}, {}, {}
     last_heartbeat = [time.monotonic()]
 
@@ -91,7 +95,6 @@ def collect(run, out, limit=LIMIT):
                 if key in unique:
                     # Verify bytes before using a deduplication alias.
                     existing = unique[key]
-                    end = dst.tell()
                     for position in range(0, size, CHUNK):
                         length = min(CHUNK, size-position)
                         dst.seek(existing + position)
@@ -149,7 +152,7 @@ def collect(run, out, limit=LIMIT):
                     raise RuntimeError('TensorBoard 文件仍在变化：' + str(p))
             full_size = dst.tell()
 
-        summary = dict(schema='abc_metrics_stream_v2', run=str(run), collection_only=True,
+        summary = dict(schema='abc_metrics_stream_v2', run=str(run), variants=list(variants), collection_only=True,
             weights_included=False, core_source_count=len(core_sources),
             core_original_bytes=sum(r['bytes'] for r in core_sources.values()),
             core_unique_bytes=core_size, core_unique_contents=core_unique,
@@ -198,18 +201,63 @@ def collect(run, out, limit=LIMIT):
             raise
     result = dict(result_directory=str(out), package=str(package), bytes=size,
         sha256=sha_file(package), schema='abc_metrics_stream_v2',
-        tensorboard_included=manifest['tensorboard_included'], core_source_count=len(core_sources), missing=missing)
+        variants=list(variants), tensorboard_included=manifest['tensorboard_included'], core_source_count=len(core_sources), missing=missing)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result
 
 
-def main():
+def collect_split(run, out, limit=LIMIT, variants="abc"):
+    """Independent per-group delivery; a failed group never removes other packages."""
+    variants = tuple(variants)
+    if not variants or len(set(variants)) != len(variants) or any(v not in "abc" for v in variants):
+        raise ValueError("variants must be distinct members of a/b/c")
+    if not 0 < limit <= LIMIT:
+        raise ValueError('limit must be between 1 and 30,000,000 bytes')
+    run, out = Path(run).resolve(), Path(out).resolve()
+    if out == run or out.is_relative_to(run):
+        raise ValueError('output must be outside input run')
+    out.mkdir(parents=True, exist_ok=False)
+    receipt = dict(schema='abc_metrics_split_delivery_v1', run=str(run),
+        result_directory=str(out), per_package_limit_bytes=limit,
+        requested_groups=list(variants), groups={}, errors={}, status='collecting')
+    receipt_path = out / 'delivery.json'
+
+    def save():
+        pending = receipt_path.with_suffix('.tmp')
+        pending.write_text(json.dumps(receipt, ensure_ascii=False, indent=2)+'\n')
+        pending.replace(receipt_path)
+
+    save()
+    for v in variants:
+        print('[CPU] 单独收集 %s；该包上限 %.2fMB' % (v, limit/1e6), flush=True)
+        try:
+            result = collect(run, out / v, limit=limit, variants=v)
+            receipt['groups'][v] = result
+        except Exception as exc:
+            receipt['errors'][v] = dict(type=type(exc).__name__, message=str(exc),
+                diagnostic_directory=str(out / v))
+            print('[CPU] %s 未完成：%s；继续其它分组' % (v, exc), flush=True)
+        save()
+    receipt['status'] = ('completed' if not receipt['errors'] else
+                         'partial' if receipt['groups'] else 'failed')
+    save()
+    print(json.dumps(receipt, ensure_ascii=False, indent=2), flush=True)
+    return receipt
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='ABC 指标独立打包：a/b/c 各一包，每包不超过30MB，不使用GPU')
+    parser.add_argument('--variant', choices=('all', 'a', 'b', 'c'), default='all',
+                        help='默认分别打包三组；可只补收某一组')
+    args = parser.parse_args(argv)
     root = Path.cwd()
     if not (root / 'qwen3vl_local').is_dir():
         raise SystemExit('请先进入当前服务器的 AutoMoT 根目录')
     run = Path(os.environ.get('ABC_AUDIT_RUN', 'checkpoints/action_expert_ablation/geometry_abc_bev_only/run_20261026_122636')).expanduser()
-    out = root / 'checkpoints/audit_exports' / ('abc_metrics_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
-    collect(run, out)
+    out = root / 'checkpoints/audit_exports' / ('abc_metrics_split_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    result = collect_split(run, out, variants='abc' if args.variant == 'all' else args.variant)
+    if result['status'] != 'completed':
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':
