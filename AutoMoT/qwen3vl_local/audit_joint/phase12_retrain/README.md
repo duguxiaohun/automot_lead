@@ -77,3 +77,20 @@ holdout散列、CPU准入和新源码版本绑定。权重保留服务器，不�
 先核验新旧测试成员/问题/标签/RGB SHA，再报告整题、逐类 accuracy/precision/recall/F1、
 格式、时延/显存和原正确损失。基座相同的“数据+提示词联合改动”不等于单因素实验。
 已曝光的测试集只能作开发回归，最终泛化需独立未开发测试；本入口不偷偷重划测试集。
+
+## Phase2 远程容量拒绝取证
+
+若 CPU 报 `Coverage quota exceeds compatible frame capacity`，建库可能已经完成，
+不能重复建库或擅自提高重复上限、改变1024配额。不同机器的兼容子组容量需要分别审计。
+在 AutoMoT 根目录运行（替换具体失败目录及新的输出文件名）：
+
+```bash
+python -B -m qwen3vl_local.audit_joint.phase12_retrain.collect_capacity --run-dir checkpoints/phase12_retrain/<failed_p2_run> --output checkpoints/phase2_capacity_audit.tar.gz
+```
+
+仅接受 Phase2 CPU准入的容量失败；按失败计划里实际的 `--index` 收集原索引及manifest、
+失败目录JSON/log、绑定快照manifest与四个相关采样源码，并只读计算当前有效action hints。
+不建库、不读取RGB、不加载模型、不写训练准入、不改变采样规则，不覆盖同名包。
+Action hints是收集时重建结果；原失败进程未保存其回执，不能冒称已证明历史来源未变。
+将此小包带回本机后重放原生三轮规划、核对稀缺子组与物理帧共享；未完成前不承诺1024可开训，
+也不把本机较少总量但子组容量足够的库当作远程同一份数据。
