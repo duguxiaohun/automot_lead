@@ -21,10 +21,30 @@ python -B qwen3vl_local/audit_joint/collect_abc_metrics.py
 - 已有 training_audit.zip、TensorBoard 事件文件。
 - 不收权重、原始 RGB/LiDAR、逐例 cases 或训练源码。
 
-输出 `checkpoints/audit_exports/abc_metrics_日期时间/abc_metrics_supplement.zip`，最后打印结果目录、包路径、大小、SHA 和缺失项。包内清单逐文件记录 SHA/大小；下载 ZIP 即可。
+输出 `checkpoints/audit_exports/abc_metrics_日期时间/abc_metrics_supplement.zip`，最后打印结果目录、包路径、大小、SHA 和缺失项。下载 ZIP 即可。
 
-硬限 30,000,000 字节。超限时明确省略原始 TensorBoard，保留全部核心指标重打包；核心仍超限则拒绝交付，不截断或抽样指标。正在写入的文件拒绝收集。仅 ctime 元信息变化不作为本工具读取变化条件；绑定设备、inode、大小、mtime，记录实际读取字节 SHA。本工具不是训练准入回执，也不修改旧 SHA。
+## v2：修复去掉 TensorBoard 后核心包仍超限
 
-重点补收 `route_fm_mse` 和 `waypoint_fm_mse`。尚未保存的分项无法靠打包补造；缺失目录会列明，单项指标是否存在由后续审计确认。TensorBoard 的存在也不保证它记录了全部目标指标。
+旧版按每个文件分别压缩，并把 `training_audit.zip` 当作不透明文件再次打包；重复指标及重复合同很难跨文件压缩。v2 不减少任何已选 epoch/window/event 记录，改为：
 
-本地标准库合成验证共 8 个场景通过：模拟两台服务器目录，各自验证完整打包、超限后保留核心指标并省略 TB、核心超限拒绝、缺失运行拒绝。逐文件 SHA 正确，权重/逐例目录未收录，原输入字节不变。这是布局模拟，不是远程真实采集验收。
+- 将原始来源字节合并到一个快照，以 ZIP/LZMA 进行跨文件压缩。
+- 相同 SHA/大小且逐字节一致的内容只存一次，各来源保留独立路径映射。
+- 展开 training_audit.zip 的 JSON/JSONL/Markdown/文本/日志成员后共同去重，保留包内独有指标。原 ZIP 容器记录 SHA/大小，不重复嵌入容器字节；非指标成员列明省略。
+- 浮点数字、原始文本、完整时间步均不重写、不四舍五入、不抽样。
+- 核心和可选 TB 使用同一次读取的快照，压缩重试不重新扫描运行目录。
+
+包格式为 `abc_metrics_stream_v2`：`MANIFEST.json` 的 `sources` 提供每个来源在 `evidence.bin` 中的 offset、bytes 和 SHA256。读取该区间即可逐字节还原来源；名称含 `::` 表示嵌套审计包成员。完整 evidence.bin 也有 SHA。这是压缩存储格式变化，不是训练合同变化。
+
+硬限仍为 30,000,000 字节。含 TB 超限则保留全部核心指标、明确省略原始 TB 再压缩。若完整核心去重压缩后仍超限，拒绝发布且保留 `collection_inventory.json`，列出来源数量、原始/去重大小及最大的25个来源，不再只报一个无诊断信息的错误。不能承诺任意不可压缩数据都装进30MB，也不会靠丢弃指标假装完整。
+
+正在写入的文件拒绝收集；仅 ctime 元信息变化不作为读取变化条件。绑定设备、inode、大小、mtime，记录实际字节 SHA。本工具不生成训练准入回执，不修改旧 SHA。
+
+重点补收 `route_fm_mse` 和 `waypoint_fm_mse`。未保存的分项不能通过收集补造；缺失目录会列明，审计 ZIP 内的回退证据单独保留。TensorBoard 存在也不保证记录了全部目标指标。
+
+本地标准库回归：
+
+```bash
+python -B qwen3vl_local/audit_joint/tests/check_abc_metrics_collection.py
+```
+
+验证完整321窗口/组、原始数值字节还原、嵌套包独有记录与去重、TB保留/省略、超限诊断、输入变化拒绝、重复ZIP成员拒绝、两台服务器布局模拟，以及真正超过30MB的旧打包方式回归。不代表远程实际采集已通过。
