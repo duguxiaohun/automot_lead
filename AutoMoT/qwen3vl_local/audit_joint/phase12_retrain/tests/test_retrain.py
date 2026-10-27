@@ -201,7 +201,7 @@ def test_actual_worker_order_and_failure_stop_with_explicit_stage_doubles(tmp_pa
             if failure=='cpu_admission':assert 'fresh_train_eval' not in calls
         else:
             launch.worker(args)
-            assert calls==['model_check',*(['train_label_derivation'] if phase==1 else []),'cpu_admission','fresh_train_eval']
+            assert calls==['model_check','train_label_derivation','cpu_admission','fresh_train_eval']
             assert json.loads((root/'completion.json').read_text())['status']=='trained_evaluated_packaged_quality_pending'
             assert (root/'training_revision_audit.tar.gz').is_file()
     finally:os.chdir(cwd)

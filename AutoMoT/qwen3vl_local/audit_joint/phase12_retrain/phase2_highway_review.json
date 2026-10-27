@@ -1,0 +1,437 @@
+{
+  "status": "local_visual_review_and_user_remote_rgb_hash_match",
+  "reviewed_current_frames": 28,
+  "unique_history_images": 34,
+  "remote_rgb_expected_sha256": "90956cea15b4c03cb54100cdf1574df71c918544624ffb867a66e90183539cd9",
+  "frames": [
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0039.jpg",
+      "d651797d6ecee0c387db420b9ebbf2f1860d3293e8485bfd351b588109d25b71"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0040.jpg",
+      "f74181e30036a67e388b0d3581133e1d73f22a4a394d86c2dab561e775ceb372"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0041.jpg",
+      "5b72a0fa90e23c26e5d0c1a626408e99a836fe52b93dce972ccd248c0b3a9148"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0042.jpg",
+      "4bfde36b4dbba9efe518eb3fa7ac535558c7c3e6c287793aec915da75a023337"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0043.jpg",
+      "738df681ba0594d6d81404d6810c6a3b69253c733015b1353c45d542a4fe2cd4"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0044.jpg",
+      "b4e967693a4c12ced1829f6d0eb67eed3a981bd7b8b2a3ca640dca02e4de2bea"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0045.jpg",
+      "abc916e851509aa00fc5ca0763f466f81958420e24e347f59096c6b5536ba122"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0046.jpg",
+      "0f85376a5d7dfe272f6c4d606dd6e80b2980fc601980effc089c8a72f0277698"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0047.jpg",
+      "2a8a862482bfd662f5bf426c7f3a2e2fe435871a65828621aafda16a8ba8bbbd"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0048.jpg",
+      "a04c5914590627628d672fdcbbe1bef107eec0e42e5f89122e48149a198411fa"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0049.jpg",
+      "bf27eb8150650b34dca8f4c20fe61454822e74ffed407cf3fdbb2eda541e7a69"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0050.jpg",
+      "360a35b8c8db548d4104ad02d56f2b3ab1a7b2dfc83b15d6a9ce9778de8c3ca5"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0051.jpg",
+      "ea90609c1bbacb617de3b771b327f9b268c5295de14746fd8deb7fa99076969a"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0052.jpg",
+      "52bc0d5b29223cf9f247414046f6d32822118fd0ff6d6d7e5cb53dc070ef8037"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0053.jpg",
+      "19c9a8e77eadcb517d1d84af4abd53acc94afba2cd9dbceaf32b92925fd4ff6c"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0054.jpg",
+      "1eea1d1e2699973ef8f10aa1e2e96d5cd104322c330ac50fa14f81b3a5371ba0"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0055.jpg",
+      "0ffe695d79562a8c3b93781d84cdc962767a8d8f3fe0569ce02865357ea2dcdb"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_11_route0_01_09_19_15_55/rgb/0056.jpg",
+      "50e1ae3dd2e777b8e24b018df8d89d583b0132df328181bd6f6ac77d1c7fabbc"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0041.jpg",
+      "721e7c2b5c5900f4cffa9511bae885af70a68bb88038aad6dcd11e3510e8fd10"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0042.jpg",
+      "8214c2af6ef364012dd4caf0f4aa11c09140897d4c2bef3aeca98afe5bf832cb"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0043.jpg",
+      "eaead265bde90f6c8d757081b097d61ac051c829007ea941f7fa4e664bea85e5"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0044.jpg",
+      "f5d653c3b7c5ed1de8f6104e8ee73e131f7a9f736e5ce7fc65892d9d7cdcd295"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0045.jpg",
+      "4a6f86da3b3b3de77c78f8e5a9380c4f21fecc49ba4e781fa1b50d61aed3f744"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0046.jpg",
+      "ad12a64df493e37c927a1b3e614ca75e0db5efce5c9ed44c091a4b19079c77da"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0047.jpg",
+      "93dbe21f6a3fbe84092b9787f8c7d242bcf0df60fd2a0475f529c67d5aacafad"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0048.jpg",
+      "01df178a1ac682a99d53d2155ae610561f04dff733590f391fa2510dc9c19536"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0049.jpg",
+      "0467b5b4b072d2d9edb4623fbef04ccb608b1398b0f44379f99333187b5eb7ab"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0050.jpg",
+      "7bad4fea4ddd56589ab5a615e71b3f3e958c024a2e2c75018067b11e749bfe61"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0051.jpg",
+      "d7eeec723c44e7897bff218418467835eb7643226ef8e1f9fe6b2153c04324fb"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0052.jpg",
+      "c29512408c28619cb96a223116d1aee2de9cef65764f444c4b55aed0be2be7e7"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0053.jpg",
+      "a8915572769d510d7fb46e3419f5677a4e7e1d4615de4b2649fd2f5b3031f01c"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0054.jpg",
+      "2bf21e5bad411933898888e27e8cfe9e2712e93028f00ff6c0219bf561d34b8f"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0055.jpg",
+      "77e4ce489ea3b106826867bd8ff5d336fc2383e194e7b6c925979c1995586712"
+    ],
+    [
+      "HighwayCutIn/Town13_Rep0_1586_9_route0_01_08_19_01_08/rgb/0056.jpg",
+      "0ade2bbee3fe1c16b9ac4406f0b218181bc1b419ae6f86a2582e331029ba6be7"
+    ]
+  ],
+  "reviewed_candidate_corrections": [
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 50,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 54,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 52,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 46,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 51,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 45,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 46,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 54,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 44,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 53,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 52,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 47,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 48,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 51,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 49,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 48,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 53,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 49,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 50,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 55,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 56,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 47,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_9_route0_01_08_19_01_08",
+      "frame_id": 55,
+      "split": "train",
+      "remote_rs": "R4",
+      "local_rs": "R3",
+      "remote_event": "R-E4",
+      "local_event": "R-E1",
+      "reason": "Continuous divided highway corridor and guardrails; no visible junction transition across reviewed history; UE3 label unchanged"
+    }
+  ],
+  "default_quota": 1024,
+  "sampling_changed": false,
+  "production_data_changed": false,
+  "gpu_test": false,
+  "limitations": [
+    "Remote bundle has no RGB hashes; same frame identity does not establish identical image bytes",
+    "Local image review is not real-model validation",
+    "384 is a diagnostic capacity candidate only, not authorized new default"
+  ],
+  "remote_confirmation": "User supplied exact 34-image aggregate SHA match",
+  "contract": "phase2_highway_train_rs_review_v1",
+  "controls": [
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 45
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 44
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 42
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 43
+    },
+    {
+      "scenario": "HighwayCutIn",
+      "route_id": "Town13_Rep0_1586_11_route0_01_09_19_15_55",
+      "frame_id": 56
+    }
+  ]
+}

@@ -72,7 +72,7 @@ def worker(args):
     state=dict(contract=CONTRACT,phase=phase,status='starting',version=str(version))
     statepath=root/'status.json'
     parent=args.parent_data.resolve()/'frame_index.jsonl'
-    index=root/'data/frame_index.jsonl' if phase==1 else parent
+    index=root/'data/frame_index.jsonl'
     env=environment(APP,phase,root,index,args.data_root,args.model_dir,args.collection_dir)
     os.chdir(APP)
     def stage(name,cmd,stage_env=env,timeout=None):
@@ -94,6 +94,10 @@ def worker(args):
                     'qwen3vl_local.audit_joint.phase12_retrain.launch','derive',
                     '--parent',str(parent),'--reviews',str(APP/REVIEW_PATH),
                     '--data-root',str(args.data_root),'--output',str(index.parent)])
+            else:
+                stage('train_label_derivation',[sys.executable,'-B','-m',
+                    'qwen3vl_local.audit_joint.phase12_retrain.phase2_data',
+                    '--parent',str(parent),'--data-root',str(args.data_root),'--output',str(index.parent)])
             prep_env={**env,'DATA_AUDIT_DIR':str(root/'cpu'),'RUN_BUILD':'0',
                       'DATA_STAGE_TIMEOUT_SECONDS':str(args.cpu_timeout)}
             stage('cpu_admission',['bash',f'qwen3vl_local/sft_new_loop_phase{phase}/prepare_data.sh'],
@@ -101,8 +105,7 @@ def worker(args):
             cpu=proof.read(root/'cpu/status.json')
             if cpu['status']!='ready':raise ValueError('Native CPU admission did not pass')
             files={str(p):proof.sha(p) for p in (root/'cpu').rglob('*') if p.is_file()}
-            if phase==1:
-                files.update({str(p):proof.sha(p) for p in [root/'selected_train_reviews.json',index.parent/'training_revision.json']})
+            files.update({str(p):proof.sha(p) for p in [root/'selected_train_reviews.json',index.parent/'training_revision.json',index.parent/'preservation.json']})
             ready=dict(contract=CONTRACT,phase=phase,version=str(version),index=str(index),
                        data=proof.data_identity(index),files=files,mode_order=MODES,
                        expected_updates_per_mode=9216 if phase==1 else 5376)
@@ -126,7 +129,7 @@ def worker(args):
         # Small companion contains training revision provenance; raw cases remain
         # in the native per-mode bundles (each has its own size/integrity gate).
         files=[root/'completion_pending.json',root/'ready.json',version/'manifest.json']
-        if phase==1:files += [root/'selected_train_reviews.json',root/'data/training_revision.json',root/'data/preservation.json']
+        files += [root/'selected_train_reviews.json',root/'data/training_revision.json',root/'data/preservation.json']
         with tarfile.open(root/'training_revision_audit.tar.gz','w:gz') as tar:
             for p in files:tar.add(p,arcname='completion.json' if p.name=='completion_pending.json' else p.name,recursive=False)
         (root/'completion_pending.json').rename(root/'completion.json')
