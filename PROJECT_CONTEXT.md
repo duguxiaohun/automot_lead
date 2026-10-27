@@ -3113,3 +3113,7 @@ longitudinal_decision 内部只使用当前至+2s的九个采样，窗外尾部�
 用户授权完善/白名单push及本地RGB；发布教师v23/v24已验证否决保留、plan39/registry34与诊断，不修改旧合同或阈值提示词。Phase4采样v5在每事件1024内对已有原生自动train/readiness关键边YES/NO各预留至少1不同题，再填连续低曝光段；缺格只报、history绑定拒绝旧v4混用。P3无minimum仍v4算法，但共享源码SHA变化，旧checkpoint保留原版，不安排重训。P3测试夹具补齐tokenizer/device，非生产改动。
 本轮再原生回放3路线266帧/798源SHA，两模式各130train与前v24逐字段一致，无val/test；实际复看27既有RGB（1176_0 71–79、4591_0 54–62、1378_0 71–79），非新增独立盲审。1457回归通过2旧池缺失跳过，另127入口/采样/分布式通过有重叠。57路线旧3187题两模式CPU各事件1024模拟，缺格不外推全池。新label_release_check只读历史manifest/train SHA及版本差异、CPU采样，自动<=30MB ZIP；本机真实CLI通过，571源码匹配，不授予训练准入。
 当前服务器只cr02按LABEL_SAMPLING_RELEASE_20261018.md同步后检查既有phase4_labels_20261017_125230_304771113/data4，交label_release_report.zip及label_release_package.json；无RGB/模型/缓存/回放/训练。cee已收两模式最终结果，不重跑phase4_continue或RGB2/4。UE5正例仍0，新正式池迁移未验收；禁止修改旧SHA越过合同。不上传数据/RGB/权重，保留用户.vscode等其它任务。
+
+### 2026-10-27 Phase1/2 独立新训练入口
+
+用户要求改标定/提示词后必须重新训练再评测。入口 `AutoMoT/qwen3vl_local/audit_joint/phase12_retrain/run.sh all 1` 或 `all 2`；两台服务器各自在 AutoMoT 根运行各自阶段。Phase1只接入5条已逐帧复核train修正，RS2/RS4说明在独立训练快照内合并，val/test字节不变；Phase2沿现有v5独立新训练。保留原采样和四卡三轮9216/5376预算，两图/四图分别从基座训练。新旧源码/数据/权重隔离，CPU准备与失败日志先于GPU，训练后原生评测交包。新训练效果仍待远程实测，不把CPU或旧权重换提示词当新模型验收。详细边界见该目录README.md。

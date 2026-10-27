@@ -1,0 +1,344 @@
+{
+  "contract": "phase1_visual_refine_v1",
+  "review_policy": "phase1_visual_refine_v2_20261027",
+  "scope": "Five individually RGB-reviewed train frames only; no val/test relabeling or propagation",
+  "decisions": [
+    {
+      "id": "train_review_4",
+      "scenario": "ConstructionObstacle",
+      "route_id": "Town12_Rep0_3830_0_route0_01_08_05_38_43",
+      "frame_id": 50,
+      "decision": "correct",
+      "changes": {
+        "facts": {
+          "STATIC_OBSTACLE": true
+        }
+      },
+      "expected": {
+        "rs": "R1",
+        "split": "train",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "ConstructionObstacle/Town12_Rep0_3830_0_route0_01_08_05_38_43/rgb/0047.jpg",
+          "sha256": "38305b36382f0e722e094bed064180dfa2f35ca732d2c52d7489003253878959"
+        },
+        {
+          "path": "ConstructionObstacle/Town12_Rep0_3830_0_route0_01_08_05_38_43/rgb/0048.jpg",
+          "sha256": "102a7477674aa85761ebc5112612a9d6b1f0b50b3ae5692d4edbd56e20da1f9b"
+        },
+        {
+          "path": "ConstructionObstacle/Town12_Rep0_3830_0_route0_01_08_05_38_43/rgb/0049.jpg",
+          "sha256": "56b8582d04b189a0cff2812c2a0d4ae5927e6bc788a7706ce22304e49e6dff44"
+        },
+        {
+          "path": "ConstructionObstacle/Town12_Rep0_3830_0_route0_01_08_05_38_43/rgb/0050.jpg",
+          "sha256": "ca0617c7f42d1e492723dd2919143ab1e3678e7c0234e9bb9780bc54083341e9"
+        }
+      ],
+      "frame_notes": [
+        "第1帧：黄色固定施工牌连续四帧占当前左侧车道，最新帧仍在前方；原STATIC为NO",
+        "第2帧：黄色固定施工牌连续四帧占当前左侧车道，最新帧仍在前方；原STATIC为NO",
+        "第3帧：黄色固定施工牌连续四帧占当前左侧车道，最新帧仍在前方；原STATIC为NO",
+        "第4帧：黄色固定施工牌连续四帧占当前左侧车道，最新帧仍在前方；原STATIC为NO"
+      ],
+      "reason": "第4帧：黄色固定施工牌连续四帧占当前左侧车道，最新帧仍在前方；原STATIC为NO",
+      "reviewer": "Codex visual review of displayed RGB (not independent human adjudication)",
+      "development_exposed": true,
+      "verified_fields": [
+        "STATIC_OBSTACLE"
+      ],
+      "field_evidence": {
+        "STATIC_OBSTACLE": {
+          "confidence": "confirmed",
+          "visible_frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "newest_relevance": "第4帧：黄色固定施工牌连续四帧占当前左侧车道，最新帧仍在前方；原STATIC为NO"
+        }
+      },
+      "rechecked": "2026-10-27; four frames at original resolution; training-only release"
+    },
+    {
+      "id": "train_review_13",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_98_0_route0_01_08_00_55_14",
+      "frame_id": 50,
+      "decision": "correct",
+      "changes": {
+        "rs": "R5"
+      },
+      "expected": {
+        "rs": "R1",
+        "split": "train",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0047.jpg",
+          "sha256": "4d9cd8958b49cced671b7e871ccedfa6706c1670e9e4c71a747b9af8a9e25f03"
+        },
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0048.jpg",
+          "sha256": "9ac51efbad6f84cdd9c364260c5c087c5db0779464e3006b82c255ff5f1f926b"
+        },
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0049.jpg",
+          "sha256": "ac8b7bc08ce3e1071826001da72d51ae0478df2d9e5e2a6508e7e1ae4d4d75d9"
+        },
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_98_0_route0_01_08_00_55_14/rgb/0050.jpg",
+          "sha256": "f2b94cbe2cefc505f85f857dbcf03e8a9afeab6782ebb4fe078ca148d5118196"
+        }
+      ],
+      "frame_notes": [
+        "第1帧：前方当前道路终止并接入横向住宅街道，T形路口与横向通行空间明确，无可见信号控制",
+        "第2帧：前方当前道路终止并接入横向住宅街道，T形路口与横向通行空间明确，无可见信号控制",
+        "第3帧：前方当前道路终止并接入横向住宅街道，T形路口与横向通行空间明确，无可见信号控制",
+        "第4帧：前方当前道路终止并接入横向住宅街道，T形路口与横向通行空间明确，无可见信号控制"
+      ],
+      "reason": "第4帧：前方当前道路终止并接入横向住宅街道，T形路口与横向通行空间明确，无可见信号控制",
+      "reviewer": "Codex visual review of displayed RGB (not independent human adjudication)",
+      "development_exposed": true,
+      "verified_fields": [
+        "rs"
+      ],
+      "field_evidence": {
+        "rs": {
+          "confidence": "confirmed",
+          "visible_frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "newest_relevance": "第4帧：前方当前道路终止并接入横向住宅街道，T形路口与横向通行空间明确，无可见信号控制"
+        }
+      },
+      "rechecked": "2026-10-27; four frames at original resolution; training-only release"
+    },
+    {
+      "id": "train_review_17",
+      "scenario": "PedestrianCrossing",
+      "route_id": "Town12_Rep0_2862_0_route0_01_10_03_54_43",
+      "frame_id": 50,
+      "decision": "correct",
+      "changes": {
+        "rs": "R5"
+      },
+      "expected": {
+        "rs": "R1",
+        "split": "train",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_2862_0_route0_01_10_03_54_43/rgb/0047.jpg",
+          "sha256": "7c2eec6e2f9cd98974754254ec8f23a4405e02fe1e6e0398ccd37ba0cbcefe06"
+        },
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_2862_0_route0_01_10_03_54_43/rgb/0048.jpg",
+          "sha256": "63f47cefdfb4646f8d5d9c0baaf81d1b8bc847662612603d0c8b23689b12766e"
+        },
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_2862_0_route0_01_10_03_54_43/rgb/0049.jpg",
+          "sha256": "3dc4d30d315af6094bc63bfaf6550708b9c45f6931143065b132b83fa09549df"
+        },
+        {
+          "path": "PedestrianCrossing/Town12_Rep0_2862_0_route0_01_10_03_54_43/rgb/0050.jpg",
+          "sha256": "805ad1bfdbaa73b6c5b5df10e20850fb07c530b0e3f5766aec097a6f88221ccb"
+        }
+      ],
+      "frame_notes": [
+        "第1帧：当前街道接入横街，STOP路面字样与横道清楚；行人横穿不应使RS退回R1",
+        "第2帧：当前街道接入横街，STOP路面字样与横道清楚；行人横穿不应使RS退回R1",
+        "第3帧：当前街道接入横街，STOP路面字样与横道清楚；行人横穿不应使RS退回R1",
+        "第4帧：当前街道接入横街，STOP路面字样与横道清楚；行人横穿不应使RS退回R1"
+      ],
+      "reason": "第4帧：当前街道接入横街，STOP路面字样与横道清楚；行人横穿不应使RS退回R1",
+      "reviewer": "Codex visual review of displayed RGB (not independent human adjudication)",
+      "development_exposed": true,
+      "verified_fields": [
+        "rs"
+      ],
+      "field_evidence": {
+        "rs": {
+          "confidence": "confirmed",
+          "visible_frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "newest_relevance": "第4帧：当前街道接入横街，STOP路面字样与横道清楚；行人横穿不应使RS退回R1"
+        }
+      },
+      "rechecked": "2026-10-27; four frames at original resolution; training-only release"
+    },
+    {
+      "id": "train_review_19",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town13_Rep0_1204_1_route0_01_09_02_45_41",
+      "frame_id": 50,
+      "decision": "correct",
+      "changes": {
+        "rs": "R5"
+      },
+      "expected": {
+        "rs": "R1",
+        "split": "train",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town13_Rep0_1204_1_route0_01_09_02_45_41/rgb/0047.jpg",
+          "sha256": "097b7a9a27eb208ede998c520f243abb2d3da977fe13b80be78fbacc86670fe2"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town13_Rep0_1204_1_route0_01_09_02_45_41/rgb/0048.jpg",
+          "sha256": "1e9d21786e13f7cf67fbbf30d2868094a41b1469ba0227b1dcc00f9ad6b4ac91"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town13_Rep0_1204_1_route0_01_09_02_45_41/rgb/0049.jpg",
+          "sha256": "b61523bb4d36f497aa45f86ffa79fd626fa215041e2d67b24745bedcbd974c2e"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town13_Rep0_1204_1_route0_01_09_02_45_41/rgb/0050.jpg",
+          "sha256": "6ad101fa6338254b40ed26383698f86e82586eb99c428cb28221785644b57ba7"
+        }
+      ],
+      "frame_notes": [
+        "第1帧：当前道路尽端的T形横街、STOP标志与横道连续可见，前车等候接入",
+        "第2帧：当前道路尽端的T形横街、STOP标志与横道连续可见，前车等候接入",
+        "第3帧：当前道路尽端的T形横街、STOP标志与横道连续可见，前车等候接入",
+        "第4帧：当前道路尽端的T形横街、STOP标志与横道连续可见，前车等候接入"
+      ],
+      "reason": "第4帧：当前道路尽端的T形横街、STOP标志与横道连续可见，前车等候接入",
+      "reviewer": "Codex visual review of displayed RGB (not independent human adjudication)",
+      "development_exposed": true,
+      "verified_fields": [
+        "rs"
+      ],
+      "field_evidence": {
+        "rs": {
+          "confidence": "confirmed",
+          "visible_frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "newest_relevance": "第4帧：当前道路尽端的T形横街、STOP标志与横道连续可见，前车等候接入"
+        }
+      },
+      "rechecked": "2026-10-27; four frames at original resolution; training-only release"
+    },
+    {
+      "id": "train_review_23",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_261_1_route0_01_10_11_58_42",
+      "frame_id": 50,
+      "decision": "correct",
+      "changes": {
+        "rs": "R5"
+      },
+      "expected": {
+        "rs": "R1",
+        "split": "train",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_261_1_route0_01_10_11_58_42/rgb/0047.jpg",
+          "sha256": "613b610a8d3c032c49a1083a4226fe3f8ad53074b3370e16b8a6d826a2a0c6ca"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_261_1_route0_01_10_11_58_42/rgb/0048.jpg",
+          "sha256": "7d91b2a6e561df5be18f7eaee267553ac2473bf580705667e6ba95866d3dd424"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_261_1_route0_01_10_11_58_42/rgb/0049.jpg",
+          "sha256": "f4863eccfe50807ab55f42e30e388a3a79225ebbeeceabbfd2469a64c0b103b9"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_261_1_route0_01_10_11_58_42/rgb/0050.jpg",
+          "sha256": "9566c5bdb9349aebd32f5488f075a2e2b0395cc29332528b33bcd33d5b802617"
+        }
+      ],
+      "frame_notes": [
+        "接近横街，横向车辆可见，前车减速接入。",
+        "横向道路与前车仍在近处，红白圆牌不能认作STOP。",
+        "横向车辆持续经过，未见信号灯头。",
+        "最新帧前车等候接入近处横街，局部通行冲突仍成立。"
+      ],
+      "reason": "四帧均可见当前道路连接横街、横向车流与前车等候；路旁红白圆牌不能称为STOP。R5依据局部交叉道路的gap-acceptance，不依据误认的停牌。",
+      "reviewer": "Codex visual review of displayed RGB (not independent human adjudication)",
+      "development_exposed": true,
+      "verified_fields": [
+        "rs"
+      ],
+      "field_evidence": {
+        "rs": {
+          "confidence": "confirmed",
+          "visible_frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "newest_relevance": "四帧均可见当前道路连接横街、横向车流与前车等候；路旁红白圆牌不能称为STOP。R5依据局部交叉道路的gap-acceptance，不依据误认的停牌。"
+        }
+      },
+      "rechecked": "2026-10-27; four frames at original resolution; training-only release"
+    }
+  ]
+}
