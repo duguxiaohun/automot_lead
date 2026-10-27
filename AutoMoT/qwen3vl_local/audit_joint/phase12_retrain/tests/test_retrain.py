@@ -66,6 +66,55 @@ def test_partial_machine_membership_is_explicit(fixture):
     assert result['absent_reviews']==[['Scenario','Route',500]]
 
 
+@pytest.mark.parametrize('layout',['cr02','dsw'])
+def test_already_correct_remote_rs_keeps_bytes_and_still_checks_rgb(fixture,layout):
+    f=fixture;review(f)
+    row=copy.deepcopy(f.row);row['rs']='R5'
+    row['answers'].update(RS1=False,RS5=True)
+    raw=(json.dumps(row)+'  \n').encode();f.index.write_bytes(raw)
+    root=f.tmp/layout;root.mkdir();(root/'lead_data').symlink_to(f.root,target_is_directory=True)
+    report=data.derive(f.index,f.review,root/'lead_data',root/'run/data')
+    assert report['matched_train_reviews']==1 and report['applied_train_reviews']==0
+    assert report['already_correct_train_reviews']==1
+    assert (root/'run/data/frame_index.jsonl').read_bytes()==raw
+    selected=json.loads((root/'run/selected_train_reviews.json').read_text())['decisions'][0]
+    assert selected['expected']['rs']=='R5' and selected['decision']=='retain'
+    assert selected['machine_reconciliation']['original_expected']['rs']=='R1'
+    (f.root/f.row['history_rgb_paths'][0]).write_bytes(b'wrong image')
+    with pytest.raises(ValueError):data.derive(f.index,f.review,root/'lead_data',root/'bad/data')
+
+
+@pytest.mark.parametrize('bad',['third_rs','inconsistent','unreviewed_fact','holdout','order'])
+def test_cross_machine_conflict_is_explicit_and_does_not_publish_data(fixture,bad):
+    f=fixture;review(f);row=copy.deepcopy(f.row)
+    if bad=='third_rs':row['rs']='R4';row['answers'].update(RS1=False,RS4=True)
+    elif bad=='inconsistent':row['rs']='R5'
+    elif bad=='unreviewed_fact':row['answers']['VULNERABLE']=True
+    elif bad=='holdout':row['split']='test'
+    else:row['history_rgb_paths'].reverse()
+    f.index.write_text(json.dumps(row)+'\n');before=f.index.read_bytes()
+    with pytest.raises(ValueError,match='local train review conflict'):data.derive(f.index,f.review,f.root,f.tmp/'reject/data')
+    conflict=json.loads((f.tmp/'reject/train_review_conflicts.json').read_text())['conflicts'][0]
+    assert conflict['local']['rs']==row['rs'] and conflict['reviewed_expected']['rs']=='R1'
+    assert conflict['reviewed_changes']=={'rs':'R5'}
+    assert f.index.read_bytes()==before and not (f.tmp/'reject/data').exists()
+
+
+def test_mixed_partial_applied_fields_and_original_review_are_preserved(fixture):
+    f=fixture;obj=review(f);d=obj['decisions'][0]
+    d['changes']['facts']={'STATIC_OBSTACLE':True};d['verified_fields'].append('STATIC_OBSTACLE')
+    d['field_evidence']['STATIC_OBSTACLE']=copy.deepcopy(d['field_evidence']['rs'])
+    f.review.write_text(json.dumps(obj));original=f.review.read_bytes()
+    row=copy.deepcopy(f.row);row['rs']='R5';row['answers'].update(RS1=False,RS5=True)
+    f.index.write_text(json.dumps(row)+'\n')
+    report=data.derive(f.index,f.review,f.root,f.tmp/'mixed/data')
+    selected=json.loads((f.tmp/'mixed/selected_train_reviews.json').read_text())['decisions'][0]
+    assert selected['changes']=={'facts':{'STATIC_OBSTACLE':True}}
+    new=json.loads((f.tmp/'mixed/data/frame_index.jsonl').read_text())
+    assert new['answers']['RS5'] and new['answers']['STATIC_OBSTACLE']
+    assert report['applied_train_reviews']==1 and f.review.read_bytes()==original
+
+
 def miniapp(tmp_path,layout):
     app=tmp_path/layout/'AutoMoT';app.mkdir(parents=True)
     for phase in (1,2):

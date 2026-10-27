@@ -50,7 +50,13 @@ bash qwen3vl_local/audit_joint/phase12_retrain/run.sh all 2
 同一台服务器、同一份准入可 `bash .../run.sh train 1 --run-dir <该CPU目录>` 接续；
 逐文件核验原数据/准入/源码，缺目录或已尝试过GPU训练均拒绝，不复用另一台机器的回执。
 不能从本机 CPU ready 推断远程已准入。不同机器缺少部分审核帧会记录 absent_reviews；
-至少实际匹配一条修正才能称 Phase1 修订数据，全部缺失则拒绝，内容/SHA不符也拒绝。
+至少匹配一条审核记录，全部缺失则拒绝。匹配后允许本机标签为审核前值或已确认的修正目标；
+已是目标的行逐字节保留，计入 already_correct_train_reviews，不能冒称新改了一条。
+只有仍需修改的行计入 applied_train_reviews；即使全部已修正，仍用新提示词从基座新训练。
+所有匹配行（包括已正确行）都检查 train 归属、RS/answers一致性、四帧顺序和RGB SHA。
+未审核字段变化、第三种RS标签或RGB不符仍拒绝；一次收集已匹配帧冲突，保存
+`train_review_conflicts.json` 中的本机实际值/审核原值/修正目标，不自动跳过或覆盖。
+原审核JSON与失败目录不改，selected_train_reviews.json另存本机实际前态和对齐记录。
 
 ## 隔离与公平比较
 
