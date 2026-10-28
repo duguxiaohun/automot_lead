@@ -24,7 +24,7 @@ wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA �
 
 **代码同步。** 以下规则适用于四种情形：wang 改 wang、wang 经 SSH 改 codon、codon 改 codon、codon 经 SSH 改 wang。共享中心是 GitHub `git@github.com:duguxiaohun/automot_lead.git` 的 main。
 
-1. 修改之前：在要改的那份仓库里 `git fetch origin`，看 `git status -sb`；工作区干净、只是落后时 `git pull --ff-only origin main`。同时看另一台机器的 `git status -sb`：对方有未推送的提交，或者对你要改的文件有未提交改动时，先停下，把那边的改动处理掉（提交推送，或交用户决定）再改。不要两边同时改同一个文件。
+1. 修改之前：在要改的那份仓库里 `git fetch origin`，看 `git status -sb`；工作区干净、只是落后时 `git pull --ff-only origin main`。同时看另一台机器的 `git status -sb`：对方有未推送的提交，或者对你要改的文件有未提交改动时，先停下，把那边的改动处理掉（提交推送，或交用户决定）再改。不要两边同时改同一个文件。codon 的 `.git` 约 47 GB，pack 文件数正好在自动 gc 阈值（`gc.autoPackLimit=50`）上，在 codon 上 fetch 或 pull 一律加 `-c gc.auto=0 -c maintenance.auto=false`，例如 `git -c gc.auto=0 -c maintenance.auto=false fetch origin`，否则会触发对整个历史的重新打包；是否清理其中约 7.6 GB 中断留下的 `tmp_pack_*` 由用户决定。
 2. 修改之后：跑相关测试（需要 CPU 的到 codon 上跑），只 `git add` 本次改动的具体路径，提交后立即 `git push origin main`。不要用 `git add -A` 或 `git add .`：`AutoMoT/checkpoints/`、`lead/`、`paper/`、`审计资料/` 下有大量没有入库的本地文件。主动推送是用户给的长期授权，取代以前“白名单 push 每次都要用户授权”的做法；推送的范围仍然是本次改动的精确文件。
 3. 推送之后：SSH 到另一台机器，在它的仓库里 `git fetch origin && git pull --ff-only origin main`，让两边都到最新。对方工作区不干净、不在 main 上或不能快进时，不要强行处理，报告给用户。
 4. 不 force push，不改写历史；不对另一台机器的工作区做 `reset --hard`、`checkout -- .`、`clean` 这类会丢改动的操作。
