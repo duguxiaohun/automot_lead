@@ -46,6 +46,7 @@ ssh codon@100.110.241.4 'cd <工作目录> && timeout 3600 codex exec -m gpt-6-a
 - 只出图或审图时，工作目录放在 codon 的 `~/.cache/<任务名>/` 这类非仓库目录，避免它读到仓库 AGENTS.md 去拉取、提交或推送。需要它改仓库文件时才在仓库里运行，并在提示里写明本次范围、不提交不推送；提交与两机同步仍由本会话按下面的同步规则完成。Full access（`--dangerously-bypass-approvals-and-sandbox`）只在任务确实需要写工作目录以外的位置时使用。
 - 长任务放进有名字的 tmux 会话并加 `timeout`。Codex 出图后可能因远程 MCP 连接错误卡住不退出，靠超时收尾；不要用宽泛的 `pkill -f` 结束 codon 上的 Codex 进程，它会匹配到 SSH 命令自身，也可能误伤用户自己的 Codex 会话。
 - wang 本机的 Codex（snap 版 0.114）登录已失效，且 snap 看不到 `/tmp`，不要用。
+- 绘图任务优先用它（用户明确，2026-10-28 实测）：`gpt-6-astra` High 的出图质量和锚点参考下的风格一致性都好。单张约 2–4 分钟，输出固定 1254×1254、部分带透明通道；3 个并行会话生成 23 张用时 44 分钟，未遇限流。论文配图的两套风格（黏土风／粘土风、活泼科研风）及其流程与经验见 `paper/cvpr_event_centric/figures/clay_style/` 与 `playful_style/` 下的说明文档。
 - Codex 的产出由本会话核对后再采用，汇报时说明哪部分由 Codex 完成。它消耗用户的会员额度，按任务需要调用，不做无意义的重复调用。
 
 **SSH。** 两台机器在不同的 Tailscale 网络里，靠节点共享互通，两个方向都用密钥免密登录：
