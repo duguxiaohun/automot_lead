@@ -100,7 +100,8 @@ def test_incomplete_or_wrong_completed_training_rejected(tmp_path,bad):
 
 
 @pytest.mark.parametrize('existing_four',[False,True])
-def test_recovery_orchestration_with_explicit_gpu_stage_doubles(tmp_path,monkeypatch,existing_four):
+@pytest.mark.parametrize('reuse_two',[False,True])
+def test_recovery_orchestration_with_explicit_gpu_stage_doubles(tmp_path,monkeypatch,existing_four,reuse_two):
     from qwen3vl_local import runtime_version
     from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof,data_stage,delivery
     from qwen3vl_local.audit_joint.phase12_retrain import launch
@@ -111,6 +112,8 @@ def test_recovery_orchestration_with_explicit_gpu_stage_doubles(tmp_path,monkeyp
     adapter_source=tree/'adapter.py';adapter_source.write_text('original')
     profile={'qwen3vl_local/qwen35/adapters.py':hashlib.sha256(b'original').hexdigest()}
     target=tree/'qwen3vl_local/qwen35/adapters.py';target.parent.mkdir(parents=True);target.write_text('original')
+    script=tree/'qwen3vl_local/sft_new_loop_phase2/eval.sh';script.parent.mkdir(parents=True);script.write_text('frozen shell fixture')
+    profile['qwen3vl_local/sft_new_loop_phase2/eval.sh']=hashlib.sha256(script.read_bytes()).hexdigest()
     two=tree/'checkpoints/sft_new_loop_phase2_retrain_runs/run_direct_event_format_supervised_2rgb_endpoints'/old.name
     four=tree/'checkpoints/sft_new_loop_phase2_retrain_runs/run_direct_event_format_supervised_4rgb'/old.name
     (two/'final').mkdir(parents=True);(two/'training_complete.json').write_text('{}')
@@ -130,24 +133,40 @@ def test_recovery_orchestration_with_explicit_gpu_stage_doubles(tmp_path,monkeyp
         validated.append(mode);return run/'final',{}
     monkeypatch.setattr(recovery,'validate_completed',complete)
     monkeypatch.setattr(delivery,'verify_package',lambda p:{'status':'verified'})
+    if reuse_two:
+        def reuse(*args):
+            target=out/'pipeline/2rgb_endpoints/2rgb_endpoints/eval_review'
+            target.mkdir(parents=True)
+            (out/'reused_evaluation.json').write_text('{}')
+            return target,[tmp_path/'data_receipt',tmp_path/'preflight'],{},[]
+        monkeypatch.setattr(recovery.packaging,'stage_existing',reuse)
+        monkeypatch.setattr(recovery.packaging,'bound_packer',lambda *a:'print("native packer double")\n')
     calls=[]
     def stage(cmd,status,*,timeout,env):
-        mode=env['HISTORY_RGB_MODES'];calls.append((mode,env['RUN_TRAIN']))
+        mode=env['HISTORY_RGB_MODES']
+        package_only=mode=='2rgb_endpoints' and reuse_two
+        calls.append((mode,'package_only' if package_only else env['RUN_TRAIN']))
+        if package_only:
+            assert cmd[:3]==['bash','-c','python - < "$1"']
+        else:
+            assert cmd==['bash','qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh']
         if mode=='4rgb' and not existing_four:
             assert not four.exists();(four/'final').mkdir(parents=True);(four/'training_complete.json').write_text('{}')
         # Exercise the real native exclusive output reservation, including both launches.
         from qwen3vl_local.sft_new_loop_phase1 import local_assets
         folder=Path(env['PIPELINE_ROOT'])
-        with monkeypatch.context() as m:
-            m.setattr(sys,'argv',['local_assets','reserve-output','--path',str(folder)])
-            local_assets.main()
+        if not package_only:
+            with monkeypatch.context() as m:
+                m.setattr(sys,'argv',['local_assets','reserve-output','--path',str(folder)])
+                local_assets.main()
         (folder/'fixture_audit_bundle.tar.gz').write_bytes(b'GPU stage double')
-        (out/'traces'/f'{mode}.jsonl').write_text('{"torch_device":"cpu"}\n')
+        (out/'traces'/f'adapter_read_{mode}.jsonl').write_text('{"torch_device":"cpu"}\n')
     monkeypatch.setattr(data_stage,'run',stage)
     cwd=Path.cwd()
-    try:recovery.worker(old,out,version,profile)
+    try:recovery.worker(old,out,version,profile,tmp_path/'previous_review' if reuse_two else None)
     finally:os.chdir(cwd)
-    assert calls==[('2rgb_endpoints','0'),('4rgb','0' if existing_four else '1')]
+    assert calls==[('2rgb_endpoints','package_only' if reuse_two else '0'),('4rgb','0' if existing_four else '1')]
     assert (out/'recovery_audit.tar.gz').is_file()
     assert json.loads((out/'completion.json').read_text())['two_training_repeated'] is False
+    assert json.loads((out/'completion.json').read_text())['two_inference_reused'] is reuse_two
     assert old_before=={str(p.relative_to(old)):p.read_bytes() for p in old.rglob('*') if p.is_file()}

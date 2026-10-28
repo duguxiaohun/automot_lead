@@ -15,6 +15,11 @@ import subprocess
 import sys
 import tarfile
 
+if __package__:
+    from . import package_recovery as packaging
+else:
+    import package_recovery as packaging
+
 APP=Path(__file__).resolve().parents[3]
 HERE=Path(__file__).resolve().parent
 
@@ -53,6 +58,7 @@ def mode_environment(environment, tree, old, out, info, mode, adapter=None, trai
                RUN_TRAIN='0' if adapter else '1',GPU_IDS=os.environ.get('GPU_IDS','0,1,2,3'),
                PYTHONPATH=str(tree),PHASE12_RECOVERY_TREE=str(tree),
                PHASE12_RECOVERY_ADAPTER_SHA=os.environ['PHASE12_RECOVERY_ADAPTER_SHA'],
+               PHASE12_RECOVERY_EVAL_SHA=os.environ.get('PHASE12_RECOVERY_EVAL_SHA',''),
                PHASE12_RECOVERY_TRACE=str(out/'traces'))
     env['PATH']=str(out/'bin')+os.pathsep+env['PATH']
     if adapter:env['ADAPTER_DIR']=str(adapter)
@@ -60,7 +66,7 @@ def mode_environment(environment, tree, old, out, info, mode, adapter=None, trai
     return env
 
 
-def worker(old,out,version,profile):
+def worker(old,out,version,profile,reuse_two_eval=None):
     # This file is executed externally with PYTHONPATH pointing only at old tree.
     from qwen3vl_local import runtime_version as runtime
     from qwen3vl_local.audit_joint.phase12_retrain.launch import verify_ready,environment
@@ -89,20 +95,37 @@ def worker(old,out,version,profile):
         four_adapter,_=validate_completed(proof,four,ready['index'],'4rgb')
     (out/'bin').mkdir();(out/'traces').mkdir()
     shim=out/'bin/torchrun';shim.write_text(torchrun_shim(sys.executable,out/'code/cpu_adapter_entry.py'));shim.chmod(0o755)
+    shim=out/'bin/python'
+    shim.write_text('#!/bin/sh\nexec '+shlex.quote(sys.executable)+' '+shlex.quote(str(out/'code/package_recovery.py'))+' "$@"\n')
+    shim.chmod(0o755)
     os.environ['PHASE12_RECOVERY_ADAPTER_SHA']=profile['qwen3vl_local/qwen35/adapters.py']
+    os.environ['PHASE12_RECOVERY_EVAL_SHA']=profile['qwen3vl_local/sft_new_loop_phase2/eval.sh']
     proof.write(out/'recovery_plan.json',dict(old_run=str(old),version=str(version),data=ready['data'],
         two_train=str(two),two_adapter=str(two_adapter),two_training_complete_sha256=proof.sha(two/'training_complete.json'),
         four_train=str(four),four_action='reuse_completed' if four_adapter else 'fresh_train',
-        patch='adapter deserialization torch_device=cpu; native model.to(rank device) unchanged',source_profile=profile))
+        reuse_two_eval=str(reuse_two_eval) if reuse_two_eval else None,
+        patch='adapter read on CPU; inline packer copies frozen code once; native verification unchanged',source_profile=profile))
     os.chdir(tree)
+    reused_hashes={};reused_files=[]
     for mode,adapter in [('2rgb_endpoints',two_adapter),('4rgb',four_adapter)]:
         # Detect source/data/weight changes before every stage, not just once.
         verify_ready(old,2,version)
         validate_completed(proof,two,ready['index'],'2rgb_endpoints')
         if mode=='4rgb' and adapter is None and four.exists():raise ValueError('Four-image output appeared during recovery')
         env=mode_environment(environment,tree,old,out,info,mode,adapter, four if mode=='4rgb' else None)
-        data_stage.run(['bash','qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh'],
-            out/f'{mode}_pipeline.json',timeout=172800,env=env)
+        if mode=='2rgb_endpoints' and reuse_two_eval:
+            target,metadata,reused_hashes,reused_files=packaging.stage_existing(
+                reuse_two_eval,old,out,version,two_adapter,ready,profile)
+            body=out/'code/repack_two.py'
+            body.write_text(packaging.bound_packer(tree,profile['qwen3vl_local/sft_new_loop_phase2/eval.sh']))
+            env=packaging.package_environment(env,target,two_adapter,old,info,metadata)
+            print('[REUSE] Two-image inference already complete: verifying and packaging only',flush=True)
+            data_stage.run(['bash','-c','python - < "$1"','repack',str(body)],
+                out/'2rgb_endpoints_package.json',timeout=7200,env=env)
+            packaging.verify_hashes(reused_hashes)
+        else:
+            data_stage.run(['bash','qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh'],
+                out/f'{mode}_pipeline.json',timeout=172800,env=env)
         train_root=two if mode=='2rgb_endpoints' else four
         validate_completed(proof,train_root,ready['index'],mode)
         bundles=list((out/'pipeline'/mode).rglob('*_audit_bundle.tar.gz'))
@@ -113,14 +136,18 @@ def worker(old,out,version,profile):
     verify_ready(old,2,version)
     validate_completed(proof,two,ready['index'],'2rgb_endpoints')
     validate_completed(proof,four,ready['index'],'4rgb')
-    traces=list((out/'traces').glob('*.jsonl'))
+    packaging.verify_hashes(reused_hashes)
+    traces=list((out/'traces').glob('adapter_read_*.jsonl'))
     if not traces:raise ValueError('Missing adapter CPU-read recovery traces')
     for p in traces:
         if any(json.loads(line)['torch_device']!='cpu' for line in p.read_text().splitlines()):raise ValueError('Invalid adapter read trace')
     payloads=[out/'recovery_plan.json',*sorted((out/'code').glob('*')),*traces,
+              *sorted((out/'traces').glob('package_copy_*.json')),*reused_files,
               old/'execution.json',old/'ready.json',old/'data/training_revision.json',old/'selected_train_reviews.json']
+    if reuse_two_eval:payloads.append(out/'reused_evaluation.json')
     record=dict(status='completed_quality_pending',original_run=str(old),old_source_unchanged=True,
-        two_training_repeated=False,four_training_complete_sha256=proof.sha(four/'training_complete.json'),
+        two_training_repeated=False,two_inference_reused=bool(reuse_two_eval),
+        four_training_complete_sha256=proof.sha(four/'training_complete.json'),
         native_bundles={str(p):proof.sha(p) for p in (out/'pipeline').rglob('*_audit_bundle.tar.gz')},
         supplemental_files={str(p):proof.sha(p) for p in payloads})
     proof.write(out/'completion.json',record)
@@ -135,10 +162,11 @@ def worker(old,out,version,profile):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run-dir',type=Path,required=True)
+    p.add_argument('--reuse-two-eval',type=Path,help='Strictly reuse complete two-image evaluation from the reported failed recovery')
     p.add_argument('--worker',action='store_true');p.add_argument('--output',type=Path);p.add_argument('--version',type=Path)
     a=p.parse_args();old=a.run_dir.resolve()
     if a.worker:
-        return worker(old,a.output.resolve(),a.version.resolve(),read(HERE/'recovery_profile.json'))
+        return worker(old,a.output.resolve(),a.version.resolve(),read(HERE/'recovery_profile.json'),a.reuse_two_eval)
     from qwen3vl_local import runtime_version as runtime
     from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
     execution=read(old/'execution.json');version=Path(execution['version']).resolve()
@@ -151,14 +179,16 @@ def main():
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         out=old/('recovery_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+str(os.getpid()))
         (out/'code').mkdir(parents=True,exist_ok=False)
-        for name in ('recover_eval.py','cpu_adapter_entry.py','recovery_profile.json'):
+        for name in ('recover_eval.py','cpu_adapter_entry.py','recovery_profile.json','package_recovery.py'):
             shutil.copy2(HERE/name,out/'code'/name)
         env={**os.environ,'PYTHONPATH':str(version/'app'),'PYTHONDONTWRITEBYTECODE':'1',
              'PATH':str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH','')}
         print('[RECOVERY] '+str(out),flush=True)
         try:
             subprocess.run([sys.executable,'-B',str(out/'code/recover_eval.py'),'--worker','--run-dir',str(old),
-                            '--output',str(out),'--version',str(version)],cwd=version/'app',env=env,check=True)
+                            '--output',str(out),'--version',str(version),
+                            *(['--reuse-two-eval',str(a.reuse_two_eval.resolve())] if a.reuse_two_eval else [])],
+                           cwd=version/'app',env=env,check=True)
             runtime.verify(version)
         except BaseException as exc:
             proof.write(out/'failed.json',dict(error=str(exc),old_run_preserved=True));raise

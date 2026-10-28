@@ -347,7 +347,8 @@ def skip_existing_bundle_artifact(src: pathlib.Path) -> bool:
         first = src.relative_to(root).parts[0]
     except Exception:
         return False
-    return first == "audit_bundle" or first.endswith("_audit_bundle") or src.name.endswith("_audit_bundle.tar.gz")
+    # Source evidence is copied once below; copy2 preserves frozen read-only modes.
+    return first == "code" or first == "audit_bundle" or first.endswith("_audit_bundle") or src.name.endswith("_audit_bundle.tar.gz")
 
 def copy_text(src: pathlib.Path, dst: pathlib.Path, max_jsonl_lines=None) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)

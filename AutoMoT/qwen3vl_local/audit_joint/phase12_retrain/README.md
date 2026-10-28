@@ -153,3 +153,32 @@ GPU_IDS=0,1,2,3 python -B -m qwen3vl_local.audit_joint.phase12_retrain.recover_e
 本轮相关CPU回归221项通过（64.00秒）；最终修正恢复输出目录后，13项针对性测试
 再次通过（3.78秒，包含在221项内），覆盖原生独占输出目录检查。首次运行有两项
 shell测试因本机PATH缺少Python环境失败，补齐测试环境PATH后通过，未更改检查条件。
+
+## 只读源码打包修复与已完成两图评测复用（2026-10-28晚）
+
+`recovery_20261028_205911_691534` 已通过CPU adapter加载并完成两图四组推理，
+在打包 `copytree` 时失败。冻结源码是0444：文本遍历先复制了code中的JSON/TXT，
+随后源码树复制再次写同一只读目标，导致Permission denied。两个阶段的eval.sh均让
+code只由一次copytree复制；不chmod冻结源码/旧证据、不删旧结果、不放松SHA/完整性检查。
+
+旧快照保持原样。恢复入口增加有记录的Python入口补充，只匹配精确绑定eval.sh中的
+inline packer，将同一条code排除策略应用于内存中的打包程序。其它Python调用原样转交；
+补充代码、原始/执行片段SHA随recovery审计包交付。四图原生流水线也使用这一补充。
+
+本次失败可用以下命令复用两图评测：
+
+```bash
+GPU_IDS=0,1,2,3 python -B -m qwen3vl_local.audit_joint.phase12_retrain.recover_eval --run-dir checkpoints/phase12_retrain/p2_20261028_112100_432848 --reuse-two-eval checkpoints/phase12_retrain/p2_20261028_112100_432848/recovery_20261028_205911_691534/pipeline/2rgb_endpoints/2rgb_endpoints/eval_review
+```
+
+复用只接受本轮原恢复程序的精确源码、失败回执和同run/adapter/data/source绑定，
+四组推理均经原生raw输出重算与完成/性能回执校验；错误审计、原CPU加载trace及原源码证据
+同时检查。只将已完成输出复制到新恢复目录，旧失败包不带入；重新执行原生delivery校验、
+打包、包内逐文件验证和30MB限制。原结果及补充来源散列随新包保存，末尾再检查未变化。
+缺项、篡改、错配直接拒绝，不自动重推理。两图打包后继续原四图流程：缺失才从基座新训练，
+完整则只评测，不完整训练目录仍拒绝。各阶段采样、标定、提示词与更新预算均未改变。
+
+本轮240项CPU回归107.21秒通过；最终加强子进程打包测试后24项针对性复核15.55秒通过
+（包含在240项范围内）。非root环境真实复现旧逻辑Permission denied，验证两阶段只读
+源码打包及缩图重试、包内散列、原生评分、完成回执、复用后的真实shell/Python子进程打包、
+篡改拒绝及恢复顺序；VLM输出/小训练fixture明确为替身，不称真实模型精度或H20本轮验收。
