@@ -1,0 +1,6 @@
+{
+  "qwen3vl_local/qwen35/adapters.py": "6d6f87d50ced7a050bb1bcc0fa31d9b86c924766b389ac73e5bb2334c0ac6025",
+  "qwen3vl_local/sft_new_loop_phase2/eval.py": "be5c3d3151d7b90697a29f05d86d9bd3b052c9634f21e76a2dbcb1af7062c332",
+  "qwen3vl_local/sft_new_loop_phase2/eval.sh": "fe6d9857395457414177de7dd283994480ae330b43a34c7185cfba8f3d969b02",
+  "qwen3vl_local/sft_new_loop_phase2/run_full_pipeline.sh": "d51425541fc9ac1f4ece97f4d7aa926ec07f54fe2823829c69b344a89639d718"
+}

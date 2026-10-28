@@ -720,7 +720,8 @@ def load_eval_bundle(model_dir: pathlib.Path, adapter_dir: Optional[pathlib.Path
     if adapter_dir is not None:
         from qwen3vl_local.qwen35.adapters import LocalPeftModel as PeftModel
 
-        model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
+        # Deserialize on CPU; generic "cuda" may target a busy default GPU under Exclusive_Process.
+        model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False, torch_device="cpu")
         if merge_lora and hasattr(model, "merge_and_unload"):
             model = model.merge_and_unload()
     model = model.to(device).eval()

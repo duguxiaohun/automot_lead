@@ -117,3 +117,39 @@ Action hints是收集时重建结果；原失败进程未保存其回执，不�
 仅为CPU计划，不代表GPU完成、真实耗时或精度提高。新权重仍须重新训练、评测、交包审计。
 `all 2` 自动使用run/data中的修订索引，并将修订回执与保护证明绑定至ready和审计包。
 旧运行快照和失败目录保留；Phase1已运行任务不重启。
+
+## Exclusive_Process 下 LoRA 评测加载与原运行恢复（2026-10-28）
+
+cr02 两图完成训练后在 LoRA production 加载 safetensors 时，rank1/2/3 报 CUDA busy/unavailable；
+用户确认0–3为 Exclusive_Process、失败退出后空闲，4–7由其他任务占用。评测初始化已设置
+local_rank，但PEFT未显式指定反序列化设备时推断为通用cuda；不能依赖底层库把它当作当前rank。
+新Phase1/2 eval显式传 `torch_device="cpu"`，原 `model.to(device)` 仍负责最终设备放置。
+不改模型参数、提示词、采样、步数、GPU计算模式或他人进程，也不修改qwen35后端身份合同。
+
+已有旧权重必须在原冻结源码中验证，不能直接拿更新后的源码替换旧源码/SHA。恢复入口：
+
+```bash
+GPU_IDS=0,1,2,3 python -B -m qwen3vl_local.audit_joint.phase12_retrain.recover_eval --run-dir checkpoints/phase12_retrain/p2_20261028_112100_432848
+```
+
+适用本机Phase2 fresh_train_eval失败，且两图原生5376更新/完整训练回执/数据及adapter身份通过。
+支持的原源码按 `recovery_profile.json` 精确绑定；不兼容版本拒绝，不改旧回执或SHA。
+入口锁住原launch锁，在原run下新建recovery目录，补充代码复制后留证，在原快照中运行。
+仅torchrun的进程入口增加单独记录的adapter CPU读取包装；训练、评测与打包仍使用原生源码。
+本补充属于显式运行时修改，不能将native包中的旧源码清单误称为完整执行来源，必须连同
+`recovery_audit.tar.gz` 中的补充代码、绑定、加载trace和native包SHA一起审计。
+
+两图：仅重跑完整评测/打包，旧失败评测目录和已有基座结果保留在原处，另写新目录。
+四图：原计划输出目录缺失才从基座新训练；若已完整训练并通过原生验收，复用其权重补评测；
+存在不完整训练目录则拒绝，不隐式续训、不覆盖、不重复两图训练。仍为四卡、1024配额、
+每模型三轮5376更新，两个模式各自独立基座初始化。任何子步骤失败就停止，保留所有产物。
+原run/status.json保留历史failed，恢复状态以新recovery/completion.json为准。
+交付所有 `[BUNDLE]`，包含两模式原生包及额外恢复包。不得再用 `all 2` 当作此运行的续跑。
+
+本机测试包括真实小Qwen3.5+PEFT权重保存重载、强制库默认cuda的失败对照与CPU修复、
+真实两进程torchrun/Gloo入口测试，以及显式GPU阶段替身的恢复顺序/保护测试。
+这些不是远程H20/GPU验收，不承诺新模型精度已经达标。
+
+本轮相关CPU回归221项通过（64.00秒）；最终修正恢复输出目录后，13项针对性测试
+再次通过（3.78秒，包含在221项内），覆盖原生独占输出目录检查。首次运行有两项
+shell测试因本机PATH缺少Python环境失败，补齐测试环境PATH后通过，未更改检查条件。
