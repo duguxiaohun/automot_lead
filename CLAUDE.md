@@ -1,5 +1,38 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-28 wang／codon 两台工作机的分工、SSH 与代码同步（用户明确，长期有效）
+
+本仓库在两台普通工作机上各有一份工作副本。GPU 训练和 GPU 测试仍然只交给 cr02、cee 等远程 GPU 服务器（它们照旧用 `bash ./sync_automot.sh` 同步，见 2026-10-21 条目）；wang 和 codon 都不跑 GPU 任务。
+
+| | wang | codon |
+|---|---|---|
+| 仓库 | `/home/wang/Project/automot_lead` | `/home/codon/automot_lead` |
+| 职能 | 审计结果；修改代码或文章 | 审计结果；修改代码或文章；CPU 测试、代码标定等需要 CPU、lead 数据集或 CARLA 的工作 |
+| 不能用 | 本机 CARLA 和 GPU（与他人共用） | GPU 训练与 GPU 测试 |
+| 数据与 CARLA | 没有 lead 数据集和 CARLA；`lead/cache_ln/`、`AutoMoT/lead_video/`、`AutoMoT/keyframe_filter/collection_output/` 以及 `AutoMoT/checkpoints/` 里的大数据文件都没有迁移 | lead 数据在 `lead/cache_ln/data`（`AutoMoT/lead_data` 指向它）；CARLA 0.9.15 在 `/home/codon/CARLA/CARLA_0.9.15`（`AutoMoT/env.sh` 写的 `/datashare/CARLA_0915` 在 codon 上不存在，`AutoMoT/CARLA_0915` 是不含可执行文件的局部副本）；28 核、31 GB 内存 |
+| GitHub 推送 | 提交作者 `WangZhiDong2000`；推送用专用密钥 `~/.ssh/id_ed25519_automot_lead`（登记在 `duguxiaohun` 账号下，名为 wang），本仓库已设 `core.sshCommand` 指定它；`~/.ssh/id_ed25519` 属于 `WangZhiDong2000` 账号，对本仓库只读 | 提交作者 `duguxiaohun <1150900229@qq.com>`；推送用 `~/.ssh/id_ed25519`，SSH 经本机 Clash 代理（`~/.ssh/config` 已配置）；`origin` 是 SSH 地址 |
+
+wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA 时，自行 SSH 到 codon 执行，不必先问用户。长任务放进有明确名字的 tmux 会话，输出写入新目录，命令里写解释器的绝对路径，结束后核对退出码。2026-10-28 核查的解释器：codon 的 base Python 3.13 没有 torch；`pvi` 环境 `/home/codon/anaconda3/envs/pvi/bin/python`（3.10）有 torch、carla、pytest，没有 transformers 和 peft；codon 上没有找到装了 transformers 的环境。需要真实 Qwen 模型的测试先确认解释器，替身测试不能说成真实模型测试。
+
+**SSH。** 两台机器在不同的 Tailscale 网络里，靠节点共享互通，两个方向都用密钥免密登录：
+
+- wang → codon：`ssh codon@100.110.241.4`，或 `ssh codon@codon.tail9658fe.ts.net`
+- codon → wang：`ssh wang@100.124.187.99`，或 `ssh wang@wang.tail48eb5b.ts.net`。不能用 wang 本机看到的地址 `100.124.174.23`，从 codon 连会超时。
+- 脚本和 AI 调用加 `-o BatchMode=yes -o ConnectTimeout=10`，缺密钥时立即失败，不会卡在密码提示上；第一次用 MagicDNS 名字连接时再加 `-o StrictHostKeyChecking=accept-new`。
+- 两台机器之间没有直连，流量走 Tailscale 香港中继（DERP hkg，往返约 240 ms，不压缩约 0.5 MB/s）。传文件用 `rsync -az`，大文件尽量不跨机器搬。
+- codon 的 sudo 密码不写进本文件，因为本仓库在 GitHub 上是公开的。密码记在两台机器各自未入库的 `.private/MACHINES.md`（已列入 `.git/info/exclude`）。日常工作不需要 sudo；装卸系统包、改系统服务、网络或代理、重启机器等系统级操作先问用户。
+
+**代码同步。** 以下规则适用于四种情形：wang 改 wang、wang 经 SSH 改 codon、codon 改 codon、codon 经 SSH 改 wang。共享中心是 GitHub `git@github.com:duguxiaohun/automot_lead.git` 的 main。
+
+1. 修改之前：在要改的那份仓库里 `git fetch origin`，看 `git status -sb`；工作区干净、只是落后时 `git pull --ff-only origin main`。同时看另一台机器的 `git status -sb`：对方有未推送的提交，或者对你要改的文件有未提交改动时，先停下，把那边的改动处理掉（提交推送，或交用户决定）再改。不要两边同时改同一个文件。
+2. 修改之后：跑相关测试（需要 CPU 的到 codon 上跑），只 `git add` 本次改动的具体路径，提交后立即 `git push origin main`。不要用 `git add -A` 或 `git add .`：`AutoMoT/checkpoints/`、`lead/`、`paper/`、`审计资料/` 下有大量没有入库的本地文件。主动推送是用户给的长期授权，取代以前“白名单 push 每次都要用户授权”的做法；推送的范围仍然是本次改动的精确文件。
+3. 推送之后：SSH 到另一台机器，在它的仓库里 `git fetch origin && git pull --ff-only origin main`，让两边都到最新。对方工作区不干净、不在 main 上或不能快进时，不要强行处理，报告给用户。
+4. 不 force push，不改写历史；不对另一台机器的工作区做 `reset --hard`、`checkout -- .`、`clean` 这类会丢改动的操作。
+5. 没有入库的文件（`paper/`、`审计资料/`、`AutoMoT/checkpoints/` 里的审计证据等）不随 git 同步。需要时用 `rsync -az --update` 只同步具体路径；先看目标端，不加 `--delete`，不覆盖更新的文件。
+6. GPU 服务器的同步方式不变：给 cr02、cee 的命令仍然是 `bash ./sync_automot.sh`。
+
+**2026-10-28 两边的实际状态（之后以实测为准）：** 写入本条目之前 GitHub main 在 `748fff6`。wang 是 GitHub main 的干净克隆，另外从 codon 拷来约 5.6 GB 没有入库的代码、文档、论文和审计证据（不含数据；清单和筛选规则在 wang 的 `.migration_from_codon/`）；其中指向 `/home/codon/automot_lead/...` 的绝对符号链接在 wang 上是悬空的。codon 的 `/home/codon/automot_lead` 停在分支 `single-rgb-refine-20261024`（`be76ea5`，10-24），落后 GitHub main；有 17 个已跟踪文件带着不在任何 GitHub 提交里的未提交改动（包括本文件 10-24 到 10-26 的几条记录），另有约 970 个没有入库的源码文件（`AutoMoT/Automot/`、`AutoMoT/leaderboard/` 等）。codon 下次修改前，要先处理这些改动，再切回 main 拉取。
+
 ### 2026-10-27 标定／提示词修改后必须重新训练再评测（用户明确）
 
 后续 Phase1/2 改善采用：本地逐帧标定与保护回归 → 新标定/新提示词独立新训练 → 新权重评测与打包 → 新旧指标和原正确损失审计。旧权重换提示词仅能做辅助诊断，不能代替新训练验收，不能以此宣称新训练版本失败或成功。两阶段分别从 Qwen3.5 基座训练、互不依赖，保留原最优采样方法和既定更新预算。测试集修正单列，不偷偷改变主比较评分，不把测试样本搬入训练。远程训练必须实际使用该版本的数据、提示词并保存绑定；本机没有完整模型，CPU通过不称GPU验收。
