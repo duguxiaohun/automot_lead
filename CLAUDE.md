@@ -28,6 +28,18 @@
 
 wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA 时，自行 SSH 到 codon 执行，不必先问用户。长任务放进有明确名字的 tmux 会话，输出写入新目录，命令里写解释器的绝对路径，结束后核对退出码。2026-10-28 核查的解释器：codon 的 base Python 3.13 没有 torch；`pvi` 环境 `/home/codon/anaconda3/envs/pvi/bin/python`（3.10）有 torch、carla、pytest，没有 transformers 和 peft；codon 上没有找到装了 transformers 的环境。需要真实 Qwen 模型的测试先确认解释器，替身测试不能说成真实模型测试。
 
+**调用 codon 上的 Codex（用户明确，2026-10-28，长期有效）。** 用户在 codon 上有 Codex Pro 会员。AI 可以主动经 SSH 调用 codon 的 Codex 完成任务，不必先问用户，适用于三种情况：本会话 token 不够时，把可以独立完成的子任务交给它；想换一个模型对比效果时；多模态任务（生成图片、看图审图、图转矢量、看截图找问题等）——用户认为 GPT 的多模态能力比 Opus 好，这类任务应主动调用。用户日常的 Codex 配置是：模型 GPT-6 Astra、推理强度 High、Work locally、Full access。非交互调用写法：
+
+```bash
+ssh codon@100.110.241.4 'cd <工作目录> && timeout 3600 codex exec -m gpt-6-astra -c model_reasoning_effort=high --skip-git-repo-check -s workspace-write -C <工作目录> - < prompt.txt > codex.log 2>&1'
+```
+
+- 需要附图时加 `-i <图片>`。codon 上 codex-cli 0.154 的 image_generation 已稳定开启，生成的图片落在 codon 的 `~/.codex/generated_images/<会话>/`；在提示里要求它用 `cp` 拷到目标路径（codon 没有 `python` 命令，只有 `python3`）。
+- 只出图或审图时，工作目录放在 codon 的 `~/.cache/<任务名>/` 这类非仓库目录，避免它读到仓库 AGENTS.md 去拉取、提交或推送。需要它改仓库文件时才在仓库里运行，并在提示里写明本次范围、不提交不推送；提交与两机同步仍由本会话按下面的同步规则完成。Full access（`--dangerously-bypass-approvals-and-sandbox`）只在任务确实需要写工作目录以外的位置时使用。
+- 长任务放进有名字的 tmux 会话并加 `timeout`。Codex 出图后可能因远程 MCP 连接错误卡住不退出，靠超时收尾；不要用宽泛的 `pkill -f` 结束 codon 上的 Codex 进程，它会匹配到 SSH 命令自身，也可能误伤用户自己的 Codex 会话。
+- wang 本机的 Codex（snap 版 0.114）登录已失效，且 snap 看不到 `/tmp`，不要用。
+- Codex 的产出由本会话核对后再采用，汇报时说明哪部分由 Codex 完成。它消耗用户的会员额度，按任务需要调用，不做无意义的重复调用。
+
 **SSH。** 两台机器在不同的 Tailscale 网络里，靠节点共享互通，两个方向都用密钥免密登录：
 
 - wang → codon：`ssh codon@100.110.241.4`，或 `ssh codon@codon.tail9658fe.ts.net`
