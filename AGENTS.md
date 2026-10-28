@@ -36,17 +36,20 @@ wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA �
 - 两台机器之间没有直连，流量走 Tailscale 香港中继（DERP hkg，往返约 240 ms，不压缩约 0.5 MB/s）。传文件用 `rsync -az`，大文件尽量不跨机器搬。
 - codon 的 sudo 密码不写进本文件，因为本仓库在 GitHub 上是公开的。密码记在两台机器各自未入库的 `.private/MACHINES.md`（已列入 `.git/info/exclude`）。日常工作不需要 sudo；装卸系统包、改系统服务、网络或代理、重启机器等系统级操作先问用户。
 
+**和用户的沟通（用户明确）。** 回复用户一律用中文，包括中途的进度说明和最后的汇报。汇报“完成”之前，逐条核对用户提出的每一项要求（包括较早消息里的要求），写明每一项是否做到；没做到或只做了一部分的单独说明，不能只报做成的部分。用户贴来另一台机器上 AI 的对话，或者说自己改过内容时，先拉取并读过实际改动再继续。
+
 **代码同步。** 以下规则适用于四种情形：wang 改 wang、wang 经 SSH 改 codon、codon 改 codon、codon 经 SSH 改 wang。共享中心是 GitHub `git@github.com:duguxiaohun/automot_lead.git` 的 main。
 
 1. 修改之前：在要改的那份仓库里 `git fetch origin`，看 `git status -sb`；工作区干净、只是落后时 `git pull --ff-only origin main`。同时看另一台机器的 `git status -sb`：对方有未推送的提交，或者对你要改的文件有未提交改动时，先停下，把那边的改动处理掉（提交推送，或交用户决定）再改。不要两边同时改同一个文件。codon 的 `.git` 约 47 GB，pack 文件数正好在自动 gc 阈值（`gc.autoPackLimit=50`）上，在 codon 上 fetch 或 pull 一律加 `-c gc.auto=0 -c maintenance.auto=false`，例如 `git -c gc.auto=0 -c maintenance.auto=false fetch origin`，否则会触发对整个历史的重新打包；是否清理其中约 7.6 GB 中断留下的 `tmp_pack_*` 由用户决定。
 2. 修改之后：跑相关测试（需要 CPU 的到 codon 上跑），只 `git add` 本次改动的具体路径，提交后立即 `git push origin main`。不要用 `git add -A` 或 `git add .`：`AutoMoT/checkpoints/`、`lead/`、`审计资料/` 下有大量没有入库的本地文件，`paper/` 是单独的论文仓库。主动推送是用户给的长期授权，取代以前“白名单 push 每次都要用户授权”的做法；推送的范围仍然是本次改动的精确文件。
-3. 推送之后：SSH 到另一台机器，在它的仓库里 `git fetch origin && git pull --ff-only origin main`，让两边都到最新。对方工作区不干净、不在 main 上或不能快进时，不要强行处理，报告给用户。
+3. 推送之后：SSH 到另一台机器，在它的仓库里 `git fetch origin && git pull --ff-only origin main`，让两边都到最新。对方工作区不干净、不在 main 上或不能快进时，不要强行处理，报告给用户。wang 上有大量迁移时从 codon 拷来的未入库副本，拉取时如果提示 `untracked working tree files would be overwritten`，逐个用 `git hash-object` 和远端版本比对：完全相同的删掉本地副本再快进，不同的停下报告，不要用 `-f` 或 `reset` 硬盖。
 4. 不 force push，不改写历史；不对另一台机器的工作区做 `reset --hard`、`checkout -- .`、`clean` 这类会丢改动的操作。
 5. 没有入库的文件（`审计资料/`、`AutoMoT/checkpoints/` 里的审计证据等）不随 git 同步。需要时用 `rsync -az --update` 只同步具体路径；先看目标端，不加 `--delete`，不覆盖更新的文件。
 6. GPU 服务器的同步方式不变：给 cr02、cee 的命令仍然是 `bash ./sync_automot.sh`。
 7. 论文在 `paper/` 下，是独立的私有仓库 `git@github.com:duguxiaohun/paper.git`（main，2026-10-28 建立）。在 `paper/` 里同样按 1–4 条拉取、提交、推送，再同步另一台机器的 `paper/`；wang 的 `paper/.git/config` 也设了 `core.sshCommand` 用专用密钥。上层仓库的 `.git/info/exclude` 排除 `/paper/`，论文不进公开的 automot_lead，推送到私有论文仓库也不等于投稿或对外分享。论文怎么改见 `paper/AGENTS.md`。
+8. 每次任务结束前核对四处：wang 和 codon 上的 automot_lead、paper 两个仓库都在 main，没有未提交的已跟踪改动，并且与 origin/main 一致（`git status -sb` 显示 `## main...origin/main`，没有 ahead 或 behind；在 codon 上拉取仍要关自动 gc）。汇报里写明两个仓库最后的提交号；有一处没同步就说清原因，不能说成已同步。
 
-**2026-10-28 两边的实际状态（之后以实测为准）：** 写入本条目之前 GitHub main 在 `748fff6`。wang 是 GitHub main 的干净克隆，另外从 codon 拷来约 5.6 GB 没有入库的代码、文档、论文和审计证据（不含数据；清单和筛选规则在 wang 的 `.migration_from_codon/`）；其中指向 `/home/codon/automot_lead/...` 的绝对符号链接在 wang 上是悬空的。codon 的 `/home/codon/automot_lead` 停在分支 `single-rgb-refine-20261024`（`be76ea5`，10-24），落后 GitHub main；有 17 个已跟踪文件带着不在任何 GitHub 提交里的未提交改动（包括本文件 10-24 到 10-26 的几条记录），另有约 970 个没有入库的源码文件（`AutoMoT/Automot/`、`AutoMoT/leaderboard/` 等）。codon 下次修改前，要先处理这些改动，再切回 main 拉取。
+**迁移记录（2026-10-28）：** wang 的仓库是 GitHub 的克隆，另外从 codon 拷来约 5.6 GB 没有入库的代码、文档、论文和审计证据（不含数据；清单和筛选规则在 wang 的 `.migration_from_codon/`），其中指向 `/home/codon/automot_lead/...` 的绝对符号链接在 wang 上是悬空的。当天上午 codon 主目录还停在分支 `single-rgb-refine-20261024`、带着 17 个未提交改动；之后已在 `6c95526` 切回 main，这些改动在 `86c1eef` 提交推送。论文仓库两边从 `97aad86` 起同步。
 
 ### 2026-10-27 标定／提示词修改后必须重新训练再评测（用户明确）
 
