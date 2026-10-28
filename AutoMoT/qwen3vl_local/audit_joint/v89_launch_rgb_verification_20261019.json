@@ -1,0 +1,49 @@
+{
+  "schema": "v89_split_launch_rgb_review_v1",
+  "replay": {
+    "routes": 9,
+    "frames": 627,
+    "source_files": 1881,
+    "seconds": 42.2909748609527
+  },
+  "raw_questions_unchanged": 578,
+  "visual_rgb": 60,
+  "visual_source_files": 180,
+  "visual_scope": "Known development routes, label-visible review; not blinded or all-source certification",
+  "overlap_with_named_previous_reviews": {
+    "v88_release_rgb_20261019": 0,
+    "phase4_three_rgb_20261019": 2,
+    "ue5_handoff_20261019": 0
+  },
+  "teacher_or_student_contract_changed": false,
+  "gpu_run": false,
+  "unsupported_capabilities": [
+    "U-E5/proceed/YES"
+  ],
+  "local_train_per_mode": 197,
+  "local_val_per_mode": 0,
+  "local_test_per_mode": 0,
+  "evidence_sha256": {
+    "after/summary.json": "73faa597f414e6d69273bb01edb2600770bd27e283f8f21e85e08691a90b1c8c",
+    "after/sources.json": "7f2d22b033f51babafd6e605fc121133a4443d62b7431a3c1a221234aa33eb59",
+    "windows.json": "2a6fc99ac65dd4588920b22ab41d2155cb35f4ece5cde5449276c698c8e8bc05",
+    "visual_sources.json": "73f0207009701c207f6440f6d927485084b42d28e832eb8131d44740eec518d7",
+    "lifecycle.json": "7da489adda20b88a4154c6e94524491c6a99a2f801495b5659680f99e14b4c81",
+    "sampling.json": "a22cc183e76fc559e44f351bf4adb06f900fbd1145399218a91444678351cc03",
+    "geometry.json": "a58236c1b54c7bb4b708d069e1e432892b55da079de04570f6691bb083a0f983",
+    "tests_final.log": "cda93025108eaee0618210a5d2b431e2b5e81020ab19620581e0cf23b1798575",
+    "source_check.json": "462474d616f11ce064859a1377e2de2cb287c79c10b46775b8d5ada10b9d6ec6"
+  },
+  "tests": {
+    "passed": 303,
+    "seconds": 13.08,
+    "scope": "Selected entry, handoff, disk, native rule, lifecycle, CPU distributed evaluation and CPU build tests; not GPU acceptance"
+  },
+  "release": {
+    "path": "release_sources_v89_split_budget_20261019.json",
+    "sha256": "6cef74ad9ba24c33105ea91d7049fd0ae2423e68201787b0bac5c556e60bba51",
+    "matched_files": 585
+  },
+  "code_change": "Explicit first-epoch budget path, diagnostic binding, shell forwarding and current release pointers; no teacher/student/prompt/sampling changes",
+  "published": false
+}

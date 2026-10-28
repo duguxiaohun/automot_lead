@@ -14,7 +14,7 @@ import sys
 from .local_paths import check_inputs
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v88_resume_lifecycle_20261019.json')
+RELEASE = Path(__file__).with_name('release_sources_v90_data_dependencies_20261022.json')
 
 
 def metadata(path):

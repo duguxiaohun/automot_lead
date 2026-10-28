@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-22",
+  "status": "local_cpu_verification_passed",
+  "tests": {
+    "passed": 159,
+    "new_boundary_tests": 12,
+    "seconds": 38.35,
+    "exit_code": 0,
+    "command": [
+      "/tmp/geometry_v1_verify_env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "qwen3vl_local/audit_joint/tests/test_data_reuse_boundaries.py",
+      "qwen3vl_local/audit_joint/tests/test_data_prepare_review_fixes.py",
+      "qwen3vl_local/audit_joint/tests/test_versioned_data.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_common_data.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_launch.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_prompt_review.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_launcher.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_paths.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_native.py",
+      "qwen3vl_local/audit_joint/tests/test_phase4_resume.py",
+      "qwen3vl_local/audit_joint/tests/test_phase4_first_epoch.py"
+    ],
+    "cwd": "/home/codon/automot_lead/AutoMoT",
+    "log": "/home/codon/automot_lead/AutoMoT/checkpoints/data_reuse_boundaries_20261022/pytest.txt",
+    "log_sha256": "8254b8c436436a2821cbb85637d9001023fe60825f4bac8ed772e6c5647f7944"
+  },
+  "regressions": {
+    "missing_rgb": {
+      "before": 30,
+      "after": 60,
+      "native_records_identical": true,
+      "old_files_unchanged": true
+    },
+    "legacy_without_candidate_proof": {
+      "before": 30,
+      "after": 60,
+      "native_records_identical": true
+    },
+    "repaired_same_name_corrupt_rgb": {
+      "before": 30,
+      "after": 60,
+      "native_records_identical": true
+    },
+    "rejected_route_recovered": {
+      "before": 30,
+      "after": 40
+    },
+    "common_mixed_legacy_and_v2": "Both no-binding and old-binding legacy candidates skipped after integrity validation; v2 reused with zero generation",
+    "strict_rejection": [
+      "explicit unverifiable legacy common index",
+      "corrupt common index",
+      "corrupt common input bindings",
+      "corrupt common receipt",
+      "corrupt geometry candidate proof",
+      "incomplete geometry cache"
+    ]
+  },
+  "source_sha256": {
+    "data_prepare.py": "deda492bf41aedc8be0da8b2473e0fc3d37acc05649199ce3278986bea699f6b",
+    "phase3_common_data.py": "722f5af5c385c278ce6608e425baa33f01cf89f9afb01667b0bda90e28d24d86",
+    "tests/test_data_reuse_boundaries.py": "9747976297ef71c63bdbcb4ca3c7b636c14e80d2cc8aa088f7b42c1103169a70",
+    "DATA_REUSE_BOUNDARIES_20261022.md": "c1b997b154e5d506a163dc3a6b7baa346cccd75c21f3fcbdb308b5b2a53d48cb",
+    "release_sources_v90_data_dependencies_20261022.json": "406e77d32df266182919c3c668cf34053129d0d7ddc3f1fc33c0daa94ca6b97c",
+    "release_sources_v89_split_budget_20261019.json": "6cef74ad9ba24c33105ea91d7049fd0ae2423e68201787b0bac5c556e60bba51"
+  },
+  "phase4_release": {
+    "status": "matched",
+    "files": 587,
+    "v89_and_v90_unchanged": true
+  },
+  "git_diff_check": "passed",
+  "limits": [
+    "Geometry regression uses synthetic trajectories and map/event-mapping substitutes with real native build/coverage/reload.",
+    "Legacy geometry without full candidate proof can require one new build; no rewrite of historical source identity.",
+    "Explicit geometry existing selects a fixed artifact; does not certify completeness of restored candidates.",
+    "No full-pool, server, H20, new RGB semantic audit or prompt efficacy result."
+  ],
+  "training_performed": false,
+  "pushed": false
+}

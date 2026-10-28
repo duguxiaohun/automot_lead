@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-22",
+  "status": "local_implementation_and_selected_cpu_regressions_passed",
+  "published": false,
+  "server_execution": false,
+  "gpu_validation": false,
+  "new_model_accuracy_measured": false,
+  "source_sha256": {
+    "versioned_data.py": "a752089ac3502049af2b042ade02f98fb55924eccced8c0996a2f1699dfbe2a7",
+    "phase3_data_ready.py": "62092f82f65db59956a114ac47b9f76977ee8a1947a9ffc90f542126bf3b7a3b",
+    "data_prepare.py": "0e43083601fe0c735b20c1e613460d381dc11561ef112424d2bdf43664c3abcf",
+    "phase4_data_ready.py": "24df8e17b43bf195a73eb23b0db4ad14f41bd19bce9ce1d2dad8552d7804f52e",
+    "phase3_prompt_runtime.py": "dce8d4e0777b3e5637d8725550d6280229d07f6ec147db3cca5b0eadc8dde46b",
+    "phase3_common_data.py": "c9fd6899dc440ba11eecd1075c97d05e7077bb59000298e9dea5afaa0f230a6b",
+    "phase3_launch.py": "ba5a81eefb48afb8eecbd7e10c7d8f06f7e0d02731ad0645d501373fb10cfd3a",
+    "geometry_v1/remote.sh": "e104b11cbd07bcf4ef0a3fb7f599f776a08f49fc5a3762b192fc378cbc21020c",
+    "tests/test_versioned_data.py": "d099b587fdf9e34756582fc54cd26da0fee99abeaedcfae5abceaf91bce5a1c9",
+    "VERSIONED_DATA_AND_PROMPT_20261022.md": "dda444550599f5285d717cf0d0402024d2be464f2e0ca4bcf89da0de33d868a9",
+    "phase3_native_runtime.py": "ff40f82eadd3d833a4f7fe7c86428679c0609f0b8813962a71612832038603e3"
+  },
+  "tests": {
+    "passed": 99,
+    "seconds": 17.18,
+    "log": "/home/codon/automot_lead/AutoMoT/checkpoints/versioned_data_verification_20261022/pytest.txt",
+    "log_sha256": "35e8d196938b2f6c10ab055cd5fd7de03a6a6621c38295d806d78244c3d3591d",
+    "modules": [
+      "test_versioned_data.py",
+      "test_phase3_common_data.py",
+      "test_phase3_launch.py",
+      "test_phase3_prompt_review.py",
+      "test_phase3_matched_image_launcher.py",
+      "test_phase3_matched_image_paths.py",
+      "test_phase3_matched_image_native.py",
+      "test_phase4_resume.py"
+    ],
+    "native_label_incremental_equals_full": true,
+    "single_route_input_change_rebuilds_one_route": true,
+    "native_tiny_qwen_backward": true,
+    "saved_original_and_new_prompt_contracts_distinct": true,
+    "phase12_expensive_builder": "substituted; real argument parsing and native validation",
+    "phase4_discovery_admission": "substituted; original resume tests also run"
+  },
+  "checks": {
+    "frozen_historical_runtime_sources_matched": 484,
+    "shell_syntax": "passed",
+    "cli_help": "passed",
+    "git_diff_check": "passed",
+    "real_compatible_runtime_native_sources_verified": 261,
+    "real_compatible_runtime_second_call_reused": true,
+    "compatibility_runtime_evidence": "checkpoints/versioned_data_verification_20261022/native_runtime.json",
+    "compatibility_runtime_evidence_sha256": "6b6db2728edb0e5b6e5661cb4b52892061b7bd26aabf241cb67246f1f29dfd12"
+  },
+  "semantics": {
+    "native_action_labels_changed": false,
+    "history_fill_changed": false,
+    "future_mask_changed": false,
+    "sampling_quotas_changed": false,
+    "default_prompt": "original",
+    "new_prompt": "native_clarified_v1",
+    "vocabulary_extended": false,
+    "new_prompt_training_opt_in": true,
+    "scheme_two_enabled": false
+  },
+  "integration": {
+    "phase3_default_launcher": "local common discovery and single-frame route cache",
+    "geometry_remote_cpu": "data and 3-epoch plan reuse",
+    "phase12": "new data_prepare adapter; old pipelines retained",
+    "phase4": "new data_prepare adapter; native completed/intermediate/fresh-stage gates retained",
+    "generic_generation": "explicit recipe only; full causal dependencies and native validator required"
+  },
+  "limitations": [
+    "No global automatic migration for arbitrary checkpoint formats.",
+    "Legacy Phase1/2 datasets without original producer hashes require explicit selection and native validation.",
+    "Phase1/2 global sampling and geometry/Phase4 global rule changes are not unproven per-route patches.",
+    "Incremental single-frame label cache is route-granular; a global label dependency change invalidates every affected route.",
+    "Prompt and train runtime source changes do not authorize checkpoint state migration.",
+    "Full server pools, new prompt GPU efficacy and cross-machine native asset availability remain untested."
+  ]
+}

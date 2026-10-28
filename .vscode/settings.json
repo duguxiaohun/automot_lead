@@ -1,5 +1,36 @@
 {
     "git.ignoreLimitWarning": true,
+    "search.followSymlinks": false,
+    "search.exclude": {
+        "**/lead/cache_ln/**": true,
+        "**/AutoMoT/lead_data/**": true,
+        "**/AutoMoT/lead_video/**": true,
+        "**/AutoMoT/checkpoints/**": true,
+        "**/AutoMoT/keyframe_filter/collection_output/**": true,
+        "**/AutoMoT/qwen3vl_local/probe_output/**": true
+    },
+    "files.exclude": {
+        "**/lead/cache_ln": true,
+        "**/AutoMoT/lead_data": true,
+        "**/AutoMoT/lead_video": true,
+        "**/AutoMoT/checkpoints": true,
+        "**/AutoMoT/keyframe_filter/collection_output": true,
+        "**/AutoMoT/qwen3vl_local/probe_output": true
+    },
+    "python.analysis.exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "**/.git",
+        "**/.venv",
+        "**/lead/cache_ln",
+        "**/AutoMoT/lead_data",
+        "**/AutoMoT/lead_video",
+        "**/AutoMoT/checkpoints",
+        "**/AutoMoT/keyframe_filter/collection_output",
+        "**/AutoMoT/qwen3vl_local/probe_output"
+    ],
+    "python.analysis.indexing": false,
+    "python.analysis.diagnosticMode": "openFilesOnly",
     "files.watcherExclude": {
         "**/lead/cache_ln/**": true,
         "**/AutoMoT/lead_data/**": true,

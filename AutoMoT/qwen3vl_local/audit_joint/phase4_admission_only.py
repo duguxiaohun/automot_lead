@@ -9,7 +9,7 @@ from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 from .rule_baseline import ADMITTED
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v87_admission_only_20261019.json')
+RELEASE = Path(__file__).with_name('release_sources_v90_data_dependencies_20261022.json')
 
 
 def inputs(prepared, output, data_root, model_dir, complete_view=False):

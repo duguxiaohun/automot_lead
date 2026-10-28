@@ -17,7 +17,7 @@ from .python_dispatch import environment as python_environment
 from qwen3vl_local.sft_new_loop_phase4.identity import write_json
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v86_build_recovery_20261018.json')
+RELEASE = Path(__file__).with_name('release_sources_v90_data_dependencies_20261022.json')
 
 
 class Interrupted(BaseException):
@@ -67,10 +67,11 @@ def execute(command, log, env):
             raise
 
 
-def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus=None,
+def run(prepared, output, data_root, model_dir, *, view=None, budget=None, batch_size=2, gpus=None,
         batch_size_rgb2=None, batch_size_rgb4=None):
     prepared, output, data_root, model_dir = [Path(p).absolute() for p in (prepared, output, data_root, model_dir)]
     view = Path(view).absolute() if view is not None else None
+    budget_path = Path(budget).absolute() if budget is not None else prepared/'first_epoch_budget.json'
     batches = {2: batch_size if batch_size_rgb2 is None else batch_size_rgb2,
                4: batch_size if batch_size_rgb4 is None else batch_size_rgb4}
     if any(type(value) is not int or value not in (1, 2, 4, 8) for value in (batch_size, *batches.values())):
@@ -85,9 +86,11 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
     for source in (prepared, data_root, model_dir, *((view,) if view else ())):
         if output.resolve().is_relative_to(source.resolve()):
             raise ValueError('output must be outside all input directories')
+    if budget_path.resolve().is_relative_to(output.resolve()):
+        raise ValueError('budget input must be outside the new output directory')
     output.mkdir(parents=True, exist_ok=False)
     state = dict(status='running', stage='preflight', stages=[], prepared=str(prepared),
-                 dataset=str(view or output/'student/view'),
+                 dataset=str(view or output/'student/view'), budget_request_path=str(budget_path),
                  batch_size=batches[2] if batches[2] == batches[4] else None, gpu_ids=gpus or 'auto',
                  update_samples=32, accumulation=8//batches[2] if batches[2] == batches[4] else None,
                  mode_configuration={str(mode): dict(batch_size=size, accumulation=8//size, update_samples=32)
@@ -97,7 +100,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
     receipt = output/'workflow.json'
     from .server_context import context
     state['server_context']=context(prepared=prepared,view=view,output=output,
-                                    data_root=data_root,model_dir=model_dir)
+                                    data_root=data_root,model_dir=model_dir,budget=budget_path)
     code = 2
     def save():
         write_json(receipt, state)
@@ -112,7 +115,7 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
             raise ValueError('source mismatch; synchronize the declared release')
         for path in (prepared/'data4/manifest.json', prepared/'references4/references.json',
                      prepared/'references4/val.jsonl', prepared/'references4/test.jsonl',
-                     prepared/'first_epoch_budget.json', model_dir/'config.json'):
+                     budget_path, model_dir/'config.json'):
             if not path.is_file():
                 raise ValueError(f'required input missing: {path}')
         if not data_root.is_dir():
@@ -137,7 +140,6 @@ def run(prepared, output, data_root, model_dir, *, view=None, batch_size=2, gpus
                     state['original_view']=str(view)
                     state['view_upgrade_changes']=changes
                     state['dataset']=str(upgraded/'view')
-        budget_path = prepared/'first_epoch_budget.json'
         request = json.loads(budget_path.read_text())
         if not isinstance(request, dict):
             raise ValueError('budget request must be an object')
@@ -219,13 +221,14 @@ def main():
     p.add_argument('--data-root', type=Path, default=Path('lead_data'))
     p.add_argument('--model-dir', type=Path, default=Path('checkpoints/Qwen3.5-4B'))
     p.add_argument('--view', type=Path, help='Optional existing current view; admission still validates it')
+    p.add_argument('--budget', type=Path, help='Explicit first-epoch budget from a separate continuation directory; default PREPARED/first_epoch_budget.json')
     p.add_argument('--batch-size', type=int, choices=(1, 2, 4, 8), default=2,
                    help='Batch per GPU for both modes; user-selected default B2, accumulation 4, 32 samples/update')
     p.add_argument('--batch-size-rgb2', type=int, choices=(1, 2, 4, 8), help='Override batch per GPU for two RGB')
     p.add_argument('--batch-size-rgb4', type=int, choices=(1, 2, 4, 8), help='Override batch per GPU for four RGB')
     a = p.parse_args()
     try:
-        return run(a.prepared, a.output, a.data_root, a.model_dir, view=a.view, batch_size=a.batch_size,
+        return run(a.prepared, a.output, a.data_root, a.model_dir, view=a.view, budget=a.budget, batch_size=a.batch_size,
                    batch_size_rgb2=a.batch_size_rgb2, batch_size_rgb4=a.batch_size_rgb4)
     except (OSError, ValueError) as ex:
         p.error(str(ex))

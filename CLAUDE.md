@@ -1,5 +1,11 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-28 剩余白名单修改按现状发布（用户明确，暂不推进 Phase4）
+
+用户要求将本地剩余白名单代码及配套文件直接提交推送，Phase4 暂不继续处理。本次范围为17个已跟踪文件的本地修改及21个 `qwen3vl_local/audit_joint/` 补充源码、说明和轻量历史回执；保留 wang 已提交的双机与私有论文仓库说明，不上传数据、权重、日志或论文。本条仅更新发布状态，不把历史回执改称本轮验收。
+
+本轮CPU回归83项通过、2项失败：v90历史清单的587个文件中，共享 `action_prior/training_core.py` 已被后续提交更新，真实来源检查仍正确拒绝；没有重写旧SHA或绕过检查。另3个测试模块因pvi环境缺少transformers无法收集。Phase4当前不具备完整启动验收，不据本次push启动训练；待用户重新推进时单独处理版本兼容。根目录 `rule_based_keyframe_filter.py` 与已发布的 `AutoMoT/keyframe_filter/rule_based_keyframe_filter.py` 逐字相同，前者保留本地，不重复入库。
+
 ### 2026-10-28 每台机器只使用一个 automot_lead 工作目录（用户明确，覆盖旧发布方式）
 
 - codon 唯一日常工作目录为 `/home/codon/automot_lead`，wang 为 `/home/wang/Project/automot_lead`。修改、测试、白名单暂存、提交和推送都在各自这个目录内完成；不得为了隔离改动或发布而另建兄弟目录、Git worktree 或克隆副本。已有数据、权重及运行所需的冻结源码仍保留在项目内，不因整理工作区删除。
@@ -62,6 +68,7 @@ wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA �
 机器可读选择：AutoMoT/qwen3vl_local/audit_joint/phase3_base_default.json；包外 phase3_base_default 的 status 查看选择，adapter 核验指定旧交包 SHA、逐文件绑定运行 JSON/JSONL 与 base 四图原提示词身份，再复用原生完成/权重回执校验并输出路径；验收前后复核，拒绝旧包配另一轮运行。独立 shell 入口继承 Python 环境及禁 core 约定。统一 compare 原本指向旧 canonical，本轮不改其入口、生产标定/提示词/采样/ready 或既有合同。本机没有服务器 adapter，不声称完成远程部署或加载权重。本次只固定默认并保存使用边界，不自动恢复训练或候选实验；除非用户重新明确要求，不继续推进 base 改进。
 
 base 与 single 的标定、提示词、数据准入和权重按独立方法分支维护。single 的 phase3_single_v3 与 phase3_single_refine（独立 frozen 规则及 prompt）保留原状态；不将任一方规则、候选提示词、方向参考或历史填补语义复制到另一方。不得通过整个仓库 reset/revert 处理 base 回退。说明见 PHASE3_BASE_PROMPT_RUN_20261024.md 顶部，底部旧实验命令仅为暂停前记录。
+
 
 ### 2026-10-23 base ctime-only 输入清单恢复
 

@@ -81,6 +81,53 @@ def test_reuse_view_keeps_inputs_and_never_skips_auto_admission(inputs,monkeypat
     assert (view/'student_view.json').read_text()==original
 
 
+def test_split_view_and_budget_with_no_old_budget(inputs, monkeypatch, tmp_path):
+    continuation = tmp_path/'continuation'
+    view = continuation/'view'
+    view.mkdir(parents=True)
+    (view/'student_view.json').write_text(json.dumps({'parent': {'logical_path': str(inputs[0]/'data4')}}))
+    budget = continuation/'first_epoch_budget.json'
+    budget.write_text('{"fresh_budget": true}')
+    (inputs[0]/'first_epoch_budget.json').unlink()
+    before = {p: p.read_bytes() for root in (inputs[0], continuation) for p in root.rglob('*') if p.is_file()}
+    seen = []
+    def check(request, output):
+        assert request == {'fresh_budget': True} and output == inputs[1]
+        return {'sufficient': True}
+    monkeypatch.setattr(tool, 'budget_check', check)
+    def execute(command, log, env):
+        seen.append((log.stem, env))
+        return 0
+    monkeypatch.setattr(tool, 'execute', execute)
+    assert tool.run(*inputs, view=view, budget=budget) == 2  # No fabricated GPU results.
+    assert [stage for stage, _ in seen] == ['rgb2', 'rgb4']
+    for _, env in seen:
+        assert env['DATASET'] == str(view)
+        assert env['TEACHER_REFERENCES'] == str(inputs[0]/'references4')
+        assert env['FIRST_EPOCH_BUDGET'] == str(budget)
+    workflow = unpack(inputs[1]/'handoff')['workflow.json']
+    assert workflow['budget_request_path'] == str(budget)
+    assert workflow['budget_request_sha256'] == tool.file_sha(budget)
+    assert all(p.read_bytes() == contents for p, contents in before.items())
+
+
+@pytest.mark.parametrize('content', [None, '[]', '{broken'])
+def test_explicit_bad_budget_never_falls_back_to_old_budget(inputs, monkeypatch, tmp_path, content):
+    budget = tmp_path/'fresh_budget.json'
+    if content is not None:
+        budget.write_text(content)
+    monkeypatch.setattr(tool, 'execute', lambda *a: pytest.fail('must not launch'))
+    assert tool.run(*inputs, budget=budget) == 2
+    workflow = unpack(inputs[1]/'handoff')['workflow.json']
+    assert workflow['status'] == 'failed' and workflow['budget_request_path'] == str(budget)
+
+
+def test_budget_cannot_be_nested_in_new_output(inputs):
+    with pytest.raises(ValueError, match='budget input must be outside'):
+        tool.run(*inputs, budget=inputs[1]/'first_epoch_budget.json')
+    assert not inputs[1].exists()
+
+
 def test_known_old_view_upgrades_once_before_training_with_shared_preparation(inputs,monkeypatch,tmp_path):
     from qwen3vl_local.audit_joint import phase4_view_upgrade
     view=tmp_path/'old_view';view.mkdir()
@@ -193,9 +240,10 @@ def test_cli_passes_independent_batch_overrides(inputs,monkeypatch):
     captured={}
     monkeypatch.setattr(tool,'run',lambda *a,**kw:captured.update(kw) or 0)
     monkeypatch.setattr(sys,'argv',['phase4_first_epoch','--prepared',str(inputs[0]),
-        '--output',str(inputs[1]),'--batch-size','4','--batch-size-rgb2','2','--batch-size-rgb4','1'])
+        '--output',str(inputs[1]),'--budget','fresh/budget.json','--batch-size','4','--batch-size-rgb2','2','--batch-size-rgb4','1'])
     assert tool.main()==0
     assert (captured['batch_size'],captured['batch_size_rgb2'],captured['batch_size_rgb4'])==(4,2,1)
+    assert captured['budget']==Path('fresh/budget.json')
 
 
 def test_cli_default_is_selected_b2(inputs,monkeypatch):
@@ -207,7 +255,8 @@ def test_cli_default_is_selected_b2(inputs,monkeypatch):
 
 
 @pytest.mark.parametrize('override',[{}, {'BATCH_SIZE':'1'}, {'ACCUMULATION':'8'},
-                                    {'UPDATE_SAMPLES':'16'}, {'GRADIENT_CHECKPOINTING':'0'}])
+                                    {'UPDATE_SAMPLES':'16'}, {'GRADIENT_CHECKPOINTING':'0'},
+                                    {'EPOCHS':'2'}, {'RESUME_RGB2':'old checkpoint'}])
 def test_fixed_b2_shell_forwards_profile_or_rejects_conflicts(tmp_path,override):
     stub=tmp_path/'python';captured=tmp_path/'arguments.json'
     stub.write_text('#!'+sys.executable+'\nimport json,os,sys\nfrom pathlib import Path\n'
@@ -215,10 +264,11 @@ def test_fixed_b2_shell_forwards_profile_or_rejects_conflicts(tmp_path,override)
         'env={k:os.environ.get(k) for k in ("BATCH_SIZE","ACCUMULATION","UPDATE_SAMPLES","GPU_IDS")})))\n')
     stub.chmod(0o755)
     env={k:v for k,v in os.environ.items() if k not in
-         ('BATCH_SIZE','ACCUMULATION','UPDATE_SAMPLES','GRADIENT_CHECKPOINTING')}
+         ('BATCH_SIZE','ACCUMULATION','UPDATE_SAMPLES','GRADIENT_CHECKPOINTING',
+          'EPOCHS','RESUME_RGB2','RESUME_RGB4')}
     env.update(PYTHON=str(stub),CAPTURE=str(captured),PREPARED='prepared bundle',
                DATASET='existing view',P4_PRODUCTION_CACHE='route cache',
-               OUTPUT_DIR=str(tmp_path/'new output'),GPU_IDS='7,6,5,4',**override)
+               OUTPUT_DIR=str(tmp_path/'new output'),GPU_IDS='7,6,5,4',FIRST_EPOCH_BUDGET='fresh budget/request.json',**override)
     result=subprocess.run(['bash',str(tool.APP/'qwen3vl_local/audit_joint/train_phase4_batch.sh')],
                           env=env,text=True,capture_output=True)
     if override:
@@ -227,7 +277,7 @@ def test_fixed_b2_shell_forwards_profile_or_rejects_conflicts(tmp_path,override)
         assert result.returncode==0
         record=json.loads(captured.read_text());args=record['args']
         assert args[:2]==['-m','qwen3vl_local.audit_joint.phase4_first_epoch']
-        for key,value in [('--prepared','prepared bundle'),('--view','existing view'),
+        for key,value in [('--prepared','prepared bundle'),('--view','existing view'),('--budget','fresh budget/request.json'),
                           ('--batch-size','2'),('--batch-size-rgb2','2'),('--batch-size-rgb4','2')]:
             assert args[args.index(key)+1]==value
         assert record['env']==dict(BATCH_SIZE='2',ACCUMULATION='4',UPDATE_SAMPLES='32',GPU_IDS='7,6,5,4')

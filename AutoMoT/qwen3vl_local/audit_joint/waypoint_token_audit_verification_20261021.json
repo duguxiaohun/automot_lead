@@ -1,0 +1,200 @@
+{
+  "status": "completed_read_only_local_geometry_audit",
+  "date": "2026-10-21",
+  "checks": {
+    "identity_transform": true,
+    "rotation_covariance": true,
+    "all_route_sources_identical_across_passes": true,
+    "physical_group_matches_existing_rule": true,
+    "grid_sizes_and_real_example_labels": true,
+    "report_local_links_exist": true
+  },
+  "local_routes": 9582,
+  "nonempty_routes": 8729,
+  "nonempty_physical_groups": 8725,
+  "scenarios": 43,
+  "towns": 11,
+  "scan": {
+    "counts": {
+      "files": 1112087,
+      "bytes": 10962676260,
+      "save_freq_5": 1112085,
+      "complete_2s": 1042285,
+      "suspect": 382,
+      "incomplete_2s": 69800,
+      "errors": 2
+    },
+    "routes": 9582,
+    "seconds": 147.773310987046
+  },
+  "quality": {
+    "observed_matrix_yaw_abs": {
+      "0.5": 0.0,
+      "0.9": 1e-05,
+      "0.95": 1e-05,
+      "0.98": 4e-05,
+      "0.99": 8e-05,
+      "0.999": 0.0003,
+      "1": 3.14158
+    },
+    "observed_yaw_over5deg": 24,
+    "observed_yaw_over90deg": 24,
+    "privileged_matrix_yaw_abs": {
+      "0.5": 0.0,
+      "0.9": 0.0,
+      "0.95": 0.0,
+      "0.98": 0.0,
+      "0.99": 0.0,
+      "0.999": 0.0,
+      "1": 0.0
+    },
+    "total": 1112085,
+    "complete": 1042285,
+    "good": 1041904,
+    "flags": {
+      "0": 1111703,
+      "2": 382
+    },
+    "cross_count": 8582439,
+    "cross_max": 0.0008255374074767355,
+    "cross_gt01": 0,
+    "cross_gt1": 0,
+    "cross_mean": 7.688707328017477e-05,
+    "body_planar_difference": {
+      "0.5": 0.00013,
+      "0.9": 0.00502,
+      "0.95": 0.01487,
+      "0.98": 0.03949,
+      "0.99": 0.06126,
+      "0.999": 0.16155,
+      "1": 0.7233
+    },
+    "origin_error": {
+      "0.5": 3e-05,
+      "0.9": 0.0002,
+      "0.95": 0.00026,
+      "0.98": 0.00031,
+      "0.99": 0.00034,
+      "0.999": 0.0004,
+      "1": 0.00077
+    },
+    "position_matrix_error": {
+      "0.5": 0.0,
+      "0.9": 0.0,
+      "0.95": 0.0,
+      "0.98": 0.0,
+      "0.99": 0.0,
+      "0.999": 0.0,
+      "1": 0.0
+    },
+    "physical_groups": 9220
+  },
+  "train_candidates": {
+    "n": 185681,
+    "routes": 4587,
+    "x_2s": {
+      "0.5": 4.85374,
+      "0.9": 18.67092,
+      "0.95": 22.03823,
+      "0.98": 26.10149,
+      "0.99": 32.83664,
+      "0.999": 40.60703,
+      "1": 45.7102
+    },
+    "abs_y_2s": {
+      "0.5": 0.00767,
+      "0.9": 3.64676,
+      "0.95": 6.5467,
+      "0.98": 9.83221,
+      "0.99": 12.08668,
+      "0.999": 16.42637,
+      "1": 21.6298
+    }
+  },
+  "recommendation": {
+    "horizon_s": 2,
+    "spacing_s": 0.5,
+    "x_core_m": [
+      -0.25,
+      32
+    ],
+    "y_core_m": [
+      -14,
+      14
+    ],
+    "forward_bins": [
+      9,
+      7
+    ],
+    "shared_history_vocabulary": [
+      17,
+      7
+    ],
+    "outer_cells": "unbounded; continuous expert targets never clipped",
+    "status": "design_candidate_not_model_validated"
+  },
+  "coverage": {
+    "xmax": 32,
+    "ymax": 14,
+    "all": 0.9862069826010842,
+    "train": 0.9848126625772158,
+    "event_macro": 0.980960835759699,
+    "events": {
+      "STATIC_BLOCKAGE": 0.9983810688390197,
+      "POST_BYPASS_RETURN": 0.9670302832953436,
+      "UNSIGNALIZED_PRIORITY": 0.9883938599775365,
+      "LEAD_BRAKE": 1.0,
+      "SIGNAL_FAILURE": 1.0,
+      "JUNCTION_RULE_CONFLICT": 1.0,
+      "VULNERABLE_CROSSING": 0.9995742114040379,
+      "RAMP_MERGE_EXIT": 0.8639191290824261,
+      "DYNAMIC_CUTIN": 1.0,
+      "ONCOMING_INVASION": 0.9923098049986268
+    },
+    "junction": 0.9715416643622947,
+    "turn": 0.9545487800417017
+  },
+  "models_run": false,
+  "production_changed": false,
+  "source_data_rewritten": false,
+  "source_files": {
+    "AutoMoT/qwen3vl_local/audit_joint/waypoint_token_audit.py": "dbf2e547aed3139277afa6e78706d67c04ecfdb2edd2fd44059a9d40e592a988",
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_WAYPOINT_TOKEN_DESIGN_20261021.md": "8dd1af06fd27b37c9ab36bd0418c3a81ef89d4e9bc671320469c9819dcb7b000",
+    "AutoMoT/qwen3vl_local/audit_joint/phase3_single_frame/objective.py": "ede8fd739eb43270473cf69719c937417e39ee97b2a8e1436b348a45f98e6b9a",
+    "AutoMoT/qwen3vl_local/action_prior/build_dataset.py": "880ef8e6df9212be70593f081812172c89c9a8e90d1fcf96500af90cb949ce5f",
+    "AutoMoT/qwen3vl_local/action_prior/config.py": "05553abb35b04e7e23e127f7eadccdbe4b7004d44ea50edb4eaf6ca14ce32be0",
+    "lead/lead/expert/expert_data.py": "000f48ec1638278e0ddc0998cacc3142408fd027a33f8ce476880c68d77368aa",
+    "lead/lead/expert/expert_base.py": "3afd9262f0f3528c83010974998f65732cc807a02201da400912933edb25664d",
+    "lead/lead/common/config_base.py": "28d085bd1224bbe5fc2a86ac422502ba8628f4816383334b9d4c9157782c1e34",
+    "lead/lead/training/config_training.py": "25b0c22a3c733101f4a4fa32301bd609ea6d92c3b0ed67d9b162be773c896d1c"
+  },
+  "artifacts": {
+    "subgroups.csv": "ad371e0a546beeefeec96c1517d72c9be2a9568921f1443ff2759db54b0a642b",
+    "grid_comparison.json": "a580699c0310cf7ec6bd4b4d1d0f29cd27bbe8b5ae9a1d889ad57ec3334fd57f",
+    "scan_summary.json": "a76f8ea348062fa787f2686d1ee6f863ae79dec61c1e26ec0f95c11946c59e91",
+    "towns.csv": "9ad1f3f1c938bb04bc47f5111cb42e60796fae70a380c9eb74ddd12dd278bc4b",
+    "write_report.py": "bb4e42309dc4d07a381f354a1f5ea3e94bd2406a4f7ec9a4411b3ee2fd0de041",
+    "route_manifest_before_group_fix.jsonl": "caff6afe696ad049f439b4f84e59173a3a31aaf0826e555c4d083c862793d7d4",
+    "route_manifest.jsonl": "2287020a5a99b086b3f36e536eb336538fef6a8afff6ffd61f2a725f5759c715",
+    "verify_audit.py": "cb33e0b8c8031de21b9dfa58cd9e6c4bc2575ae2700f856c1659d5a73d49fa72",
+    "per_route.csv": "66bf2fda40cd450ecba143221d84f7c68e7e644b274c7960d082d72e883ca239",
+    "route_inventory.csv": "a7d0ee6a2b1a9e294032cf29a43ef11e6b0fdcbb044d85038f8797d7322cb3dd",
+    "event_index.json": "fc74c64989a2b9847f85830e37f4c9fbd06f7ef73364aa56fcac520cc01de608",
+    "compare_grids.py": "63b8c661aef4c153946a860a493da5b228ec51764883f1ccf450a9705f6602c3",
+    "statistics.json": "07b265402ea488ea3725d17daf4e6226784cc64976fe0adaa17a68871b5cc0af",
+    "pose_scan_source.py": "5e54e46f50f22d72447b2c266cfa3d53a9d289c06f449326e6aa377a04e0f237",
+    "heading_exceptions.json": "abe5473cbd00e21f1922ab9e9fcd0428e454e9f914183cb055da4bfabdd51778",
+    "events.csv": "29e9d82cafda570fd4fccf15354e78dbc5a2ee1dae0c43ecea6c3ae3b0ffe501",
+    "summarize.py": "c5d79a7d9c80958b8d8cb16b1feb5ef38e408a80abbb848d001d9006e5df9251",
+    "examples.json": "c5355f4276f1c439b5c7fd2dc9025d211183ae313e77db9ec1e4d60b813634ef",
+    "inventory.json": "ad097c3ac012dd21d58a637b12468ebb375c737b5de4e39ebcd42fa23d49e5d7",
+    "road_types.csv": "8fc3f14b5e4d82e7e80e0798028e6208dab24f7b129cee084fa042be9b0065b2",
+    "rectangle_comparison.json": "46b385be58f8d488ae884b5fbf5c32e18701c43a01c27ac8d8a046bb0a270a7f",
+    "figure_sources.json": "8199f80b3e0a19f7d2e5fdd3caee5e9f5ec69c001332dc3d500eb8fde8252508",
+    "visualize_audit.py": "8bfe91469ca154c1ef00187e19c4cf33539e23d44dc9ab8b602b6802d8505057",
+    "boundary_sensitivity.json": "8e32d0f8e1c9bf6b7dc01edacf1cb5e20dc5f04ce2046b71dde5574a6777c710",
+    "physical_group_correction.json": "2ba9ee375c2c9fa9afe07e812f795580a5ef4ba9729c86f760e88382f5091f20",
+    "scenarios.csv": "9ac315b8b88d2297a933022334510f30fe50359dbb3c5943b992648e491f358e"
+  },
+  "figure_visual_review": "density/grid, 11-town distribution and six examples inspected; labels adjusted to prevent overlap"
+}

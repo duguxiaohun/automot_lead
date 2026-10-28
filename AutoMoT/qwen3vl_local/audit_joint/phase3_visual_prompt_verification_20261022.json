@@ -1,0 +1,102 @@
+{
+  "date": "2026-10-22",
+  "status": "local_implementation_and_cpu_verification_complete",
+  "published": false,
+  "training_performed": false,
+  "new_prompt_gpu_inference_performed": false,
+  "new_prompt_efficacy": "unverified",
+  "source_sha256": {
+    "phase3_prompt_review.py": "5f422e48841b7ea0d91452a13d0572b59662c26aabcab5d9c30412c03848d4cb",
+    "phase3_matched_image_eval.py": "cb680ec857785f1b7fdc5a9c7d5af89f455882aeb7d0672156435343b2c4b83e",
+    "phase3_matched_image_launch.py": "ba45514dbaa8c654453cf2c31ab3c741643a7dccd4f163034dd3eded21b10cee",
+    "tests/test_phase3_prompt_review.py": "e7e1e087a19ebc593b3776a39ab7498b066fc7984c828d774389a2704d943f63",
+    "phase3_behavior_diagnostic_v1/README.md": "c50606315632bf47308aeef84616b6dab7f0e3991d9b419605a0ab1ae30e6a68",
+    "PHASE3_VISUAL_PROMPT_REVIEW_20261022.md": "962017cb29bae17ceea6eb37227f4db9149242e90edcf3f1e9089463bb90d254"
+  },
+  "evidence_files": {
+    "checkpoints/phase3_visual_followup_20261022/evidence.json": "68008a69dda2bacd505cdad498d12e4d0226278b1a3d37bdc2016e1a241cc114",
+    "checkpoints/phase3_visual_followup_20261022/visual_notes.json": "73669a98dd5c8786baffdb35a0f3cd12e6d6becedcbd5ec29166237d49fe2b48",
+    "checkpoints/phase3_visual_followup_20261022/selection.json": "0f3ffdbb9ebe8ca0a2320d8988a26956c4fa8b7ba0cea81b00760b3ef9a8e59f",
+    "checkpoints/phase3_visual_followup_20261022/donors.json": "5ddd7c58a6b6de48aa0021eeb414e42f313b026ece477d3f6964182c0ec5d442",
+    "checkpoints/phase3_visual_followup_20261022/train_distribution.json": "5a29e2fa231d79e43b5e8aec5272633c1e98df15d07a0dce52a3c466d57f9dc5",
+    "checkpoints/phase3_visual_followup_20261022/replay.py": "37033fb777b88bffaed8cb102b1a37906a9ee45cc1e29349371973ead7df252e",
+    "checkpoints/phase3_visual_followup_20261022/training_distribution.py": "18ba0e1d8e76d3dfc99f9ab901abd84b24ce59d137834939e4a1f0c89ec294d3",
+    "checkpoints/phase3_visual_followup_20261022/gallery.html": "d046ef4182c206a5c3af343ac5fe6607f7560a6237721d8da3d16c8b36e3a98d"
+  },
+  "visual_review": {
+    "selected_val_anchors": 10,
+    "distinct_routes": 8,
+    "planned_frame_appearances": 230,
+    "viewed_frame_appearances": 225,
+    "missing_frame_appearances": 5,
+    "distinct_timeline_rgb": 191,
+    "distinct_donor_rgb": 24,
+    "distinct_total_rgb": 215,
+    "overlap_with_previous_27_anchor_review": 67,
+    "blind": false,
+    "random": false
+  },
+  "native_replay": {
+    "points": 80,
+    "action_differences": 0,
+    "evidence_differences": 0,
+    "raw_source_hashes_rechecked": 1321,
+    "semantic_ground_truth_certification": false
+  },
+  "original_runtime": {
+    "frozen_source_hashes_rechecked": 484,
+    "source_hash_bypass": false,
+    "remote_git_required": false
+  },
+  "received_original_diagnostic": {
+    "zip_sha256": "6bb172d2f9d5145bb162c427f2c24a1ee1e6167b5ab753bc517a95fab6b1cf08",
+    "completed_gpu_workers": 4,
+    "original_forwards": 268,
+    "swapped_forwards": 636,
+    "original_predictions_and_probabilities_equal_saved_v2": true
+  },
+  "training_distribution": {
+    "presentations": 30720,
+    "distinct_anchors": 10970,
+    "valid_windows": 101209,
+    "history_compatible": 58124,
+    "history_incompatible": 42142,
+    "no_known_history": 943,
+    "statistics": "raw targets and query weights, not preferred lateral loss contributions"
+  },
+  "verification": {
+    "pytest_passed": 61,
+    "pytest_seconds": 8.04,
+    "pytest_files": [
+      "tests/test_phase3_prompt_review.py",
+      "tests/test_phase3_behavior_diagnostics.py",
+      "tests/test_phase3_matched_image_native.py",
+      "tests/test_phase3_matched_image_launcher.py",
+      "tests/test_phase3_matched_image_paths.py"
+    ],
+    "native_tiny_qwen_forward": true,
+    "four_worker_launch_test": "expensive inference workers substituted; real launcher and merge",
+    "shell_syntax": "passed",
+    "launcher_cli_help": "passed",
+    "git_diff_check": "passed",
+    "production_h20_new_prompt_test": false
+  },
+  "next_experiment": {
+    "flag": "--prompt-review",
+    "variant": "native_clarified_v1",
+    "new_prompt_forwards": 268,
+    "default_workers": 4,
+    "primary_common_anchors": 260,
+    "primary_valid_windows": 781,
+    "original_reference": "saved original val; already reproduced by received mount_v1",
+    "repeat_original_or_swapped_inference": false
+  },
+  "limitations": [
+    "Error-directed val review is not independent evaluation.",
+    "80 exact replays verify consistency, not independent semantic correctness.",
+    "Four windows on one anchor are correlated.",
+    "Original coarse brightness donor bins permit day/night and scenery confounding.",
+    "No native label changes, training changes, embedding expansion or new history dropout.",
+    "No new full GPU run, remote execution or push in this turn."
+  ]
+}

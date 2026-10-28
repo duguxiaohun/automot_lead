@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-28 剩余白名单修改按现状发布（用户明确，暂不推进 Phase4）
+
+用户要求将本地剩余白名单代码及配套文件直接提交推送，Phase4 暂不继续处理。本次范围为17个已跟踪文件的本地修改及21个 `qwen3vl_local/audit_joint/` 补充源码、说明和轻量历史回执；保留 wang 已提交的双机与私有论文仓库说明，不上传数据、权重、日志或论文。本条仅更新发布状态，不把历史回执改称本轮验收。
+
+本轮CPU回归83项通过、2项失败：v90历史清单的587个文件中，共享 `action_prior/training_core.py` 已被后续提交更新，真实来源检查仍正确拒绝；没有重写旧SHA或绕过检查。另3个测试模块因pvi环境缺少transformers无法收集。Phase4当前不具备完整启动验收，不据本次push启动训练；待用户重新推进时单独处理版本兼容。根目录 `rule_based_keyframe_filter.py` 与已发布的 `AutoMoT/keyframe_filter/rule_based_keyframe_filter.py` 逐字相同，前者保留本地，不重复入库。
+
 ### 2026-10-28 每台机器只使用一个 automot_lead 工作目录（用户明确，覆盖旧发布方式）
 
 - codon 唯一日常工作目录为 `/home/codon/automot_lead`，wang 为 `/home/wang/Project/automot_lead`。修改、测试、白名单暂存、提交和推送都在各自这个目录内完成；不得为了隔离改动或发布而另建兄弟目录、Git worktree 或克隆副本。已有数据、权重及运行所需的冻结源码仍保留在项目内，不因整理工作区删除。
@@ -47,6 +53,38 @@ wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA �
 后续 Phase1/2 改善采用：本地逐帧标定与保护回归 → 新标定/新提示词独立新训练 → 新权重评测与打包 → 新旧指标和原正确损失审计。旧权重换提示词仅能做辅助诊断，不能代替新训练验收，不能以此宣称新训练版本失败或成功。两阶段分别从 Qwen3.5 基座训练、互不依赖，保留原最优采样方法和既定更新预算。测试集修正单列，不偷偷改变主比较评分，不把测试样本搬入训练。远程训练必须实际使用该版本的数据、提示词并保存绑定；本机没有完整模型，CPU通过不称GPU验收。
 
 
+### 2026-10-26 两台服务器兼容是持续要求（用户再次明确）
+
+用户要求 AutoMoT/qwen3vl_local 的相关入口和交付命令同时兼容两台服务器，不能只在一台修好后让另一台重复踩坑：cr02 项目根 `/home/cruser1/lda/AutoMoT`（通常 automot 环境），另一台项目根 `/mnt/workspace/cee3sgh/AutoMoT`。后续必须审查两种目录/软链接布局、解释器环境、当前机器实际存在的资源与准备回执；本机测试仅模拟布局时须明确，不冒称远程验收。
+
+运行命令以当前 AutoMoT 根和已激活环境为准，不硬编码另一台服务器绝对路径或假定其 checkpoints/run 存在。恢复目录只在当前机器实际存在且通过原生完整性/兼容检查后使用；缺失时正常新建运行并重做必要准备，不能为了复用跨机复制旧权重、伪造准入或改写 SHA。两机数据成员和资源可能不同，不能宣称逐条等价。保留旧失败目录和运行中任务的源码快照，不热更新；已存在正式训练产物的目录不当成仅准备失败恢复。
+
+本次 cr02 暴露 `Automot/checkpoints` 目录软链接被源码快照误拒绝；该明确资产路径应按权重/结果共享，不扫描其中 JSON/代码为训练源码，不移动/删除权重。其它源码目录软链接仍需拒绝。后续改动需要两种布局、缺失恢复目录、有效回执复用、原源码隔离与篡改拒绝测试。本条记录在项目 AGENTS.md，不启用跨聊天云端 memory，不上传聊天历史或凭据。
+
+### 2026-10-25 用户确认 Phase2 默认1024，采样方法保持
+
+用户明确选择“改为1024，保持原采样方法”。已同步Phase2 Python训练器、train.sh、run_full_pipeline.sh、prepare_data.sh与共享CPU准备器的Phase2默认分支。四卡B1/累积1/三轮每轮7168呈现、1792更新，总5376，按原比例自动warmup1000；四UE等额、RE2倍/INVALID1倍、高速/INVALID子组、路线规则、coverage_v2和单帧上限10不改。Phase1仍768、9216更新，两个阶段独立启动。原1536/1280拒绝证据与1024候选旧回执不重写，不能再把默认配额描述为待选择。
+
+新默认Phase2 CPU准入目录checkpoints/sft_new_loop_phase2_data_cpu/coverage_v2_default1024；共享检查器指纹更新后，Phase1追加当前源码复核目录coverage_v2_after_phase2_default1024，旧回执全部保留。复用已绑定的真实本机数据，不重新建库，不运行GPU。177项CPU回归142.65s通过，包含默认预算、独立shell及打包、采样保留；当前变更证据checkpoints/phase2_default1024_20261025，状态以各目录status.json为准。说明sft_new_loop_phase1/INDEPENDENT_DATA_20261025.md；不修改Phase3/4，不远程/push，不认证4B实测精度。
+
+### 2026-10-25 Phase1/2 必须独立与本地真实数据准入（当前用户要求）
+
+用户纠正：当前Phase1、Phase2分别独立训练、互不依赖；不允许把Phase1成功作为Phase2前置。撤回此前文档`&&`建议，独立shell测试各只给本阶段数据、另一阶段失败也不影响；两者从Qwen3.5基座各自加载，无权重传递。Phase1历史“融合Phase1+Phase2”仅指本阶段已有八问，不改原最优任务。源码回执不再绑定另一阶段专用训练/评测/建库/prompt，共用工具仍严格绑定。27个采样函数及10个关键文件原样，未改标签/划分/采样/重复上限。
+
+训练入口默认RUN_BUILD=0，缺失/残缺数据在占用run目录前拒绝。各自prepare_data.sh独立CPU建库/复用、RGB与val/test采样检查、原生三轮投影；新data_stage保存日志、10秒心跳/状态，默认每阶段7200秒超时，只停自身进程组。显式训练入口建库先验Qwen资产，保留失败目录，不删除锁、不自动重建。177不同CPU测试146.85s通过；最后提前拒绝修改后相关16项41.82s再通过（有重叠不相加）；两个独立fixture包CLI验收通过，无VLM实测精度。
+
+本机两份原生全池真实建库退出0：P1 train569269/val37450/test65525，共672244；P2 5430/234/798，共6462。P1实际683245个RGB文件头、val/test各1024题及原默认768三轮9216 CPU ready；每轮12288独特帧，新帧12288/12288/11862。P2实际14871 RGB文件头、val/test各384题通过，但原默认1536容量rejected：UE3与INVALID共享28帧，192+154=346>280上限，精确最小割缺66，1280仍缺8，不是规划误拒绝。1024保留原算法/比例/子组/上限后完整CPU ready，每轮7168/1792更新，三轮5376、单轮最多9；后两轮新增0，不能夸大独立支持。用户尚未选择是否改默认，默认仍1536，不能声称默认Phase2可直接开训。旧拒绝证据保留，1024是明确候选；不以提高重复上限绕过。
+
+数据版本在checkpoints/phase12_independent_20261025/phase{1,2}_data，本机标准sft_new_loop_phase{1,2}_data各自绑定本阶段数据，无旧目录覆盖。准入P1 sft_new_loop_phase1_data_cpu/coverage_v2 ready；P2 coverage_v2 rejected、coverage_v2_1024 ready。本机旧v23 action索引缺失，沿原unavailable回退，未造标定。说明sft_new_loop_phase1/INDEPENDENT_DATA_20261025.md，证据checkpoints/phase12_independent_20261025。没有完整4B/GPU训练、远程、push或实际历史性能比较；头检查不等于全像素/人工RGB验收。P3/P4及其它用户改动不动。后续先读上述状态，不重复全池，不把两阶段串联。
+
+### 2026-10-25 Phase1/2 保持原采样的完整训练测试交包
+
+用户授权按审计完善，但要求两阶段保持之前最优版本采样方法。本轮不改采样、prompt、标签、建库、划分或 coverage_v2 预算；27 个采样函数 AST 与 10 个关键文件按修改前 SHA 冻结并回归。P1 保持 v5 八 focus/YES:NO 1:1/任务各半/训练问法4:1:1；P2 保持 UE 四类等额、RE2倍/INVALID1倍和既有 highway/INVALID/路线处理。当前 P2 v5_highway_ue3 标定不冒称历史 v3 同协议；保留此前跨轮低曝光和 action 辅助，不恢复大训练量。四卡 B1/累积1/三轮 P1 9216、P2 8064 更新，默认单轮4096/全程12288步门不变，旧110592与误用单卡大预算仍拒绝。
+
+新增 P1 包内 run_integrity/evaluation_integrity/delivery 共用于两阶段：无效输入/监督/loss/梯度失败，拒绝跳样完成；实际 optimizer 与各 rank/轮曝光核验；所选及 final 权重/配置、数据/源码/环境绑定，完成后才更新 latest。评测冻结原生成员/RGB SHA，完整 raw 输出经原生 parser/evaluator CPU 重算；交包含完整 JSONL、完成证据、数据/preflight回执及源码，超大小限制失败而不截断评分。性能记录真实推理时间/token/显存/条件；比较区分全量同题、共同子集及未认证旧协议历史参考，报告旧正确损失，不把变基座/预算/标定的总分差当单因素收益。
+
+最终168项CPU回归137.91秒通过，含真实小Qwen3.5保存重载、两Gloo同步拒绝、两阶段真实shell打包（VLM输出替身）、篡改/错配拒绝；8个shell语法及5个预算检查通过。证据 checkpoints/phase12_integrity_20261025；运行与比较说明 sft_new_loop_phase1/INTEGRITY_DELIVERY_20261025.md。仅新运行使用新认证；旧运行/回执不迁移，不改Phase3/4。没有完整4B四卡训练、本轮真实历史指标对照、远程或push；本机缺完整默认4B及旧原始评测包，不能宣称远程训练完成或达到历史最优精度。保留所有其它未提交工作。
+
 ### 2026-10-25 single 默认回退与 refine 暂停（当前用户决定）
 
 用户选择上一版 single v3 为默认，暂停新的 single 审计/标定/提示词改进。默认标定、历史、提示词、训练与测试沿用 phase3_single_v3；默认运行 checkpoints/phase3_single_v3/runs/six_1280，模型 epoch_3/state.pt，9600更新，旧test纯5768/6707、集合6092/7077。保留 phase3_single_refine 全部代码、结果、权重和审计材料，不删改/自动提升，不继续新的实验，除非用户重新明确要求。
@@ -62,6 +100,13 @@ wang 上的 AI 需要跑 CPU 测试、做标定、读 lead 数据或用 CARLA �
 机器可读选择：AutoMoT/qwen3vl_local/audit_joint/phase3_base_default.json；包外 phase3_base_default 的 status 查看选择，adapter 核验指定旧交包 SHA、逐文件绑定运行 JSON/JSONL 与 base 四图原提示词身份，再复用原生完成/权重回执校验并输出路径；验收前后复核，拒绝旧包配另一轮运行。独立 shell 入口继承 Python 环境及禁 core 约定。统一 compare 原本指向旧 canonical，本轮不改其入口、生产标定/提示词/采样/ready 或既有合同。本机没有服务器 adapter，不声称完成远程部署或加载权重。本次只固定默认并保存使用边界，不自动恢复训练或候选实验；除非用户重新明确要求，不继续推进 base 改进。
 
 base 与 single 的标定、提示词、数据准入和权重按独立方法分支维护。single 的 phase3_single_v3 与 phase3_single_refine（独立 frozen 规则及 prompt）保留原状态；不将任一方规则、候选提示词、方向参考或历史填补语义复制到另一方。不得通过整个仓库 reset/revert 处理 base 回退。说明见 PHASE3_BASE_PROMPT_RUN_20261024.md 顶部，底部旧实验命令仅为暂停前记录。
+
+### 2026-10-24 base 审计后提示词实验与回归保护
+
+根据两轮 RGB/全池候选标定审计，新增包外 phase3_base_prompt_experiment：四图单选原生候选前加统一 1.5/2/3 秒窗口说明，保留减速单帧与增速双帧、等待/立即起步区别。prepare 绑定全量收到的 val/本地四图/来源，replay 同一 adapter 两种文本各 fresh KV、实际 processor context 检查，不改旧合同或默认训练。主比较为本次成对推理，另报旧结果重放变化；无模型实测，不宣称收益。
+
+regression_review 增加任意旧正确损失复核、event×action、precision/F1 与组宏平均下降；净不降但有损失为 tradeoff_review_required，CLI 退出2。52项CPU测试通过，含推理编排替身；真实320 val准备/1280图引用散列、自对照251正确均通过。最终计划 checkpoints/phase3_base_prompt_improvement_20261024_final，初版同名前缀无_final目录指纹已过期保留。原生6源码与HEAD一致，标签/采样/ready/旧回执不改；未新RGB目视/GPU/远程/push。说明 audit_joint/PHASE3_BASE_PROMPT_IMPROVEMENT_20261024.md。其它未提交工作保留。
+
 
 ### 2026-10-23 base ctime-only 输入清单恢复
 

@@ -222,6 +222,25 @@ def test_real_clarified_qwen_backward_saved_contract_roundtrip(tmp_path,model,pr
     with pytest.raises(ValueError,match='prompt/query'):protocol.validate(config,artifact)
 
 
+def test_phase4_local_discovery_reuses_without_starting_cpu_generation(tmp_path,monkeypatch):
+    from qwen3vl_local.audit_joint import phase4_data_ready as p4,server_readiness
+    from qwen3vl_local.audit_joint.rule_baseline import ADMITTED
+    from qwen3vl_local.sft_new_loop_phase4.identity import contract
+    app=tmp_path/'app';collection=app/'keyframe_filter/collection_output';collection.mkdir(parents=True)
+    data=app/'lead_data';data.mkdir();model=app/'checkpoints/Qwen';model.mkdir(parents=True);(model/'config.json').write_text('{}')
+    old=app/'checkpoints/completed';old.mkdir()
+    for name,value in [('data4/manifest.json',dict(contract=contract())),('references4/references.json',{}),
+                       ('view/student_view.json',{}),('build_result.json',dict(status=ADMITTED[1]))]:
+        p=old/name;p.parent.mkdir(exist_ok=True);p.write_text(json.dumps(value))
+    monkeypatch.setattr(p4,'APP',app)
+    monkeypatch.setattr(server_readiness,'source_check',lambda *a:dict(status='matched'))
+    monkeypatch.setattr(p4,'validate',lambda root,data:dict(prepared=str(root),native=str(root/'data4'),
+                        view=str(root/'view'),references=str(root/'references4')))
+    monkeypatch.setattr(p4.subprocess,'run',lambda *a,**kw:pytest.fail('Generation started despite complete matching data'))
+    result=p4.ensure(data,collection,model,app/'checkpoints')
+    assert result['action']=='reuse_admitted' and result['generation_performed'] is False
+
+
 def test_real_synced_native_runtime_reuse_and_frozen_source_check(tmp_path):
     from qwen3vl_local.audit_joint import phase3_native_runtime as native
     import os

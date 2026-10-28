@@ -1,0 +1,66 @@
+{
+  "source_meta_digest_match_routes": 9582,
+  "decoded_frames": 1112085,
+  "good_complete_2s": 1041904,
+  "train_unique_frames": 185681,
+  "towns": 11,
+  "scenarios": 44,
+  "map_width_and_ego_lane_id_match_all": true,
+  "independent_raw_meta_and_carla_map_examples": 33,
+  "independent_point_tokens_verified": 132,
+  "max_radius_error_m": 1.771294595442896e-06,
+  "random_seed": 20261021,
+  "count_totals_verified": true,
+  "scope": "read-only local census and proposed quantizer audit; no production labeling, training, GPU, simulator server, SSH, or push",
+  "artifacts": {
+    "AutoMoT/qwen3vl_local/audit_joint/direction_progress_audit.py": {
+      "bytes": 4881,
+      "sha256": "34042d595218e380db938e359a5346e38e1ee1e0b57c2b61edee5a1c7a201ac7"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/analyze.py": {
+      "bytes": 9659,
+      "sha256": "a6084fc27253d7e9d7de1de2f8c4f34ca29e54e79a822131ebd59203dbefbed5"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/supplement.py": {
+      "bytes": 7427,
+      "sha256": "8ede704951f1cc873a73427905af1db345d72df3d1aaa793d291b6cfd763e0f3"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/verify.py": {
+      "bytes": 3352,
+      "sha256": "81c775686d672c1d4a86a6e96e0e612773f83bb500eabdf34c9fc92eddd341b3"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/analysis.json": {
+      "bytes": 183569,
+      "sha256": "5ddcb3fd4c8402d057a7aa4443a4ca9db95964cbe690558c654bcf28f16b5ee0"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/supplement.json": {
+      "bytes": 40439,
+      "sha256": "a35771677a16fe44406ae60f499c9a622c897c1669d833c5c35d4f6fb4b1843b"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/random_examples.json": {
+      "bytes": 35564,
+      "sha256": "9700fc569ffacf98bf960d28ef935ed1fce366f08d70a505030ac25ddcf9b873"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/figures/random_towns.png": {
+      "bytes": 239589,
+      "sha256": "39090b6dd8e55c27718a0c6b2f0f2fbee532a98ed784c85433067a51dd334535"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/figures/scheme_3x3.png": {
+      "bytes": 127561,
+      "sha256": "04785c3432e1ae73e0061be7cef2a2c3a007e10dac3a1dbe9993a05c580a05ed"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/figures/token_counts.png": {
+      "bytes": 103989,
+      "sha256": "0749fd2a3261b5a2ac317b69942510b3cd9a02a0c0fcc39b0363df4b9c44ca94"
+    },
+    "AutoMoT/qwen3vl_local/audit_joint/PHASE3_DIRECTION_PROGRESS_3X3_20261021.md": {
+      "bytes": 17643,
+      "sha256": "96fc3b354b858e2845ad590f415ca3c539eefe4ffac3d0450661886b2497db21"
+    },
+    "AutoMoT/checkpoints/direction_progress_audit_20261021/write_report.py": {
+      "bytes": 17730,
+      "sha256": "a7f6544723628f859b9312ddd86f14711638317cc0925b21430e464ed0b51a29"
+    }
+  },
+  "report_image_links_verified": true
+}

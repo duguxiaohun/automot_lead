@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-22",
+  "status": "local_cpu_verification_passed",
+  "tests": {
+    "passed": 147,
+    "seconds": 31.33,
+    "exit_code": 0,
+    "command": [
+      "/tmp/geometry_v1_verify_env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "qwen3vl_local/audit_joint/tests/test_data_prepare_review_fixes.py",
+      "qwen3vl_local/audit_joint/tests/test_versioned_data.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_common_data.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_launch.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_prompt_review.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_launcher.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_paths.py",
+      "qwen3vl_local/audit_joint/tests/test_phase3_matched_image_native.py",
+      "qwen3vl_local/audit_joint/tests/test_phase4_resume.py",
+      "qwen3vl_local/audit_joint/tests/test_phase4_first_epoch.py"
+    ],
+    "cwd": "/home/codon/automot_lead/AutoMoT",
+    "record_origin": "completed tool session 65544; summary captured before turn interruption"
+  },
+  "shell_syntax": {
+    "status": "passed",
+    "files": [
+      "server_finish.sh",
+      "server_phase4_existing.sh",
+      "geometry_v1/remote.sh"
+    ]
+  },
+  "git_diff_check": "passed",
+  "release": {
+    "name": "v90_data_dependencies_20261022",
+    "files": 587,
+    "mismatches": [],
+    "parent_sha256": "6cef74ad9ba24c33105ea91d7049fd0ae2423e68201787b0bac5c556e60bba51",
+    "native_phase4_files_unchanged": 289,
+    "shell_child_source_checks": "actual Python blocks executed; no mock source_check"
+  },
+  "source_sha256": {
+    "data_prepare.py": "3f458410e046425591df41b5566c37e871513aa7715e4694714d43431c405c50",
+    "phase3_common_data.py": "c6213853209a566588bdc194e59a96c0b89421a4552ad1629befc5e5f0e4dda7",
+    "phase3_prompt_review.py": "844454f1661da7d09aa6bc10e0bbade4ef189cfe8b589526a05b4f86a64f1050",
+    "phase4_data_ready.py": "5ab4ab30dc90990c908a3d98e880babf73bfd3bb66f1c3597b6d54adc7597942",
+    "phase4_resume.py": "cf00c50a201f88fb073dcf6387deec705ec8d6caadb42a0861b31ea7ebcb958d",
+    "phase4_first_epoch.py": "5108b93658be779d976e454f6c5a7e3dfb379d126ffba5f96dd6b97bbc1fe2f9",
+    "phase4_admission_only.py": "1c5f4f18ece8ea9324ac5b7d4f0e326a39c4ee094f95e64afee584b7fbb00c7a",
+    "server_phase4_existing.sh": "dedff9abfe961d6e2d1c2d18954852504ebbdf45040da1a7e2c39ef5cfacb3b3",
+    "server_finish.sh": "b9b3fce40e6ee16d9d33a9bac59c0529e0a3db77ff79a1cb6e5a1cd941ede3f1",
+    "label_release_check.py": "39dab90f0571686324cb6f0c4762b02221c1f2181d3e3e72b5f5e57ef7f60a51",
+    "release_sources_v90_data_dependencies_20261022.json": "406e77d32df266182919c3c668cf34053129d0d7ddc3f1fc33c0daa94ca6b97c",
+    "release_sources_v89_split_budget_20261019.json": "6cef74ad9ba24c33105ea91d7049fd0ae2423e68201787b0bac5c556e60bba51",
+    "versioned_data.py": "a752089ac3502049af2b042ade02f98fb55924eccced8c0996a2f1699dfbe2a7",
+    "DATA_PREPARE_REVIEW_FIXES_20261022.md": "34d823ff3d9be96d4639a34041195dd1bdfa367f65b435f51f2e57aef4678c9d",
+    "tests/test_data_prepare_review_fixes.py": "24fb40bf41e98bbdaa8160c982f7b05c6b655fdfb54667df801eadf4488800bc",
+    "tests/test_versioned_data.py": "d099b587fdf9e34756582fc54cd26da0fee99abeaedcfae5abceaf91bce5a1c9",
+    "tests/test_phase3_common_data.py": "597bb7442f4818bd5ed37a2609ff4fc2d940f6239bf8dc5e48d486f4cfdf28f9",
+    "tests/test_phase3_launch.py": "1d26f1b4f6f07ee06ba85c378aecf2ee43665b5766d0c1ac929dc1bb30778366",
+    "tests/test_phase3_prompt_review.py": "3e157cb93152ec832d0b26454beb15f56614d5948ba7850efc1874d160613960",
+    "tests/test_phase3_matched_image_launcher.py": "c37aaf1a796309a7136f05947c7129375a75ab089606264f50d22813b8fb8aa4",
+    "tests/test_phase3_matched_image_paths.py": "b282c74f33f9e8d1bc7b057b26c77157e3d156653fe5c8e2b09566d51f2ade56",
+    "tests/test_phase3_matched_image_native.py": "75cb9795aa96732a278e1cff07f837e81f3010860c4c5d25c16f0b81bf772c25",
+    "tests/test_phase4_resume.py": "cbb4f769ee7336c48f6093c53bce4ac1a870bd1725e9283ae1c641a96a4796df",
+    "tests/test_phase4_first_epoch.py": "85cc9d235cb23426f905dbd717f532813940cc1bba0cab3abb4699132c0dd406"
+  },
+  "verification_limits": [
+    "Synthetic geometry: native builder/coverage/reload; event mapping and LaneMap test doubles.",
+    "Common index: real dependency enumeration and native validation; expensive global builder substituted.",
+    "Existing Phase4 workflow tests include expensive-worker/admission substitutes; full server preparation not run.",
+    "Historical RGB/prediction audit not re-certified from reconstructed gallery."
+  ],
+  "gpu_performance_verified": false,
+  "server_executed": false,
+  "training_performed": false,
+  "new_rgb_semantic_audit": false,
+  "pushed": false
+}

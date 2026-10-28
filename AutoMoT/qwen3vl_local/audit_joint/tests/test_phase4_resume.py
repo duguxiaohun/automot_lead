@@ -78,3 +78,36 @@ def test_main_preserves_child_failure_and_uses_app_cwd(paths,monkeypatch):
         return 75
     monkeypatch.setattr(r.subprocess,'call',call)
     assert r.main()==75
+
+
+def test_current_release_matches_real_sources_and_preserves_historical_contract():
+    import hashlib
+    from qwen3vl_local.audit_joint import phase4_resume,phase4_admission_only,phase4_first_epoch,label_release_check
+    from qwen3vl_local.audit_joint.server_readiness import source_check
+    app=phase4_resume.APP;release=phase4_resume.RELEASE
+    old=release.with_name('release_sources_v89_split_budget_20261019.json')
+    assert hashlib.sha256(old.read_bytes()).hexdigest()=='6cef74ad9ba24c33105ea91d7049fd0ae2423e68201787b0bac5c556e60bba51'
+    assert source_check(app,release)['status']=='matched'
+    old_spec=json.loads(old.read_text());new_spec=json.loads(release.read_text())
+    assert new_spec['parent_sha256']==hashlib.sha256(old.read_bytes()).hexdigest()
+    assert set(old_spec['files']).issubset(new_spec['files'])
+    for name,sha in old_spec['files'].items():
+        if name.startswith('qwen3vl_local/sft_new_loop_phase4/'):
+            assert new_spec['files'][name]==sha
+    for module in (phase4_admission_only,phase4_first_epoch,label_release_check):
+        assert module.RELEASE==release
+    for name in ('server_phase4_existing.sh','server_finish.sh'):
+        text=(release.parent/name).read_text()
+        assert release.name in text and old.name not in text
+
+
+def test_real_child_shell_source_gates_use_current_release(tmp_path):
+    import os,subprocess,sys
+    from qwen3vl_local.audit_joint import phase4_resume
+    for name,var in [('server_phase4_existing.sh','P4_EXISTING_OUT'),('server_finish.sh','FINISH_OUT')]:
+        text=(phase4_resume.RELEASE.parent/name).read_text()
+        script=text.split("<<'PY'\n",1)[1].split('\nPY\n',1)[0]
+        out=tmp_path/name;out.mkdir()
+        subprocess.run([sys.executable,'-c',script],cwd=phase4_resume.APP,
+                       env=dict(os.environ,**{var:str(out)}),check=True,capture_output=True,text=True)
+        assert json.loads((out/'source_check.json').read_text())['status']=='matched'

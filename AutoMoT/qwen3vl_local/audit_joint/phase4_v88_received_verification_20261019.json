@@ -1,0 +1,503 @@
+{
+  "status": "verified_received_admission",
+  "zip_sha256": "a2adef605cb7e13a8502674e4748e0338539a9d1cba78941458eea98ef3a99b6",
+  "zip_bytes": 1199745,
+  "members": 11,
+  "identical_download_copies": 2,
+  "source_manifest": "v87",
+  "source_files": 578,
+  "extra_python_files": 22,
+  "source_scope": "recorded sources, not entire server or v88 wrapper authentication",
+  "execution": {
+    "status": "admitted_existing_data_development",
+    "stage": "finished_cpu",
+    "stages": {},
+    "errors": [],
+    "training_started": false,
+    "native_replay_started": false,
+    "native_compilation_started": false,
+    "coverage_policy": "existing_data_development",
+    "unsupported_capabilities": [
+      "U-E5/proceed/YES"
+    ],
+    "server_context": {
+      "server_label": "unspecified",
+      "hostname": "dsw-887611-7c97d4db95-97cmr",
+      "project_root": "/mnt/workspace/cee3sgh/AutoMoT",
+      "paths": {
+        "prepared": {
+          "logical": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_teacher_v24_20261018_130500_102842314",
+          "resolved": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_teacher_v24_20261018_130500_102842314",
+          "exists": true
+        },
+        "output": {
+          "logical": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_continue_20261019_113458_023744615",
+          "resolved": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_continue_20261019_113458_023744615",
+          "exists": true
+        },
+        "data_root": {
+          "logical": "/mnt/workspace/cee3sgh/AutoMoT/lead_data",
+          "resolved": "/mnt/workspace/cee3sgh/AutoMoT/lead_data",
+          "exists": true
+        },
+        "model_dir": {
+          "logical": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/Qwen3.5-4B",
+          "resolved": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/Qwen3.5-4B",
+          "exists": true
+        }
+      },
+      "scope": "Local execution/collection location only; cr02 and cee do not share assets. A user-supplied server label is not identity authentication or data admission."
+    },
+    "existing_assets": {
+      "native": {
+        "path": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_teacher_v24_20261018_130500_102842314/data4/manifest.json",
+        "sha256": "40651b859c14ec6cfda3f9149405f50c07cecde8265a505ee9badc1c29adaf5a"
+      },
+      "references": {
+        "path": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_teacher_v24_20261018_130500_102842314/references4/references.json",
+        "sha256": "4baa864d1d95e265c33902d3275e6ca4ecb29def7aebb73fc57b98ebec6d120d"
+      },
+      "view": {
+        "path": "/mnt/workspace/cee3sgh/AutoMoT/checkpoints/phase4_continue_20261019_113458_023744615/view/student_view.json",
+        "sha256": "8a2d5b347a638ebb1c671c783af70549aaec2f712cec88a4340c1e9af218b425"
+      }
+    }
+  },
+  "mode_summary": {
+    "2": {
+      "selected_counts": {
+        "train": 300694,
+        "val": 370,
+        "test": 180
+      },
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 2,
+          "physical_groups": 2
+        },
+        "U-E2/return/NO": {
+          "rows": 62,
+          "physical_groups": 17
+        },
+        "U-E3/proceed/YES": {
+          "rows": 277,
+          "physical_groups": 95
+        },
+        "U-E3/proceed/NO": {
+          "rows": 16370,
+          "physical_groups": 685
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 776,
+          "physical_groups": 72
+        },
+        "U-E6/proceed/YES": {
+          "rows": 708,
+          "physical_groups": 97
+        },
+        "U-E6/proceed/NO": {
+          "rows": 1903,
+          "physical_groups": 269
+        },
+        "U-E7/complete/YES": {
+          "rows": 13,
+          "physical_groups": 13
+        },
+        "U-E7/complete/NO": {
+          "rows": 201,
+          "physical_groups": 31
+        },
+        "R-E5/proceed/YES": {
+          "rows": 760,
+          "physical_groups": 182
+        },
+        "R-E5/proceed/NO": {
+          "rows": 32451,
+          "physical_groups": 1124
+        }
+      },
+      "train_ids_sha256": "5786e9e7b6af128f189f72090938d2bd71f3fef3029013ccb3cfcb7405992e39",
+      "world4_minimums": {
+        "R-E2": {},
+        "R-E3": {},
+        "R-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 32451,
+            "reserved": 1,
+            "actual": 445,
+            "unique_questions": 445,
+            "physical_groups": 72
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 760,
+            "reserved": 1,
+            "actual": 221,
+            "unique_questions": 221,
+            "physical_groups": 54
+          }
+        },
+        "U-E1": {},
+        "U-E2": {
+          "return/NO": {
+            "required": 1,
+            "available": 62,
+            "reserved": 1,
+            "actual": 24,
+            "unique_questions": 24,
+            "physical_groups": 5
+          },
+          "return/YES": {
+            "required": 1,
+            "available": 2,
+            "reserved": 1,
+            "actual": 1,
+            "unique_questions": 1,
+            "physical_groups": 1
+          }
+        },
+        "U-E3": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 16370,
+            "reserved": 1,
+            "actual": 643,
+            "unique_questions": 643,
+            "physical_groups": 101
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 277,
+            "reserved": 1,
+            "actual": 91,
+            "unique_questions": 91,
+            "physical_groups": 32
+          }
+        },
+        "U-E4": {},
+        "U-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 776,
+            "reserved": 1,
+            "actual": 915,
+            "unique_questions": 776,
+            "physical_groups": 72
+          }
+        },
+        "U-E6": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 1903,
+            "reserved": 1,
+            "actual": 510,
+            "unique_questions": 510,
+            "physical_groups": 129
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 708,
+            "reserved": 1,
+            "actual": 354,
+            "unique_questions": 354,
+            "physical_groups": 73
+          }
+        },
+        "U-E7": {
+          "complete/NO": {
+            "required": 1,
+            "available": 201,
+            "reserved": 1,
+            "actual": 66,
+            "unique_questions": 66,
+            "physical_groups": 16
+          },
+          "complete/YES": {
+            "required": 1,
+            "available": 13,
+            "reserved": 1,
+            "actual": 3,
+            "unique_questions": 3,
+            "physical_groups": 3
+          }
+        }
+      },
+      "evaluation_plans": {
+        "val": {
+          "policy": "fixed_equal_contiguous_evaluation_v2",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 37,
+          "available": {
+            "U-E1": 6204,
+            "U-E2": 5881,
+            "U-E3": 2456,
+            "U-E4": 761,
+            "U-E5": 37,
+            "U-E6": 338,
+            "U-E7": 163,
+            "R-E2": 4887,
+            "R-E3": 1149,
+            "R-E5": 2414
+          },
+          "anchor_stride": 2,
+          "ordered_ids_sha256": "e81a5399b4ae8eebd9cbdd467c2b75feff2bea48ba9c8aa8cec97f215847b86d",
+          "membership_sha256": "8578058fd721a28aa9987f82926b737ff0f6826143c89b4161ee38fbf24720e9",
+          "pool_sha256": "ca7b59b44db198da9e24c2b5225a3d92190d7f98694ecf218f5be72fcc58db92",
+          "scope": "fixed label-blind longest anchor runs across routes, no replacement; stride may change membership",
+          "rows_sha256": "31306a06c83b53f6bad50c5a6aad564c70b0d18863c6d71d2756a5984f2f557b"
+        },
+        "test": {
+          "policy": "fixed_equal_contiguous_evaluation_v2",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 18,
+          "available": {
+            "U-E1": 5325,
+            "U-E2": 4976,
+            "U-E3": 1411,
+            "U-E4": 561,
+            "U-E5": 18,
+            "U-E6": 269,
+            "U-E7": 26,
+            "R-E2": 5930,
+            "R-E3": 735,
+            "R-E5": 3201
+          },
+          "anchor_stride": 2,
+          "ordered_ids_sha256": "9490a69de1b600286b9d8cf160169c7289ff47e188702b8d8d1f64724550f92a",
+          "membership_sha256": "c5741c116b48daacb4a5aeba591339df89a11664c593b9f6e8a6f9f075f44305",
+          "pool_sha256": "87107619172f3f525f93b5668fd860cc7a8fef528d8e7e5796ee065b407b2150",
+          "scope": "fixed label-blind longest anchor runs across routes, no replacement; stride may change membership",
+          "rows_sha256": "0f53901fa3589bb1b2a2500af72c96144a2bd911a7b38cea031f35e4019b4d5f"
+        }
+      }
+    },
+    "4": {
+      "selected_counts": {
+        "train": 300694,
+        "val": 370,
+        "test": 180
+      },
+      "critical_support": {
+        "U-E2/return/YES": {
+          "rows": 2,
+          "physical_groups": 2
+        },
+        "U-E2/return/NO": {
+          "rows": 62,
+          "physical_groups": 17
+        },
+        "U-E3/proceed/YES": {
+          "rows": 277,
+          "physical_groups": 95
+        },
+        "U-E3/proceed/NO": {
+          "rows": 16370,
+          "physical_groups": 685
+        },
+        "U-E5/proceed/YES": {
+          "rows": 0,
+          "physical_groups": 0
+        },
+        "U-E5/proceed/NO": {
+          "rows": 776,
+          "physical_groups": 72
+        },
+        "U-E6/proceed/YES": {
+          "rows": 708,
+          "physical_groups": 97
+        },
+        "U-E6/proceed/NO": {
+          "rows": 1903,
+          "physical_groups": 269
+        },
+        "U-E7/complete/YES": {
+          "rows": 13,
+          "physical_groups": 13
+        },
+        "U-E7/complete/NO": {
+          "rows": 201,
+          "physical_groups": 31
+        },
+        "R-E5/proceed/YES": {
+          "rows": 760,
+          "physical_groups": 182
+        },
+        "R-E5/proceed/NO": {
+          "rows": 32451,
+          "physical_groups": 1124
+        }
+      },
+      "train_ids_sha256": "5786e9e7b6af128f189f72090938d2bd71f3fef3029013ccb3cfcb7405992e39",
+      "world4_minimums": {
+        "R-E2": {},
+        "R-E3": {},
+        "R-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 32451,
+            "reserved": 1,
+            "actual": 257,
+            "unique_questions": 257,
+            "physical_groups": 64
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 760,
+            "reserved": 1,
+            "actual": 191,
+            "unique_questions": 191,
+            "physical_groups": 67
+          }
+        },
+        "U-E1": {},
+        "U-E2": {
+          "return/NO": {
+            "required": 1,
+            "available": 62,
+            "reserved": 1,
+            "actual": 33,
+            "unique_questions": 33,
+            "physical_groups": 9
+          },
+          "return/YES": {
+            "required": 1,
+            "available": 2,
+            "reserved": 1,
+            "actual": 1,
+            "unique_questions": 1,
+            "physical_groups": 1
+          }
+        },
+        "U-E3": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 16370,
+            "reserved": 1,
+            "actual": 611,
+            "unique_questions": 611,
+            "physical_groups": 100
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 277,
+            "reserved": 1,
+            "actual": 95,
+            "unique_questions": 95,
+            "physical_groups": 37
+          }
+        },
+        "U-E4": {},
+        "U-E5": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 776,
+            "reserved": 1,
+            "actual": 915,
+            "unique_questions": 776,
+            "physical_groups": 72
+          }
+        },
+        "U-E6": {
+          "proceed/NO": {
+            "required": 1,
+            "available": 1903,
+            "reserved": 1,
+            "actual": 523,
+            "unique_questions": 523,
+            "physical_groups": 122
+          },
+          "proceed/YES": {
+            "required": 1,
+            "available": 708,
+            "reserved": 1,
+            "actual": 373,
+            "unique_questions": 373,
+            "physical_groups": 79
+          }
+        },
+        "U-E7": {
+          "complete/NO": {
+            "required": 1,
+            "available": 201,
+            "reserved": 1,
+            "actual": 71,
+            "unique_questions": 71,
+            "physical_groups": 21
+          },
+          "complete/YES": {
+            "required": 1,
+            "available": 13,
+            "reserved": 1,
+            "actual": 2,
+            "unique_questions": 2,
+            "physical_groups": 2
+          }
+        }
+      },
+      "evaluation_plans": {
+        "val": {
+          "policy": "fixed_equal_contiguous_evaluation_v2",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 37,
+          "available": {
+            "U-E1": 6204,
+            "U-E2": 5881,
+            "U-E3": 2456,
+            "U-E4": 761,
+            "U-E5": 37,
+            "U-E6": 338,
+            "U-E7": 163,
+            "R-E2": 4887,
+            "R-E3": 1149,
+            "R-E5": 2414
+          },
+          "anchor_stride": 1,
+          "ordered_ids_sha256": "7ace9a91940e96d317702b13eb28b562f11172d0103b4f4f59ad8894e91627de",
+          "membership_sha256": "bea1a873f58549c450e9879dfba36b8d163d08473beed04ed5a786b8ea84dbbb",
+          "pool_sha256": "ca7b59b44db198da9e24c2b5225a3d92190d7f98694ecf218f5be72fcc58db92",
+          "scope": "fixed label-blind longest anchor runs across routes, no replacement; stride may change membership",
+          "rows_sha256": "df2e68e6e8d337703577d38490a197af245cbc460b0b797a09bed2c917c3011c"
+        },
+        "test": {
+          "policy": "fixed_equal_contiguous_evaluation_v2",
+          "seed": 20260929,
+          "limit": 0,
+          "per_event": 18,
+          "available": {
+            "U-E1": 5325,
+            "U-E2": 4976,
+            "U-E3": 1411,
+            "U-E4": 561,
+            "U-E5": 18,
+            "U-E6": 269,
+            "U-E7": 26,
+            "R-E2": 5930,
+            "R-E3": 735,
+            "R-E5": 3201
+          },
+          "anchor_stride": 1,
+          "ordered_ids_sha256": "f8fa6043ea2685d7d87184c1d52966357da2d8ce1d832e2cb586f633340a84e1",
+          "membership_sha256": "111f8d88803e622eb4b9b41a4845be23985d2d84ee358eb757082eeb8a402940",
+          "pool_sha256": "87107619172f3f525f93b5668fd860cc7a8fef528d8e7e5796ee065b407b2150",
+          "scope": "fixed label-blind longest anchor runs across routes, no replacement; stride may change membership",
+          "rows_sha256": "14645c47fbb6664cf384ce9135acf176a37222bd547817372240bd097ac9aa69"
+        }
+      }
+    }
+  },
+  "budget": {
+    "required_free_bytes": 28133425152,
+    "sufficient": true
+  },
+  "gpu_training_started": false,
+  "new_rgb_review": false,
+  "scope": "received report verification; full remote raw pool not reopened locally"
+}

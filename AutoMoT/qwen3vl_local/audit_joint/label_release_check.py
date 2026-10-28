@@ -22,7 +22,7 @@ from qwen3vl_local.sft_new_loop_phase4.rgb_short.batch_sampling import plan
 from qwen3vl_local.sft_new_loop_phase4.taxonomy import EVENTS
 
 APP = Path(__file__).resolve().parents[2]
-RELEASE = Path(__file__).with_name('release_sources_v86_build_recovery_20261018.json')
+RELEASE = Path(__file__).with_name('release_sources_v90_data_dependencies_20261022.json')
 FIELDS = ('id', 'episode', 'scenario', 'route_id', 'physical_group', 'split',
           'observation', 'edge', 'target', 'slice', 'label_basis')
 
