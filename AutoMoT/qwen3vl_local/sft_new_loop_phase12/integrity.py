@@ -4,7 +4,7 @@ from pathlib import Path
 from qwen3vl_local import runtime_version as runtime
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 from . import CONTRACT, UPDATES, WORLD
-from .data import resolve_rgb
+from .data import resolve_rgb,phase1_targets
 
 
 def verify_ready(root,*,images=True,execution=False):
@@ -19,6 +19,10 @@ def verify_ready(root,*,images=True,execution=False):
     from . import history
     historical=history.load(root/'cpu/historical_contract.json')
     history.assert_isolation(root/'data/frame_index.jsonl',historical)
+    for line in (root/'data/frame_index.jsonl').open():
+        row=json.loads(line)
+        if phase1_targets(row['phase1_answers'],row['true_rs'])!=row['phase1_answers']:
+            raise ValueError('Fusion Phase1 RS differs from authoritative Phase2 RS')
     forbidden=history.groups(historical)
     from qwen3vl_local.sft_new_loop_phase1.training_policy import physical_group
     if any(physical_group(tuple(r['key'])) in forbidden for r in proof.read(root/'cpu/guard_members.json')):

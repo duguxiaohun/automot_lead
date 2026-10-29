@@ -42,11 +42,10 @@ def test_join_protects_other_repetition_holdout_and_keeps_invalid_slot(tmp_path)
     with pytest.raises(FileExistsError):data.build(p1,p2,rgb,tmp_path/'joined')
 
 
-@pytest.mark.parametrize('problem',['missing','rs','history','boolean'])
+@pytest.mark.parametrize('problem',['missing','history','boolean'])
 def test_join_refuses_unreviewed_mismatch(tmp_path,problem):
     p1,p2,rgb,rows=parents(tmp_path)
     if problem=='missing':rows=rows[1:]
-    elif problem=='rs':rows[0]['rs']='R2'
     elif problem=='history':rows[0]['history_rgb_paths'].reverse()
     else:rows[0]['answers']['VULNERABLE']='False'
     p1.write_text(''.join(json.dumps(r)+'\n' for r in rows))
@@ -62,7 +61,7 @@ def evidence(root):
     first=prompts.P1.make_prompt_spec(variant='all_random_order',answers=facts,seed_key='fixture')
     item=dict(key=key,domain='ROAD_CORRIDOR',answers=second,seed_key='fixture',output_keys=list(spec2.output_keys),balance_key='UE1')
     proof.write(root/'cpu/evaluation_members.json',{'val':[{**item,'key':['control','route',3]}],'test':[item]})
-    proof.write(root/'cpu/fusion_labels.json',[dict(key=key,answers=facts,paths=paths,split='test'),dict(key=['control','route',3],answers=facts,paths=paths,split='val')])
+    proof.write(root/'cpu/fusion_labels.json',[dict(key=key,answers=facts,paths=paths,split='test',phase2_rs='R1'),dict(key=['control','route',3],answers=facts,paths=paths,split='val',phase2_rs='R1')])
     refs={str(p):[{**item,'answers':facts if p==1 else second,'paths':paths,'original_asked_keys':list(first.output_keys if p==1 else spec2.output_keys)}] for p in (1,2)}
     for phase,records in refs.items():
         for number,r in enumerate(records):

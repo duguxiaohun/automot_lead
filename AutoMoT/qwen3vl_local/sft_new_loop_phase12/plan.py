@@ -91,6 +91,6 @@ def prepare(index,data_root,output,action_index='auto'):
     bindings={}
     for raw in Path(index).open():
         row=json.loads(raw);bindings[identity(row)]=dict(key=identity(row),answers=row['phase1_answers'],
-            paths=[relative_rgb(p) for p in row['history_rgb_paths']],split=row['split'])
+            paths=[relative_rgb(p) for p in row['history_rgb_paths']],split=row['split'],phase2_rs=row['true_rs'])
     write(output/'fusion_labels.json',list(bindings.values()))
     return result

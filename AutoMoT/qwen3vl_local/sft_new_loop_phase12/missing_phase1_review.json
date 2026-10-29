@@ -1,0 +1,91 @@
+{
+  "schema": "fusion_missing_phase1_review_v1",
+  "scope": "Only the explicitly reviewed missing training anchor; never overwrite existing labels or modify historical tests",
+  "records": [
+    {
+      "key": [
+        "HazardAtSideLane",
+        "Town12_Rep0_3753_1_route0_01_08_21_52_10",
+        150
+      ],
+      "split": "train",
+      "rs": "R4",
+      "event": "R-E4",
+      "answers": {
+        "HIGHWAY": false,
+        "STATIC_OBSTACLE": false,
+        "VULNERABLE": false,
+        "TRAFFIC_LIGHT_ABNORMAL": false,
+        "RS1": false,
+        "RS2": false,
+        "RS4": true,
+        "RS5": false
+      },
+      "history_rgb_paths": [
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0147.jpg",
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0148.jpg",
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0149.jpg",
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0150.jpg"
+      ],
+      "rgb_sha256": {
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0147.jpg": "f1c63086445b0820438fccb77af894ca81136153ef176faf9f354ab6b6815c7b",
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0148.jpg": "a5ab2ea02e6eb58d51150793385a6eae3f259115656eb24fb37c3695431bc6f1",
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0149.jpg": "d7cbcf2c171b79c2b2cce63e72c38dd02e78dc9bdff73891097ad2c7dd115bdf",
+        "HazardAtSideLane/Town12_Rep0_3753_1_route0_01_08_21_52_10/rgb/0150.jpg": "7cdbd0f9666aa2d92b7ffbeae55eec33826f034bf753a8b1be5aa395d349dcf5"
+      },
+      "controls": [
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_3753_1_route0_01_08_21_52_10",
+            149
+          ],
+          "rs": "R4",
+          "answers": {
+            "HIGHWAY": false,
+            "STATIC_OBSTACLE": false,
+            "VULNERABLE": false,
+            "TRAFFIC_LIGHT_ABNORMAL": false,
+            "RS1": false,
+            "RS2": false,
+            "RS4": true,
+            "RS5": false
+          }
+        },
+        {
+          "key": [
+            "HazardAtSideLane",
+            "Town12_Rep0_3753_1_route0_01_08_21_52_10",
+            151
+          ],
+          "rs": "R4",
+          "answers": {
+            "HIGHWAY": false,
+            "STATIC_OBSTACLE": false,
+            "VULNERABLE": false,
+            "TRAFFIC_LIGHT_ABNORMAL": false,
+            "RS1": false,
+            "RS2": false,
+            "RS4": true,
+            "RS5": false
+          }
+        }
+      ],
+      "source_index_sha256": "893f9ddfa52adc32eb9e1ecfc299ef18b0249b30c458d102fc1350360f76a271",
+      "source_row_sha256": "0768f56bdef86a3d20f66db9c2cd6097a6f0502935c7d378e3ee51e7d8a4c471",
+      "review": {
+        "date": "2026-10-30",
+        "frames_visually_inspected": [
+          147,
+          148,
+          149,
+          150,
+          151
+        ],
+        "observation": "Signal-controlled junction and ordinary vehicles visible; no resolved pedestrian/cyclist, no road-blocking static obstacle, no positive traffic-light abnormality evidence. Existing native annotation R4/R-E4 retained.",
+        "local_collection_risk": false,
+        "limitation": "Remote omission cause not established; require identical RGB bytes and compatible train/visual-control annotations. Recover four visible facts only; RS/event come exclusively from Phase2."
+      }
+    }
+  ]
+}

@@ -45,8 +45,10 @@ def prepare(root,data_root,*,historical_groups=()):
             row=json.loads(line);group=physical_group(identity(row))
             if row['split']=='test':test_groups.add(group)
             if phase==1 and row['split']=='val':val_rows.append(row)
+    fusion={}
     for line in (root/'data/frame_index.jsonl').open():
         row=json.loads(line)
+        if 'phase1_answers' in row:fusion[identity(row)]=row
         if row['split']=='train':training_groups.add(physical_group(identity(row)))
     allowed=[r for r in val_rows if physical_group(identity(r)) not in test_groups|training_groups]
     chosen={};coverage={};images={}
@@ -59,10 +61,15 @@ def prepare(root,data_root,*,historical_groups=()):
             count['adequate_for_guard']=count['selected']>=MIN_FRAMES and count['physical_groups']>=MIN_GROUPS
             coverage[key]['positive' if positive else 'negative']=count
             for row in rows:chosen[identity(row)]=row
-    records=[]
+    records=[];rs_aligned=0
     for key,row in sorted(chosen.items()):
         paths=[relative_rgb(p) for p in row['history_rgb_paths']]
-        records.append(dict(key=list(key),scenario=row['scenario'],answers=row['answers'],paths=paths,
+        answers=row['answers'];rs_source='phase1_only_no_phase2_anchor'
+        if key in fusion:
+            if paths!=[relative_rgb(p) for p in fusion[key]['history_rgb_paths']]:raise ValueError('Guard/fusion RGB history differs')
+            answers=fusion[key]['phase1_answers'];rs_source='phase2'
+            rs_aligned+=int(answers!=row['answers'])
+        records.append(dict(key=list(key),scenario=row['scenario'],answers=answers,paths=paths,rs_source=rs_source,
             source_split='val',seed_key='weak_guard:'+proof.digest(key),balance_key='phase1_validation_guard'))
         for path in paths:
             if path not in images:
@@ -71,7 +78,8 @@ def prepare(root,data_root,*,historical_groups=()):
                 images[path]=proof.sha(p)
     if not records:raise ValueError('No heldout Phase1 weak/control validation records')
     coverage_ok=all(c['adequate_for_guard'] for q in coverage.values() for c in q.values())
-    report=dict(protocol='validation_guard_v2_historical',source='original Phase1 val only; parent tests, registered historical tests and fusion train excluded by physical_group',
+    report=dict(protocol='validation_guard_v3_phase2_authority',source='original Phase1 val members; shared anchors use authoritative Phase2 RS; parent tests, registered historical tests and fusion train excluded by physical_group',
+        rs_aligned_records=rs_aligned,
         selected=len(records),coverage=coverage,coverage_adequate=coverage_ok,
         scope='finite validation guard, not a guarantee of population non-regression',
         highway_selection_certified=False,highway_limitation='No independent highway positive validation; original test never used for selection')

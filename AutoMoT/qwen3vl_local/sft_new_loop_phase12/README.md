@@ -1,7 +1,7 @@
 # 单个 LoRA 的 Phase1 + Phase2 独立问答实验
 
 用户于2026-10-29明确要求新增融合实验。现有独立 Phase1/Phase2、历史权重与运行保持原状。
-当前新运行合同为 `phase12_shared_lora_v3_history_20261030`；旧v1/v2冻结源码/ready不覆盖或迁移。
+当前新运行合同为 `phase12_shared_lora_v4_phase2_authority_20261030`；旧v1/v2/v3冻结源码/ready不覆盖或迁移。
 每个图像模式训练一个共用 LoRA：两图模型同时回答P1/P2，四图模型也同时回答P1/P2；
 两图与四图仍是两个独立实验，并非把两种图数混成一个训练集。
 
@@ -54,9 +54,33 @@ P2沿用原生领域问法：ROAD_CORRIDOR询问UE1/UE3/UE5及INVALID，LOCAL_JU
 真实训练的下一轮覆盖必须与CPU准入一致。当前融合池首轮已耗尽，不通过改问序或增加轮数虚报新图；
 若需要后续epoch持续出现新图，须扩大已标定且隔离合格的候选池，不能挪用val/test。
 
+## 2026-10-30：以 Phase2 标定为主
+
+用户明确要求融合版以Phase2的RS/event为权威。新派生集保留Phase2原有每个槽位、顺序、
+true_rs、event/event_codes、问题域、事件答案、目标类别和INVALID来源；不回写两个父索引。
+P1分支的RS1/RS2/RS4/RS5直接由Phase2 true_rs生成；R3时这四项均为NO。
+HIGHWAY、STATIC_OBSTACLE、VULNERABLE、TRAFFIC_LIGHT_ABNORMAL仍取经过审计的视觉标定，
+不从event或场景名猜测，不将RS3自动等同于这四项的完整视觉监督。
+同帧P1/P2的RS不一致不再中断，写入 `data/label_authority.json` 记录原值和对齐值；
+原生Phase2采样方法、比例、重复上限、六轮10752更新不变。
+共享的弱项验证帧也采用对齐后的RS；仅P1有标定的辅助验证帧保留P1原值并注明来源。
+固定历史参考题及其原始评分标签保持不变，不把新融合评分口径冒称历史同协议成绩。
+
+cr02报告7317个Phase2独特帧中，仅HazardAtSideLane/
+Town12_Rep0_3753_1_route0_01_08_21_52_10第150帧缺P1标定。
+本地原生P1索引有此帧，已目视复核147–150历史RGB及151帧控制；
+`missing_phase1_review.json` 固定四张输入RGB的SHA及相邻视觉标定。
+只有该训练锚点缺失、四张RGB完全一致、相邻视觉事实相符且不属于任一holdout时，
+才在融合内存连接阶段补四项视觉事实，RS/event仍取Phase2；已有标签不覆盖。
+不新增或删除Phase2槽位，不更改其INVALID占比，回执 `data/missing_label_recovery.json`
+绑定进CPU准入和最终包。本地本来完整的父索引不会触发补标。
+未知缺标、不同图像历史、RGB改变、Phase2同帧自身RS冲突或非法值仍拒绝并打印具体成员。
+这项补充解决已审计单帧的监督缺口，不声称已确认远程原始采集为何漏掉该帧。
+
 ## 两阶段旧测试必须保护
 
-按物理帧连接两份已标定索引；缺标签、RS矛盾、历史RGB不一致会拒绝，绝不从场景名猜P1答案。
+按物理帧连接两份已标定索引；RS冲突按上文Phase2权威规则记录对齐。
+未知视觉缺标或历史RGB不一致仍拒绝，绝不从场景名猜P1视觉事实。
 原始索引和既有split不修改。在新融合派生集里，以原生physical_group统一保护两边holdout：
 test优先于val、val优先于train。另读取已发布的真实历史测试合同，将其中所有物理路线强制保护为test，
 包括当前两份父索引均未将其标成test、或者一边索引完全缺失的路线。

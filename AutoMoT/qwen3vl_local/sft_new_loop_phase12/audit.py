@@ -5,6 +5,7 @@ from pathlib import Path
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 from . import prompts,evaluate,cache,validation,history,integrity,CONTRACT,UPDATES
+from .data import phase1_targets
 
 
 def verify_evaluations(root,mode):
@@ -27,10 +28,14 @@ def verify_evaluations(root,mode):
     if any(physical_group(tuple(r['key'])) in history.groups(historical) for r in members['val']):
         raise ValueError('Historical test route used by fusion validation')
     for row in facts.values():
+        if phase1_targets(row['answers'],row['phase2_rs'])!=row['answers']:
+            raise ValueError('Bundled Phase1 labels contradict authoritative Phase2 RS')
         if physical_group(tuple(row['key'])) in history.groups(historical) and row['split']!='test':
             raise ValueError('Historical test route leaked into fusion train/val')
     if any(physical_group(tuple(r['key'])) in history.groups(historical) for r in guard):
         raise ValueError('Historical test route used by validation guard')
+    if any(tuple(r['key']) in facts and r['answers']!=facts[tuple(r['key'])]['answers'] for r in guard):
+        raise ValueError('Shared validation guard labels contradict authoritative fusion labels')
     paths += [p/'weak_guard' for p in sorted((root/'runs'/mode).glob('val_step_*'))]
     for folder in paths:
         recorded=proof.read(folder/'metrics.json')
