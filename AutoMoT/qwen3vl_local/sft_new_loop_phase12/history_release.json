@@ -19,5 +19,147 @@
     "sft_new_loop_phase1_judgment_release_20261025_2rgb_endpoints_balanced_audit_bundle",
     "sft_new_loop_phase1_judgment_release_20261025_4rgb_audit_bundle",
     "sft_new_loop_phase1_judgment_release_20261025_4rgb_balanced_audit_bundle"
+  ],
+  "sources": [
+    {
+      "source_name": "sft_new_loop_phase1_p1_20261027_223544_1816761_2rgb_endpoints_audit_bundle",
+      "phase": 1,
+      "mode": "2rgb_endpoints",
+      "primary": true,
+      "inputs_sha256": "283c461b10e7a7d03b59c798cd197354b412c4ccb62da5117ea2ba8c9d83d1f4",
+      "completion_sha256": "d4648c552549407d5d32f08a8238d626184b1035d85ae2ddb1515cb77d20278a",
+      "case_shards": {
+        "cases_rank0.jsonl": "f152184ea9f2bd47c91d7704c1c053396d9fb980c91745cc8c106f3cd9358eaa",
+        "cases_rank1.jsonl": "6e1dcedd596444a689f0de1e367b0b59f125e02f9e60a3c6b4be89a79bc4a2a8",
+        "cases_rank2.jsonl": "f810d36eaffe04db56691d6d5aa575ae62993a6b54129a39bc097092bcfb5bb0",
+        "cases_rank3.jsonl": "3b55db7444c36a5723bbec41944da864a080ea8b08accdcfc74ee4cb66993dfb"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_p1_20261027_223544_1816761_4rgb_audit_bundle",
+      "phase": 1,
+      "mode": "4rgb",
+      "primary": true,
+      "inputs_sha256": "bc1282e9236193a0676b852c0355fe8d9958e9d1678fc7b56e13628447ffb428",
+      "completion_sha256": "e4a8daf154754ef0647d90055714d928be3f845b5e0e65fa33550098ad9eb61d",
+      "case_shards": {
+        "cases_rank0.jsonl": "4aeaaf7e9cb6a531ea52eadef2b09320639634169c6c985a0e5923d1b1447052",
+        "cases_rank1.jsonl": "2007f64b491f553f6650c43a80c154862619c3e7e9f3218e95d57c3e3d7d65e2",
+        "cases_rank2.jsonl": "46052bf1bd6b6a8bd98f5ea0ecaeeb6252c384c72888025d53627a32e2073464",
+        "cases_rank3.jsonl": "52c41b73f604b78a38a5e6a9c7604c402eae9da8f85bf955e769d7c61a29a41b"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase2_p2_20261028_112100_432848_2rgb_endpoints_audit_bundle",
+      "phase": 2,
+      "mode": "2rgb_endpoints",
+      "primary": true,
+      "inputs_sha256": "e85c2078179e73e86915c338c5eb68d1d6cf016335a58441251cc4c87d8558f3",
+      "completion_sha256": "348db088f67cd49142e72b9099240ecd6d4c3184aecb60b87ab08968048e0856",
+      "case_shards": {
+        "cases_rank0.jsonl": "a37e845a8df8951f0efd0cbb1170d81dec7d1c1a12be914e2b29748176097740",
+        "cases_rank1.jsonl": "191c9d8f9aa644fc61bc09fe557b184ef9ce2a36433c98a70be60ba942a4df92",
+        "cases_rank2.jsonl": "85ccfdbc5ccbe913c7228b2086e92b27c7a817921e6b541f732266cc78aa1812",
+        "cases_rank3.jsonl": "8f5a18a5f022f83b5edb2b2e67c2b66bb244396b932372c8a59bbda9a2770aaa"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase2_p2_20261028_112100_432848_4rgb_audit_bundle",
+      "phase": 2,
+      "mode": "4rgb",
+      "primary": true,
+      "inputs_sha256": "4b53f20b175059f9bc240543c50d112faa1592e50cf59bdb15c7a8a8227e7a72",
+      "completion_sha256": "cee75d6fe03bbd0fc9de60fe2ba61199be46abeb8069f5a5dd2ecfcff3238da9",
+      "case_shards": {
+        "cases_rank0.jsonl": "34af0443b134f731cfb27b056011dad5fe33fef225d4cc5d02391242723b3404",
+        "cases_rank1.jsonl": "381ec13a4d7d48026eeaee706920da1ea45b86500fd6b242b9886cc9c10eee5a",
+        "cases_rank2.jsonl": "d3ac9cfb5d697d0645debf181568a48f5a453b43dbc9f6dd24c877889a724448",
+        "cases_rank3.jsonl": "c75f67ed6ee147b1374f6ef3e5a61fc27a392fb6f74b72555d7de1bbed560657"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_p1_20261027_223544_1816761_2rgb_endpoints_balanced_audit_bundle",
+      "phase": 1,
+      "mode": "2rgb_endpoints",
+      "primary": false,
+      "inputs_sha256": "9e7051bc164e1b5b95d031a2e3f6ab90ed8e98031e713ec1e9f015d3bcfcfdc8",
+      "completion_sha256": "52656630052e344f71f5f7faaaad4bd96b954f6a97ff7533da28f15ee0a4fabd",
+      "case_shards": {
+        "cases_rank0.jsonl": "72740e8e95964f9641518e49138bd79cbc99a7d0b7edabf1247b2fe3f18fdf36",
+        "cases_rank1.jsonl": "0f19b6a7704d167653d9a6a3d59aba3af49a67ac5b6eca334c5e037e5053d4c3",
+        "cases_rank2.jsonl": "af456b32e135369cccd11eaed92254e3e77bd0167f518ac535c04ca20b930b8a",
+        "cases_rank3.jsonl": "9726c055ba7497b610d917754a52b3bdcf39d78bd6044c8af9b5ff95462d17ad"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_p1_20261027_223544_1816761_4rgb_balanced_audit_bundle",
+      "phase": 1,
+      "mode": "4rgb",
+      "primary": false,
+      "inputs_sha256": "bcb42578f434419144d69e15831ce17aedd54631414bafd0e32968e0eb0abff1",
+      "completion_sha256": "a32474ef406946c2739526561a9a1b3ff691c302eff70e998c8fb0295b5c1633",
+      "case_shards": {
+        "cases_rank0.jsonl": "6b89ce9550fcdb484e4c482c2b6094cf158cf7a7ce383a1251101845ca0a05e4",
+        "cases_rank1.jsonl": "3cf27693d5d3ce96f05ded6392118d2119a1b694b543c9695832c8bafcfd4775",
+        "cases_rank2.jsonl": "afd34076f6e919608fbd92463f21dd236366f4b5f2bffe05a59a911ae3fd4609",
+        "cases_rank3.jsonl": "1fe284af69f20788395755ba1f928db4bc426e21b76e09e6100f41116efb0b29"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_judgment_release_20261025_2rgb_endpoints_audit_bundle",
+      "phase": 1,
+      "mode": "2rgb_endpoints",
+      "primary": false,
+      "inputs_sha256": "7ae49f4dc7976611bb1aaf4ca80d009c634432cd14dbf71bece3a835e44e9c3f",
+      "completion_sha256": "4c15a11ae76b94fc0e5f6429e1cad9de6b4780778d18d01790161d9a87f09da8",
+      "case_shards": {
+        "cases_rank0.jsonl": "2bbf645f5739ead840b5720f4813d85fe704c406a55a89edbebff18f9bb6ce42",
+        "cases_rank1.jsonl": "d872e4155930d6949af09fa725028ef7e98ecd7db8d19d4dedcf4fc110973bcb",
+        "cases_rank2.jsonl": "31b6075fe50fc1704a3a1b77f75038edd4712ab0b57300157aadc82639f19a83",
+        "cases_rank3.jsonl": "2a2c03f496ace935b666a489d9aafbf0fe6779ac9f79ff0788d3c38409791fe9"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_judgment_release_20261025_2rgb_endpoints_balanced_audit_bundle",
+      "phase": 1,
+      "mode": "2rgb_endpoints",
+      "primary": false,
+      "inputs_sha256": "122525784b8e6b180849fc97f8966eccd63f71747e918c1ebe49783e4110558d",
+      "completion_sha256": "1c59ba2d46f69de4f83fa32747285d9362f5d409b0c6e58d177d081224fda449",
+      "case_shards": {
+        "cases_rank0.jsonl": "62add7721294f5993eb83e4336bbc1d6d43a2407991f008a484b01b9a09aff73",
+        "cases_rank1.jsonl": "e8095abda9131cb8af71d0a2f6a7ab93302eaa0d546cd84db5c26b393499c3a8",
+        "cases_rank2.jsonl": "babfe19f686b0192d2997584e4bfa6ccd9768d2acf8d4e8a97e07536f6f93a5d",
+        "cases_rank3.jsonl": "cf67896ca26f867dde42d7f95b9be81002b5534b88f013d71cf0126c3b72a04f"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_judgment_release_20261025_4rgb_audit_bundle",
+      "phase": 1,
+      "mode": "4rgb",
+      "primary": false,
+      "inputs_sha256": "b26e3d7b1a60bdcd63dd18bddd005c5e56cf85178e19ebc23aec437afbfcdae3",
+      "completion_sha256": "975514b2c748b99e546c79c0a77b2b56d27bbd6d9c7c29a75dbc4f3a102fde54",
+      "case_shards": {
+        "cases_rank0.jsonl": "31e91e3ac11d7a27b62d74d282e0262a181f871e1c829e632d60fbc8ba93842b",
+        "cases_rank1.jsonl": "43ef301ed9920a5938ad2def620c0bf329e7d74c2c90282fb539279773407c4c",
+        "cases_rank2.jsonl": "7164f988d204d1e22216b399fbdc891e45ce0df4940819f02738c1f477445de9",
+        "cases_rank3.jsonl": "943e970ccdd6a853acd130b9678e5dd9d149cd3349c5b47d1adeb1a1a85431a6"
+      }
+    },
+    {
+      "source_name": "sft_new_loop_phase1_judgment_release_20261025_4rgb_balanced_audit_bundle",
+      "phase": 1,
+      "mode": "4rgb",
+      "primary": false,
+      "inputs_sha256": "7f21b45546cb51d6484e3224e5fa9d6abab3a4de819b2957ae66f8fe795620ef",
+      "completion_sha256": "9653f33b24de198da5bc8f9c23c313a1195c56b897dc27f397421d38cd4742e1",
+      "case_shards": {
+        "cases_rank0.jsonl": "f97d0fafc50d4bd99dbdb3707f1779e2a9cece906000f761cc3e1de73ddf6842",
+        "cases_rank1.jsonl": "c5f12bd7b24fb60a464c5ab071d87539c8203c82067a9087d208c660220f087b",
+        "cases_rank2.jsonl": "016b2de56e69e68a8ce5734a000db28476c17bebebbe77ffc4010a2fe0c5b6c1",
+        "cases_rank3.jsonl": "cd853596e1538372abc6138a3e94b01c5664a8fa232c24cbeecd66f54c00142a"
+      }
+    }
   ]
 }

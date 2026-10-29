@@ -126,7 +126,10 @@ def main():
     if args.worker:return worker(args)
     if args.command in ('all','cpu'):
         from . import history
-        history.load(args.history_contract)
+        from .history_prepare import ensure
+        default_history=(APP/'checkpoints/phase12_history_20261030/contract.json').resolve()
+        if args.history_contract==default_history:ensure(args.history_contract,APP)
+        else:history.load(args.history_contract)
     if args.command in ('all','cpu'):args.run_dir.mkdir(parents=True,exist_ok=False)
     if not args.run_dir.is_dir():raise ValueError('Missing CPU-ready directory')
     with (args.run_dir/'launch.lock').open('a') as lock:

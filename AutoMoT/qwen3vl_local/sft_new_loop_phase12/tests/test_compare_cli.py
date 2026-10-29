@@ -51,3 +51,22 @@ def test_native_id_binding_requires_verified_old_output(tmp_path,bad):
     else:(tmp_path/'evaluation_complete.json').unlink()
     with pytest.raises((ValueError,FileNotFoundError)):
         compare.bind_native_baseline([old],inputs,phase)
+
+
+@pytest.mark.parametrize('changed',['cases','completion'])
+def test_native_second_read_cannot_accept_changed_evidence(tmp_path,monkeypatch,changed):
+    from qwen3vl_local.sft_new_loop_phase12 import history
+    inputs,cases,old,new=native(tmp_path)
+    importer=history.import_inputs
+    old['parsed']['UE1']='NO'
+    def mutate_after_import(path):
+        source=importer(path)
+        if changed=='cases':cases.write_text(json.dumps(old)+'\n')
+        else:
+            old['parsed']['UE1']='YES'
+            complete=inputs.parent/'evaluation_complete.json'
+            complete.write_text(complete.read_text()+' ')
+        return source
+    monkeypatch.setattr(history,'import_inputs',mutate_after_import)
+    with pytest.raises(ValueError,match='changed during comparison'):
+        compare.bind_native_baseline([old],inputs,2)

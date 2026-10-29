@@ -80,15 +80,21 @@ CPU回执显式标记validation_limitation；验证仍有六类任务，但不�
 所有源码冻结在本机项目内，新run不覆盖旧目录，不隐式续训。
 
 历史清单含题目、标签、图像SHA和旧模型已保存的回答，不含RGB/权重，也不上传Git。
-先将本机 `/home/codon/Downloads/phase12_history_20261030.tar.gz`（约2.4MiB）传到服务器AutoMoT根目录。
-其内只有 `checkpoints/phase12_history_20261030/contract.json`，源码中的 `history_release.json` 固定其SHA；
-缺失或内容不符在新运行开始前拒绝，不退回本地重采样。可用 `--history-contract` 指向相同合同的其它路径。
+启动时优先核验现有合同，缺失则自动读取AutoMoT根/checkpoints/合同目录中的
+`phase12_history_20261030.tar.gz`，或从服务器checkpoints已有原生评测输出、历史审计包重建。
+源码的 `history_release.json` 仅保存固定合同和十份来源的SHA/名称；合同SHA保持原值。
+恢复只读取绑定的JSON，不解压其它成员，不联网、不覆盖错误的现有合同。
+发现目录受120秒/十万目录限制，有10秒扫描心跳，跳过冻结源码和下级目录软链接；
+checkpoints自身为共享目录软链接的布局仍支持。所有来源齐备时无需上传；若只在另一台服务器有
+部分来源，会逐项报缺，在创建新run前停止，不能退回重抽测试题或悄悄缩小隔离范围。
+需要补齐时仍可使用本机 `/home/codon/Downloads/phase12_history_20261030.tar.gz`（约2.4MiB）；
+可用 `--history-contract` 指向已存在的相同合同，显式路径缺失/错配直接拒绝。
 历史合同仅作为测试与隔离输入，不加载历史LoRA。新运行仍在服务器派生数据→从基座新训→新权重测试→打包。
 
 融合版本一行式完整命令：
 
 ```bash
-bash -c 'set -Eeuo pipefail; trap "echo [FAILED]-shared-Phase1-Phase2-see-error-above >&2" ERR; bash ./sync_automot.sh; if [ ! -f checkpoints/phase12_history_20261030/contract.json ]; then tar -xzf phase12_history_20261030.tar.gz; fi; bash qwen3vl_local/sft_new_loop_phase12/run.sh all'
+bash -c 'set -Eeuo pipefail; trap "echo [FAILED]-shared-Phase1-Phase2-see-error-above >&2" ERR; bash ./sync_automot.sh; bash qwen3vl_local/sft_new_loop_phase12/run.sh all'
 ```
 
 独立Phase2约一万步，仍是单独LoRA、单独运行：

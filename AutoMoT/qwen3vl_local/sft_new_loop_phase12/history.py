@@ -19,9 +19,11 @@ def boolean(v):
 
 
 def import_inputs(path,*,primary=False):
-    path=Path(path);obj=proof.read(path);complete=proof.read(path.parent/'evaluation_complete.json')
+    path=Path(path)
+    source_sha=proof.sha(path);completion_sha=proof.sha(path.parent/'evaluation_complete.json')
+    obj=proof.read(path);complete=proof.read(path.parent/'evaluation_complete.json')
     if (obj['arguments']['split']!='test' or complete['status']!='verified'
-            or complete['inputs_sha256']!=proof.sha(path) or complete['phase']!=obj['phase']
+            or complete['inputs_sha256']!=source_sha or complete['phase']!=obj['phase']
             or complete['total_cases']!=obj['expected_total'] or len(obj['items'])!=obj['expected_total']):
         raise ValueError('Historical input is not a complete bound TEST evaluation')
     phase=obj['phase'];mode=obj['history_rgb_mode'];cases=[]
@@ -36,7 +38,7 @@ def import_inputs(path,*,primary=False):
         name=relative_rgb(name)
         if name in hashes and hashes[name]!=sha:raise ValueError('Conflicting historical RGB aliases')
         hashes[name]=sha
-    records=[];source=proof.sha(path)
+    records=[];source=source_sha
     for number,(item,case) in enumerate(zip(obj['items'],cases)):
         row=item['row'];paths=[relative_rgb(p) for p in row['history_rgb_paths']]
         if len(paths)!=4 or any(tuple(Path(p).parts[:2])!=identity(row)[:2] for p in paths):
@@ -55,8 +57,12 @@ def import_inputs(path,*,primary=False):
             balance_key=item['balance_key'],seed_key=seed,original_asked_keys=list(gt),
             baseline_gt=gt,baseline_parsed={k:(boolean(v) if v in (True,False,'YES','NO') else None) for k,v in case['parsed'].items()},
             baseline_raw=case['raw_output'],historical_spec=spec,source_split='test'))
+    bindings={path:source_sha,path.parent/'evaluation_complete.json':completion_sha}
+    bindings.update({path.parent/name:sha for name,sha in complete['case_files_sha256'].items()})
+    if any(proof.sha(p)!=sha for p,sha in bindings.items()):
+        raise ValueError('Historical evidence changed during import')
     return dict(phase=phase,mode=mode,primary=primary,source_name=path.parent.parent.name,
-        inputs_sha256=source,completion_sha256=proof.sha(path.parent/'evaluation_complete.json'),
+        inputs_sha256=source,completion_sha256=completion_sha,
         case_shards=complete['case_files_sha256'],records=records,image_sha256=hashes)
 
 

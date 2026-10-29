@@ -54,9 +54,12 @@ def bind_native_baseline(rows, inputs, phase):
         if originals.get(row['case_index']) != row or supplied_id not in (None, expected_id):
             raise ValueError('Baseline case is not the verified original historical output')
         bound.append(dict(row, historical_case_id=expected_id))
-    # Detect input replacement while validating/reading native shards.
-    if proof.sha(inputs) != source['inputs_sha256']:
-        raise ValueError('Historical input changed during comparison')
+    # The importer validates its read; our second read must remain bound too.
+    bindings = {inputs: source['inputs_sha256'],
+                inputs.parent/'evaluation_complete.json': source['completion_sha256']}
+    bindings.update({inputs.parent/name: sha for name, sha in source['case_shards'].items()})
+    if any(proof.sha(path) != sha for path, sha in bindings.items()):
+        raise ValueError('Historical evidence changed during comparison')
     return bound
 
 

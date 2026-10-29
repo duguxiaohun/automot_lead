@@ -205,7 +205,10 @@ def main(argv=None):
     if args.worker:return worker(args)
     if args.phase == 1 and args.command != 'train':
         from .history_holdout import history, groups
-        groups(history.load(args.history_contract))
+        from qwen3vl_local.sft_new_loop_phase12.history_prepare import ensure
+        default_history=(APP/'checkpoints/phase12_history_20261030/contract.json').resolve()
+        historical=ensure(args.history_contract,APP) if args.history_contract==default_history else history.load(args.history_contract)
+        groups(historical)
     if args.command!='train':args.run_dir.mkdir(parents=True,exist_ok=False)
     elif not args.run_dir.is_dir():raise ValueError('Missing CPU-ready run directory; no implicit recovery')
     with (args.run_dir/'launch.lock').open('a') as lock:
