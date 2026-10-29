@@ -1,0 +1,53 @@
+"""Ask either task alone or both via one shared image prefix; no GT input needed."""
+import argparse
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from PIL import Image
+import torch
+from qwen3vl_local.qwen35.backend import LocalModel,LocalProcessor
+from qwen3vl_local.qwen35.adapters import LocalPeftModel
+from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
+from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
+from qwen3vl_local.sft_v3.train import _kv_start_state,_student_generate_kv
+from . import prompts,cache,evaluate,CONTRACT
+
+
+@torch.no_grad()
+def predict(bundle,images,mode,domain,task='both',seed='inference'):
+    if domain not in prompts.P2.QUESTION_DOMAINS or task not in ('both','phase1','phase2'):
+        raise ValueError('Unknown task/question domain')
+    if len(images)!=len(history_rgb_indices(mode)):raise ValueError('Wrong RGB count')
+    # Dummy answers only construct the question order; they are never rendered as an answer/input.
+    facts={k:False for k in prompts.P1.ANSWER_KEYS};event={k:False for k in prompts.P2.ANSWER_KEYS}
+    event[prompts.P2.DOMAIN_ANSWER_KEYS[domain]]=True
+    second=prompts.P2.make_prompt_spec(variant='all_random_order',answers=event,seed_key=seed)
+    first,_=prompts.specs(SimpleNamespace(spec=second),facts);texts=prompts.texts(first,second,mode)
+    bundle.model.eval()
+    if task=='both':
+        report=cache.generate(bundle,images,texts)
+        return dict(phase1=dict(text=report['branches'][0]['text'],answers=evaluate._parse(report['branches'][0]['text'],first,1)),
+            phase2=dict(text=report['branches'][1]['text'],answers=evaluate._parse(report['branches'][1]['text'],second,2)),performance=report)
+    phase=1 if task=='phase1' else 2;spec=(first,second)[phase-1]
+    state=_kv_start_state(bundle,prompts.messages(images,texts[phase-1]));text,_,tokens=_student_generate_kv(bundle,state,160)
+    return dict(task=task,text=text,answers=evaluate._parse(text,spec,phase),tokens=int(tokens.numel()),shared_prefix=False)
+
+
+def main():
+    p=argparse.ArgumentParser();p.add_argument('--model-dir',type=Path,required=True)
+    p.add_argument('--adapter',type=Path,required=True);p.add_argument('--rgb',type=Path,nargs=4,required=True)
+    p.add_argument('--mode',choices=('2rgb_endpoints','4rgb'),required=True)
+    p.add_argument('--domain',choices=prompts.P2.QUESTION_DOMAINS,default=prompts.P2.ROAD_DOMAIN)
+    p.add_argument('--task',choices=('both','phase1','phase2'),default='both');a=p.parse_args()
+    config=proof.read(a.adapter/'fusion_config.json');proof.verify_adapter(a.adapter)
+    if config['contract']!=CONTRACT or config['mode']!=a.mode or config['prompt']!=prompts.identity(a.mode):
+        raise ValueError('Shared adapter/prompt/history contract mismatch')
+    model=LocalModel.from_pretrained(str(a.model_dir),dtype=torch.bfloat16)
+    model=LocalPeftModel.from_pretrained(model,str(a.adapter),is_trainable=False,torch_device='cpu').to('cuda:0').eval()
+    processor=LocalProcessor.from_pretrained(str(a.model_dir));bundle=SimpleNamespace(model=model,processor=processor,tokenizer=processor.tokenizer,device=torch.device('cuda:0'))
+    images=[Image.open(a.rgb[i]).convert('RGB') for i in history_rgb_indices(a.mode)]
+    try:print(json.dumps(predict(bundle,images,a.mode,a.domain,a.task),ensure_ascii=False,indent=2))
+    finally:
+        for im in images:im.close()
+
+if __name__=='__main__':main()

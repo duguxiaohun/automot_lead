@@ -11,6 +11,7 @@ exec python -B -m qwen3vl_local.sft_new_loop_phase1.data_stage prepare \
   --run-build "${RUN_BUILD:-auto}" --timeout "${DATA_STAGE_TIMEOUT_SECONDS:-7200}" \
   --world-size "${DDP_GPU_COUNT:-4}" --modes "${MODES[@]}" \
   --focus-balance-count "${TRAIN_FOCUS_BALANCE_COUNT:-768}" \
+  --num-epochs "${TRAIN_NUM_EPOCHS:-3}" \
   --epoch-step-limit "${EPOCH_STEP_LIMIT:-4096}" --total-step-limit "${TOTAL_STEP_LIMIT:-12288}" \
   --epoch-hours-limit "${EPOCH_HOURS_LIMIT:-10}" \
   --action-index "${ACTION_INDEX:-auto}" -- \

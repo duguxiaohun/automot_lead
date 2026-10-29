@@ -53,6 +53,7 @@ def environment(app,phase,root,index,data_root,model,collection,budget_profile='
         PIPELINE_TIMESTAMP=root.name,PIPELINE_ROOT=str(root/'pipeline'),
         FINAL_EVAL_SPLIT='test',EVAL_SPLIT='val')
     env.update(TRAIN_FOCUS_BALANCE_COUNT=str(budget['quota']),FOCUS_BALANCE_COUNT=str(budget['quota']),
+               TRAIN_NUM_EPOCHS=str(budget['epochs']),NUM_EPOCHS=str(budget['epochs']),
                EPOCH_STEP_LIMIT=str(budget['epoch_step_limit']),TOTAL_STEP_LIMIT=str(budget['total_step_limit']),
                EPOCH_HOURS_LIMIT=str(budget['epoch_hours_limit']))
     return env
