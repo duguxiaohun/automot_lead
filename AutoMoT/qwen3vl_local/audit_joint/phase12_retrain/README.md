@@ -1,5 +1,21 @@
 # Phase1 / Phase2：独立新训练、评测和交包
 
+**2026-10-30 历史路线隔离修复：** 新启动的独立 Phase1 在标定派生后，按
+`physical_group` 剔除与已登记 Phase1 历史测试重叠的 train/val 记录，不移入 test；
+保留行和原 test 逐字节不变。原始数据、旧 ready、旧训练及冻结源码不改。
+本机发现的是 `VehicleOpensDoorTwoWays/Town12_3315_0` 的53条训练记录，
+不同采集批次仍属于同一物理路线；不是宣称相同RGB泄漏。新准入重新检查容量，
+保留40320步预算、原采样算法和prompt；删去候选后不能要求采样成员SHA与旧版相同。
+独立 Phase2 不依赖这项 Phase1 数据准备，仍按自己的入口训练。
+
+Phase1 启动前须把已有 `phase12_history_20261030.tar.gz` 传到服务器 AutoMoT 根并解压，
+或用 `--history-contract` 指向相同合同。合同SHA固定于源码，缺失/错配在占用新run前拒绝；
+`train` 接续只使用本run已保存并绑定的合同，不依赖外部原文件。
+旧 Phase1 ready 缺少隔离证据时不能由新入口继续训练，应新建CPU准入。
+`training_revision_audit.tar.gz` 增带历史合同、剔除明细及隔离回执；标定派生回执保留在
+新 `training_revision.json` / `preservation.json` 的 `label_derivation` 字段，避免把旧的
+“全部holdout不变”描述套在可能剔除了验证记录的新数据上。下文旧版本统计作为历史记录保留。
+
 **2026-10-29 新增可选配置：** 独立Phase2使用 `--budget-profile phase2_10k`，
 保持配额1024及原采样比例，六轮共10752更新。默认bounded仍5376，旧运行不迁移。
 用户另要求的单LoRA双任务实验位于独立目录 [sft_new_loop_phase12](../../sft_new_loop_phase12/README.md)，

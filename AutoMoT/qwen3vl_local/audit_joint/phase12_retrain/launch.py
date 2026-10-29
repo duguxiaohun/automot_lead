@@ -67,6 +67,9 @@ def verify_ready(root,phase,version):
     for path,sha in ready['files'].items():
         if proof.sha(path)!=sha:raise ValueError('CPU evidence changed: '+path)
     if proof.data_identity(ready['index'])!=ready['data']:raise ValueError('Prepared data changed')
+    if phase == 1:
+        from . import history_holdout
+        history_holdout.verify(ready['index'])
     return ready
 
 
@@ -100,7 +103,8 @@ def worker(args):
                     '--output-dir',str(parent.parent),'--data-root',str(args.data_root),
                     '--collection-dir',str(args.collection_dir)])
             if phase==1:
-                initial_data=root/'parent_revision/data' if revision=='visual_20261029' else index.parent
+                labeled_data=root/'labeled_data'
+                initial_data=root/'parent_revision/data' if revision=='visual_20261029' else labeled_data
                 stage('train_label_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.launch','derive',
                     '--parent',str(parent),'--reviews',str(APP/REVIEW_PATH),
@@ -109,7 +113,11 @@ def worker(args):
                     stage('visual_label_derivation',[sys.executable,'-B','-m',
                         'qwen3vl_local.audit_joint.phase12_retrain.refinement',
                         '--parent',str(initial_data/'frame_index.jsonl'),
-                        '--data-root',str(args.data_root),'--output',str(index.parent)])
+                        '--data-root',str(args.data_root),'--output',str(labeled_data)])
+                stage('historical_isolation',[sys.executable,'-B','-m',
+                    'qwen3vl_local.audit_joint.phase12_retrain.history_holdout',
+                    '--parent',str(labeled_data/'frame_index.jsonl'),
+                    '--history-contract',str(args.history_contract),'--output',str(index.parent)])
             else:
                 stage('train_label_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.phase2_data',
@@ -122,6 +130,9 @@ def worker(args):
             if cpu['status']!='ready':raise ValueError('Native CPU admission did not pass')
             files={str(p):proof.sha(p) for p in (root/'cpu').rglob('*') if p.is_file()}
             files.update({str(p):proof.sha(p) for p in [root/'selected_train_reviews.json',index.parent/'training_revision.json',index.parent/'preservation.json']})
+            if phase == 1:
+                from .history_holdout import FILES
+                files.update({str(index.parent/name):proof.sha(index.parent/name) for name in FILES})
             ready=dict(contract=CONTRACT,phase=phase,version=str(version),index=str(index),
                        data=proof.data_identity(index),files=files,mode_order=MODES,
                        expected_updates_per_mode=budget['expected_updates'],budget=budget,revision=revision)
@@ -148,6 +159,9 @@ def worker(args):
         # in the native per-mode bundles (each has its own size/integrity gate).
         files=[root/'completion_pending.json',root/'ready.json',version/'manifest.json']
         files += [root/'selected_train_reviews.json',root/'data/training_revision.json',root/'data/preservation.json']
+        if phase == 1:
+            from .history_holdout import FILES
+            files += [index.parent/name for name in FILES]
         with tarfile.open(root/'training_revision_audit.tar.gz','w:gz') as tar:
             for p in files:tar.add(p,arcname='completion.json' if p.name=='completion_pending.json' else p.name,recursive=False)
         (root/'completion_pending.json').rename(root/'completion.json')
@@ -173,6 +187,8 @@ def main(argv=None):
     parser.add_argument('--budget-profile',choices=PROFILES,default='bounded',
                         help='phase1_40k: three complete epochs, 40320 updates per mode; same labels/prompt/sampler')
     parser.add_argument('--revision',choices=('legacy_20261027','visual_20261029'),default='legacy_20261027')
+    parser.add_argument('--history-contract',type=Path,default=APP/'checkpoints/phase12_history_20261030/contract.json',
+                        help='Phase1 requires the released historical test contract for route isolation')
     parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--version',type=Path,help=argparse.SUPPRESS)
     args=parser.parse_args(argv)
@@ -185,8 +201,11 @@ def main(argv=None):
         args.run_dir=APP/'checkpoints/phase12_retrain'/f'p{args.phase}_{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}'
     args.run_dir=args.run_dir.resolve()
     args.parent_data=(args.parent_data or APP/f'checkpoints/sft_new_loop_phase{args.phase}_data').resolve()
-    for name in ('data_root','collection_dir','model_dir'):setattr(args,name,getattr(args,name).resolve())
+    for name in ('data_root','collection_dir','model_dir','history_contract'):setattr(args,name,getattr(args,name).resolve())
     if args.worker:return worker(args)
+    if args.phase == 1 and args.command != 'train':
+        from .history_holdout import history, groups
+        groups(history.load(args.history_contract))
     if args.command!='train':args.run_dir.mkdir(parents=True,exist_ok=False)
     elif not args.run_dir.is_dir():raise ValueError('Missing CPU-ready run directory; no implicit recovery')
     with (args.run_dir/'launch.lock').open('a') as lock:
@@ -208,7 +227,8 @@ def main(argv=None):
              '--worker','--version',str(version),'--run-dir',str(args.run_dir),'--parent-data',str(args.parent_data),
              '--data-root',str(args.data_root),'--collection-dir',str(args.collection_dir),
              '--model-dir',str(args.model_dir),'--cpu-timeout',str(args.cpu_timeout),'--train-timeout',str(args.train_timeout),
-             '--budget-profile',args.budget_profile,'--revision',args.revision]
+             '--budget-profile',args.budget_profile,'--revision',args.revision,
+             '--history-contract',str(args.history_contract)]
         print(f'[START] Phase{args.phase} {args.command}; run={args.run_dir}; version={version.name}',flush=True)
         subprocess.run(cmd,cwd=tree,env={**os.environ,'PYTHONPATH':str(tree),'PYTHONDONTWRITEBYTECODE':'1'},check=True)
         runtime.verify(version)

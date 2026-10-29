@@ -157,6 +157,10 @@ P1原混合题型总分不能直接与新八问总分视为同协议比较。
 重编号会记录renumbered_matches；同帧重复任务无法唯一确定时标记歧义，不按有利答案挑选。
 零匹配、部分匹配、问题覆盖不全都返回insufficient_comparable_evidence和review_required，
 同时输出新旧两端覆盖率；CLI退出2。只有完整可比且无旧正确损失才返回通过。
+手动CLI比较原始旧包与带historical_case_id的新reference时，会通过baseline-inputs旁的
+evaluation_complete.json核验原生结果分片，并要求传入的旧case逐条等于已绑定的原始输出，
+再以输入SHA及原case_index补建ID。原case可合并分片或选择子集，部分覆盖仍要求复核；
+错来源、改答案、缺回执不能借补ID绕过核验。自动historical_comparison保持同一严格逻辑。
 
 融合每个模式一个完整包，交回两个 `[BUNDLE] .../{2rgb_endpoints,4rgb}_audit_bundle.tar.gz`。
 包内含数据/源码绑定、完整val/test/reference输出、实际曝光、选中与final权重的SHA和元数据；权重本体留服务器。

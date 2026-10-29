@@ -166,22 +166,30 @@ def test_wrong_gpu_count_fails_before_gpu(monkeypatch,tmp_path):
 
 
 @pytest.mark.parametrize('phase',[1,2])
-@pytest.mark.parametrize('failure',[None,'cpu_admission','fresh_train_eval'])
+@pytest.mark.parametrize('failure',[None,'cpu_admission','fresh_train_eval','historical_isolation'])
 def test_actual_worker_order_and_failure_stop_with_explicit_stage_doubles(tmp_path,monkeypatch,phase,failure):
+    if phase==2 and failure=='historical_isolation':pytest.skip('Phase2 does not depend on Phase1 historical isolation')
     root=tmp_path/'run';root.mkdir();version=tmp_path/'version';app=version/'app';app.mkdir(parents=True)
     (version/'manifest.json').write_text('{}')
     parent=tmp_path/'parent';parent.mkdir();index=parent/'frame_index.jsonl';index.write_text('{}\n');(parent/'manifest.json').write_text('{}')
     monkeypatch.setattr(launch,'APP',app)
     monkeypatch.setattr(runtime,'verify',lambda p:{'training_revision':{'phase':phase}})
     monkeypatch.setattr(launch.local_assets,'ensure_data',lambda *args:('reuse',{}))
+    from qwen3vl_local.audit_joint.phase12_retrain import history_holdout
+    monkeypatch.setattr(history_holdout,'verify',lambda *args: {})
     # No CUDA/model inference in this orchestration test.
     calls=[]
     def run(cmd,status,**kw):
         name=status.stem;calls.append(name)
         if failure==name:raise RuntimeError('explicit stage failure')
         if name=='train_label_derivation':
-            (root/'data').mkdir();(root/'data/frame_index.jsonl').write_text('{}\n');(root/'data/manifest.json').write_text('{}')
-            for p in [root/'selected_train_reviews.json',root/'data/training_revision.json',root/'data/preservation.json']:p.write_text('{}')
+            output=Path(cmd[cmd.index('--output')+1]);output.mkdir()
+            (output/'frame_index.jsonl').write_text('{}\n');(output/'manifest.json').write_text('{}')
+            for p in [root/'selected_train_reviews.json',output/'training_revision.json',output/'preservation.json']:p.write_text('{}')
+        if name=='historical_isolation':
+            import shutil
+            shutil.copytree(root/'labeled_data',root/'data')
+            for filename in history_holdout.FILES:(root/'data'/filename).write_text('{}')
         if name=='cpu_admission':
             (root/'cpu').mkdir();(root/'cpu/status.json').write_text('{"status":"ready"}')
         if name=='fresh_train_eval':
@@ -192,7 +200,7 @@ def test_actual_worker_order_and_failure_stop_with_explicit_stage_doubles(tmp_pa
         status.write_text('{}')
     monkeypatch.setattr(launch.data_stage,'run',run)
     args=SimpleNamespace(run_dir=root,version=version,phase=phase,parent_data=parent,data_root=tmp_path,model_dir=tmp_path,
-                         collection_dir=tmp_path,command='all',cpu_timeout=10,train_timeout=30)
+                         collection_dir=tmp_path,command='all',cpu_timeout=10,train_timeout=30,history_contract=tmp_path/'history.json')
     cwd=Path.cwd()
     try:
         if failure:
@@ -201,7 +209,7 @@ def test_actual_worker_order_and_failure_stop_with_explicit_stage_doubles(tmp_pa
             if failure=='cpu_admission':assert 'fresh_train_eval' not in calls
         else:
             launch.worker(args)
-            assert calls==['model_check','train_label_derivation','cpu_admission','fresh_train_eval']
+            assert calls==['model_check','train_label_derivation']+(['historical_isolation'] if phase==1 else [])+['cpu_admission','fresh_train_eval']
             assert json.loads((root/'completion.json').read_text())['status']=='trained_evaluated_packaged_quality_pending'
             assert (root/'training_revision_audit.tar.gz').is_file()
     finally:os.chdir(cwd)

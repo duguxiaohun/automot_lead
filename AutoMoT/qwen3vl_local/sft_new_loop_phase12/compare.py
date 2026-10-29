@@ -32,6 +32,34 @@ def hashes_by_rgb(hashes):
     return result
 
 
+def bind_native_baseline(rows, inputs, phase):
+    """Recover IDs only from verified native input/completion/case evidence."""
+    from . import history
+    from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
+    inputs = Path(inputs)
+    source = history.import_inputs(inputs)
+    if source['phase'] != phase:
+        raise ValueError('Historical baseline phase differs from requested comparison')
+    originals = {}
+    for name in source['case_shards']:
+        for line in (inputs.parent/name).read_text().splitlines():
+            if line.strip():
+                row = json.loads(line)
+                originals[row['case_index']] = row
+    bound = []
+    for row in rows:
+        row = dict(row)
+        supplied_id = row.pop('historical_case_id', None)
+        expected_id = f"{source['inputs_sha256']}:{row['case_index']}"
+        if originals.get(row['case_index']) != row or supplied_id not in (None, expected_id):
+            raise ValueError('Baseline case is not the verified original historical output')
+        bound.append(dict(row, historical_case_id=expected_id))
+    # Detect input replacement while validating/reading native shards.
+    if proof.sha(inputs) != source['inputs_sha256']:
+        raise ValueError('Historical input changed during comparison')
+    return bound
+
+
 def compare(old,new,old_hashes,new_hashes,phase):
     previous={r['case_index']:r for r in old}
     if len(previous)!=len(old) or len({r['case_index'] for r in new})!=len(new):raise ValueError('Duplicate case index')
@@ -95,7 +123,10 @@ def main():
     p.add_argument('--baseline-inputs',type=Path,required=True);p.add_argument('--new-cases',type=Path,required=True)
     p.add_argument('--new-rgb-bindings',type=Path,required=True);p.add_argument('--phase',type=int,choices=(1,2),required=True)
     a=p.parse_args();read=lambda f:[json.loads(l) for l in f.open() if l.strip()]
-    result=compare(read(a.baseline_cases),read(a.new_cases),json.loads(a.baseline_inputs.read_text())['image_sha256'],
+    old,new=read(a.baseline_cases),read(a.new_cases)
+    if any(r.get('historical_case_id') for r in new):
+        old=bind_native_baseline(old,a.baseline_inputs,a.phase)
+    result=compare(old,new,json.loads(a.baseline_inputs.read_text())['image_sha256'],
         json.loads(a.new_rgb_bindings.read_text()),a.phase)
     print(json.dumps(result,ensure_ascii=False,indent=2))
     if result['review_required']:raise SystemExit(2)
