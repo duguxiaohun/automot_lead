@@ -13,7 +13,7 @@ from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 from qwen3vl_local.qwen35.adapters import save_adapter
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 from . import EPOCHS,WORLD,UPDATES,CONTRACT
-from . import data,plan,prompts,objective,evaluate,integrity,cache
+from . import data,plan,prompts,objective,evaluate,integrity,cache,validation
 
 
 def save(bundle,path,root,mode,step):
@@ -26,13 +26,18 @@ def save(bundle,path,root,mode,step):
 
 def validate(bundle,index,data_root,mode,output,step,root,best):
     bare=bundle.model;bundle.model=bundle.unwrap()
-    try:m=evaluate.run(bundle,index,data_root,mode,'val',output/f'val_step_{step}')
+    candidate=output/f'val_step_{step}'
+    try:
+        evaluate.run(bundle,index,data_root,mode,'val',candidate)
+        validation.run(bundle,root,mode,candidate/'weak_guard')
     finally:bundle.model=bare
-    scores=[m[f'phase{p}']['exact_accuracy'] for p in (1,2)]
-    score=(min(scores),sum(scores)/2)
-    if best is None or score>tuple(best['score']):
+    review=validation.decision(candidate,output/f"val_step_{best['step']}" if best else None,
+                               proof.read(root/'cpu/guard_coverage.json'))
+    score=review['score'];promote=best is None or (review['eligible'] and score>best['score'])
+    proof.write(candidate/'selection_review.json',dict(**review,promoted=promote))
+    if promote:
         name=f'best_step_{step}';save(bundle,output/name,root,mode,step)
-        best=dict(score=score,step=step,adapter=name,selection='validation min(task exact), then mean; test never selects')
+        best=dict(score=score,step=step,adapter=name,selection='validation old-correct veto; weak recall, min task exact, mean, weak F1; test never selects')
         proof.write(output/'selection.json',best)
     bundle.model.train();return best
 

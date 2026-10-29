@@ -16,7 +16,7 @@ APP=Path(__file__).resolve().parents[2]
 
 def prepare_data(args):
     from qwen3vl_local.audit_joint.phase12_retrain import data as old_data,refinement,phase2_data,REVIEW_PATH
-    from . import data,plan,reference
+    from . import data,plan,reference,validation
     root=args.run_dir
     for phase,parent in ((1,args.phase1_data),(2,args.phase2_data)):
         index=parent/'frame_index.jsonl'
@@ -30,6 +30,7 @@ def prepare_data(args):
     data.build(root/'phase1/data/frame_index.jsonl',root/'phase2/data/frame_index.jsonl',args.data_root,root/'data')
     plan.prepare(root/'data/frame_index.jsonl',args.data_root,root/'cpu',args.action_index)
     reference.prepare(root,args.data_root)
+    validation.prepare(root,args.data_root)
     files={str(p.relative_to(root)):proof.sha(p) for sub in ('data','cpu','phase1_previous','phase1','phase2')
            for p in (root/sub).rglob('*') if p.is_file()}
     proof.write(root/'ready.json',dict(contract=CONTRACT,version=str(args.version),data_root=str(args.data_root),
@@ -70,6 +71,9 @@ def worker(args):
                 '--collection-dir',str(args.collection_dir),'--action-index',args.action_index]
             stage('cpu_prepare',command,14400)
         integrity.verify_ready(root,execution=True)
+        guard=proof.read(root/'cpu/guard_coverage.json')
+        print(f"[COVERAGE] weak validation={guard['selected']} cases; adequate={guard['coverage_adequate']}; "
+              "training sampler unchanged; highway validation NOT certified; historical quality pending",flush=True)
         if args.command=='cpu':
             state.update(status='cpu_ready_model_training_not_started');return
         ids=gpu_ids()

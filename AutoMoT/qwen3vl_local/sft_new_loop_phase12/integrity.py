@@ -18,9 +18,10 @@ def verify_ready(root,*,images=True,execution=False):
         if p.is_absolute() or '..' in p.parts or proof.sha(root/p)!=expected:raise ValueError('Prepared evidence changed: '+name)
     if images:
         rgb=proof.read(root/'data/rgb_sha256.json')
-        for name,expected in proof.read(root/'cpu/reference_rgb_sha256.json').items():
-            if name in rgb and rgb[name]!=expected:raise ValueError('Inconsistent image bindings')
-            rgb[name]=expected
+        for filename in ('reference_rgb_sha256.json','guard_rgb_sha256.json'):
+            for name,expected in proof.read(root/'cpu'/filename).items():
+                if name in rgb and rgb[name]!=expected:raise ValueError('Inconsistent image bindings')
+                rgb[name]=expected
         for name,expected in rgb.items():
             if proof.sha(resolve_rgb(ready['data_root'],name))!=expected:raise ValueError('RGB changed: '+name)
     return ready
@@ -50,6 +51,11 @@ def verify_training(output,root,mode):
     if r['contract']!=CONTRACT or r['status']!='trained_quality_pending' or r['mode']!=mode or r['budget']!=budget():
         raise ValueError('Wrong fusion training completion')
     if r['ready_sha256']!=proof.sha(Path(root)/'ready.json'):raise ValueError('Training/ready mismatch')
+    selection=proof.read(output/'selection.json')
+    if r['selected']!=selection['adapter'] or r['selected']!=f"best_step_{selection['step']}":
+        raise ValueError('Completion adapter differs from guarded validation selection')
+    config=proof.read(output/r['selected']/'fusion_config.json')
+    if config['step']!=selection['step'] or config['mode']!=mode:raise ValueError('Wrong selected checkpoint metadata')
     for name,expected in r['files'].items():
         if Path(name).is_absolute() or '..' in Path(name).parts or proof.sha(output/name)!=expected:
             raise ValueError('Training evidence changed: '+name)

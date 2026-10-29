@@ -41,6 +41,14 @@ def metrics(cases,phases=(1,2)):
     return result
 
 
+def benchmark_summary(cases):
+    trials=[t for c in cases for t in c['performance']['paired_benchmark']['trials']]
+    separate=sum(t['independent_seconds'] for t in trials);shared=sum(t['shared_seconds'] for t in trials)
+    return dict(cases=sum(bool(c['performance']['paired_benchmark']['trials']) for c in cases),
+        trials=len(trials),shared_seconds=shared,independent_seconds=separate,
+        saving_fraction=1-shared/separate if separate else None,scope='pre-encoded model computation; not end-to-end application speed')
+
+
 @torch.no_grad()
 def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
@@ -55,12 +63,21 @@ def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
     write(output/'inputs.json',dict(split=split,mode=mode,prompt=prompts.identity(mode),items=prepared,
                                  members_sha256=digest([plan.descriptor(i) for i in items])))
     cases=[];start=time.perf_counter()
+    # Distribute performance probes across class/subgroup strata, not just the first UE bucket.
+    benchmark_indices=[];seen=set()
+    for number,item in enumerate(prepared):
+        group=(item['balance_key'],item['ue3_subtype'])
+        if group not in seen and len(benchmark_indices)<8:benchmark_indices.append(number);seen.add(group)
+    for number in range(len(prepared)):
+        if len(benchmark_indices)==8:break
+        if number not in benchmark_indices:benchmark_indices.append(number)
     if bundle.device.type=='cuda':torch.cuda.reset_peak_memory_stats(bundle.device)
     with (output/'cases.jsonl').open('x') as handle:
         for number,(item,receipt) in enumerate(zip(items,prepared)):
             answers=facts[identity(item.row)];first,second=prompts.specs(item,answers)
             ims=[Image.open(item.row.history_rgb_paths[i]).convert('RGB') for i in history_rgb_indices(mode)]
-            try:report=cache.generate(bundle,ims,prompts.texts(first,second,mode),check_full=check_cache and number==0)
+            try:report=cache.generate(bundle,ims,prompts.texts(first,second,mode),check_full=check_cache and number==0,
+                verify_outputs=split=='test',benchmark_repeats=2 if split=='test' and number in benchmark_indices else 0)
             finally:
                 for im in ims:im.close()
             case=dict(case_index=number,**receipt,performance={k:v for k,v in report.items() if k!='branches'})
@@ -72,5 +89,7 @@ def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
     result=metrics(cases);result['performance']=dict(seconds=time.perf_counter()-start,
         peak_memory_bytes=torch.cuda.max_memory_allocated(bundle.device) if bundle.device.type=='cuda' else 0,
         device=str(bundle.device),model_dtype=str(next(bundle.model.parameters()).dtype),mode=mode,
-        shared_prefix=True,cache_equivalence_first_case=check_cache)
+        shared_prefix=True,cache_equivalence_first_case=check_cache,
+        peak_memory_scope='whole evaluation including independent baseline and diagnostics; not shared-only memory')
+    result['performance']['paired_benchmark']=benchmark_summary(cases)
     write(output/'metrics.json',result);return result
