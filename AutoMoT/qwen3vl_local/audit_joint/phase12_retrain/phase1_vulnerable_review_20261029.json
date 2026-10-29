@@ -1,0 +1,1011 @@
+{
+  "contract": "phase1_visual_refine_v1",
+  "revision": "visual_20261029",
+  "scope": "train-only; no scenario-wide propagation; old test scoring unchanged",
+  "decisions": [
+    {
+      "id": "vuln_20261029_0",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1645_0_route0_01_08_20_30_45",
+      "frame_id": 30,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R5",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": false,
+          "RS5": true
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0027.jpg",
+          "sha256": "d5ffc1ae3c3d8f437f892c5ba965eb980f5ec92bfed7a3bea9face113e49cd0d"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0028.jpg",
+          "sha256": "4b8e3266b3c9bab7ee185b542f5be79ef1a7808606be405b49c3d859e1df6dc0"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0029.jpg",
+          "sha256": "85fcc12322d1874274600cee5ea9af973f7465cdb3d0cce4daea70270ade20d8"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0030.jpg",
+          "sha256": "a588a3493192eda22c66553b36381e34856389472982b0251d06dc2044813122"
+        }
+      ],
+      "frame_notes": [
+        "0027：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+        "0028：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+        "0029：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+        "0030：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。"
+      ],
+      "reason": "窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_1",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1645_0_route0_01_08_20_30_45",
+      "frame_id": 80,
+      "decision": "uncertain",
+      "expected": {
+        "split": "train",
+        "rs": "R1",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0077.jpg",
+          "sha256": "898057b3688234110b44d4ee20fe85d8bacd214d033a30ec9643e3c9842fe912"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0078.jpg",
+          "sha256": "d1f7abe189f71a3b78d72d9a983d0c6574eb91ff8793be726aa049f0ccd1903f"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0079.jpg",
+          "sha256": "24a248491fc7a4bc600aa64d32c5852dd2abb86bdf090845ba8fcf02c620ad08"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0080.jpg",
+          "sha256": "69bb05f0a473f7acbfd973d0153ade16945f07f9c41de02ece9db7c413fd0694"
+        }
+      ],
+      "frame_notes": [
+        "0077：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+        "0078：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+        "0079：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+        "0080：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。"
+      ],
+      "reason": "目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_2",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1645_0_route0_01_08_20_30_45",
+      "frame_id": 120,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R5",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": false,
+          "RS5": true
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0117.jpg",
+          "sha256": "f0ce6627094fe69501f03943e94fdf9cc7236c11e015c3c66770f3e2b8358642"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0118.jpg",
+          "sha256": "4c26bbcccce60faabb1ea3780a6762253b30d9e0852300c1de402b05c6f35ebb"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0119.jpg",
+          "sha256": "e1aeef8c150e695b9d91eeff3441821f6cafd4c5ea18062b90c5de6944d684bc"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1645_0_route0_01_08_20_30_45/rgb/0120.jpg",
+          "sha256": "2718734da22ebe1f33a91737f917ac55da089c572ca5bcb3d60ebf7fbf3e717f"
+        }
+      ],
+      "frame_notes": [
+        "0117：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+        "0118：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+        "0119：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+        "0120：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。"
+      ],
+      "reason": "可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_3",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1754_0_route0_01_10_20_36_07",
+      "frame_id": 30,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0027.jpg",
+          "sha256": "390db776a7029d15021627e55f0c1d9f39989e5d2670a70616eb175611efc6e0"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0028.jpg",
+          "sha256": "35cdc50277d1ef0ee918c2d41971c2c857a9989041b4cc83a51ec5b447e4213e"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0029.jpg",
+          "sha256": "e9d89e4ee21a19575bad0ecc15e250f305f89fd19d0312e8f812cbcbe69cfe5f"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0030.jpg",
+          "sha256": "f2ae89e26777d4f7ea076ac98c9e0c8aee835bf86e61d5ba3b6acb6e2f8c5346"
+        }
+      ],
+      "frame_notes": [
+        "0027：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+        "0028：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+        "0029：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+        "0030：窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。"
+      ],
+      "reason": "窗口内没有可辨、与当前决策相关的弱势交通参与者；车、路杆、停车计费器不当作人，保持负例。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_4",
+      "scenario": "VehicleTurningRoutePedestrian",
+      "route_id": "Town12_Rep0_1754_0_route0_01_10_20_36_07",
+      "frame_id": 80,
+      "decision": "uncertain",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0077.jpg",
+          "sha256": "2bb480dbe183eb2ec827d547184b780cbf077b2f947526a9930357691182bae3"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0078.jpg",
+          "sha256": "ca0791e80cd44aa0d1ea26bc6049b51fc7cf1862b08b307121b2a11069289a05"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0079.jpg",
+          "sha256": "7c32823e027567acef5e27a40bd14f29db5aa2e9a8bee538a9514b98aaf7e924"
+        },
+        {
+          "path": "VehicleTurningRoutePedestrian/Town12_Rep0_1754_0_route0_01_10_20_36_07/rgb/0080.jpg",
+          "sha256": "b53818dec5fd73a87ef3a667b75d11c88a7fad63b72eb848332cd6519fe3d265"
+        }
+      ],
+      "frame_notes": [
+        "0077：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+        "0078：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+        "0079：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+        "0080：目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。"
+      ],
+      "reason": "目标距离或身份在此窗口仍有歧义，暂不修改；需保护原标签，不使用后续帧反推。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_5",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 26,
+      "decision": "correct",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {
+        "facts": {
+          "VULNERABLE": true
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0023.jpg",
+          "sha256": "4a808d1ef5eda6d5a887bf37e979625a0c417cfdacf4cbedd09fd55e338c1013"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0024.jpg",
+          "sha256": "7ea01c0d73fafe3d10e64d8a6c94b7b3f6fac43127804ad5e5bea33ac7539136"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0025.jpg",
+          "sha256": "99fbf7a7fe22fdebb6194a7ce6dae14427db14710d6e5169803535633492970e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0026.jpg",
+          "sha256": "babb7fe74c8ffa628bf500f9d4a8500b3cefb8a21dba5151fa39b51a2cc02581"
+        }
+      ],
+      "frame_notes": [
+        "0023：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0024：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0025：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0026：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_6",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 27,
+      "decision": "correct",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {
+        "facts": {
+          "VULNERABLE": true
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0024.jpg",
+          "sha256": "7ea01c0d73fafe3d10e64d8a6c94b7b3f6fac43127804ad5e5bea33ac7539136"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0025.jpg",
+          "sha256": "99fbf7a7fe22fdebb6194a7ce6dae14427db14710d6e5169803535633492970e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0026.jpg",
+          "sha256": "babb7fe74c8ffa628bf500f9d4a8500b3cefb8a21dba5151fa39b51a2cc02581"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0027.jpg",
+          "sha256": "20370358e08c799f555fc45ed185e681c520d378983ecd78b2963f309c77f952"
+        }
+      ],
+      "frame_notes": [
+        "0024：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0025：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0026：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0027：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_7",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 28,
+      "decision": "correct",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {
+        "facts": {
+          "VULNERABLE": true
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0025.jpg",
+          "sha256": "99fbf7a7fe22fdebb6194a7ce6dae14427db14710d6e5169803535633492970e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0026.jpg",
+          "sha256": "babb7fe74c8ffa628bf500f9d4a8500b3cefb8a21dba5151fa39b51a2cc02581"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0027.jpg",
+          "sha256": "20370358e08c799f555fc45ed185e681c520d378983ecd78b2963f309c77f952"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0028.jpg",
+          "sha256": "280b93cfdbf57d18a6ca948a1e2205ae896ce15692f399df1726db5cbd1d8d5c"
+        }
+      ],
+      "frame_notes": [
+        "0025：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0026：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0027：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0028：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_8",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 29,
+      "decision": "correct",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {
+        "facts": {
+          "VULNERABLE": true
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0026.jpg",
+          "sha256": "babb7fe74c8ffa628bf500f9d4a8500b3cefb8a21dba5151fa39b51a2cc02581"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0027.jpg",
+          "sha256": "20370358e08c799f555fc45ed185e681c520d378983ecd78b2963f309c77f952"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0028.jpg",
+          "sha256": "280b93cfdbf57d18a6ca948a1e2205ae896ce15692f399df1726db5cbd1d8d5c"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0029.jpg",
+          "sha256": "16cf33f93d85a4173ab984c8b201f60c704d14849df1e5e9e4f43b4ae001073e"
+        }
+      ],
+      "frame_notes": [
+        "0026：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0027：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0028：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0029：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_9",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 30,
+      "decision": "correct",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {
+        "facts": {
+          "VULNERABLE": true
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0027.jpg",
+          "sha256": "20370358e08c799f555fc45ed185e681c520d378983ecd78b2963f309c77f952"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0028.jpg",
+          "sha256": "280b93cfdbf57d18a6ca948a1e2205ae896ce15692f399df1726db5cbd1d8d5c"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0029.jpg",
+          "sha256": "16cf33f93d85a4173ab984c8b201f60c704d14849df1e5e9e4f43b4ae001073e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0030.jpg",
+          "sha256": "1a7d97f262f71a6201f2e74f02449a5d195e999928b299b561b1421e31403a76"
+        }
+      ],
+      "frame_notes": [
+        "0027：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0028：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0029：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0030：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_10",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 31,
+      "decision": "correct",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": false,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {
+        "facts": {
+          "VULNERABLE": true
+        }
+      },
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0028.jpg",
+          "sha256": "280b93cfdbf57d18a6ca948a1e2205ae896ce15692f399df1726db5cbd1d8d5c"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0029.jpg",
+          "sha256": "16cf33f93d85a4173ab984c8b201f60c704d14849df1e5e9e4f43b4ae001073e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0030.jpg",
+          "sha256": "1a7d97f262f71a6201f2e74f02449a5d195e999928b299b561b1421e31403a76"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0031.jpg",
+          "sha256": "064d52afb00b7e165aafc7c1871fc3f71311ea79f397cdddb4a7e8ae134587f0"
+        }
+      ],
+      "frame_notes": [
+        "0028：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0029：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0030：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0031：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_11",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 32,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0029.jpg",
+          "sha256": "16cf33f93d85a4173ab984c8b201f60c704d14849df1e5e9e4f43b4ae001073e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0030.jpg",
+          "sha256": "1a7d97f262f71a6201f2e74f02449a5d195e999928b299b561b1421e31403a76"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0031.jpg",
+          "sha256": "064d52afb00b7e165aafc7c1871fc3f71311ea79f397cdddb4a7e8ae134587f0"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0032.jpg",
+          "sha256": "e1cd3d88ffe7757db4fbb877a8dfe7ac49701e19175da1e74277a11bc1dd4787"
+        }
+      ],
+      "frame_notes": [
+        "0029：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0030：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0031：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0032：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_12",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 33,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0030.jpg",
+          "sha256": "1a7d97f262f71a6201f2e74f02449a5d195e999928b299b561b1421e31403a76"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0031.jpg",
+          "sha256": "064d52afb00b7e165aafc7c1871fc3f71311ea79f397cdddb4a7e8ae134587f0"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0032.jpg",
+          "sha256": "e1cd3d88ffe7757db4fbb877a8dfe7ac49701e19175da1e74277a11bc1dd4787"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0033.jpg",
+          "sha256": "d5f67e7ff29ad1acec3cbd907f6558865e10d049c2cdb9f7c900b4e4b378d816"
+        }
+      ],
+      "frame_notes": [
+        "0030：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0031：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0032：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0033：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_13",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 34,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0031.jpg",
+          "sha256": "064d52afb00b7e165aafc7c1871fc3f71311ea79f397cdddb4a7e8ae134587f0"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0032.jpg",
+          "sha256": "e1cd3d88ffe7757db4fbb877a8dfe7ac49701e19175da1e74277a11bc1dd4787"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0033.jpg",
+          "sha256": "d5f67e7ff29ad1acec3cbd907f6558865e10d049c2cdb9f7c900b4e4b378d816"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0034.jpg",
+          "sha256": "88f843b42ba3167af7d307b66c8c7ccde8703391b607d191336b0e955bd6a4f6"
+        }
+      ],
+      "frame_notes": [
+        "0031：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0032：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0033：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0034：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_14",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 35,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R1",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0032.jpg",
+          "sha256": "e1cd3d88ffe7757db4fbb877a8dfe7ac49701e19175da1e74277a11bc1dd4787"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0033.jpg",
+          "sha256": "d5f67e7ff29ad1acec3cbd907f6558865e10d049c2cdb9f7c900b4e4b378d816"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0034.jpg",
+          "sha256": "88f843b42ba3167af7d307b66c8c7ccde8703391b607d191336b0e955bd6a4f6"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0035.jpg",
+          "sha256": "f4201221b7047436e56ac281418369da442c6ef8e516c404373ce57242fee4aa"
+        }
+      ],
+      "frame_notes": [
+        "0032：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0033：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0034：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0035：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_15",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 36,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R1",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0033.jpg",
+          "sha256": "d5f67e7ff29ad1acec3cbd907f6558865e10d049c2cdb9f7c900b4e4b378d816"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0034.jpg",
+          "sha256": "88f843b42ba3167af7d307b66c8c7ccde8703391b607d191336b0e955bd6a4f6"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0035.jpg",
+          "sha256": "f4201221b7047436e56ac281418369da442c6ef8e516c404373ce57242fee4aa"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0036.jpg",
+          "sha256": "04f42c5bb286bbb79ec66e98c23b430a8fee430c4165946fbd66b589db437ec4"
+        }
+      ],
+      "frame_notes": [
+        "0033：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0034：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0035：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0036：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_16",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 37,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R1",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0034.jpg",
+          "sha256": "88f843b42ba3167af7d307b66c8c7ccde8703391b607d191336b0e955bd6a4f6"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0035.jpg",
+          "sha256": "f4201221b7047436e56ac281418369da442c6ef8e516c404373ce57242fee4aa"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0036.jpg",
+          "sha256": "04f42c5bb286bbb79ec66e98c23b430a8fee430c4165946fbd66b589db437ec4"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0037.jpg",
+          "sha256": "4ed43688d0461cd47f4c57ca23ca7f8f055f791670074c21759d316ea5fc6a4e"
+        }
+      ],
+      "frame_notes": [
+        "0034：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0035：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0036：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0037：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_17",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 38,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R1",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0035.jpg",
+          "sha256": "f4201221b7047436e56ac281418369da442c6ef8e516c404373ce57242fee4aa"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0036.jpg",
+          "sha256": "04f42c5bb286bbb79ec66e98c23b430a8fee430c4165946fbd66b589db437ec4"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0037.jpg",
+          "sha256": "4ed43688d0461cd47f4c57ca23ca7f8f055f791670074c21759d316ea5fc6a4e"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0038.jpg",
+          "sha256": "cc1badf5670e255aed23863a8ba621c351a246636b9a2f7dee93663aa2326437"
+        }
+      ],
+      "frame_notes": [
+        "0035：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0036：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0037：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+        "0038：右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。"
+      ],
+      "reason": "右侧路口/路缘骑车人可辨，沿即将进入的路段持续骑行；小目标、未隔离，符合原VULNERABLE提前可见口径。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_18",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35",
+      "frame_id": 50,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R1",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": true,
+          "RS2": false,
+          "RS4": false,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0047.jpg",
+          "sha256": "ac3040d3d37f2c70da17b9010b2173c068cea548f2c874b3b1fb57ce920a1381"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0048.jpg",
+          "sha256": "3786abba549de08966785e40e89730daf361fd18d8ceff3da500b2adcdb1a906"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0049.jpg",
+          "sha256": "a80749e215ce390901276e7e232509339edc8e3497a271e5f960fac356a71f26"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_10_route0_01_10_19_26_35/rgb/0050.jpg",
+          "sha256": "6c53da04d60023aa0385cb866860054601ae1e88c85aa379cfff0e9ce48ec780"
+        }
+      ],
+      "frame_notes": [
+        "0047：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+        "0048：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+        "0049：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+        "0050：可辨行人或骑车人处于路口边/当前冲突区域，保持正例。"
+      ],
+      "reason": "可辨行人或骑车人处于路口边/当前冲突区域，保持正例。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    },
+    {
+      "id": "vuln_20261029_19",
+      "scenario": "VehicleTurningRoute",
+      "route_id": "Town01_Rep0_Town01_Scenario4_11_route0_01_10_10_56_37",
+      "frame_id": 80,
+      "decision": "retain",
+      "expected": {
+        "split": "train",
+        "rs": "R4",
+        "answers": {
+          "HIGHWAY": false,
+          "STATIC_OBSTACLE": false,
+          "VULNERABLE": true,
+          "TRAFFIC_LIGHT_ABNORMAL": false,
+          "RS1": false,
+          "RS2": false,
+          "RS4": true,
+          "RS5": false
+        }
+      },
+      "changes": {},
+      "frame_evidence": [
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_11_route0_01_10_10_56_37/rgb/0077.jpg",
+          "sha256": "f762b3dda83d9b41b30709807ba212655e1307448c36c362a8b5208e967be893"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_11_route0_01_10_10_56_37/rgb/0078.jpg",
+          "sha256": "edcaceb06f2ef51548a832c2f4a832c8efb9960555e2947cee80002127bf6c1c"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_11_route0_01_10_10_56_37/rgb/0079.jpg",
+          "sha256": "591153b0a3cd1a23d1b7357201cf8b78fb442038241a5d93638bfcbed76fa8e1"
+        },
+        {
+          "path": "VehicleTurningRoute/Town01_Rep0_Town01_Scenario4_11_route0_01_10_10_56_37/rgb/0080.jpg",
+          "sha256": "1daeb78088781b6181437cb93e52e084ae88dad73262a9e84363d8cf69daaabe"
+        }
+      ],
+      "frame_notes": [
+        "0077：限速牌后部分遮挡的骑车人；78/79原像素局部复核有躯干与骑行轮廓，80遮挡更重。保留YES，禁止按缩略图“未看到”改NO。",
+        "0078：限速牌后部分遮挡的骑车人；78/79原像素局部复核有躯干与骑行轮廓，80遮挡更重。保留YES，禁止按缩略图“未看到”改NO。",
+        "0079：限速牌后部分遮挡的骑车人；78/79原像素局部复核有躯干与骑行轮廓，80遮挡更重。保留YES，禁止按缩略图“未看到”改NO。",
+        "0080：限速牌后部分遮挡的骑车人；78/79原像素局部复核有躯干与骑行轮廓，80遮挡更重。保留YES，禁止按缩略图“未看到”改NO。"
+      ],
+      "reason": "限速牌后部分遮挡的骑车人；78/79原像素局部复核有躯干与骑行轮廓，80遮挡更重。保留YES，禁止按缩略图“未看到”改NO。",
+      "reviewer": "Codex original-RGB review; independent second review for cyclist/occlusion boundaries",
+      "development_exposed": true
+    }
+  ]
+}

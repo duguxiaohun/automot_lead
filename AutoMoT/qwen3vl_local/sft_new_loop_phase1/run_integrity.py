@@ -60,6 +60,13 @@ def sources(phase):
             return phase == 2 and len(rel.parts) == 2 and p.name in shared
         return True
     paths = set()
+    # Native Phase2 audit imports its builder, which imports this lightweight
+    # helper outside qwen3vl_local. Bind/copy it so delivered code is standalone.
+    for name in ('__init__.py', 'abnormal_duration_filter.py'):
+        dependency = ROOT / 'lead_video_tools' / name
+        if not dependency.is_file():
+            raise ValueError(f'Missing native audit dependency: {dependency}')
+        paths.add(dependency)
     if phase == 2:
         paths.update(p for p in (ROOT / "qwen3vl_local/sft_new_loop_phase1").iterdir()
                      if p.is_file() and p.name in shared)

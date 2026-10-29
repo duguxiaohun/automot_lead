@@ -14,13 +14,15 @@ import time
 from qwen3vl_local import runtime_version as runtime
 from qwen3vl_local.sft_new_loop_phase1 import data_stage, local_assets, run_integrity as proof
 from . import CONTRACT, REVIEW_PATH
+from .budget import PROFILES, profile
 
 APP=Path(__file__).resolve().parents[3]
 MODES=('2rgb_endpoints','4rgb')
 
 
-def environment(app,phase,root,index,data_root,model,collection):
-    """Ignore stale shell training knobs; this entry has one reviewed budget."""
+def environment(app,phase,root,index,data_root,model,collection,budget_profile='bounded'):
+    """Ignore stale shell knobs; only the explicitly selected budget applies."""
+    budget=profile(phase,budget_profile)
     env=dict(os.environ)
     preserve={k:env[k] for k in ('GPU_IDS','ACTION_INDEX') if k in env}
     # Native script options must not silently turn fresh train into eval/plan-only,
@@ -50,6 +52,9 @@ def environment(app,phase,root,index,data_root,model,collection):
         EPOCH_STEP_LIMIT='4096',TOTAL_STEP_LIMIT='12288',WARMUP_STEPS='-1',
         PIPELINE_TIMESTAMP=root.name,PIPELINE_ROOT=str(root/'pipeline'),
         FINAL_EVAL_SPLIT='test',EVAL_SPLIT='val')
+    env.update(TRAIN_FOCUS_BALANCE_COUNT=str(budget['quota']),FOCUS_BALANCE_COUNT=str(budget['quota']),
+               EPOCH_STEP_LIMIT=str(budget['epoch_step_limit']),TOTAL_STEP_LIMIT=str(budget['total_step_limit']),
+               EPOCH_HOURS_LIMIT=str(budget['epoch_hours_limit']))
     return env
 
 
@@ -67,13 +72,17 @@ def verify_ready(root,phase,version):
 def worker(args):
     root=args.run_dir.resolve();version=args.version.resolve();phase=args.phase
     record=runtime.verify(version)
+    revision=getattr(args,'revision','legacy_20261027')
+    if record.get('training_revision',{}).get('revision','legacy_20261027')!=revision:
+        raise ValueError('Requested revision differs from the frozen source')
     if record.get('training_revision',{}).get('phase')!=phase or (version/'app').resolve()!=APP:
         raise ValueError('Worker must run inside its phase-specific verified source snapshot')
     state=dict(contract=CONTRACT,phase=phase,status='starting',version=str(version))
     statepath=root/'status.json'
     parent=args.parent_data.resolve()/'frame_index.jsonl'
     index=root/'data/frame_index.jsonl'
-    env=environment(APP,phase,root,index,args.data_root,args.model_dir,args.collection_dir)
+    budget=profile(phase,getattr(args,'budget_profile','bounded'))
+    env=environment(APP,phase,root,index,args.data_root,args.model_dir,args.collection_dir,budget['name'])
     os.chdir(APP)
     def stage(name,cmd,stage_env=env,timeout=None):
         state.update(status='running',stage=name);proof.write(statepath,state)
@@ -90,10 +99,16 @@ def worker(args):
                     '--output-dir',str(parent.parent),'--data-root',str(args.data_root),
                     '--collection-dir',str(args.collection_dir)])
             if phase==1:
+                initial_data=root/'parent_revision/data' if revision=='visual_20261029' else index.parent
                 stage('train_label_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.launch','derive',
                     '--parent',str(parent),'--reviews',str(APP/REVIEW_PATH),
-                    '--data-root',str(args.data_root),'--output',str(index.parent)])
+                    '--data-root',str(args.data_root),'--output',str(initial_data)])
+                if revision=='visual_20261029':
+                    stage('visual_label_derivation',[sys.executable,'-B','-m',
+                        'qwen3vl_local.audit_joint.phase12_retrain.refinement',
+                        '--parent',str(initial_data/'frame_index.jsonl'),
+                        '--data-root',str(args.data_root),'--output',str(index.parent)])
             else:
                 stage('train_label_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.phase2_data',
@@ -108,9 +123,11 @@ def worker(args):
             files.update({str(p):proof.sha(p) for p in [root/'selected_train_reviews.json',index.parent/'training_revision.json',index.parent/'preservation.json']})
             ready=dict(contract=CONTRACT,phase=phase,version=str(version),index=str(index),
                        data=proof.data_identity(index),files=files,mode_order=MODES,
-                       expected_updates_per_mode=9216 if phase==1 else 5376)
+                       expected_updates_per_mode=budget['expected_updates'],budget=budget,revision=revision)
             proof.write(root/'ready.json',ready)
         ready=verify_ready(root,phase,version)
+        if ready.get('budget',profile(phase))!=budget:
+            raise ValueError('CPU-ready budget differs from requested training budget')
         if args.command=='cpu':
             state.update(status='cpu_ready_model_training_not_started');proof.write(statepath,state)
             print('[CPU_READY] '+str(root),flush=True);return
@@ -151,10 +168,15 @@ def main(argv=None):
     parser.add_argument('--collection-dir',type=Path,default=APP/'keyframe_filter/collection_output')
     parser.add_argument('--model-dir',type=Path,default=APP/'checkpoints/Qwen3.5-4B')
     parser.add_argument('--cpu-timeout',type=float,default=7200)
-    parser.add_argument('--train-timeout',type=float,default=172800)
+    parser.add_argument('--train-timeout',type=float)
+    parser.add_argument('--budget-profile',choices=PROFILES,default='bounded',
+                        help='phase1_40k: three complete epochs, 40320 updates per mode; same labels/prompt/sampler')
+    parser.add_argument('--revision',choices=('legacy_20261027','visual_20261029'),default='legacy_20261027')
     parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--version',type=Path,help=argparse.SUPPRESS)
     args=parser.parse_args(argv)
+    budget=profile(args.phase,args.budget_profile)
+    if args.train_timeout is None:args.train_timeout=budget['train_timeout']
     if any(not math.isfinite(t) or t<=0 for t in (args.cpu_timeout,args.train_timeout)):
         parser.error('Timeouts must be finite and positive')
     if args.command=='train' and args.run_dir is None:parser.error('train requires the exact CPU-ready --run-dir')
@@ -171,17 +193,21 @@ def main(argv=None):
         if args.command=='train':
             execution=proof.read(args.run_dir/'execution.json');version=Path(execution['version'])
             if execution['origin']!=str(APP) or execution['phase']!=args.phase:raise ValueError('Run belongs to another machine or phase')
-            verify_ready(args.run_dir,args.phase,version)
+            if execution.get('revision','legacy_20261027')!=args.revision:raise ValueError('CPU-ready revision differs from requested training revision')
+            ready=verify_ready(args.run_dir,args.phase,version)
+            if ready.get('budget',profile(args.phase))!=budget:
+                raise ValueError('CPU-ready budget differs from requested training budget')
             if (args.run_dir/'fresh_train_eval.json').exists():raise ValueError('Training already attempted; preserve output, choose a new run')
         else:
             from .snapshot import prepare
-            version=prepare(APP,args.phase)
-            proof.write(args.run_dir/'execution.json',dict(origin=str(APP),phase=args.phase,version=str(version),contract=CONTRACT))
+            version=prepare(APP,args.phase,args.revision)
+            proof.write(args.run_dir/'execution.json',dict(origin=str(APP),phase=args.phase,version=str(version),contract=CONTRACT,budget=budget,revision=args.revision))
         tree=version/'app';runtime.verify(version)
         cmd=[sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase12_retrain',args.command,str(args.phase),
              '--worker','--version',str(version),'--run-dir',str(args.run_dir),'--parent-data',str(args.parent_data),
              '--data-root',str(args.data_root),'--collection-dir',str(args.collection_dir),
-             '--model-dir',str(args.model_dir),'--cpu-timeout',str(args.cpu_timeout),'--train-timeout',str(args.train_timeout)]
+             '--model-dir',str(args.model_dir),'--cpu-timeout',str(args.cpu_timeout),'--train-timeout',str(args.train_timeout),
+             '--budget-profile',args.budget_profile,'--revision',args.revision]
         print(f'[START] Phase{args.phase} {args.command}; run={args.run_dir}; version={version.name}',flush=True)
         subprocess.run(cmd,cwd=tree,env={**os.environ,'PYTHONPATH':str(tree),'PYTHONDONTWRITEBYTECODE':'1'},check=True)
         runtime.verify(version)

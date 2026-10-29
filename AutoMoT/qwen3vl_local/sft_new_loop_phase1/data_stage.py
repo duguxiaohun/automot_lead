@@ -147,7 +147,10 @@ def prepare(args):
                        "--plan-only", "--device", "cpu", "--index", str(index), "--data-root", native.data_root,
                        "--history-rgb-mode", mode, "--output-dir", str(output / f"{mode}_plan"),
                        "--focus-balance-count", str(args.focus_balance_count or (768 if args.phase == 1 else 1024)),
-                       "--num-epochs", "3", "--action-index", args.action_index]
+                       "--num-epochs", "3", "--action-index", args.action_index,
+                       "--epoch-step-limit", str(args.epoch_step_limit),
+                       "--total-step-limit", str(args.total_step_limit),
+                       "--epoch-hours-limit", str(args.epoch_hours_limit)]
             run(command, output / f"{mode}_sampling.json", timeout=args.timeout, env=env)
         if inspect_index(index, args.phase) != receipt:
             raise ValueError("Dataset changed during CPU admission")
@@ -181,6 +184,9 @@ def main():
     cpu.add_argument("--cases-per-bin", type=int, default=64)
     cpu.add_argument("--focus-balance-count", type=int, default=0)
     cpu.add_argument("--action-index", default="auto")
+    cpu.add_argument("--epoch-step-limit", type=int, default=4096)
+    cpu.add_argument("--total-step-limit", type=int, default=12288)
+    cpu.add_argument("--epoch-hours-limit", type=float, default=10.0)
     cpu.add_argument("builder_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command == "run":

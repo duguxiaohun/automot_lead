@@ -13,6 +13,10 @@ from .test_integrity import fixture_assets
 
 @pytest.mark.parametrize("phase", [1, 2])
 def test_sources_exclude_other_phase_training_and_dataset(tmp_path, monkeypatch, phase):
+    helper = tmp_path / 'lead_video_tools'
+    helper.mkdir()
+    for name in ('__init__.py', 'abnormal_duration_filter.py'):
+        (helper / name).write_text('# shared native audit dependency fixture\n')
     for n in (1,2):
         root = tmp_path / f"qwen3vl_local/sft_new_loop_phase{n}"
         root.mkdir(parents=True)

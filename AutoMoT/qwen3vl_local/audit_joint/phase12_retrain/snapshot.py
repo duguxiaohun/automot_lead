@@ -31,9 +31,12 @@ def training_prompt(source):
     return text
 
 
-def prepare(app, phase):
+def prepare(app, phase, revision='legacy_20261027'):
     if phase not in (1,2):
         raise ValueError('Phase must be 1 or 2')
+    from . import refinement
+    if revision not in ('legacy_20261027', refinement.REVISION):
+        raise ValueError('Unknown training revision')
     app=Path(app).resolve()
     cache=app/'checkpoints/phase12_retrain_runtime'
     cache.mkdir(parents=True,exist_ok=True)
@@ -51,6 +54,8 @@ def prepare(app, phase):
             replacements[name]=source.replace(old,f'checkpoints/sft_new_loop_phase{phase}_retrain_runs').encode()
         if phase==1:
             replacements[PROMPT]=training_prompt((app/PROMPT).read_text()).encode()
+            if revision == refinement.REVISION:
+                replacements[PROMPT]=refinement.phase1_prompt(replacements[PROMPT].decode()).encode()
             # Materialize only the approved small review leaf beneath shared data.
             rel=Path(REVIEW_PATH)
             for i in range(1,len(rel.parts)):
@@ -61,9 +66,12 @@ def prepare(app, phase):
                         record['assets'][str(prefix/child.name)]=str(child.resolve())
             record['assets'].pop(REVIEW_PATH,None)
             replacements[REVIEW_PATH]=(app/REVIEW_PATH).read_bytes()
+        elif revision == refinement.REVISION:
+            name='qwen3vl_local/sft_new_loop_phase2/prompts.py'
+            replacements[name]=refinement.phase2_prompt((app/name).read_text()).encode()
         for name,content in replacements.items():
             record['files'][name]=hashlib.sha256(content).hexdigest()
-        record['training_revision']={'contract':CONTRACT,'phase':phase,
+        record['training_revision']={'contract':CONTRACT,'phase':phase,'revision':revision,
             'parent_inventory_sha256':runtime.digest(original),
             'modified_sources':sorted(k for k in replacements if k.startswith('qwen3vl_local/')),
             'parent_prompt_sha256':original['files'].get(PROMPT),
