@@ -38,8 +38,8 @@ def select(rows, key, positive, limit=PER_POLARITY):
     return chosen
 
 
-def prepare(root,data_root):
-    root=Path(root);test_groups=set();val_rows=[];training_groups=set()
+def prepare(root,data_root,*,historical_groups=()):
+    root=Path(root);test_groups={tuple(g) for g in historical_groups};val_rows=[];training_groups=set()
     for phase in (1,2):
         for line in (root/f'phase{phase}/data/frame_index.jsonl').open():
             row=json.loads(line);group=physical_group(identity(row))
@@ -71,7 +71,7 @@ def prepare(root,data_root):
                 images[path]=proof.sha(p)
     if not records:raise ValueError('No heldout Phase1 weak/control validation records')
     coverage_ok=all(c['adequate_for_guard'] for q in coverage.values() for c in q.values())
-    report=dict(protocol='validation_guard_v1',source='original Phase1 val only; both original tests and fusion train excluded by physical_group',
+    report=dict(protocol='validation_guard_v2_historical',source='original Phase1 val only; parent tests, registered historical tests and fusion train excluded by physical_group',
         selected=len(records),coverage=coverage,coverage_adequate=coverage_ok,
         scope='finite validation guard, not a guarantee of population non-regression',
         highway_selection_certified=False,highway_limitation='No independent highway positive validation; original test never used for selection')

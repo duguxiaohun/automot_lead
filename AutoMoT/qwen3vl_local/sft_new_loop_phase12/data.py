@@ -29,7 +29,7 @@ def resolve_rgb(root, value):
     return path
 
 
-def build(phase1, phase2, data_root, output):
+def build(phase1, phase2, data_root, output, *, historical_groups=()):
     phase1,phase2,output=map(Path,(phase1,phase2,output))
     before={str(p.resolve()):sha(p) for p in (phase1,phase2)}
     rows=[json.loads(l) for l in phase2.open() if l.strip()]
@@ -42,6 +42,7 @@ def build(phase1, phase2, data_root, output):
             if key in first:raise ValueError('Duplicate physical Phase1 anchor')
             first[key]=row
     for row in rows:split_groups[physical_group(identity(row))].add(row['split'])
+    for group in historical_groups:split_groups[tuple(group)].add('test')
     if wanted-set(first):raise ValueError('Missing Phase1 physical labels; no guessed facts allowed')
     conflicts=[];joined=[];transitions=Counter()
     for row in rows:

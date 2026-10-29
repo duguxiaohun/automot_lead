@@ -1,0 +1,23 @@
+{
+  "schema": "phase12_historical_members_v1",
+  "contract_sha256": "0572dc3de6bfcc8bd3192c5833fa0624cc25a13bbfb66953926e825b47a67e9f",
+  "holdout_groups": 581,
+  "primary_counts": {
+    "phase1_2rgb_endpoints": 1024,
+    "phase1_4rgb": 1024,
+    "phase2_2rgb_endpoints": 384,
+    "phase2_4rgb": 384
+  },
+  "source_names": [
+    "sft_new_loop_phase1_p1_20261027_223544_1816761_2rgb_endpoints_audit_bundle",
+    "sft_new_loop_phase1_p1_20261027_223544_1816761_4rgb_audit_bundle",
+    "sft_new_loop_phase2_p2_20261028_112100_432848_2rgb_endpoints_audit_bundle",
+    "sft_new_loop_phase2_p2_20261028_112100_432848_4rgb_audit_bundle",
+    "sft_new_loop_phase1_p1_20261027_223544_1816761_2rgb_endpoints_balanced_audit_bundle",
+    "sft_new_loop_phase1_p1_20261027_223544_1816761_4rgb_balanced_audit_bundle",
+    "sft_new_loop_phase1_judgment_release_20261025_2rgb_endpoints_audit_bundle",
+    "sft_new_loop_phase1_judgment_release_20261025_2rgb_endpoints_balanced_audit_bundle",
+    "sft_new_loop_phase1_judgment_release_20261025_4rgb_audit_bundle",
+    "sft_new_loop_phase1_judgment_release_20261025_4rgb_balanced_audit_bundle"
+  ]
+}

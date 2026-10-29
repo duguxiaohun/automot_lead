@@ -77,7 +77,8 @@ def run(args):
         sampler_args=plan.arguments(output,ready['action_index'])
         # Exercise all six epochs before model allocation on every rank.
         work=plan.work(rows,sampler_args,0);expected=proof.read(root/'cpu/plan.json')
-        if plan.summarize(work,facts)!=expected['epochs'][0]:raise ValueError('Training selection differs from CPU admission')
+        if plan.summarize(work,facts)!={k:v for k,v in expected['epochs'][0].items() if k!='coverage'}:
+            raise ValueError('Training selection differs from CPU admission')
         if rank==0:
             proof.write(output/'training_inputs.json',dict(contract=CONTRACT,budget=integrity.budget(),
                 prompt=prompts.identity(args.mode),ready_sha256=proof.sha(root/'ready.json'),
@@ -97,7 +98,10 @@ def run(args):
         for epoch in range(EPOCHS):
             epoch_start=time.perf_counter()
             if epoch:work=plan.work(rows,sampler_args,epoch)
-            if plan.summarize(work,facts)!=expected['epochs'][epoch]:raise ValueError('Epoch membership changed')
+            if plan.summarize(work,facts)!={k:v for k,v in expected['epochs'][epoch].items() if k!='coverage'}:
+                raise ValueError('Epoch membership changed')
+            if sampler_args._fusion_coverage!=expected['epochs'][epoch]['coverage']:
+                raise ValueError('Epoch unseen exposure differs from CPU admission')
             for item in work[rank::WORLD]:
                 answers=facts[plan.identity(item.row)];first,second=prompts.specs(item,answers)
                 texts=prompts.texts(first,second,args.mode);targets=prompts.targets(answers,first,second)

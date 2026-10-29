@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 from qwen3vl_local import runtime_version as runtime
 from qwen3vl_local.sft_new_loop_phase1 import data_stage,local_assets,run_integrity as proof
@@ -16,8 +17,9 @@ APP=Path(__file__).resolve().parents[2]
 
 def prepare_data(args):
     from qwen3vl_local.audit_joint.phase12_retrain import data as old_data,refinement,phase2_data,REVIEW_PATH
-    from . import data,plan,reference,validation
+    from . import data,plan,reference,validation,history
     root=args.run_dir
+    historical=history.load(args.history_contract)
     for phase,parent in ((1,args.phase1_data),(2,args.phase2_data)):
         index=parent/'frame_index.jsonl'
         action,_=local_assets.ensure_data(index,phase,'auto')
@@ -27,10 +29,12 @@ def prepare_data(args):
     old_data.derive(args.phase1_data/'frame_index.jsonl',APP/REVIEW_PATH,args.data_root,root/'phase1_previous/data')
     refinement.derive(root/'phase1_previous/data/frame_index.jsonl',args.data_root,root/'phase1/data')
     phase2_data.derive(args.phase2_data/'frame_index.jsonl',args.data_root,root/'phase2/data')
-    data.build(root/'phase1/data/frame_index.jsonl',root/'phase2/data/frame_index.jsonl',args.data_root,root/'data')
+    data.build(root/'phase1/data/frame_index.jsonl',root/'phase2/data/frame_index.jsonl',args.data_root,root/'data',
+               historical_groups=history.groups(historical))
     plan.prepare(root/'data/frame_index.jsonl',args.data_root,root/'cpu',args.action_index)
+    shutil.copyfile(args.history_contract,root/'cpu/historical_contract.json')
     reference.prepare(root,args.data_root)
-    validation.prepare(root,args.data_root)
+    validation.prepare(root,args.data_root,historical_groups=history.groups(historical))
     files={str(p.relative_to(root)):proof.sha(p) for sub in ('data','cpu','phase1_previous','phase1','phase2')
            for p in (root/sub).rglob('*') if p.is_file()}
     proof.write(root/'ready.json',dict(contract=CONTRACT,version=str(args.version),data_root=str(args.data_root),
@@ -68,7 +72,8 @@ def worker(args):
             command=[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase12','prepare',
                 '--run-dir',str(root),'--version',str(args.version),'--phase1-data',str(args.phase1_data),
                 '--phase2-data',str(args.phase2_data),'--data-root',str(args.data_root),
-                '--collection-dir',str(args.collection_dir),'--action-index',args.action_index]
+                '--collection-dir',str(args.collection_dir),'--action-index',args.action_index,
+                '--history-contract',str(args.history_contract)]
             stage('cpu_prepare',command,14400)
         integrity.verify_ready(root,execution=True)
         guard=proof.read(root/'cpu/guard_coverage.json')
@@ -107,8 +112,9 @@ def main():
     p.add_argument('--collection-dir',type=Path,default=APP/'keyframe_filter/collection_output')
     p.add_argument('--model-dir',type=Path,default=APP/'checkpoints/Qwen3.5-4B')
     p.add_argument('--action-index',default='auto')
+    p.add_argument('--history-contract',type=Path,default=APP/'checkpoints/phase12_history_20261030/contract.json')
     args=p.parse_args()
-    for name in ('phase1_data','phase2_data','data_root','collection_dir','model_dir'):
+    for name in ('phase1_data','phase2_data','data_root','collection_dir','model_dir','history_contract'):
         setattr(args,name,getattr(args,name).resolve())
     if args.run_dir is None:
         if args.command in ('train','prepare'):p.error('Exact --run-dir required')
@@ -118,6 +124,9 @@ def main():
         if not args.version or (args.version/'app').resolve()!=APP:raise ValueError('Prepare requires frozen worker')
         return prepare_data(args)
     if args.worker:return worker(args)
+    if args.command in ('all','cpu'):
+        from . import history
+        history.load(args.history_contract)
     if args.command in ('all','cpu'):args.run_dir.mkdir(parents=True,exist_ok=False)
     if not args.run_dir.is_dir():raise ValueError('Missing CPU-ready directory')
     with (args.run_dir/'launch.lock').open('a') as lock:
@@ -133,7 +142,7 @@ def main():
         cmd=[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase12',args.command,'--worker',
             '--version',str(version),'--run-dir',str(args.run_dir),'--phase1-data',str(args.phase1_data),
             '--phase2-data',str(args.phase2_data),'--data-root',str(args.data_root),'--collection-dir',str(args.collection_dir),
-            '--model-dir',str(args.model_dir),'--action-index',args.action_index]
+            '--model-dir',str(args.model_dir),'--action-index',args.action_index,'--history-contract',str(args.history_contract)]
         subprocess.run(cmd,cwd=version/'app',env={**os.environ,'PYTHONPATH':str(version/'app')},check=True)
         runtime.verify(version)
 

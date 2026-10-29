@@ -6,7 +6,7 @@ import sys
 from types import SimpleNamespace
 from PIL import Image
 import pytest
-from qwen3vl_local.sft_new_loop_phase12 import data, prompts, evaluate, audit, finish, validation, CONTRACT, UPDATES
+from qwen3vl_local.sft_new_loop_phase12 import data, prompts, evaluate, audit, finish, validation, history, cache, CONTRACT, UPDATES
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 
 
@@ -61,22 +61,54 @@ def evidence(root):
     spec2=prompts.P2.make_prompt_spec(variant='all_random_order',answers=second,seed_key='fixture')
     first=prompts.P1.make_prompt_spec(variant='all_random_order',answers=facts,seed_key='fixture')
     item=dict(key=key,domain='ROAD_CORRIDOR',answers=second,seed_key='fixture',output_keys=list(spec2.output_keys),balance_key='UE1')
-    proof.write(root/'cpu/evaluation_members.json',{'val':[item],'test':[item]})
-    proof.write(root/'cpu/fusion_labels.json',[dict(key=key,answers=facts,paths=paths)])
+    proof.write(root/'cpu/evaluation_members.json',{'val':[{**item,'key':['control','route',3]}],'test':[item]})
+    proof.write(root/'cpu/fusion_labels.json',[dict(key=key,answers=facts,paths=paths,split='test'),dict(key=['control','route',3],answers=facts,paths=paths,split='val')])
     refs={str(p):[{**item,'answers':facts if p==1 else second,'paths':paths,'original_asked_keys':list(first.output_keys if p==1 else spec2.output_keys)}] for p in (1,2)}
-    proof.write(root/'cpu/reference_members.json',refs)
-    proof.write(root/'cpu/guard_members.json',refs['1'])
+    for phase,records in refs.items():
+        for number,r in enumerate(records):
+            spec=first if phase=='1' else spec2
+            gt=r['answers'] if phase=='1' else prompts.P2.spec_answers(spec)
+            r.update(case_index=number,historical_case_id=f'fixture:{phase}:{number}',rgb=paths,
+                baseline_gt=gt,baseline_parsed=gt,baseline_raw='fixture')
+    historical=dict(schema=history.SCHEMA,holdout_groups=[['s','route']],sources=[
+        dict(primary=True,phase=int(p),mode=mode,records=records) for mode in ('2rgb_endpoints','4rgb') for p,records in refs.items()])
+    proof.write(root/'cpu/historical_contract.json',historical)
+    proof.write(history.RELEASE,{'contract_sha256':proof.sha(root/'cpu/historical_contract.json')})
+    proof.write(root/'cpu/reference_members.json',{'2rgb_endpoints':refs,'4rgb':refs})
+    proof.write(root/'cpu/reference_rgb_sha256.json',{p:'fixture-sha' for p in paths})
+    proof.write(root/'cpu/guard_members.json',[{**refs['1'][0],'key':['control','route',3]}])
     proof.write(root/'cpu/guard_coverage.json',{'coverage_adequate':True})
+    proof.write(root/'ready.json',{'contract':CONTRACT})
+    complete={'selected':'best_step_1000','adapters':{'best_step_1000':{'fixture':'no model'}}}
+    proof.write(root/'runs/4rgb/training_complete.json',complete)
+    proof.write(root/'evaluation/4rgb/weight_binding.json',dict(contract=CONTRACT,mode='4rgb',
+        ready_sha256=proof.sha(root/'ready.json'),training_complete_sha256=proof.sha(root/'runs/4rgb/training_complete.json'),
+        selected='best_step_1000',adapter_identity=complete['adapters']['best_step_1000'],
+        device='cpu',model_dtype='torch.float32',weight_source='this_run_fresh_training_only'))
     text1,text2=prompts.targets(facts,first,spec2)
     for folder,phases in [('fusion_test',(1,2)),('original_phase1_test',(1,)),('original_phase2_test',(2,))]:
         out=root/'evaluation/4rgb'/folder;out.mkdir(parents=True)
         case=dict(case_index=0,key=key,balance_key='UE1',scenario='s',rgb=paths)
         for p,spec,raw in ((1,first,text1),(2,spec2,text2)):
             if p in phases:case[f'phase{p}']=dict(generated_tokens=1,token_ids=[p],stop_token_id=1,reached_token_limit=False,text=raw,gt=facts if p==1 else prompts.P2.spec_answers(spec),parsed=evaluate._parse(raw,spec,p))
+        if folder.startswith('original_phase'):case['historical_case_id']=refs[str(phases[0])][0]['historical_case_id']
         if folder=='fusion_test':case['performance']=dict(full_answer_equivalence_checked=True,independent_branches=[dict(case['phase1']),dict(case['phase2'])],paired_benchmark={'trials':[{'shared_seconds':1.,'independent_seconds':2.}]*2})
+        if folder=='fusion_test':
+            meta=case['performance']['paired_benchmark']
+            meta.update(protocol=cache.BENCHMARK_PROTOCOL,scope=cache.BENCHMARK_SCOPE,batch_size=1,
+                same_encoded_inputs=True,synchronized=False,do_sample=False,repetition_penalty=1.05,
+                device='cpu',dtype='torch.float32',max_new_tokens=160,warmup_pairs_per_method=1,
+                execution_order=[['independent','shared'],['shared','independent']],saving_fraction=.5)
+        if folder.startswith('original_phase'):
+            from qwen3vl_local.sft_new_loop_phase12.compare import compare
+            phase=phases[0]
+            baseline=[dict(case_index=0,historical_case_id=case['historical_case_id'],key=key,rgb=paths,
+                **{f'phase{phase}':dict(gt=refs[str(phase)][0]['baseline_gt'],parsed=refs[str(phase)][0]['baseline_parsed'])})]
+            hashes={p:'fixture-sha' for p in paths}
+            proof.write(out/'historical_comparison.json',compare(baseline,[case],hashes,hashes,phase))
         (out/'cases.jsonl').write_text(json.dumps(case)+'\n')
         result=evaluate.metrics([case],phases)
-        if folder=='fusion_test':result['performance']={'paired_benchmark':evaluate.benchmark_summary([case])}
+        if folder=='fusion_test':result['performance']={'paired_benchmark':evaluate.benchmark_summary([case]),'device':'cpu','model_dtype':'torch.float32'}
         proof.write(out/'metrics.json',result)
 
 
@@ -86,6 +118,10 @@ def evidence(root):
             dest=folder/sub;dest.mkdir(parents=True)
             for filename in ('cases.jsonl','metrics.json'):
                 (dest/filename).write_bytes((root/'evaluation/4rgb'/source/filename).read_bytes())
+        valcase=json.loads((folder/'cases.jsonl').read_text());valcase['key']=['control','route',3]
+        (folder/'cases.jsonl').write_text(json.dumps(valcase)+'\n')
+        guardcase=json.loads((folder/'weak_guard/cases.jsonl').read_text());guardcase['key']=['control','route',3]
+        (folder/'weak_guard/cases.jsonl').write_text(json.dumps(guardcase)+'\n')
         review=validation.decision(folder,None if step==1000 else root/'runs/4rgb/val_step_1000',{'coverage_adequate':True})
         proof.write(folder/'selection_review.json',dict(**review,promoted=step==1000))
         if step==1000:proof.write(root/'runs/4rgb/selection.json',dict(step=step,score=review['score'],adapter='best_step_1000'))
@@ -108,8 +144,8 @@ def test_real_package_source_closure_is_standalone_and_tamper_rejected(tmp_path,
     monkeypatch.setattr(finish.integrity,'verify_training',lambda *a:{'selected':'fixture_adapter'})
     archive=finish.package(tmp_path,'4rgb');assert archive.stat().st_size<30*1024**2
     bundle=tmp_path/'4rgb_audit_bundle'
-    command='import sys;sys.path.insert(0,sys.argv[1]);from qwen3vl_local.sft_new_loop_phase12.audit import verify_bundle;print(verify_bundle(sys.argv[2]))'
-    result=subprocess.run([sys.executable,'-I','-c',command,str(bundle/'code'),str(bundle)],cwd=tmp_path,capture_output=True,text=True)
+    command='import sys;sys.path.insert(0,sys.argv[1]);from qwen3vl_local.sft_new_loop_phase12 import history;from pathlib import Path;history.RELEASE=Path(sys.argv[3]);from qwen3vl_local.sft_new_loop_phase12.audit import verify_bundle;print(verify_bundle(sys.argv[2]))'
+    result=subprocess.run([sys.executable,'-I','-c',command,str(bundle/'code'),str(bundle),str(history.RELEASE)],cwd=tmp_path,capture_output=True,text=True)
     assert result.returncode==0,result.stderr
     target=bundle/'evaluation/4rgb/fusion_test/cases.jsonl';target.write_text(target.read_text()+'\n')
     with pytest.raises(ValueError):audit.verify_bundle(bundle)

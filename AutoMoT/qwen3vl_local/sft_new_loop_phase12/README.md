@@ -1,7 +1,7 @@
 # 单个 LoRA 的 Phase1 + Phase2 独立问答实验
 
 用户于2026-10-29明确要求新增融合实验。现有独立 Phase1/Phase2、历史权重与运行保持原状。
-当前新运行合同为 `phase12_shared_lora_v2_guard_20261029`；旧v1冻结源码/ready不覆盖或迁移。
+当前新运行合同为 `phase12_shared_lora_v3_history_20261030`；旧v1/v2冻结源码/ready不覆盖或迁移。
 每个图像模式训练一个共用 LoRA：两图模型同时回答P1/P2，四图模型也同时回答P1/P2；
 两图与四图仍是两个独立实验，并非把两种图数混成一个训练集。
 
@@ -48,12 +48,21 @@ P2沿用原生领域问法：ROAD_CORRIDOR询问UE1/UE3/UE5及INVALID，LOCAL_JU
 用户本轮询问这几帧是否可忽略：不专门强插这6帧，继续保留Phase2原采样。父索引仍先按已审计规则派生，
 但不能据此宣称已通过这6帧加强弱项。训练正例稀少仍未解决，新增验证保护不等于补足训练证据。
 六轮约10752步不等于新增同等数量独立数据；本机第一轮4360个独特帧，后续没有新增物理帧。
+跨epoch仍使用实际成功反传的ExposureLedger，在原配额/语义/子组/标注可用性内优先零曝光帧，
+再按累计曝光和路线均衡选择。CPU投影不冒充已消费历史，失败样本不会登记成训练成功。
+新增每轮candidate_unique_frames、unseen_before/after、compatible_unseen_after、pool_exhausted回执；
+真实训练的下一轮覆盖必须与CPU准入一致。当前融合池首轮已耗尽，不通过改问序或增加轮数虚报新图；
+若需要后续epoch持续出现新图，须扩大已标定且隔离合格的候选池，不能挪用val/test。
 
 ## 两阶段旧测试必须保护
 
 按物理帧连接两份已标定索引；缺标签、RS矛盾、历史RGB不一致会拒绝，绝不从场景名猜P1答案。
 原始索引和既有split不修改。在新融合派生集里，以原生physical_group统一保护两边holdout：
-test优先于val、val优先于train，任一旧测试路线不进入融合训练或选模验证。
+test优先于val、val优先于train。另读取已发布的真实历史测试合同，将其中所有物理路线强制保护为test，
+包括当前两份父索引均未将其标成test、或者一边索引完全缺失的路线。
+本次登记10份已验证历史评测输入、581个物理路线组，核验4974个RGB SHA；只声称覆盖登记来源，
+不声称自动知道所有从未收到的旧实验。ConstructionObstacleTwoWays/Town07...001189整组已排除于保护集。
+原始数据/旧回执不改；新派生index重新记录隔离结果，交包带历史合同和全物理帧split以便复核。
 
 本机原两份索引6462条P2记录中，1575条原split不同。保护后：train4734、val469、test1259；
 696条原P2 train移出融合训练，15条原P2 val进入融合test。P1/P2原数据都保持原样。
@@ -70,10 +79,16 @@ CPU回执显式标记validation_limitation；验证仍有六类任务，但不�
 默认本机 `checkpoints/Qwen3.5-4B`、`lead_data`、各阶段标准数据目录。
 所有源码冻结在本机项目内，新run不覆盖旧目录，不隐式续训。
 
+历史清单含题目、标签、图像SHA和旧模型已保存的回答，不含RGB/权重，也不上传Git。
+先将本机 `/home/codon/Downloads/phase12_history_20261030.tar.gz`（约2.4MiB）传到服务器AutoMoT根目录。
+其内只有 `checkpoints/phase12_history_20261030/contract.json`，源码中的 `history_release.json` 固定其SHA；
+缺失或内容不符在新运行开始前拒绝，不退回本地重采样。可用 `--history-contract` 指向相同合同的其它路径。
+历史合同仅作为测试与隔离输入，不加载历史LoRA。新运行仍在服务器派生数据→从基座新训→新权重测试→打包。
+
 融合版本一行式完整命令：
 
 ```bash
-bash -c 'set -Eeuo pipefail; trap "echo [FAILED]-shared-Phase1-Phase2-see-error-above >&2" ERR; bash ./sync_automot.sh; bash qwen3vl_local/sft_new_loop_phase12/run.sh all'
+bash -c 'set -Eeuo pipefail; trap "echo [FAILED]-shared-Phase1-Phase2-see-error-above >&2" ERR; bash ./sync_automot.sh; if [ ! -f checkpoints/phase12_history_20261030/contract.json ]; then tar -xzf phase12_history_20261030.tar.gz; fi; bash qwen3vl_local/sft_new_loop_phase12/run.sh all'
 ```
 
 独立Phase2约一万步，仍是单独LoRA、单独运行：
@@ -99,13 +114,17 @@ FP32 logits使用atol2e-5/rtol2e-4，BF16使用atol0.08/rtol0.03，同时要求�
 其中最多8个覆盖不同类别/子组的案例先分别预热，再交替执行两轮配对计时，记录原始耗时与汇总节省比例。
 计时只含模型prefill、完整decode和缓存复制，使用相同已编码输入，不含processor或额外logits检查；
 允许结果为负（共享路径更慢），不预设加速。峰值显存是含基线/诊断的整个评测峰值，不冒称共享路径独占显存。
-失败发生在optimizer更新之前。训练中的cache只用于无梯度验证，不跨更新持久复用。
+启动探针失败发生在optimizer更新之前；训练中验证或最终测试失败会保留该次运行并停止，不冒充完整交付。
+训练中的cache只用于无梯度验证，不跨更新持久复用。
+审计器逐项强制检查预热次数、交替执行顺序、device、dtype、160-token上限、batch=1、
+确定性生成、repetition penalty、同一编码输入、同步状态和计时scope，并与本次新权重的评测绑定对照。
+缺项、条件冲突、汇总不一致均拒绝，不再接受只有trials的计时证据。
 
 ## 选模、评测、交包
 
 每1000步及最终步评测融合val192题，并评测新增Phase1弱项保护集。本机保护集合并去重后254题，
 行人和静态障碍物各抽64正例、64负例，每桶来自64个物理路线组；逐题仍回答全部八问。
-它只来自原Phase1 val，并按physical_group排除两边任何旧test以及融合train；不改训练采样、原生val或旧test。
+它只来自原Phase1 val，并按physical_group排除两边父test、已登记真实历史test以及融合train；不改训练采样、原生val或旧test。
 每桶至少8帧和2个物理组才标记覆盖足够，该最低门只是工程检查，不是统计学充分性证明。
 
 第一个完成验证的训练checkpoint作为初始候选。以后相对当前已选checkpoint，融合val和弱项保护集
@@ -119,8 +138,16 @@ FP32 logits使用atol2e-5/rtol2e-4，BF16使用atol0.08/rtol0.03，同时要求�
 另起进程从CPU读adapter再搬到指定GPU，重载选中的同一个权重，必须完成：
 
 1. 融合test384题：共同图像前缀分叉，P1/P2各自独立输出。
-2. 原P1 test的原生1024题成员：改为全八问，单独问P1，检验P2取样下是否损害P1覆盖。
-3. 原P2 test的原生384题成员：单独问P2；默认种子20260810、原生非route-diverse评测抽样。
+2. 实际收到的历史P1主包1024题：严格按该模式保存的成员、图序、标签和seed，改为全八问；不从当前父池重抽。
+3. 实际收到的历史P2主包384题：严格按该模式历史成员单独问P2；不依赖相同seed来假定跨机成员相同。
+
+两图、四图分别绑定对应历史包，不能用四图清单推测两图。新的固定成员覆盖是100%，这只是数据准备证据，
+不是模型正确率。P1旧题中GROUP/RS_HIGHWAY不在新八问输出内，主比较保留共同问题，明确列出未比较问题；
+不会将新八问准确率冒充旧混合题型的整题准确率。P2按原问题域比较。
+每份reference输出自动产生historical_comparison.json，保留全部旧正确损失，交包时重算。
+历史case id由输入文件SHA与原case_index共同绑定，用来消除同一物理帧重复题的歧义；仍强制检查图序/图SHA/标签。
+新权重评测另写weight_binding.json，绑定本run ready、完整训练回执、选中adapter SHA及device/dtype；
+错配新数据/旧adapter或另一轮训练回执会拒绝，历史LoRA从未成为评测加载对象。
 
 保存完整原始输出、GT、问序、原问键、RGB/SHA、逐问题混淆计数与precision/recall/F1、场景指标、
 格式有效率、同题两任务联合正确数、缓存/时延/显存和训练曝光。原参考集只作最终测试，不能选模。

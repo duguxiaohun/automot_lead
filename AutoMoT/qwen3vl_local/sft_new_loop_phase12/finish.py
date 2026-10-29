@@ -32,7 +32,8 @@ def package(root,mode):
     # Source closure includes both native samplers/parsers, fusion modules, and local Qwen backend.
     sources=proof.sources(1)|proof.sources(2)
     package_dir=Path(__file__).parent
-    for p in package_dir.glob('*.py'):sources[str(p.relative_to(proof.ROOT))]=proof.sha(p)
+    for p in package_dir.iterdir():
+        if p.is_file() and p.suffix in ('.py','.json'):sources[str(p.relative_to(proof.ROOT))]=proof.sha(p)
     for p in (proof.ROOT/'qwen3vl_local/audit_joint/phase12_retrain').iterdir():
         if p.is_file() and p.suffix in ('.py','.json'):
             sources[str(p.relative_to(proof.ROOT))]=proof.sha(p)
@@ -63,6 +64,7 @@ def main():
     model=LocalPeftModel.from_pretrained(model,str(adapter),is_trainable=False,torch_device='cpu')
     device=torch.device('cuda:0');model=model.to(device).eval();processor=LocalProcessor.from_pretrained(str(a.model_dir))
     bundle=SimpleNamespace(model=model,processor=processor,tokenizer=processor.tokenizer,device=device)
+    integrity.bind_evaluation(a.run_dir,a.mode,device,next(model.parameters()).dtype)
     evaluate.run(bundle,a.run_dir/'data/frame_index.jsonl',ready['data_root'],a.mode,'test',a.run_dir/'evaluation'/a.mode/'fusion_test')
     for phase in (1,2):reference.run(bundle,a.run_dir,a.mode,phase)
     integrity.verify_ready(a.run_dir);package(a.run_dir,a.mode)

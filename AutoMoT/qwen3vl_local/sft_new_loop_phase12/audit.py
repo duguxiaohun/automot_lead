@@ -4,13 +4,18 @@ import json
 from pathlib import Path
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
-from . import prompts,evaluate,cache,validation,CONTRACT,UPDATES
+from . import prompts,evaluate,cache,validation,history,integrity,CONTRACT,UPDATES
 
 
 def verify_evaluations(root,mode):
     root=Path(root);members=proof.read(root/'cpu/evaluation_members.json')
+    weight_binding=integrity.verify_evaluation_binding(root,mode)
     facts={tuple(r['key']):r for r in proof.read(root/'cpu/fusion_labels.json')}
-    reference=proof.read(root/'cpu/reference_members.json')
+    historical=history.load(root/'cpu/historical_contract.json')
+    reference=proof.read(root/'cpu/reference_members.json')[mode]
+    for phase in (1,2):
+        if reference[str(phase)]!=history.primary(historical,phase,mode)['records']:
+            raise ValueError('Reference differs from bound historical membership')
     validations=sorted((root/'runs'/mode).glob('val_step_*'),key=lambda p:int(p.name.rsplit('_',1)[1]))
     if [int(p.name.rsplit('_',1)[1]) for p in validations]!=[*range(1000,UPDATES,1000),UPDATES]:
         raise ValueError('Incomplete scheduled validation evidence')
@@ -18,8 +23,17 @@ def verify_evaluations(root,mode):
            root/'evaluation'/mode/'original_phase2_test']
     paths+=sorted((root/'runs'/mode).glob('val_step_*'))
     guard=proof.read(root/'cpu/guard_members.json')
+    from qwen3vl_local.sft_new_loop_phase1.training_policy import physical_group
+    if any(physical_group(tuple(r['key'])) in history.groups(historical) for r in members['val']):
+        raise ValueError('Historical test route used by fusion validation')
+    for row in facts.values():
+        if physical_group(tuple(row['key'])) in history.groups(historical) and row['split']!='test':
+            raise ValueError('Historical test route leaked into fusion train/val')
+    if any(physical_group(tuple(r['key'])) in history.groups(historical) for r in guard):
+        raise ValueError('Historical test route used by validation guard')
     paths += [p/'weak_guard' for p in sorted((root/'runs'/mode).glob('val_step_*'))]
     for folder in paths:
+        recorded=proof.read(folder/'metrics.json')
         cases=[json.loads(l) for l in (folder/'cases.jsonl').open() if l.strip()]
         phases=(1,2)
         if folder.name=='weak_guard':phases=(1,);expected=guard
@@ -32,6 +46,8 @@ def verify_evaluations(root,mode):
                 raise ValueError('Evaluation membership/order mismatch')
             label=facts[tuple(item['key'])] if len(phases)==2 else item
             if case['rgb']!=[label['paths'][i] for i in history_rgb_indices(mode)]:raise ValueError('RGB order differs')
+            if folder.name.startswith('original_phase') and case.get('historical_case_id')!=item['historical_case_id']:
+                raise ValueError('Historical case provenance changed')
             for phase in phases:
                 answers=label['answers'] if phase==1 else item['answers']
                 module=prompts.P1 if phase==1 else prompts.P2
@@ -45,13 +61,23 @@ def verify_evaluations(root,mode):
                 if not perf['full_answer_equivalence_checked']:raise ValueError('Missing full-answer cache parity')
                 cache.assert_answers({'branches':[case['phase1'],case['phase2']]},
                                      {'branches':perf['independent_branches']})
-                for trial in perf['paired_benchmark']['trials']:
-                    if (set(trial)!={'shared_seconds','independent_seconds'}
-                            or any(not isinstance(v,(float,int)) or not 0<v<float('inf') for v in trial.values())):
-                        raise ValueError('Invalid benchmark timing')
+                cache.verify_benchmark(perf['paired_benchmark'],device=recorded['performance']['device'],
+                                       dtype=recorded['performance']['model_dtype'])
+                for arm in [case['phase1'],case['phase2'],*perf['independent_branches']]:
+                    if arm['generated_tokens']>160 or arm['reached_token_limit']!=(arm['generated_tokens']==160):
+                        raise ValueError('Generated length contradicts timing conditions')
         calculated=evaluate.metrics(cases,phases);recorded=proof.read(folder/'metrics.json')
         if any(recorded[k]!=v for k,v in calculated.items()):raise ValueError('Metrics do not reproduce original text')
+        if folder.name.startswith('original_phase'):
+            from .compare import compare
+            phase=phases[0];hashes=proof.read(root/'cpu/reference_rgb_sha256.json')
+            baseline=[dict(case_index=r['case_index'],historical_case_id=r['historical_case_id'],key=r['key'],rgb=r['rgb'],
+                **{f'phase{phase}':dict(gt=r['baseline_gt'],parsed=r['baseline_parsed'])}) for r in expected]
+            if proof.read(folder/'historical_comparison.json')!=compare(baseline,cases,hashes,hashes,phase):
+                raise ValueError('Historical regression report mismatch')
         if folder.name=='fusion_test':
+            if any(recorded['performance'][k]!=weight_binding[k] for k in ('device','model_dtype')):
+                raise ValueError('Benchmark conditions differ from actual evaluation model binding')
             measured=evaluate.benchmark_summary(cases)
             if measured['cases']!=min(8,len(cases)) or measured['trials']!=2*measured['cases']:
                 raise ValueError('Incomplete paired performance measurement')

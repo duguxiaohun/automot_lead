@@ -37,11 +37,17 @@ def compare(old,new,old_hashes,new_hashes,phase):
     if len(previous)!=len(old) or len({r['case_index'] for r in new})!=len(new):raise ValueError('Duplicate case index')
     by_member=defaultdict(list)
     for row in old:by_member[member(row)].append(row)
+    bound={r['historical_case_id']:r for r in old if r.get('historical_case_id')}
+    if len(bound)!=sum(bool(r.get('historical_case_id')) for r in old):raise ValueError('Duplicate bound historical case id')
     old_hashes=hashes_by_rgb(old_hashes);new_hashes=hashes_by_rgb(new_hashes)
     counts=Counter();questions=defaultdict(Counter);losses=[];matched_joint=Counter();used=set()
     for row in new:
         candidates=by_member.get(member(row),[])
         if not candidates:counts['no_old_physical_member']+=1;continue
+        if row.get('historical_case_id'):
+            exact=bound.get(row['historical_case_id'])
+            if exact is None or member(exact)!=member(row):counts['historical_binding_mismatch']+=1;continue
+            candidates=[exact]
         same=[r for r in candidates if signature(r,phase)==signature(row,phase)]
         if same:candidates=same
         elif len(candidates)>1:

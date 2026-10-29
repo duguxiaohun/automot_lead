@@ -16,6 +16,18 @@ def verify_ready(root,*,images=True,execution=False):
     for name,expected in ready['files'].items():
         p=Path(name)
         if p.is_absolute() or '..' in p.parts or proof.sha(root/p)!=expected:raise ValueError('Prepared evidence changed: '+name)
+    from . import history
+    historical=history.load(root/'cpu/historical_contract.json')
+    history.assert_isolation(root/'data/frame_index.jsonl',historical)
+    forbidden=history.groups(historical)
+    from qwen3vl_local.sft_new_loop_phase1.training_policy import physical_group
+    if any(physical_group(tuple(r['key'])) in forbidden for r in proof.read(root/'cpu/guard_members.json')):
+        raise ValueError('Historical test route in validation guard')
+    references=proof.read(root/'cpu/reference_members.json')
+    for mode in ('2rgb_endpoints','4rgb'):
+        for phase in (1,2):
+            if references[mode][str(phase)]!=history.primary(historical,phase,mode)['records']:
+                raise ValueError('Historical reference was resampled or changed')
     if images:
         rgb=proof.read(root/'data/rgb_sha256.json')
         for filename in ('reference_rgb_sha256.json','guard_rgb_sha256.json'):
@@ -63,3 +75,26 @@ def verify_training(output,root,mode):
     for name,expected in r['adapters'].items():
         if Path(name).name!=name or proof.verify_adapter(output/name)!=expected:raise ValueError('Adapter changed')
     return r
+
+
+def bind_evaluation(root,mode,device,dtype):
+    root=Path(root);training=root/'runs'/mode;complete=verify_training(training,root,mode)
+    record=dict(contract=CONTRACT,mode=mode,ready_sha256=proof.sha(root/'ready.json'),
+        training_complete_sha256=proof.sha(training/'training_complete.json'),
+        selected=complete['selected'],adapter_identity=complete['adapters'][complete['selected']],
+        device=str(device),model_dtype=str(dtype),weight_source='this_run_fresh_training_only')
+    proof.write(root/'evaluation'/mode/'weight_binding.json',record)
+    return record
+
+
+def verify_evaluation_binding(root,mode):
+    root=Path(root);training=root/'runs'/mode
+    record=proof.read(root/'evaluation'/mode/'weight_binding.json')
+    complete=proof.read(training/'training_complete.json')
+    expected=dict(contract=CONTRACT,mode=mode,ready_sha256=proof.sha(root/'ready.json'),
+        training_complete_sha256=proof.sha(training/'training_complete.json'),
+        selected=complete['selected'],adapter_identity=complete['adapters'][complete['selected']],
+        weight_source='this_run_fresh_training_only')
+    if any(record.get(k)!=v for k,v in expected.items()):raise ValueError('Evaluation not bound to this dataset and freshly trained adapter')
+    if not record.get('device') or not record.get('model_dtype'):raise ValueError('Missing evaluation device/dtype')
+    return record

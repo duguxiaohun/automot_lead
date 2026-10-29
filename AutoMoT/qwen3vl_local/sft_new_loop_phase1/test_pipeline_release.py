@@ -124,6 +124,12 @@ def test_independent_shell_eval_and_real_bundle(tmp_path, phase):
     """
     source=Path(p1.__file__).resolve().parents[1]
     root=tmp_path/'AutoMoT';package=root/'qwen3vl_local';package.mkdir(parents=True)
+    # Preserve the production audit source closure in the temporary shell fixture,
+    # including declared dependencies outside qwen3vl_local (e.g. lead_video_tools).
+    for relative in p1.run_integrity.sources(phase):
+        if not relative.startswith('qwen3vl_local/'):
+            dest=root/relative;dest.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(source.parent/relative,dest)
     for child in source.iterdir():
         if child.name in ('sft_new_loop_phase1','sft_new_loop_phase2'):
             shutil.copytree(child,package/child.name,ignore=shutil.ignore_patterns('__pycache__','probe_output','.pytest_cache'))

@@ -6,6 +6,9 @@ from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 from qwen3vl_local.sft_v3.train import KVState, _student_generate_kv
 from .prompts import messages
 
+BENCHMARK_PROTOCOL='paired_prefix_timing_v2'
+BENCHMARK_SCOPE='model prefill + complete decode + cache clone; identical pre-encoded inputs; excludes processor and diagnostic forwards'
+
 
 def encode(bundle, images, text, target=None):
     chat=bundle.processor.apply_chat_template(messages(images,text,target),tokenize=False,
@@ -143,7 +146,30 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
         full_forward_equivalence_checked=check_full,full_answer_equivalence_checked=checked,
         independent_branches=independent['branches'] if independent else None,
         paired_benchmark=dict(trials=trials,warmup_pairs_per_method=1 if trials else 0,
-            scope='model prefill + complete decode + cache clone; identical pre-encoded inputs; excludes processor and diagnostic forwards',
+            protocol=BENCHMARK_PROTOCOL,scope=BENCHMARK_SCOPE,batch_size=1,same_encoded_inputs=True,
+            synchronized=device.type=='cuda',do_sample=False,repetition_penalty=1.05,
+            execution_order=[['independent','shared'] if i%2==0 else ['shared','independent'] for i in range(len(trials))],
             saving_fraction=1-shared_s/separate_s if separate_s else None,
             device=str(device),dtype=str(next(bundle.model.parameters()).dtype),max_new_tokens=max_new_tokens),
         cache_scope='one_sample_same_model_same_adapter_inference_only')
+
+
+def verify_benchmark(meta,*,device,dtype,max_new_tokens=160):
+    trials=meta['trials'];count=len(trials)
+    expected=dict(protocol=BENCHMARK_PROTOCOL,scope=BENCHMARK_SCOPE,batch_size=1,
+        same_encoded_inputs=True,synchronized=str(device).startswith('cuda'),do_sample=False,
+        repetition_penalty=1.05,device=device,dtype=dtype,max_new_tokens=max_new_tokens,
+        warmup_pairs_per_method=1 if count else 0,
+        execution_order=[['independent','shared'] if i%2==0 else ['shared','independent'] for i in range(count)])
+    for key,value in expected.items():
+        if key not in meta or type(meta[key])!=type(value) or meta[key]!=value:
+            raise ValueError('Missing/inconsistent benchmark condition: '+key)
+    if count not in (0,2):raise ValueError('Expected two alternating timing trials')
+    for trial in trials:
+        if (set(trial)!={'shared_seconds','independent_seconds'}
+                or any(type(v) not in (float,int) or not 0<v<float('inf') for v in trial.values())):
+            raise ValueError('Invalid benchmark time')
+    baseline=sum(t['independent_seconds'] for t in trials)
+    saving=1-sum(t['shared_seconds'] for t in trials)/baseline if baseline else None
+    if 'saving_fraction' not in meta or meta['saving_fraction']!=saving:raise ValueError('Benchmark saving mismatch')
+    return True

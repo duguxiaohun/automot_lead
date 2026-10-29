@@ -3,7 +3,8 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from qwen3vl_local.sft_new_loop_phase2 import train as native, eval as native_eval
-from qwen3vl_local.sft_new_loop_phase1.exposure_sampling import identity, task_identity
+from qwen3vl_local.sft_new_loop_phase1.exposure_sampling import identity, task_identity, semantic_signature
+from qwen3vl_local.sft_new_loop_phase1.training_policy import UNKNOWN
 from qwen3vl_local.sft_new_loop_phase1.run_integrity import digest, write
 from . import CONTRACT, EPOCHS, QUOTA, WORLD, UPDATES
 from .data import labels, relative_rgb
@@ -18,9 +19,24 @@ def arguments(output, action_index='auto'):
 
 
 def work(rows,args,epoch):
-    return native._training_work(rows,args=args,seed=SEED+epoch*1000003,target_per_bin=QUOTA,
+    items=native._training_work(rows,args=args,seed=SEED+epoch*1000003,target_per_bin=QUOTA,
         regular_multiplier=2.,invalid_multiplier=1.,highway_regular_fraction=.25,
         highway_ue3_fraction=.125,route_diverse=True)
+    args._fusion_coverage=coverage(args._coverage_sampler,args._exposure,items)
+    return items
+
+
+def coverage(sampler,ledger,items):
+    """Read-only diagnostics around the byte-preserved native sampler."""
+    used={identity(i.row) for i in items}
+    pool={identity(r) for rows in sampler.pools.values() for r in rows}
+    keys={(semantic_signature(i.row),sampler.hints.label(i.row)!=UNKNOWN) for i in items}
+    compatible={identity(r) for key in keys for r in sampler.pools[key]}
+    unseen={k for k in pool if ledger.frames[k]==0};remaining=unseen-used
+    return dict(candidate_unique_frames=len(pool),unseen_before=len(unseen),unseen_after=len(remaining),
+        compatible_unseen_after=len(remaining&compatible),pool_exhausted=not remaining,
+        new_frames=len(used&unseen),previously_seen_frames=len(used-unseen),
+        unseen_policy='zero prior/current exposure first within native semantic/subtype/availability quotas')
 
 
 def descriptor(item):
@@ -54,7 +70,9 @@ def prepare(index,data_root,output,action_index='auto'):
     rows=native._read_rows(Path(index),split='train',data_root=Path(data_root));facts=labels(index)
     args=arguments(output,action_index);epochs=[]
     for epoch in range(EPOCHS):
-        items=work(rows,args,epoch);epochs.append(summarize(items,facts))
+        items=work(rows,args,epoch);summary=summarize(items,facts)
+        summary['coverage']=args._fusion_coverage
+        epochs.append(summary)
         args._exposure.frames.update(identity(i.row) for i in items)
         args._exposure.tasks.update(task_identity(i) for i in items)
     ev={split:[descriptor(i) for i in evaluation(index,data_root,split)] for split in ('val','test')}
@@ -73,6 +91,6 @@ def prepare(index,data_root,output,action_index='auto'):
     bindings={}
     for raw in Path(index).open():
         row=json.loads(raw);bindings[identity(row)]=dict(key=identity(row),answers=row['phase1_answers'],
-            paths=[relative_rgb(p) for p in row['history_rgb_paths']])
+            paths=[relative_rgb(p) for p in row['history_rgb_paths']],split=row['split'])
     write(output/'fusion_labels.json',list(bindings.values()))
     return result
