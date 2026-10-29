@@ -68,7 +68,7 @@ ssh codon@100.110.241.4 'cd <工作目录> && timeout 3600 codex exec -m gpt-6-a
 7. 论文在 `paper/` 下，是独立的私有仓库 `git@github.com:duguxiaohun/paper.git`（main，2026-10-28 建立）。在 `paper/` 里同样按 1–4 条拉取、提交、推送，再同步另一台机器的 `paper/`；wang 的 `paper/.git/config` 也设了 `core.sshCommand` 用专用密钥。上层仓库的 `.git/info/exclude` 排除 `/paper/`，论文不进公开的 automot_lead，推送到私有论文仓库也不等于投稿或对外分享。论文怎么改见 `paper/AGENTS.md`。
 8. 每次任务结束前核对四处：wang 和 codon 上的 automot_lead、paper 两个仓库都在 main，没有未提交的已跟踪改动，并且与 origin/main 一致（`git status -sb` 显示 `## main...origin/main`，没有 ahead 或 behind；在 codon 上拉取仍要关自动 gc）。汇报里写明两个仓库最后的提交号；有一处没同步就说清原因，不能说成已同步。
 
-**迁移记录（2026-10-28）：** wang 的仓库是 GitHub 的克隆，另外从 codon 拷来约 5.6 GB 没有入库的代码、文档、论文和审计证据（不含数据；清单和筛选规则在 wang 的 `.migration_from_codon/`），其中指向 `/home/codon/automot_lead/...` 的绝对符号链接在 wang 上是悬空的。当天上午 codon 主目录还停在分支 `single-rgb-refine-20261024`、带着 17 个未提交改动；之后已在 `6c95526` 切回 main，这些改动在 `86c1eef` 提交推送。论文仓库两边从 `97aad86` 起同步。
+**迁移记录（2026-10-28）：** wang 的仓库是 GitHub 的克隆，另外从 codon 拷来约 5.6 GB 没有入库的代码、文档、论文和审计证据（不含数据；清单和筛选规则在 wang 的 `.migration_from_codon/`），其中指向 `/home/codon/automot_lead/...` 的绝对符号链接在 wang 上是悬空的。当天上午 codon 主目录还停在分支 `single-rgb-refine-20261024`、带着 17 个未提交改动；之后已在 `6c95526` 切回 main，这些改动在 `86c1eef` 提交推送。论文仓库两边从 `97aad86` 起同步。2026-10-29 经用户授权重写过一次论文仓库历史（清除已不入库的参考文献 PDF、编译 PDF 与渲染页，`.git` 从约 600 MB 降到 33 MB），此后提交号与此前不同；旧历史完整备份在 wang 的 `~/backups/paper_history_20261029/`（含新旧提交号对照）。
 
 ### 2026-10-27 标定／提示词修改后必须重新训练再评测（用户明确）
 
