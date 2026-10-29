@@ -1,8 +1,12 @@
 """Portable, explicit historical test contract. No model is loaded by this module."""
 import argparse
 from collections import Counter
+import hashlib
 import json
+import os
 from pathlib import Path
+import sys
+import time
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 from qwen3vl_local.sft_new_loop_phase1.training_policy import identity,physical_group
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
@@ -10,6 +14,47 @@ from .data import relative_rgb,resolve_rgb
 
 SCHEMA='phase12_historical_members_v1'
 RELEASE=Path(__file__).with_name('history_release.json')
+CONTRACT_STAT_FIELDS=('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns')
+
+
+def _read_contract_once(path):
+    """Bind the bytes parsed to one file descriptor and both pathname checks."""
+    snapshot=lambda s:tuple(getattr(s,k) for k in CONTRACT_STAT_FIELDS)
+    before=snapshot(path.stat())
+    if before[2]>64*1024*1024:raise ValueError('Historical contract exceeds size limit')
+    with path.open('rb') as handle:
+        opened=snapshot(os.fstat(handle.fileno()))
+        content=handle.read(64*1024*1024+1)
+        closed=snapshot(os.fstat(handle.fileno()))
+    after=snapshot(path.stat())
+    if len(content)>64*1024*1024:raise ValueError('Historical contract exceeds size limit')
+    return content,(before,opened,closed,after)
+
+
+def _contract_bytes(path,expected):
+    content,states=_read_contract_once(path)
+    def check_digest(data):
+        if hashlib.sha256(data).hexdigest()!=expected:
+            raise ValueError('Changed historical contract content; released SHA does not match: '+str(path))
+    check_digest(content)
+    if len(set(states))==1:return content
+    changed=[k for i,k in enumerate(CONTRACT_STAT_FIELDS) if len({s[i] for s in states})!=1]
+    if changed!=['st_ctime_ns']:
+        raise ValueError(f'Historical contract changed while reading: {path}; fields={changed}')
+    # Publishing/unlinking a hard link changes ctime even when content is fixed.
+    # Only this pinned metadata file gets a bounded recovery; generic proof.sha
+    # and all dataset/adapter/snapshot checks remain strict and unchanged.
+    print(f'[history] ctime-only metadata drift: {path}; verifying two stable reads against released SHA',file=sys.stderr,flush=True)
+    previous=None
+    for _ in range(2):
+        time.sleep(.05)
+        fresh,stable=_read_contract_once(path)
+        check_digest(fresh)
+        if (len(set(stable))!=1 or stable[0][:-1]!=states[0][:-1]
+                or (previous is not None and stable[0]!=previous)):
+            raise ValueError('Historical contract did not stabilize across two verified reads: '+str(path))
+        previous=stable[0];content=fresh
+    return content
 
 
 def boolean(v):
@@ -86,8 +131,8 @@ def build(primary_paths,holdout_paths,output):
 def load(path,*,expected_sha=None):
     path=Path(path)
     expected_sha=expected_sha or proof.read(RELEASE)['contract_sha256']
-    if not path.is_file() or proof.sha(path)!=expected_sha:raise ValueError('Missing/changed historical contract; transfer the released CPU contract, never re-sample historical tests')
-    obj=proof.read(path)
+    if not path.is_file():raise ValueError('Missing historical contract; prepare verified local history, never re-sample historical tests')
+    obj=json.loads(_contract_bytes(path,expected_sha))
     if obj['schema']!=SCHEMA:raise ValueError('Wrong historical contract')
     groups=sorted({physical_group(tuple(r['key'])) for s in obj['sources'] for r in s['records']})
     if groups!=[tuple(g) for g in obj['holdout_groups']]:raise ValueError('Historical holdout registry mismatch')
