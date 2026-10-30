@@ -152,6 +152,27 @@ cr02与cee均使用当前目录解析路径，不复制另一台机器的ready�
 每模式训练含验证最多120小时、测试最多24小时；单轮训练检查24小时上限。失败保留证据，不自动跳过或重跑。
 
 融合GPU训练前还会对两个问题域做实际processor/监督边界/缓存分叉探针。
+启动时明确绑定每rank的CUDA设备，先做四卡NCCL求和检查；通信超时为300秒。
+模型加载、rank0前缀探针等启动阶段各有900秒硬截止、每rank阶段回执和等待进度。
+rank0独占探针、选模验证及最终保存时，其余rank通过torchrun的CPU Store协调，
+不再提前挂起NCCL barrier等待。选模验证仍允许7200秒、最终保存1800秒，
+这与真正梯度通信的300秒超时分开；不会用延长NCCL超时掩盖卡死。
+本进程超时打印线程栈并退出124，由torchrun停止同任务其它rank；不操作其它GPU作业。
+异常由torchrun的record处理器保留原始Python栈，失败路径不再先执行可能阻塞的集体销毁。
+`diagnostics/<mode>/` 保存阶段JSON（随审计包交付）；`torchrun/<mode>/` 保存各rank日志和error.json，
+主 `<mode>_train.log` 仍汇总输出。日志另明确记录第一次两路反传和optimizer更新。
+2026-10-30补充日志确认：rank0在训练前缓存探针的logits等价断言失败（最大差8.3125），
+其余rank等待barrier两小时后NCCL超时；该次尚无optimizer更新。不能把它描述为已训练两小时。
+上述修复解决错误传播和等待问题，不意味着4B缓存数值差异已解决；原等价阈值和完整token检查保留。
+
+单卡只读缓存诊断（在当前AutoMoT根、已激活训练环境执行）：
+`python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose --source-run checkpoints/phase12_shared/<failed_run>`。
+自动选择一张空闲卡（或GPU_IDS指定一张）；使用失败运行的原冻结源码、真实验证题和基座，
+不加载旧LoRA、不做optimizer更新、不写失败目录。先保持原BF16模型，再真实 `.float()` 对照，
+对两个问题域记录全部prompt-logits差异统计、完整输出token和EOS差异。比较按16个token分块，
+避免同时分配十亿logits的全尺寸差异缓冲。小模型CPU不能代替4B/H20结果。
+默认1800秒超时；无论成功或失败均保存独立诊断包（日志、报告、执行回执及补充脚本），
+输出 `[DIAGNOSTIC_BUNDLE]`。诊断完成不表示训练完成、缓存验收通过或允许放宽阈值。
 FP32 logits使用atol2e-5/rtol2e-4，BF16使用atol0.08/rtol0.03，同时要求下一token决策一致。
 探针进一步比较两路生成的全部token和停止token；最终融合test的每题均做共享缓存与两次独立完整推理对照，
 任何token/停止状态差异直接失败。两路径均使用相同160-token上限；触顶会记录，不冒充正常EOS结束。

@@ -84,9 +84,10 @@ def worker(args):
         ids=gpu_ids()
         for mode in MODES:
             stage(mode+'_train',[sys.executable,'-m','torch.distributed.run','--standalone','--nnodes=1',
-                '--nproc_per_node=4','--max_restarts=0','-m','qwen3vl_local.sft_new_loop_phase12.train',
+                '--nproc_per_node=4','--max_restarts=0','--log-dir',str(root/'torchrun'/mode),'--tee','3',
+                '-m','qwen3vl_local.sft_new_loop_phase12.train',
                 '--run-dir',str(root),'--model-dir',str(args.model_dir),'--mode',mode],432000,
-                {'CUDA_VISIBLE_DEVICES':','.join(ids)})
+                {'CUDA_VISIBLE_DEVICES':','.join(ids),'GPU_IDS':','.join(ids)})
             integrity.verify_training(root/'runs'/mode,root,mode)
             stage(mode+'_test',[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase12.finish',
                 '--run-dir',str(root),'--model-dir',str(args.model_dir),'--mode',mode],86400,

@@ -20,7 +20,7 @@ def package(root,mode):
     verify_evaluations(root,mode)
     dest=root/(mode+'_audit_bundle');dest.mkdir(exist_ok=False)
     paths=[root/'ready.json',root/'execution.json']
-    for folder in (root/'cpu',root/'evaluation'/mode,training):
+    for folder in (root/'cpu',root/'evaluation'/mode,training,root/'diagnostics'/mode):
         paths.extend(p for p in folder.rglob('*') if p.is_file() and p.suffix in ('.json','.jsonl'))
     for folder in (root/'data',root/'phase1/data',root/'phase1_previous/data',root/'phase2/data'):
         paths.extend(p for p in folder.glob('*.json') if p.is_file())
