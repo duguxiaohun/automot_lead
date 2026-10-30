@@ -60,6 +60,7 @@ def test_merge_keeps_test_rows_and_downgrades_superseded_positives(tmp_path):
 
 def test_committed_v2_invariants():
     positives, report = highway_ue3_audit.load_highway_ue3_decisions(V2)
+    assert report['sha256'] == __import__('hashlib').sha256(V2.read_bytes()).hexdigest()
     rows = [json.loads(l) for l in V2.read_text().splitlines() if l.strip()]
     v1 = [json.loads(l) for l in V1.read_text().splitlines() if l.strip()]
     srt = lambda rs: sorted((r for r in rs if r['expected_split'] == 'test'), key=lambda r: r['start_frame'])

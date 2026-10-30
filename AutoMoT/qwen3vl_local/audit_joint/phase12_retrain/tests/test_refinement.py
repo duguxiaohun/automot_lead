@@ -129,7 +129,8 @@ def test_phase2_prompt_v7_adds_bounded_evidence_rules_only(tmp_path):
         assert m.prompt_spec_to_json(s)==p2.prompt_spec_to_json(p2.make_prompt_spec(variant='all_random_order',answers=a,seed_key='same'))
         text=m.build_event_prompt(spec=s)
         assert m.parse_event_output(m.build_event_target(s),spec=s)=={q.output_key:False for q in s.questions}
-        assert ('flashing lights do not grant them priority' in text)==(domain==p2.JUNCTION_DOMAIN)
+        assert ('Ego being stopped or waiting is not by itself evidence of priority' in text)==(domain==p2.JUNCTION_DOMAIN)
+        assert 'halted inside' not in text and ('neither grant them priority nor prove a violation' in text)==(domain==p2.JUNCTION_DOMAIN)
     assert Path(p2.__file__).read_text()==src
 
 

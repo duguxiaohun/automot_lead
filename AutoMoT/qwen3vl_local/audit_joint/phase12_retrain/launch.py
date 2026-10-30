@@ -19,8 +19,22 @@ from .refinement import REVISIONS, REVISION_P2_EVIDENCE
 
 HIGHWAY_DECISIONS_V2='qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v2.jsonl'
 
+
+def verify_parent_decisions(parent_index,decisions):
+    """A reused or freshly built parent pool must carry the exact decision file identity."""
+    manifest=proof.read(Path(parent_index).parent/'manifest.json')
+    report=manifest.get('highway_ue3_rgb_decisions') or {}
+    expected=proof.sha(decisions)
+    if report.get('sha256')!=expected:
+        raise ValueError('Parent pool was not built with the requested highway decision file '
+                         f'(manifest sha={report.get("sha256")!r}, expected {expected}); choose a fresh --parent-data')
+    if int(report.get('missing_positive_frames',0) or 0)!=0:
+        raise ValueError('Parent pool reports missing RGB-reviewed highway positives')
+    return expected
+
 APP=Path(__file__).resolve().parents[3]
 MODES=('2rgb_endpoints','4rgb')
+EVIDENCE_FILES=('evidence_exclusions.jsonl','val_exclusions.jsonl','val_original.jsonl','holdout_disputes.jsonl','evidence_sources.json')
 
 
 def environment(app,phase,root,index,data_root,model,collection,budget_profile='bounded'):
@@ -109,6 +123,9 @@ def worker(args):
                     # Objective highway cut-in spans (v2) replace the v1 Town13-only positives.
                     build+=['--highway-ue3-rgb-decisions',str(APP/HIGHWAY_DECISIONS_V2)]
                 stage('parent_build',build)
+            if revision==REVISION_P2_EVIDENCE:
+                # Reuse or build: refuse a pool built with another decision file (e.g. the v1 parent).
+                verify_parent_decisions(parent,APP/HIGHWAY_DECISIONS_V2)
             if phase==1:
                 labeled_data=root/'labeled_data'
                 initial_data=root/'parent_revision/data' if revision=='visual_20261029' else labeled_data
@@ -143,8 +160,8 @@ def worker(args):
             if cpu['status']!='ready':raise ValueError('Native CPU admission did not pass')
             files={str(p):proof.sha(p) for p in (root/'cpu').rglob('*') if p.is_file()}
             files.update({str(p):proof.sha(p) for p in [root/'selected_train_reviews.json',index.parent/'training_revision.json',index.parent/'preservation.json']})
-            if (index.parent/'evidence_exclusions.jsonl').is_file():
-                files[str(index.parent/'evidence_exclusions.jsonl')]=proof.sha(index.parent/'evidence_exclusions.jsonl')
+            for name in EVIDENCE_FILES:
+                if (index.parent/name).is_file():files[str(index.parent/name)]=proof.sha(index.parent/name)
             if phase == 1:
                 from .history_holdout import FILES
                 files.update({str(index.parent/name):proof.sha(index.parent/name) for name in FILES})
@@ -164,6 +181,10 @@ def worker(args):
         stage('fresh_train_eval',['bash',f'qwen3vl_local/sft_new_loop_phase{phase}/run_full_pipeline.sh'],
               timeout=args.train_timeout)
         verify_ready(root,phase,version)
+        if revision==REVISION_P2_EVIDENCE:
+            # Primary score stays the native one; the second view removes frames frozen before training.
+            stage('dual_score',[sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase12_retrain.phase2_evidence',
+                '--dual-score',str(root/'pipeline'),str(index.parent/'holdout_disputes.jsonl'),str(root/'dual_score.json')])
         bundles=sorted((root/'pipeline').rglob('*_audit_bundle.tar.gz'))
         if len(bundles)<2:raise ValueError('Missing two-mode audit bundles after training')
         state.update(status='trained_evaluated_packaged_quality_pending',
@@ -174,7 +195,8 @@ def worker(args):
         # in the native per-mode bundles (each has its own size/integrity gate).
         files=[root/'completion_pending.json',root/'ready.json',version/'manifest.json']
         files += [root/'selected_train_reviews.json',root/'data/training_revision.json',root/'data/preservation.json']
-        if (root/'data/evidence_exclusions.jsonl').is_file():files.append(root/'data/evidence_exclusions.jsonl')
+        files += [root/'data'/name for name in EVIDENCE_FILES if (root/'data'/name).is_file()]
+        if (root/'dual_score.json').is_file():files.append(root/'dual_score.json')
         if phase == 1:
             from .history_holdout import FILES
             files += [index.parent/name for name in FILES]
@@ -221,7 +243,8 @@ def main(argv=None):
     default_parent=APP/f'checkpoints/sft_new_loop_phase{args.phase}_data'
     if args.revision==REVISION_P2_EVIDENCE:
         # The v2 decision build is a different parent pool; never reuse the v1 parent silently.
-        default_parent=APP/'checkpoints/sft_new_loop_phase2_data_evidence_20261030'
+        # Pool identity follows the decision file content, so an edited v2 never reuses a stale pool.
+        default_parent=APP/f'checkpoints/sft_new_loop_phase2_data_evidence_20261030_{proof.sha(APP/HIGHWAY_DECISIONS_V2)[:12]}'
     args.parent_data=(args.parent_data or default_parent).resolve()
     for name in ('data_root','collection_dir','model_dir','history_contract'):setattr(args,name,getattr(args,name).resolve())
     if args.worker:return worker(args)

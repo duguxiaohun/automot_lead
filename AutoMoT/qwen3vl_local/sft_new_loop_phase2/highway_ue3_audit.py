@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 from collections import Counter
@@ -121,6 +122,7 @@ def load_highway_ue3_decisions(
     report = {
         "format": "sft_new_loop_phase2_highway_ue3_rgb_decisions_v1",
         "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "contract": (
             "Only explicit RGB-reviewed YES frames override the source fold to UE3. "
             "NO rows are boundary/hard-negative audit controls; scenario and R3 never imply UE3."
