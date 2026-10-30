@@ -14,10 +14,17 @@ from . import prompts,cache,evaluate,CONTRACT
 
 
 @torch.no_grad()
-def predict(bundle,images,mode,domain,task='both',seed='inference'):
+def predict(bundle,images,mode,domain,task='both',seed='inference',*,schedule=None):
     if domain not in prompts.P2.QUESTION_DOMAINS or task not in ('both','phase1','phase2'):
         raise ValueError('Unknown task/question domain')
     if len(images)!=len(history_rgb_indices(mode)):raise ValueError('Wrong RGB count')
+    from qwen3vl_local.qwen35 import text_prefix, question_schedule
+    ticket=None
+    if schedule is not False and text_prefix.enabled():
+        scheduler=schedule or question_schedule.for_bundle(bundle,'phase12:'+task,seed)
+        if task=='both' and scheduler.slots!=1:
+            raise ValueError('Two-task inference already uses two cache entries; set question slots=1')
+        ticket=scheduler.next();seed=ticket['seed']
     # Dummy answers only construct the question order; they are never rendered as an answer/input.
     facts={k:False for k in prompts.P1.ANSWER_KEYS};event={k:False for k in prompts.P2.ANSWER_KEYS}
     event[prompts.P2.DOMAIN_ANSWER_KEYS[domain]]=True
@@ -27,10 +34,10 @@ def predict(bundle,images,mode,domain,task='both',seed='inference'):
     if task=='both':
         report=cache.generate(bundle,images,texts)
         return dict(phase1=dict(text=report['branches'][0]['text'],answers=evaluate._parse(report['branches'][0]['text'],first,1)),
-            phase2=dict(text=report['branches'][1]['text'],answers=evaluate._parse(report['branches'][1]['text'],second,2)),performance=report)
+            phase2=dict(text=report['branches'][1]['text'],answers=evaluate._parse(report['branches'][1]['text'],second,2)),performance=report,schedule=ticket)
     phase=1 if task=='phase1' else 2;spec=(first,second)[phase-1]
     state=_kv_start_state(bundle,prompts.messages(images,texts[phase-1]));text,_,tokens=_student_generate_kv(bundle,state,160)
-    return dict(task=task,text=text,answers=evaluate._parse(text,spec,phase),tokens=int(tokens.numel()),shared_prefix=False)
+    return dict(task=task,text=text,answers=evaluate._parse(text,spec,phase),tokens=int(tokens.numel()),shared_prefix=False,schedule=ticket,text_prefix=text_prefix.report(bundle))
 
 
 def main():

@@ -1,5 +1,6 @@
 """Inference only: clone the entire Qwen3.5 hybrid image-prefix state per arm."""
 import time
+import contextlib
 import torch
 from qwen3vl_local.engine import _clone_cache
 from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
@@ -8,7 +9,26 @@ from .prompts import messages
 from . import cache_checks
 from qwen3vl_local.qwen35 import text_prefix
 
-BENCHMARK_PROTOCOL='paired_text_prefix_timing_v1' if text_prefix.enabled() else 'paired_prefix_timing_v2'
+BENCHMARK_PROTOCOL='paired_prefix_timing_v2'
+
+def benchmark_protocol():
+    return 'paired_text_prefix_cold_pair_v2' if text_prefix.enabled() else BENCHMARK_PROTOCOL
+
+
+@contextlib.contextmanager
+def isolated_text_cache(bundle):
+    """Diagnostics/replays cannot warm or change the production stream cache."""
+    if not text_prefix.enabled():
+        yield
+        return
+    previous=getattr(bundle,'_text_prefix_cache',None)
+    source=previous or text_prefix.TextPrefixCache()
+    bundle._text_prefix_cache=text_prefix.TextPrefixCache(source.max_entries,source.max_bytes,source.max_tokens)
+    try:
+        yield
+    finally:
+        if previous is None:delattr(bundle,'_text_prefix_cache')
+        else:bundle._text_prefix_cache=previous
 BENCHMARK_SCOPE='model prefill + complete decode + cache clone; identical pre-encoded inputs; excludes processor and diagnostic forwards'
 
 
@@ -86,7 +106,9 @@ def _pair(bundle,inputs,max_new_tokens,shared):
             out=fork(bundle.model,item,n,prefix) if shared else bundle.model(**item,use_cache=True,return_dict=True)
         answer=_decode(bundle,item,out,max_new_tokens)
         del out
-        _sync(bundle.device);answer['seconds']=time.perf_counter()-arm_start;results.append(answer)
+        _sync(bundle.device);answer['seconds']=time.perf_counter()-arm_start
+        if text_shared and text_prefix.cache_enabled():answer['text_cache']=dict(text_prefix.bank(bundle).last)
+        results.append(answer)
     if prefix is not None and prefix.past_key_values.get_seq_length()!=n:raise ValueError('Branch mutated common prefix')
     _sync(bundle.device)
     return dict(branches=results,prefix_tokens=n,prefill_seconds=prefill_s,seconds=time.perf_counter()-start)
@@ -116,35 +138,41 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     if len(inputs)!=2:raise ValueError('Exactly two independent branches required')
     if any(x['input_ids'].shape[1]>8192 for x in inputs):raise ValueError('Prompt exceeds trained context limit')
     _sync(device);encode_seconds=time.perf_counter()-start
-    comparisons=[]
-    if check_full:
-        prefix=None
-        if not text_prefix.enabled():n,prefix=prefill_prefix(bundle.model,*inputs)
-        for item in inputs:
-            if text_prefix.enabled():
-                out=text_prefix.prefill(bundle,item)
-                n=text_prefix.bank(bundle).last['prefix_tokens'] if text_prefix.cache_enabled() else 0
-            else:
-                out=fork(bundle.model,item,n,prefix)
-            full=bundle.model(**item,use_cache=False,return_dict=True)
-            diagnostic=cache_checks.logits(out.logits,full.logits[:,n:])
-            comparisons.append(diagnostic)
-            if not diagnostic['all_close']:
-                print('[cache-logits:DIAGNOSTIC] prompt logits differ; exact generated-token/stop check remains required: '+str(diagnostic),flush=True)
-            del full,out
-        del prefix
-    # Timed pairs contain no diagnostic full-forward work or processor calls.
+    # Exactly one production pass, before diagnostics or timing replay. Its cold
+    # starts and question switches are included in the primary stream measurement.
+    before=dict(text_prefix.bank(bundle).stats) if text_prefix.cache_enabled() else {}
     cached=_pair(bundle,inputs,max_new_tokens,True)
+    after=dict(text_prefix.bank(bundle).stats) if text_prefix.cache_enabled() else {}
     checked=check_full or verify_outputs or bool(benchmark_repeats)
-    independent=None;trials=[]
+    independent=None;trials=[];comparisons=[]
     if checked:
         independent=_pair(bundle,inputs,max_new_tokens,False);assert_answers(cached,independent)
+    if check_full:
+        with isolated_text_cache(bundle):
+            prefix=None
+            if not text_prefix.enabled():n,prefix=prefill_prefix(bundle.model,*inputs)
+            for item in inputs:
+                if text_prefix.enabled():
+                    out=text_prefix.prefill(bundle,item)
+                    n=text_prefix.bank(bundle).last['prefix_tokens'] if text_prefix.cache_enabled() else 0
+                else:
+                    out=fork(bundle.model,item,n,prefix)
+                full=bundle.model(**item,use_cache=False,return_dict=True)
+                diagnostic=cache_checks.logits(out.logits,full.logits[:,n:])
+                comparisons.append(diagnostic)
+                if not diagnostic['all_close']:
+                    print('[cache-logits:DIAGNOSTIC] prompt logits differ; exact generated-token/stop check remains required: '+str(diagnostic),flush=True)
+                del full,out
+            del prefix
     if benchmark_repeats:
-        # Above pairs warm both paths. Alternate execution order to reduce warmup/order bias.
+        # Text-prefix probes start from EMPTY isolated caches, including rebuild cost.
+        # Legacy image-prefix probes keep their historical timing contract.
         for repeat in range(benchmark_repeats):
             trial={}
             for shared in ((False,True) if repeat%2==0 else (True,False)):
-                answer=_pair(bundle,inputs,max_new_tokens,shared);assert_answers(cached,answer)
+                with isolated_text_cache(bundle):
+                    answer=_pair(bundle,inputs,max_new_tokens,shared)
+                assert_answers(cached,answer)
                 trial['shared_seconds' if shared else 'independent_seconds']=answer['seconds']
             trials.append(trial)
     for number,branch in enumerate(cached['branches']):
@@ -153,17 +181,23 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     separate_s=sum(t['independent_seconds'] for t in trials)
     return dict(branches=cached['branches'],prefix_tokens=cached['prefix_tokens'],
         prefill_seconds=cached['prefill_seconds'],cached_pair_seconds=cached['seconds'],
+        independent_pair_seconds=independent['seconds'] if independent else None,
         encoding_seconds=encode_seconds,total_seconds=time.perf_counter()-start,
         full_forward_equivalence_checked=check_full,full_answer_equivalence_checked=checked,
         full_forward_equivalence_passed=all(r['all_close'] for r in comparisons) if check_full else None,
         cache_acceptance_protocol=cache_checks.PROTOCOL,
         independent_branches=independent['branches'] if independent else None,
-        paired_benchmark=dict(trials=trials,warmup_pairs_per_method=1 if trials else 0,
-            protocol=BENCHMARK_PROTOCOL,scope=BENCHMARK_SCOPE,batch_size=1,same_encoded_inputs=True,
+        paired_benchmark=dict(trials=trials,warmup_pairs_per_method=1 if trials and not text_prefix.enabled() else 0,
+            protocol=benchmark_protocol(),scope=BENCHMARK_SCOPE,batch_size=1,same_encoded_inputs=True,
             synchronized=device.type=='cuda',do_sample=False,repetition_penalty=1.05,
             execution_order=[['independent','shared'] if i%2==0 else ['shared','independent'] for i in range(len(trials))],
             saving_fraction=1-shared_s/separate_s if separate_s else None,
             device=str(device),dtype=str(next(bundle.model.parameters()).dtype),max_new_tokens=max_new_tokens),
+        stream_benchmark=dict(protocol='ordered_production_stream_v1',
+            shared_seconds=cached['seconds'],independent_seconds=independent['seconds'] if independent else None,
+            encoding_seconds=encode_seconds,cache_before=before,cache_after=after,
+            cache_enabled=text_prefix.cache_enabled(),requests=len(inputs),
+            scope='one production pass in original order; includes cache builds, switches and clone; excludes processor, baseline and diagnostics'),
         text_prefix=text_prefix.report(bundle),
         cache_scope=('process_local_cross_image_text_prefix' if text_prefix.enabled() else
                      'one_sample_same_model_same_adapter_inference_only'))
@@ -171,10 +205,10 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
 
 def verify_benchmark(meta,*,device,dtype,max_new_tokens=160):
     trials=meta['trials'];count=len(trials)
-    expected=dict(protocol=BENCHMARK_PROTOCOL,scope=BENCHMARK_SCOPE,batch_size=1,
+    expected=dict(protocol=benchmark_protocol(),scope=BENCHMARK_SCOPE,batch_size=1,
         same_encoded_inputs=True,synchronized=str(device).startswith('cuda'),do_sample=False,
         repetition_penalty=1.05,device=device,dtype=dtype,max_new_tokens=max_new_tokens,
-        warmup_pairs_per_method=1 if count else 0,
+        warmup_pairs_per_method=1 if count and not text_prefix.enabled() else 0,
         execution_order=[['independent','shared'] if i%2==0 else ['shared','independent'] for i in range(count)])
     for key,value in expected.items():
         if key not in meta or type(meta[key])!=type(value) or meta[key]!=value:

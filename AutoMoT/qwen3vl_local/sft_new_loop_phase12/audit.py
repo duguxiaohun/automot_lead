@@ -83,6 +83,9 @@ def verify_evaluations(root,mode):
                 **{f'phase{phase}':dict(gt=r['baseline_gt'],parsed=r['baseline_parsed'])}) for r in expected]
             if proof.read(folder/'historical_comparison.json')!=compare(baseline,cases,hashes,hashes,phase):
                 raise ValueError('Historical regression report mismatch')
+        if (folder.name=='fusion_test' or folder.name.startswith('val_step_')) and cache.text_prefix.enabled():
+            if recorded['performance']['stream_benchmark']!=evaluate.stream_summary(cases):
+                raise ValueError('Production stream totals mismatch')
         if folder.name=='fusion_test':
             if any(recorded['performance'][k]!=weight_binding[k] for k in ('device','model_dtype')):
                 raise ValueError('Benchmark conditions differ from actual evaluation model binding')

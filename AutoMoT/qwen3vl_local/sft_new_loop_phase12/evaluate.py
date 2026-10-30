@@ -46,13 +46,60 @@ def benchmark_summary(cases):
     separate=sum(t['independent_seconds'] for t in trials);shared=sum(t['shared_seconds'] for t in trials)
     return dict(cases=sum(bool(c['performance']['paired_benchmark']['trials']) for c in cases),
         trials=len(trials),shared_seconds=shared,independent_seconds=separate,
-        saving_fraction=1-shared/separate if separate else None,scope='pre-encoded model computation; not end-to-end application speed')
+        saving_fraction=1-shared/separate if separate else None,
+        scope=('isolated cold pairs; secondary diagnostic, not production-stream speed' if cache.text_prefix.enabled()
+               else 'pre-encoded model computation; not end-to-end application speed'))
+
+
+def stream_summary(cases):
+    """Recompute primary speed from all original requests, including cold starts.
+
+    Baseline runs second; this is model-stream timing, not CARLA wall latency.
+    Formal evaluation membership/order remains unchanged.
+    """
+    previous=None;shared=baseline=encoding=0.0;requests=0
+    for case in cases:
+        perf=case['performance'];row=perf['stream_benchmark']
+        if row['protocol']!='ordered_production_stream_v1' or row['requests']!=2:
+            raise ValueError('Invalid production stream protocol')
+        for key in ('shared_seconds','independent_seconds','encoding_seconds'):
+            value=row[key]
+            if (type(value) not in (int,float) or not 0<=value<float('inf')
+                    or (key!='encoding_seconds' and value==0)):
+                raise ValueError('Invalid production stream timing')
+        if (row['shared_seconds']!=perf['cached_pair_seconds']
+                or row['independent_seconds']!=perf['independent_pair_seconds']
+                or row['encoding_seconds']!=perf['encoding_seconds']):
+            raise ValueError('Production stream time mismatch')
+        before,after=row['cache_before'],row['cache_after']
+        if row['cache_enabled']!=perf['text_prefix']['cache_enabled']:
+            raise ValueError('Production cache mode mismatch')
+        if row['cache_enabled']:
+            if previous is None and any(before.values()):raise ValueError('Production stream must start cold')
+            if previous is not None and before!=previous:raise ValueError('Production cache continuity mismatch')
+            if after['requests']-before['requests']!=2:raise ValueError('Production cache polluted by replay')
+            if (after['hits']+after['misses']!=after['requests']
+                    or after['full_hits']+after['partial_hits']!=after['hits']):
+                raise ValueError('Production hit accounting mismatch')
+            if any(after[k]<before[k] for k in before):raise ValueError('Nonmonotonic production cache statistics')
+            if any(perf['text_prefix']['cache'][k]!=v for k,v in after.items()):
+                raise ValueError('Reported production cache statistics mismatch')
+            previous=after
+        elif before or after:raise ValueError('Disabled cache has production statistics')
+        shared+=row['shared_seconds'];baseline+=row['independent_seconds'];encoding+=row['encoding_seconds'];requests+=2
+    return dict(protocol='ordered_production_stream_v1',cases=len(cases),requests=requests,
+        shared_seconds=shared,independent_seconds=baseline,encoding_seconds=encoding,
+        saving_fraction=1-shared/baseline if baseline else None,
+        with_encoding_saving_fraction=1-(shared+encoding)/(baseline+encoding) if baseline+encoding else None,
+        cache=previous,baseline_order='production_then_independent',
+        scope='original ordered model stream from empty cache; not CARLA end-to-end speed')
 
 
 @torch.no_grad()
 def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
     items=plan.evaluation(index,data_root,split);facts=labels(index);bundle.model.eval()
+    if cache.text_prefix.enabled():bundle._text_prefix_cache=cache.text_prefix.TextPrefixCache()
     prepared=[]
     for item in items:
         answers=facts[identity(item.row)];specs=prompts.specs(item,answers)
@@ -92,4 +139,6 @@ def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
         shared_prefix=True,cache_equivalence_first_case=check_cache,
         peak_memory_scope='whole evaluation including independent baseline and diagnostics; not shared-only memory')
     result['performance']['paired_benchmark']=benchmark_summary(cases)
+    result['performance']['stream_benchmark']=stream_summary(cases)
+    result['performance']['primary_speed_measurement']='stream_benchmark'
     write(output/'metrics.json',result);return result

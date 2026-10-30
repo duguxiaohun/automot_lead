@@ -28,7 +28,15 @@ class TinyBase(nn.Module):
         return self.q_proj(x)
 
 
-def test_two_loras_disable_to_exact_base(tmp_path):
+@pytest.fixture
+def algebra_adapter_loader(monkeypatch):
+    from peft import PeftModel
+    from qwen3vl_local.qwen35 import adapters
+    monkeypatch.setattr(adapters, 'LocalPeftModel', PeftModel)
+    monkeypatch.setattr(adapters, 'validate_adapter', lambda path, model: Path(path))
+
+
+def test_two_loras_disable_to_exact_base(tmp_path, algebra_adapter_loader):
     from peft import LoraConfig, get_peft_model
 
     for i in (1, 2):
@@ -306,7 +314,7 @@ def test_text_cache_image_and_contract_invalidation(tmp_path):
 
 
 @pytest.mark.parametrize("review_case", ["off", "pass", "reject", "malformed"])
-def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review_case):
+def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review_case, algebra_adapter_loader):
     from PIL import Image
     from peft import LoraConfig, get_peft_model
     from qwen3vl_local.action_prior.text_cache import TextCache

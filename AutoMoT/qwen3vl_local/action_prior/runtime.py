@@ -33,8 +33,28 @@ class PriorEngine:
         generate_analysis=False,
         high_level_action_prior=False,
         rgb_frame_count=4,
+        online_text_prefix=False,
     ):
         self.engine, self.contract = engine, contract
+        self.online_text_prefix = bool(online_text_prefix)
+        self._active_prior_phase = None
+        self._phase_prefix_bundles = {}
+        if self.online_text_prefix:
+            from qwen3vl_local.qwen35 import text_prefix
+            if not text_prefix.enabled() or labels is not None or rgb_frame_count != 4:
+                raise ValueError('Online text prefix requires new-layout LoRA priors and four-frame history')
+            for phase in (1, 2):
+                meta=contract[f'phase{phase}']['metadata']
+                if meta.get('input_layout') != text_prefix.identity():
+                    raise ValueError('Online text prefix requires adapters trained with text-before-images layout')
+                prompt_module(phase, meta)
+            from qwen3vl_local.qwen35.question_schedule import for_bundle
+            self._online_question_schedule=for_bundle(self, 'prior_engine')
+            if self._online_question_schedule.slots != 1:
+                raise ValueError('PriorEngine already uses two EVENT domains; set question slots=1')
+        elif labels is None and any(contract.get(f'phase{p}', {}).get('metadata', {}).get('input_layout')
+                                     == 'text_before_images_v1' for p in (1,2)):
+            raise ValueError('New-layout adapters require explicit online_text_prefix=True')
         self.analysis_tokens = analysis_tokens
         self.text_cache = text_cache
         self.recheck_mode = recheck_mode
@@ -90,6 +110,8 @@ class PriorEngine:
                 raise ValueError("dataset priors never run a LoRA adapter")
             yield
             return
+        previous_phase = self._active_prior_phase
+        self._active_prior_phase = name
         try:
             if name == "base":
                 with self.adapters.disable_adapter():
@@ -99,6 +121,7 @@ class PriorEngine:
                 self.adapters.requires_grad_(False)
                 yield
         finally:
+            self._active_prior_phase = previous_phase
             # PEFT enable_adapter_layers 在退出 disable 上下文时可能重新启用梯度。
             self.adapters.requires_grad_(False)
 
@@ -121,6 +144,12 @@ class PriorEngine:
             messages.append({"role": "user", "content": prompt})
         else:
             messages = engine.build_messages(system, prompt, images)
+        use_prefix = self.online_text_prefix and self._active_prior_phase in ('phase1', 'phase2')
+        if use_prefix:
+            from qwen3vl_local.qwen35 import text_prefix
+            # Only the first user text precedes this frame's images. History
+            # answers and follow-up questions remain AFTER images, never retained.
+            messages[1]['content'] = text_prefix.content(images, history[0][0] if history else prompt)
         text = engine.apply_chat_template(messages)
         inputs = engine.prepare_inputs(text, images)
         trace = GenerationTrace(
@@ -129,7 +158,17 @@ class PriorEngine:
             final_cache_summary={},
             prefill_cache_summary={},
         )
-        output = engine.prefill(inputs)
+        if use_prefix:
+            from types import SimpleNamespace
+            phase = self._active_prior_phase
+            if phase not in self._phase_prefix_bundles:
+                self._phase_prefix_bundles[phase] = SimpleNamespace(model=engine.model)
+            bundle = self._phase_prefix_bundles[phase]
+            bundle.model = engine.model
+            output = text_prefix.prefill(bundle, inputs)
+            trace.prefill_cache_summary = text_prefix.report(bundle)
+        else:
+            output = engine.prefill(inputs)
         engine.max_gen_tokens = max_tokens
         ids = engine.decode(inputs, output, trace)
         return (
@@ -147,6 +186,11 @@ class PriorEngine:
         if self.labels is not None and identity is None:
             raise ValueError("dataset priors need the (scenario, run_id, frame) identity")
 
+        question_ticket = None
+        question_seed = sample_key
+        if self.online_text_prefix:
+            question_ticket = self._online_question_schedule.next()
+            question_seed = question_ticket['seed']
         question_count = 0
         # 单帧动作接口：当前查自动 Phase3 标注/显式索引，后续可接 Phase3 predictor。
         # 关闭时完全忽略外部字段，不改变默认图文输入。
@@ -183,10 +227,12 @@ class PriorEngine:
         event_balanced_scene_contexts = tuple(
             str(value) for value in event_balanced_scene_contexts if value
         )
+        question_policy_key = f":question_seed={question_seed}" if question_ticket else ""
         key = (
             self.text_cache.key(
                 self.contract["identity"], images, navigation,
                 f"{sample_key}:event_contexts={event_balanced_scene_contexts}"
+                f"{question_policy_key}"
                 f":generate_analysis={self.generate_analysis}:rgb_frame_count={self.rgb_frame_count}"
                 f":high_level_action_prior={self.high_level_action_prior}:action={digest(action)}"
                 f":action_contexts={action_contexts}:action_policy={ACTION_CONDITIONING_VERSION}"
@@ -201,8 +247,12 @@ class PriorEngine:
                 report("condition/dataset_labels")
                 priors = self.labels.priors(identity)
             else:
-                priors = collect_priors(ask, sample_key, recheck_mode=self.recheck_mode,
+                priors = collect_priors(ask, question_seed, recheck_mode=self.recheck_mode,
                                         event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
+            if question_ticket:
+                from qwen3vl_local.qwen35.text_prefix import report as prefix_report
+                priors = dict(priors, question_schedule=question_ticket,
+                              text_prefix={k:prefix_report(v) for k,v in self._phase_prefix_bundles.items()})
             # 这是显式 opt-in 的离线 transition/evidence 条件；默认采样课程不改变
             # Qwen 输入。文本只会在 prompts.py 变成自然、无类别名的短句。
             priors = dict(priors, high_level_action_prior=self.high_level_action_prior, rgb_frame_count=self.rgb_frame_count)
@@ -399,6 +449,10 @@ def make_runtime(args, device, contract):
         """沿用已有状态和 BEV 的 forward，显式复制 inference KV 供 autograd 使用。"""
 
         def __init__(self):
+            import os
+            online_prefix = os.environ.get('AUTOMOT_ONLINE_TEXT_PREFIX', '0')
+            if online_prefix not in ('0', '1'):
+                raise ValueError('AUTOMOT_ONLINE_TEXT_PREFIX must be 0 or 1')
             import torch
             from types import SimpleNamespace
             from qwen3vl_local.leadmot import train as old
@@ -460,6 +514,7 @@ def make_runtime(args, device, contract):
                 generate_analysis=args.generate_analysis,
                 high_level_action_prior=getattr(args, "high_level_action_prior", False),
                 rgb_frame_count=args.rgb_frame_count,
+                online_text_prefix=online_prefix == '1',
             )
             self.action_index = (
                 HighLevelActionIndex(args.high_level_action_index)

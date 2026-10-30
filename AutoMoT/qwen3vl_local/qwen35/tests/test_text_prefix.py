@@ -64,12 +64,31 @@ def test_lora_weight_update_and_adapter_switch_invalidates(model):
     check(adapted,cache,inputs());assert cache.stats['invalidations']==3
 
 
-def test_random_question_tail_reuses_only_actual_common_prefix(model):
-    cache=tp.TextPrefixCache(max_entries=1);a=inputs(prefix=65);check(model,cache,a)
-    b=inputs(prefix=65);b['input_ids'][0,50]=155;check(model,cache,b)
-    assert cache.last['prefix_tokens']==50 and not cache.last['hit']
-    c=inputs(prefix=65);c['input_ids'][0,50]=156;check(model,cache,c)
-    assert cache.last['hit'] and cache.last['prefix_tokens']==50
+def test_question_switch_rebuilds_complete_question(model):
+    cache=tp.TextPrefixCache(max_entries=2)
+    for token in (155,156,157,157,157):
+        item=inputs(prefix=65);item['input_ids'][0,50]=token;check(model,cache,item)
+        assert cache.last['prefix_tokens']==65
+    assert cache.stats['misses']==3 and cache.stats['full_hits']==2
+    assert cache.stats['computed_text_prefix_tokens']==195
+
+
+def test_shorter_text_is_promoted_without_mutation(model):
+    cache=tp.TextPrefixCache();check(model,cache,inputs(prefix=50))
+    retained=next(iter(cache.entries.values()))[0]
+    check(model,cache,inputs(prefix=65))
+    assert retained.get_seq_length()==50
+    assert cache.last['reused_tokens']==50 and cache.last['computed_tokens']==15
+    assert not cache.last['full_hit'] and cache.stats['promotions']==1
+    check(model,cache,inputs(prefix=65,grid=6))
+    assert cache.last['full_hit'] and cache.last['computed_tokens']==0
+
+
+def test_token_limit_is_not_reported_as_complete_question_hit(model):
+    cache=tp.TextPrefixCache(max_tokens=50)
+    check(model,cache,inputs());check(model,cache,inputs())
+    assert cache.last['hit'] and not cache.last['full_hit']
+    assert cache.stats['full_hits']==0 and cache.stats['partial_hits']==1
 
 
 def test_capacity_eviction_and_training_refusal(model):

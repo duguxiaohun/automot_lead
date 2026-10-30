@@ -95,7 +95,8 @@ class TextPrefixCache:
         self.entries = OrderedDict()
         self.weights = None
         self.stats = dict(requests=0, hits=0, misses=0, evictions=0, invalidations=0,
-                          reused_text_tokens=0, computed_text_prefix_tokens=0)
+                          reused_text_tokens=0, computed_text_prefix_tokens=0,
+                          full_hits=0, partial_hits=0, promotions=0)
         self.last = {}
 
     def clear(self):
@@ -106,7 +107,7 @@ class TextPrefixCache:
     def report(self):
         """只返回统计；不泄漏输入文本、图像或缓存内容。"""
         return dict(self.stats, entries=len(self.entries), bytes=sum(v[1] for v in self.entries.values()),
-                    max_entries=self.max_entries, max_bytes=self.max_bytes,
+                    max_entries=self.max_entries, max_bytes=self.max_bytes, max_tokens=self.max_tokens,
                     scope='process_local_text_only_complete_hybrid_state', last=dict(self.last))
 
     @torch.no_grad()
@@ -144,44 +145,42 @@ class TextPrefixCache:
             image_grid_thw=inputs.get('image_grid_thw'), attention_mask=mask, mm_token_type_ids=mm)
         if not torch.equal(positions[:, :, :n], torch.arange(n, device=ids.device)[None, None].expand(3, 1, n)):
             raise ValueError('Reusable text prefix has nonstandard rotary positions')
+        from qwen3vl_local.engine import _clone_cache
         key = tuple(ids[0, :n].tolist())
-        hit = key in self.entries
-        # Reuse a shorter already-materialized prefix. Never crop recurrent state.
-        if not hit:
-            candidates = [k for k in self.entries if len(k) <= len(key) and key[:len(k)] == k]
-            if candidates:
-                key = max(candidates, key=len)
-                n, hit = len(key), True
-        if not hit and len(self.entries) >= self.max_entries:
-            # Random question order / live speed can change the tail. Materialize
-            # the exact common leading text once, without reordering requests.
-            common = 0
-            for old in self.entries:
-                size = next((i for i, (a, b) in enumerate(zip(key, old)) if a != b), min(len(key), len(old)))
-                common = max(common, size)
-            if common >= 32:
-                key, n = key[:common], common
+        candidates = [k for k in self.entries if len(k) <= n and key[:len(k)] == k]
+        old_key = max(candidates, key=len) if candidates else None
+        reused = len(old_key) if old_key else 0
+        hit = old_key is not None
+        full_hit = reused == int(starts[0])
         self.stats['requests'] += 1
         self.stats['hits' if hit else 'misses'] += 1
         if hit:
-            prefix, size = self.entries.pop(key)
-            self.entries[key] = prefix, size
-            self.stats['reused_text_tokens'] += n
-        else:
-            out = model(input_ids=ids[:, :n], attention_mask=mask[:, :n],
-                position_ids=positions[:, :, :n], cache_position=torch.arange(n, device=ids.device),
-                logits_to_keep=1, use_cache=True, return_dict=True)
+            prefix, size = self.entries.pop(old_key)
+            self.entries[old_key] = prefix, size
+            self.stats['reused_text_tokens'] += reused
+            self.stats['full_hits' if full_hit else 'partial_hits'] += 1
+        if reused < n:
+            # Extend a retained SHORTER text state, never crop hybrid recurrence.
+            # On eviction/switch build the complete new question, not a common stub.
+            kwargs = dict(past_key_values=_clone_cache(prefix)) if hit else {}
+            out = model(input_ids=ids[:, reused:n], attention_mask=mask[:, :n],
+                position_ids=positions[:, :, reused:n],
+                cache_position=torch.arange(reused, n, device=ids.device),
+                logits_to_keep=1, use_cache=True, return_dict=True, **kwargs)
+            if hit and prefix.get_seq_length() != reused:
+                raise ValueError('Text promotion mutated retained prefix')
             prefix = out.past_key_values
             size = _cache_bytes(prefix)
             del out
-            self.stats['computed_text_prefix_tokens'] += n
-            while self.entries and (len(self.entries) >= self.max_entries or
-                                   sum(v[1] for v in self.entries.values()) + size > self.max_bytes):
-                self.entries.popitem(last=False)
-                self.stats['evictions'] += 1
+            self.stats['computed_text_prefix_tokens'] += n - reused
+            self.stats['promotions'] += int(hit)
+            # Oversized entries do not evict otherwise useful retained entries.
             if size <= self.max_bytes:
+                while self.entries and (len(self.entries) >= self.max_entries or
+                                       sum(v[1] for v in self.entries.values()) + size > self.max_bytes):
+                    self.entries.popitem(last=False)
+                    self.stats['evictions'] += 1
                 self.entries[key] = prefix, size
-        from qwen3vl_local.engine import _clone_cache
         suffix = dict(inputs)
         for name in ('input_ids', 'mm_token_type_ids', 'token_type_ids'):
             if name in suffix:
@@ -195,7 +194,9 @@ class TextPrefixCache:
         output.rope_deltas = delta
         if prefix.get_seq_length() != n:
             raise ValueError('Image branch mutated retained text prefix')
-        self.last = dict(hit=hit, prefix_tokens=n, suffix_tokens=ids.shape[1]-n,
+        self.last = dict(hit=hit, full_hit=full_hit, reused_tokens=reused,
+                         computed_tokens=n-reused, complete_text_tokens=int(starts[0]),
+                         prefix_tokens=n, suffix_tokens=ids.shape[1]-n,
                          stored=size <= self.max_bytes)
         return output
 
