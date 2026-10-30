@@ -1,5 +1,15 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-30 论文与 Overleaf 双仓库同步（用户明确，长期有效）
+
+- 完整论文继续在私有仓库 `git@github.com:duguxiaohun/paper.git` 的 `main` 维护；`paper/overleaf/` 的完整编译源码同时发布到 `git@github.com:zecheng-ai/event_centric.git` 的 `main` **根目录**。后者连接作者的在线 Overleaf。不得套一层 `overleaf/`，不上传整个 paper、内部笔记、参考文献原文、编译缓存或聊天历史。
+- 对 `event_centric` 的认证和同步提交统一使用 `duguxiaohun`：codon 用 `~/.ssh/id_ed25519`，wang 用 `~/.ssh/id_ed25519_automot_lead`，不能使用 wang 默认的 `WangZhiDong2000` 密钥。此规则不改变其它仓库既有提交作者约定。
+- 每次更新论文时，同轮维护 `paper/overleaf`：正文、图、参考文献或编译依赖变更后重新生成并验证中英入口；仅笔记／规则变化时也检查包仍与源文件一致。直接改 `overleaf` 的稿件内容必须同步回 `cvpr_event_centric` 源文件，避免下一次生成覆盖；先核对两边和线上改动，不盲目重建。
+- 两机继续只用现有 `automot_lead/paper/` 工作目录，不额外 clone/worktree，也不在 `overleaf/` 内建嵌套 `.git`。在 paper 内增加 `overleaf` remote，用 `python3 sync_overleaf.py --push` 将已提交并已推送的 `HEAD:overleaf` 发布成独立历史提交；仅以前一条 Overleaf 提交为父节点，不把私有论文历史推到该仓库。
+- 操作顺序：检查两机与两个论文远端 → 修改论文并更新／检查编译包 → 精确暂存，提交并推送 `paper/origin main` → `python3 sync_overleaf.py --push` → 另一台 paper 快进同步 → 两台各执行 `python3 sync_overleaf.py` 验证。首次以普通提交替换 event_centric 原有文件，保留 Git 历史，不 force push。后续发现线上独立改动先读取、合回论文源和包，不自动覆盖。
+- 原第 8 条结束核对扩展为：两机 automot_lead 与 paper 都在 main、无未提交已跟踪改动、HEAD 等于 origin/main；两机 `overleaf/main` 等于 GitHub event_centric/main，且其根 tree 等于各自 `HEAD:overleaf`。汇报三个仓库提交号；任何未同步或线上尚未编译的状态如实说明。无需为已授权的日常同步反复询问。
+
+
 ### 2026-10-28 剩余白名单修改按现状发布（用户明确，暂不推进 Phase4）
 
 用户要求将本地剩余白名单代码及配套文件直接提交推送，Phase4 暂不继续处理。本次范围为17个已跟踪文件的本地修改及21个 `qwen3vl_local/audit_joint/` 补充源码、说明和轻量历史回执；保留 wang 已提交的双机与私有论文仓库说明，不上传数据、权重、日志或论文。本条仅更新发布状态，不把历史回执改称本轮验收。

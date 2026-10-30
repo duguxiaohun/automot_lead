@@ -1,5 +1,15 @@
 # AGENTS.md
 
+### 2026-10-30 论文与 Overleaf 双仓库同步（用户明确，长期有效）
+
+- 完整论文继续在私有仓库 `git@github.com:duguxiaohun/paper.git` 的 `main` 维护；`paper/overleaf/` 的完整编译源码同时发布到 `git@github.com:zecheng-ai/event_centric.git` 的 `main` **根目录**。后者连接作者的在线 Overleaf。不得套一层 `overleaf/`，不上传整个 paper、内部笔记、参考文献原文、编译缓存或聊天历史。
+- 对 `event_centric` 的认证和同步提交统一使用 `duguxiaohun`：codon 用 `~/.ssh/id_ed25519`，wang 用 `~/.ssh/id_ed25519_automot_lead`，不能使用 wang 默认的 `WangZhiDong2000` 密钥。此规则不改变其它仓库既有提交作者约定。
+- 每次更新论文时，同轮维护 `paper/overleaf`：正文、图、参考文献或编译依赖变更后重新生成并验证中英入口；仅笔记／规则变化时也检查包仍与源文件一致。直接改 `overleaf` 的稿件内容必须同步回 `cvpr_event_centric` 源文件，避免下一次生成覆盖；先核对两边和线上改动，不盲目重建。
+- 两机继续只用现有 `automot_lead/paper/` 工作目录，不额外 clone/worktree，也不在 `overleaf/` 内建嵌套 `.git`。在 paper 内增加 `overleaf` remote，用 `python3 sync_overleaf.py --push` 将已提交并已推送的 `HEAD:overleaf` 发布成独立历史提交；仅以前一条 Overleaf 提交为父节点，不把私有论文历史推到该仓库。
+- 操作顺序：检查两机与两个论文远端 → 修改论文并更新／检查编译包 → 精确暂存，提交并推送 `paper/origin main` → `python3 sync_overleaf.py --push` → 另一台 paper 快进同步 → 两台各执行 `python3 sync_overleaf.py` 验证。首次以普通提交替换 event_centric 原有文件，保留 Git 历史，不 force push。后续发现线上独立改动先读取、合回论文源和包，不自动覆盖。
+- 原第 8 条结束核对扩展为：两机 automot_lead 与 paper 都在 main、无未提交已跟踪改动、HEAD 等于 origin/main；两机 `overleaf/main` 等于 GitHub event_centric/main，且其根 tree 等于各自 `HEAD:overleaf`。汇报三个仓库提交号；任何未同步或线上尚未编译的状态如实说明。无需为已授权的日常同步反复询问。
+
+
 ### 2026-10-28晚 Phase1/2只读源码打包修复
 
 cr02两图恢复 `recovery_20261028_205911_691534` 的CPU adapter读取和四组推理完成，后续打包因文本遍历与源码copytree两次复制同一0444文件而Permission denied。两个阶段eval.sh排除文本遍历中的code，源码仅复制一次。旧冻结源码/回执/失败目录不改；恢复入口的显式Python打包补充只接受绑定的原生片段，记录原始/执行SHA。新增 `--reuse-two-eval` 严格核验本次旧恢复来源、四组原始输出及完成/性能回执后复制结果至新目录，仅补两图打包，再继续四图原训练计划，不自动重推理。所有native包与recovery_audit.tar.gz共同审计。240项CPU回归通过，最终24项针对性复核通过（范围包含）；真实非root只读失败对照和原生打包验证，不代表H20已运行或质量达标。详见phase12_retrain/README.md。本轮不改采样/标定/prompt/训练预算，Phase1/2仍独立。
