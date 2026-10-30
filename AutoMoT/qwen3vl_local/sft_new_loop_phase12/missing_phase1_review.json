@@ -84,7 +84,7 @@
         ],
         "observation": "Signal-controlled junction and ordinary vehicles visible; no resolved pedestrian/cyclist, no road-blocking static obstacle, no positive traffic-light abnormality evidence. Existing native annotation R4/R-E4 retained.",
         "local_collection_risk": false,
-        "limitation": "Remote omission cause not established; require identical RGB bytes and compatible train/visual-control annotations. Recover four visible facts only; RS/event come exclusively from Phase2."
+        "limitation": "Remote omission cause not established; require identical bytes for all four target RGB inputs and train-only physical-route isolation. Adjacent annotations are preserved diagnostics, not a prerequisite or source for target supervision. Recover four reviewed visible facts only; RS/event come exclusively from Phase2."
       }
     }
   ]
