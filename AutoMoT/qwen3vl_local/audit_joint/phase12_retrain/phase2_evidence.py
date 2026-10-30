@@ -32,7 +32,6 @@ import hashlib
 import json
 import lzma
 import math
-import os
 import pickle
 from collections import Counter
 from pathlib import Path
@@ -43,7 +42,8 @@ from . import CONTRACT
 REVISION = "evidence_20261030"
 POLICY = {
     "revision": REVISION,
-    "policy_version": "evidence_policy_v2_20261030",
+    "policy_version": "evidence_policy_v3_20261030",
+    "history_source_policy": "require_every_read_nonnegative_frame",
     "min_frame_id": 4,
     "lead_lookback_frames": 8,
     "lead_brake_signal": 0.3,
@@ -160,7 +160,7 @@ def _finite(value: Any) -> Optional[float]:
 def ue1_evidence(store: LeadStore, scenario: str, route: str, frame: int) -> Tuple[str, Dict[str, Any]]:
     """最近两秒内前车是否真的在刹车/刚停下；返回类别与客观数值。
 
-    历史帧（frame-8..frame-1）允许缺失（路线起始），当前帧 meta/bbox 必须存在。
+    仅跳过路线开始前的负帧号；实际读取的非负历史帧与当前帧均必须存在。
     """
 
     meta, boxes = store.meta(scenario, route, frame), store.boxes(scenario, route, frame)
@@ -174,9 +174,7 @@ def ue1_evidence(store: LeadStore, scenario: str, route: str, frame: int) -> Tup
     for g in range(frame - POLICY["lead_lookback_frames"], frame + 1):
         if g < 0:
             continue
-        m, b = store.meta(scenario, route, g, required=False), store.boxes(scenario, route, g, required=False)
-        if m is None or b is None:
-            continue
+        m, b = store.meta(scenario, route, g), store.boxes(scenario, route, g)
         ego.append(_finite(m.get("speed")) or 0.0)
         actor = next((x for x in b if x.get("id") == aid), None)
         if actor is None:
@@ -196,7 +194,7 @@ def ue1_evidence(store: LeadStore, scenario: str, route: str, frame: int) -> Tup
         for g in range(frame, frame - 2 * POLICY["recent_stop_frames"] - 1, -1):
             if g < 0:
                 break
-            b = store.boxes(scenario, route, g, required=False)
+            b = store.boxes(scenario, route, g)
             actor = next((x for x in b if x.get("id") == aid), None) if b else None
             if actor is None or (_finite(actor.get("speed")) or 0.0) >= POLICY["lead_stopped_mps"]:
                 break
@@ -238,7 +236,7 @@ def ue6_evidence(store: LeadStore, scenario: str, route: str, frame: int) -> Tup
     for g in range(frame - POLICY["ue6_recent_frames"], frame):
         if g < 0:
             continue
-        b = store.boxes(scenario, route, g, required=False) or []
+        b = store.boxes(scenario, route, g)
         a = next((v for v in b if v.get("id") == actor.get("id")), None)
         if a is None:
             continue
@@ -470,6 +468,53 @@ def _case_class(case: Dict[str, Any]) -> str:
     return "RE"
 
 
+def _production_cases(pipeline_root: Path, mode: str):
+    """Read exactly one native production output, preserving sampled duplicates.
+
+    Native evaluation already replays raw answers before issuing its completion
+    receipt. Check that receipt's bound inputs, metrics and shards here, without
+    recursively counting the unpacked audit bundle beside the original output.
+    """
+    from qwen3vl_local.sft_new_loop_phase1 import evaluation_integrity as evaluation
+    from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
+
+    folder = pipeline_root / mode / 'eval_review' / 'lora_production'
+    try:
+        metrics = proof.read(folder / 'metrics.json')
+        inputs = proof.read(folder / 'evaluation_inputs.json')
+        complete = proof.read(folder / 'evaluation_complete.json')
+    except (OSError, ValueError) as exc:
+        raise ValueError(f'Missing or unreadable native production evidence: {folder}') from exc
+    world = metrics.get('world_size')
+    if type(world) is not int or world < 1:
+        raise ValueError(f'Invalid production world_size: {folder}')
+    if (metrics.get('history_rgb_mode') != mode or inputs.get('history_rgb_mode') != mode
+            or inputs.get('phase') != 2 or inputs.get('schema') != proof.SCHEMA
+            or complete.get('schema') != proof.SCHEMA or complete.get('phase') != 2
+            or complete.get('status') != 'verified'):
+        raise ValueError(f'Production mode/phase/completion mismatch: {folder}')
+    cases, names = evaluation.read_cases(folder, world)
+    hashes = {name: sha(folder / name) for name in names}
+    if (complete.get('case_files_sha256') != hashes
+            or complete.get('metrics_sha256') != sha(folder / 'metrics.json')
+            or complete.get('inputs_sha256') != sha(folder / 'evaluation_inputs.json')):
+        raise ValueError(f'Production evidence changed since native verification: {folder}')
+    n = len(cases)
+    if (n == 0 or any(type(c.get('all_ok')) is not bool for c in cases)
+            or any(type(v) is not int or v != n for v in
+                   (metrics.get('total_cases'), inputs.get('expected_total'), complete.get('total_cases')))):
+        raise ValueError(f'Production case count or score type mismatch: {folder}')
+    exact = sum(c['all_ok'] for c in cases) / n
+    if metrics.get('exact_match_accuracy') != exact or complete.get('scores') != evaluation.score_fields(metrics):
+        raise ValueError(f'Production scores disagree with native receipt: {folder}')
+    return cases, [folder / name for name in names], {
+        'case_files_sha256': hashes,
+        'metrics_sha256': complete['metrics_sha256'],
+        'inputs_sha256': complete['inputs_sha256'],
+        'completion_sha256': sha(folder / 'evaluation_complete.json'),
+    }
+
+
 def dual_score(pipeline_root: Path, disputes: Path, output: Path) -> Dict[str, Any]:
     """原评分照报，另给剔除预先冻结争议帧后的评分；只读原生 production 逐题输出。"""
 
@@ -479,17 +524,10 @@ def dual_score(pipeline_root: Path, disputes: Path, output: Path) -> Dict[str, A
         if line.strip():
             d = json.loads(line)
             flagged[(d["scenario"], d["route_id"], int(d["frame_id"]), d["question_domain"])] = f"{d['rule']}/{d['evidence']}"
-    files = sorted(Path(folder) / name for folder, _, names in os.walk(pipeline_root, followlinks=True)
-                   for name in names if name.startswith("cases_rank") and name.endswith(".jsonl") and Path(folder).name == "lora_production")
-    if not files:
-        raise ValueError("No native lora_production case files under " + str(pipeline_root))
     report: Dict[str, Any] = {"contract": CONTRACT, "revision": REVISION, "disputes_sha256": sha(disputes),
                               "disputed_keys": len(flagged), "modes": {}}
     for mode in MODES:
-        mode_files = [p for p in files if mode in p.parts]
-        if not mode_files:
-            continue
-        cases = [json.loads(l) for p in mode_files for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        cases, mode_files, binding = _production_cases(pipeline_root, mode)
         total = Counter()
         correct = Counter()
         retained = Counter()
@@ -511,6 +549,7 @@ def dual_score(pipeline_root: Path, disputes: Path, output: Path) -> Dict[str, A
         rn, rk = sum(retained.values()), sum(retained_correct.values())
         report["modes"][mode] = {
             "case_files": [str(p) for p in mode_files],
+            "native_evidence": binding,
             "original": {"correct": k, "total": n, "exact": (k / n) if n else None, "by_class": {c: [correct[c], total[c]] for c in sorted(total)}},
             "retained_after_removing_disputed": {"correct": rk, "total": rn, "exact": (rk / rn) if rn else None,
                                                  "by_class": {c: [retained_correct[c], retained[c]] for c in sorted(retained)}},
@@ -519,8 +558,6 @@ def dual_score(pipeline_root: Path, disputes: Path, output: Path) -> Dict[str, A
             "note": "Original score is the primary report. The retained score removes frames frozen before training by the "
                     "objective dispute audit; it does not prove those labels wrong and must not be used to select checkpoints.",
         }
-    if not report["modes"]:
-        raise ValueError("Case files found but none belong to a known history mode")
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     return report
 

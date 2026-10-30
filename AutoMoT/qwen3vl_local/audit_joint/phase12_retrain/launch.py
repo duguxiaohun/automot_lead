@@ -143,8 +143,8 @@ def worker(args):
                     '--parent',str(labeled_data/'frame_index.jsonl'),
                     '--history-contract',str(args.history_contract),'--output',str(index.parent)])
             elif revision==REVISION_P2_EVIDENCE:
-                # Train-only objective evidence filter; the 23-frame RS review is already
-                # applied inside the v2 decision build (true_rs_override), holdouts untouched.
+                # Train/val evidence views; test stays intact. The 23-frame RS review
+                # is already applied inside the v2 decision build (true_rs_override).
                 stage('evidence_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.phase2_evidence',
                     '--parent',str(parent),'--data-root',str(args.data_root),'--output',str(index.parent)])
@@ -225,7 +225,7 @@ def main(argv=None):
     parser.add_argument('--budget-profile',choices=PROFILES,default='bounded',
                         help='phase1_40k: three complete epochs, 40320 updates per mode; same labels/prompt/sampler')
     parser.add_argument('--revision',choices=REVISIONS,default='legacy_20261027',
-                        help='evidence_20261030: Phase2 only; objective highway spans v2 + train evidence filter + prompt v7')
+                        help='evidence_20261030: Phase2 only; highway spans v2 + train/val evidence views + prompt v7')
     parser.add_argument('--history-contract',type=Path,default=APP/'checkpoints/phase12_history_20261030/contract.json',
                         help='Phase1 requires the released historical test contract for route isolation')
     parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)

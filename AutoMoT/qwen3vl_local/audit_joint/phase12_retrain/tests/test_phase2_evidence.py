@@ -2,12 +2,15 @@
 import json
 import lzma
 import pickle
+import shutil
 from pathlib import Path
 
 import pytest
 from qwen3vl_local.audit_joint.phase12_retrain import phase2_evidence as ev
 from qwen3vl_local.audit_joint.phase12_retrain import launch
 from qwen3vl_local.sft_new_loop_phase2.build_dataset import _make_row
+from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
+from qwen3vl_local.sft_new_loop_phase1 import evaluation_integrity as evaluation
 
 SC = 'Synthetic'
 
@@ -161,15 +164,34 @@ def test_required_class_cannot_be_emptied(world, tmp_path):
     assert not (tmp_path / 'empty').exists()
 
 
+def _native_output(root, mode, cases, world=1):
+    """Small CPU fixture of native shard layout and its completion binding."""
+    d = root / mode / 'eval_review' / 'lora_production'
+    d.mkdir(parents=True)
+    cases = [dict(c, case_index=i) for i, c in enumerate(cases)]
+    names = ['cases.jsonl'] if world == 1 else [f'cases_rank{r}.jsonl' for r in range(world)]
+    for rank, name in enumerate(names):
+        (d / name).write_text(''.join(json.dumps(c) + '\n' for c in cases[rank::world]))
+    metrics = dict(world_size=world, history_rgb_mode=mode, total_cases=len(cases),
+                   exact_match_accuracy=sum(c['all_ok'] for c in cases) / len(cases))
+    proof.write(d / 'metrics.json', metrics)
+    proof.write(d / 'evaluation_inputs.json', dict(schema=proof.SCHEMA, phase=2,
+                history_rgb_mode=mode, expected_total=len(cases)))
+    proof.write(d / 'evaluation_complete.json', dict(schema=proof.SCHEMA, phase=2, status='verified',
+                total_cases=len(cases), scores=evaluation.score_fields(metrics),
+                inputs_sha256=ev.sha(d / 'evaluation_inputs.json'), metrics_sha256=ev.sha(d / 'metrics.json'),
+                case_files_sha256={n: ev.sha(d / n) for n in names}))
+    return d
+
+
 def test_dual_score_reports_original_and_retained(tmp_path):
     disputes = tmp_path / 'disputes.jsonl'
     disputes.write_text(json.dumps(dict(scenario='S', route_id='r', frame_id=5, question_domain='ROAD_CORRIDOR', rule='x', evidence='y')) + '\n')
     for mode in ('2rgb_endpoints', '4rgb'):
-        d = tmp_path / 'pipeline' / mode / 'eval_review' / 'lora_production'; d.mkdir(parents=True)
         cases = [dict(scenario='S', route_id='r', frame_id=5, question_domain='ROAD_CORRIDOR', gt={'UE1': 'YES'}, all_ok=mode == '4rgb'),
                  dict(scenario='S', route_id='r', frame_id=6, question_domain='ROAD_CORRIDOR', gt={'UE1': 'NO'}, all_ok=True),
                  dict(scenario='S', route_id='r', frame_id=7, question_domain='LOCAL_JUNCTION', gt={'INVALID_EVENT_CONTEXT': 'YES'}, all_ok=False)]
-        (d / 'cases_rank0.jsonl').write_text(''.join(json.dumps(c) + '\n' for c in cases))
+        _native_output(tmp_path / 'pipeline', mode, cases)
     report = ev.dual_score(tmp_path / 'pipeline', disputes, tmp_path / 'dual.json')
     m2, m4 = report['modes']['2rgb_endpoints'], report['modes']['4rgb']
     assert m2['original']['correct'] == 1 and m2['original']['total'] == 3 and m2['retained_after_removing_disputed'] == {
@@ -178,6 +200,76 @@ def test_dual_score_reports_original_and_retained(tmp_path):
     assert json.loads((tmp_path / 'dual.json').read_text())['disputed_keys'] == 1
     with pytest.raises(ValueError):
         ev.dual_score(tmp_path / 'nothing', disputes, tmp_path / 'x.json')
+
+
+@pytest.mark.parametrize('layout', ['cr02', 'cee'])
+def test_dual_score_ignores_bundle_copies_preserves_sample_duplicates(tmp_path, layout):
+    physical = tmp_path / layout / 'outputs'
+    root = tmp_path / 'pipeline'
+    if layout == 'cr02':
+        physical.mkdir(parents=True)
+        root.symlink_to(physical, target_is_directory=True)
+    c = dict(scenario='S', route_id='r', frame_id=5, question_domain='ROAD_CORRIDOR',
+             gt={'UE1': 'YES'}, all_ok=True)
+    for mode in ev.MODES:
+        # Same logical sample twice is legal; case_index distinguishes presentations.
+        d = _native_output(root, mode, [c, c, dict(c, frame_id=6, all_ok=False)], world=2)
+        shutil.copytree(d, d.parent / 'example_audit_bundle' / 'lora_production')
+    disputes = tmp_path / 'disputes.jsonl'; disputes.write_text('')
+    report = ev.dual_score(root, disputes, tmp_path / 'dual.json')
+    for m in report['modes'].values():
+        assert m['original']['total'] == 3 and m['original']['correct'] == 2
+        assert len(m['case_files']) == 2 and all('_audit_bundle' not in p for p in m['case_files'])
+
+
+@pytest.mark.parametrize('damage', ['mode_missing', 'shard_missing', 'extra_shard', 'duplicate_index',
+                                     'truncated', 'score_changed', 'metric_count', 'wrong_mode', 'receipt_missing'])
+def test_dual_score_rejects_incomplete_or_changed_native_output(tmp_path, damage):
+    root = tmp_path / 'pipeline'
+    c = dict(scenario='S', route_id='r', frame_id=5, question_domain='ROAD_CORRIDOR',
+             gt={'UE1': 'YES'}, all_ok=True)
+    for mode in ev.MODES:
+        d = _native_output(root, mode, [c, c, c], world=2)
+    if damage == 'mode_missing':shutil.rmtree(root / '4rgb')
+    elif damage == 'shard_missing':(d / 'cases_rank1.jsonl').unlink()
+    elif damage == 'extra_shard':(d / 'cases_rank2.jsonl').write_text('')
+    elif damage == 'duplicate_index':
+        lines=(d / 'cases_rank0.jsonl').read_text().splitlines()
+        (d / 'cases_rank0.jsonl').write_text(lines[0]+'\n'+lines[0]+'\n')
+    elif damage == 'truncated':(d / 'cases_rank1.jsonl').write_text('')
+    elif damage == 'score_changed':
+        p=d / 'cases_rank1.jsonl';p.write_text(p.read_text().replace('true','false'))
+    elif damage in ('metric_count', 'wrong_mode'):
+        p=d / 'metrics.json';m=json.loads(p.read_text())
+        m['total_cases' if damage == 'metric_count' else 'history_rgb_mode'] = 4 if damage == 'metric_count' else '2rgb_endpoints'
+        proof.write(p,m)
+    else:(d / 'evaluation_complete.json').unlink()
+    disputes=tmp_path / 'disputes.jsonl';disputes.write_text('')
+    with pytest.raises(ValueError):ev.dual_score(root, disputes, tmp_path / 'dual.json')
+    assert not (tmp_path / 'dual.json').exists()
+
+
+@pytest.mark.parametrize('source,frame', [('metas',19), ('bboxes',19), ('bboxes',10)])
+def test_history_gap_cannot_turn_long_queue_into_recent_stop(world, tmp_path, source, frame):
+    assert ev.ue1_evidence(ev.LeadStore(world), SC, 'queue', 20)[0] == 'long_both_stopped'
+    (world / SC / 'queue' / source / f'{frame:04d}.pkl').unlink()
+    with pytest.raises(ev.MissingSource):ev.ue1_evidence(ev.LeadStore(world), SC, 'queue', 20)
+    with pytest.raises(ValueError, match='missing or unreadable'):
+        ev.derive(_index(tmp_path, _full()), world, tmp_path / 'blocked')
+    assert not (tmp_path / 'blocked').exists()
+
+
+def test_ue6_history_gap_blocks_but_negative_frame_numbers_are_not_required(world):
+    ev.ue1_evidence(ev.LeadStore(world), SC, 'steady', 4)
+    ev.ue6_evidence(ev.LeadStore(world), SC, 'junction', 8)
+    (world / SC / 'junction' / 'bboxes' / '0011.pkl').unlink()
+    with pytest.raises(ev.MissingSource):ev.ue6_evidence(ev.LeadStore(world), SC, 'junction', 12)
+
+
+def test_optional_cached_missing_frame_cannot_satisfy_required_read(world):
+    store=ev.LeadStore(world)
+    assert store.boxes(SC, 'missing', 12, required=False) is None
+    with pytest.raises(ev.MissingSource):store.boxes(SC, 'missing', 12)
 
 
 def test_parent_pool_must_carry_decision_identity(tmp_path):
