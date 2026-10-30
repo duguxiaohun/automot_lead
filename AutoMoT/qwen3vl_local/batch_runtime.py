@@ -101,6 +101,18 @@ def greedy_batch(bundle, rows, *, max_new_tokens, phase3=False, reuse_rgb=False)
         return []
     if max_new_tokens < 1:
         raise ValueError('max_new_tokens must be positive')
+    from .qwen35 import text_prefix
+    if text_prefix.enabled() and phase3:
+        from .sft_v3.train import KVState, _student_generate_kv
+        answers=[]
+        with torch.no_grad():
+            for row in rows:
+                out=text_prefix.prefill(bundle,row)
+                state=KVState(row['input_ids'],row['input_ids'],row['attention_mask'],
+                              out.past_key_values,out.rope_deltas,out.logits[:,-1,:])
+                answer,_,_=_student_generate_kv(bundle,state,max_new_tokens)
+                answers.append(answer)
+        return answers
     inputs = left_collate(rows, bundle.tokenizer.pad_token_id)
     model = bundle.model.module if hasattr(bundle.model, 'module') else bundle.model
     options = dict(max_new_tokens=max_new_tokens, do_sample=False, use_cache=True)

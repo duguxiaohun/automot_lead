@@ -330,7 +330,8 @@ def phase1_prompt_sha256(*, audit: bool = False, history_rgb_mode: str = DEFAULT
         "phase1_output_orders": [list(order) for order in itertools.permutations(PHASE1_ANSWER_KEYS)],
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    from qwen3vl_local.qwen35.text_prefix import bind_hash
+    return bind_hash(hashlib.sha256(encoded).hexdigest())
 
 
 _ANSWER_RE = re.compile(r"(?im)^\s*([A-Z0-9_]+)\s*:\s*(YES|NO)\s*$")

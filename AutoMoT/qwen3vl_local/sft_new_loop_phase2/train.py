@@ -96,6 +96,7 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
     load_model_with_lora,
     make_scheduler,
 )
+from qwen3vl_local.qwen35.text_prefix import identity as input_layout
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
@@ -262,6 +263,7 @@ def _write_run_metadata(
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "highway_regular_fraction": float(args.highway_regular_fraction),
         "highway_ue3_fraction": float(args.highway_ue3_fraction),
+        "input_layout": input_layout(),
         "production_prompt_sha256": event_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
     }
     (output_dir / "train_run_manifest.json").write_text(
@@ -1390,6 +1392,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "route": "sft_new_loop_phase2_direct_event",
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
+        "input_layout": input_layout(),
         "production_prompt_sha256": event_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),

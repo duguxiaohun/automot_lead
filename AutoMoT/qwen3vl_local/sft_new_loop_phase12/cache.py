@@ -6,8 +6,9 @@ from qwen3vl_local.mrope_utils import qwen3vl_incremental_forward
 from qwen3vl_local.sft_v3.train import KVState, _student_generate_kv
 from .prompts import messages
 from . import cache_checks
+from qwen3vl_local.qwen35 import text_prefix
 
-BENCHMARK_PROTOCOL='paired_prefix_timing_v2'
+BENCHMARK_PROTOCOL='paired_text_prefix_timing_v1' if text_prefix.enabled() else 'paired_prefix_timing_v2'
 BENCHMARK_SCOPE='model prefill + complete decode + cache clone; identical pre-encoded inputs; excludes processor and diagnostic forwards'
 
 
@@ -73,15 +74,20 @@ def _decode(bundle,item,out,max_new_tokens):
 
 def _pair(bundle,inputs,max_new_tokens,shared):
     _sync(bundle.device);start=time.perf_counter();n=0;prefix=None
-    if shared:n,prefix=prefill_prefix(bundle.model,*inputs)
+    text_shared=shared and text_prefix.enabled()
+    if shared and not text_shared:n,prefix=prefill_prefix(bundle.model,*inputs)
     _sync(bundle.device);prefill_s=time.perf_counter()-start;results=[]
     for item in inputs:
         _sync(bundle.device);arm_start=time.perf_counter()
-        out=fork(bundle.model,item,n,prefix) if shared else bundle.model(**item,use_cache=True,return_dict=True)
+        if text_shared:
+            out=text_prefix.prefill(bundle,item)
+            n=text_prefix.bank(bundle).last['prefix_tokens'] if text_prefix.cache_enabled() else 0
+        else:
+            out=fork(bundle.model,item,n,prefix) if shared else bundle.model(**item,use_cache=True,return_dict=True)
         answer=_decode(bundle,item,out,max_new_tokens)
         del out
         _sync(bundle.device);answer['seconds']=time.perf_counter()-arm_start;results.append(answer)
-    if shared and prefix.past_key_values.get_seq_length()!=n:raise ValueError('Branch mutated common prefix')
+    if prefix is not None and prefix.past_key_values.get_seq_length()!=n:raise ValueError('Branch mutated common prefix')
     _sync(bundle.device)
     return dict(branches=results,prefix_tokens=n,prefill_seconds=prefill_s,seconds=time.perf_counter()-start)
 
@@ -112,9 +118,14 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     _sync(device);encode_seconds=time.perf_counter()-start
     comparisons=[]
     if check_full:
-        n,prefix=prefill_prefix(bundle.model,*inputs)
+        prefix=None
+        if not text_prefix.enabled():n,prefix=prefill_prefix(bundle.model,*inputs)
         for item in inputs:
-            out=fork(bundle.model,item,n,prefix)
+            if text_prefix.enabled():
+                out=text_prefix.prefill(bundle,item)
+                n=text_prefix.bank(bundle).last['prefix_tokens'] if text_prefix.cache_enabled() else 0
+            else:
+                out=fork(bundle.model,item,n,prefix)
             full=bundle.model(**item,use_cache=False,return_dict=True)
             diagnostic=cache_checks.logits(out.logits,full.logits[:,n:])
             comparisons.append(diagnostic)
@@ -153,7 +164,9 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
             execution_order=[['independent','shared'] if i%2==0 else ['shared','independent'] for i in range(len(trials))],
             saving_fraction=1-shared_s/separate_s if separate_s else None,
             device=str(device),dtype=str(next(bundle.model.parameters()).dtype),max_new_tokens=max_new_tokens),
-        cache_scope='one_sample_same_model_same_adapter_inference_only')
+        text_prefix=text_prefix.report(bundle),
+        cache_scope=('process_local_cross_image_text_prefix' if text_prefix.enabled() else
+                     'one_sample_same_model_same_adapter_inference_only'))
 
 
 def verify_benchmark(meta,*,device,dtype,max_new_tokens=160):

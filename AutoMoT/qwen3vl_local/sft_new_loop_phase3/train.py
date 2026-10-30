@@ -112,6 +112,7 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
     load_model_with_lora,
     make_scheduler,
 )
+from qwen3vl_local.qwen35.text_prefix import identity as input_layout
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
@@ -1318,6 +1319,7 @@ def _save_adapter(
         "dataset_name": DATASET_NAME,
         "prompt_name": prompt_name(getattr(args, "prompt_variant", "baseline")),
         "prompt_variant": getattr(args, "prompt_variant", "baseline"),
+        "input_layout": input_layout(),
         "production_prompt_sha256": action_prompt_sha256(
             audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode,
             prompt_variant=getattr(args, "prompt_variant", "baseline"),
@@ -1480,6 +1482,7 @@ def _write_run_metadata(
         "train_route_diverse": bool(args.train_route_diverse),
         "invalid_focus_multiplier": float(args.invalid_focus_multiplier),
         "choice_filter": dict(choice_filter) if choice_filter is not None else None,
+        "input_layout": input_layout(),
         "production_prompt_sha256": action_prompt_sha256(
             audit=False, history_rgb_mode=args.history_rgb_mode, action_output_mode=args.action_output_mode,
             prompt_variant=getattr(args, "prompt_variant", "baseline"),

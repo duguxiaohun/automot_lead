@@ -91,6 +91,7 @@ from qwen3vl_local.sft_v2.train import (  # noqa: E402
     load_model_with_lora,
     make_scheduler,
 )
+from qwen3vl_local.qwen35.text_prefix import identity as input_layout
 from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv  # noqa: E402
 
 
@@ -296,6 +297,7 @@ def _write_run_metadata(
         "eval_variant_weights": dict(VARIANT_WEIGHTS),
         "resample_each_epoch": True,
         "epoch_seed_formula": "seed + epoch * 1000003",
+        "input_layout": input_layout(),
         "production_prompt_sha256": phase1_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
     }
     (output_dir / "train_run_manifest.json").write_text(
@@ -1575,8 +1577,8 @@ def _load_images(paths: Sequence[str]) -> List[Image.Image]:
 def _messages(images: List[Image.Image], user_prompt: str, target: str) -> List[Dict[str, Any]]:
     """构造 teacher-forced chat。"""
 
-    content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
-    content.append({"type": "text", "text": user_prompt})
+    from qwen3vl_local.qwen35.text_prefix import content as prompt_content
+    content = prompt_content(images, user_prompt)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": content},
@@ -1898,8 +1900,8 @@ def evaluate_loss(
 def _generation_messages(images: List[Image.Image], user_prompt: str) -> List[Dict[str, Any]]:
     """构造不含 target 的生产式 chat，用于检查实际自由生成格式。"""
 
-    content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
-    content.append({"type": "text", "text": user_prompt})
+    from qwen3vl_local.qwen35.text_prefix import content as prompt_content
+    content = prompt_content(images, user_prompt)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": content},
@@ -2156,6 +2158,7 @@ def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespac
         "route": "sft_new_loop_phase1_phase1_phase2_visible_facts",
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
+        "input_layout": input_layout(),
         "production_prompt_sha256": phase1_prompt_sha256(audit=False, history_rgb_mode=args.history_rgb_mode),
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "train_script": str(_THIS),

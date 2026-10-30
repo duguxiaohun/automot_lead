@@ -25,6 +25,8 @@ def check_index(path, action_output_mode="binary", *, prompt_variant="baseline")
     if not manifest_path.is_file():
         raise ValueError(f"{manifest_path}: full build manifest required; bare index is not admitted")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    from qwen3vl_local.qwen35.text_prefix_data import verify as verify_input_view
+    verify_input_view(path, manifest)
     extra_development = set(manifest.get("additional_development", {}).get("groups", []))
     prompt_contract = manifest.get("prompt_contract")
     if not isinstance(prompt_contract, dict):

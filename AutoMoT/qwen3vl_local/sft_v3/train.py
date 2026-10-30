@@ -476,7 +476,8 @@ def _kv_start_state(bundle: Any, messages: List[Dict[str, Any]]) -> KVState:
         if key in ("input_ids", "attention_mask"):
             continue
         kwargs[key] = value.to(bundle.device) if isinstance(value, torch.Tensor) else value
-    outputs = bundle.model(**kwargs, use_cache=True, return_dict=True)
+    from qwen3vl_local.qwen35.text_prefix import prefill
+    outputs = prefill(bundle, kwargs)
     input_ids = kwargs["input_ids"]
     attention_mask = kwargs["attention_mask"]
     return KVState(

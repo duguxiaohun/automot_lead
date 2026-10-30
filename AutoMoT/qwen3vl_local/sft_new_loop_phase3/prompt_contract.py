@@ -24,7 +24,7 @@ def build_action_messages(*, prompt_variant='baseline', **kwargs):
     prompt_name(prompt_variant)
     messages = baseline.build_action_messages(**kwargs)
     if prompt_variant != 'baseline':
-        messages[1]['content'][-1]['text'] = build_action_prompt(
+        next(part for part in messages[1]['content'] if part['type'] == 'text')['text'] = build_action_prompt(
             prompt_variant=prompt_variant, spec=kwargs['spec'],
             audit=kwargs.get('audit', False), history_rgb_mode=kwargs.get('history_rgb_mode', '4rgb'))
     return messages

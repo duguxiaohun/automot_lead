@@ -25,8 +25,12 @@ from .phase3_continue import write, read, gpu_ids
 
 APP = Path(__file__).resolve().parents[2]
 REFERENCE = Path(__file__).with_name('phase3_sequence_reference.json')
-RELEASE = Path(__file__).with_name('phase3_base_trial_sources.json')
+RELEASE = Path(__file__).with_name('phase3_prefix_capable_sources_20261030.json')
 POLICY = 'phase3_independent_base_7680_v1'
+# New release only: old manifests/checkpoints remain strict and unmodified.
+if os.environ.get('AUTOMOT_TEXT_PREFIX', '0') == '1':
+    RELEASE = Path(__file__).with_name('phase3_text_prefix_sources_20261030.json')
+    POLICY = 'phase3_independent_base_7680_text_prefix_v1'
 
 
 def profile():
@@ -41,6 +45,8 @@ def profile():
 
 
 def verified_sources():
+    from qwen3vl_local.qwen35.text_prefix import enabled
+    enabled()  # Reject malformed environment before validating the release.
     spec = read(RELEASE)
     if spec.get('schema') != 'phase3_base_trial_release_v1' or spec.get('policy') != POLICY:
         raise ValueError('Unsupported experiment release')
@@ -103,6 +109,9 @@ def select_reference(work, ref, *, seed, limit, stride=1, split='val'):
 
 
 def build_job(args, output):
+    from qwen3vl_local.qwen35.text_prefix import enabled
+    if enabled() and args.experiment != 'base':
+        raise ValueError('Text-prefix release supports native Phase3 base; dense temporal readouts retain their frozen contract')
     ref = reference()
     index, data, model = [p.resolve(strict=True) for p in (args.index, args.data_root, args.model_dir)]
     if file_sha(index) != ref['index_sha256']:
@@ -351,6 +360,7 @@ def main():
         print(json.dumps(job, ensure_ascii=False, indent=2))
         return 0
     output.mkdir(parents=True)
+    from qwen3vl_local.qwen35 import text_prefix, text_prefix_data
     state = dict(policy=POLICY, status='preflight', root=str(APP), output=str(output),
         hostname=socket.gethostname(), server_label=os.environ.get('AUTOMOT_SERVER', 'unspecified'),
         profile=profile(), stages=[], data_rebuilt=False, old_models_evaluated=False)
@@ -362,6 +372,10 @@ def main():
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if shutil.disk_usage(output).free < (args.reserve_gib+1)*1024**3:
             raise ValueError('Insufficient free space above the reserve')
+        if text_prefix.enabled():
+            # Same exact label/index bytes; a separate manifest binds the new
+            # layout. Never rewrite the original dataset for a new hash.
+            job['index']=str(text_prefix_data.prepare(job['index'],output/'input_view'))
         write(output/'job.json', job)
         env = dict(os.environ, PYTHONPATH=str(APP), PYTHONDONTWRITEBYTECODE='1',
             CUDA_VISIBLE_DEVICES=ids, GPU_IDS=ids, OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1',

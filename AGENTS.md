@@ -1,5 +1,13 @@
 # AGENTS.md
 
+### 2026-10-30 Phase1/2/3 与 1+2 跨图片文本前缀缓存
+
+用户要求从闭环角度复用固定 system/问题的 KV，保留标定。新增显式 `AUTOMOT_TEXT_PREFIX=1` 输入合同 `text_before_images_v1`，训练与推理同时使用 system→问题→图片；默认关闭以保护已有权重协议。Phase1/2 原生入口、Phase3 原生/独立 base、shared Phase1+2 已接入；每个 bundle 默认两项/256 MiB 纯文本 LRU，复制完整 hybrid K/V/conv/recurrent 状态，按当前图片重算 M-RoPE，权重/adapter/精度/设备变化失效。训练仍完整反传，不跨 optimizer 更新复用；采样、随机题序、标定、split、预算不变。闭环不等待凑批、不重排帧；Phase3 新模式批量入口逐请求执行，不能冒称并行批处理收益。
+
+新 adapter/prompt SHA、Phase1/2 与融合 CPU ready 绑定布局，旧权重不得直接换序当作新版本质量验收。Phase3 发布两份新的源码清单（旧布局可新启动、新文本布局独立 policy），不改旧清单/回执；新布局自动创建 `input_view`，原索引字节不变，只另建并验证输入合同 manifest。历史 dense/stream/window/frame-bank 读出合同不套用文字前移，新文本 release 只接受当前独立 base。Phase4、论文、默认模型、旧冻结运行不改。
+
+`AUTOMOT_TEXT_PREFIX_CACHE=0` 在同一新布局关闭缓存做对照；`qwen35.text_prefix_benchmark` 验证完整输出 token/EOS/截断，并计时包含 miss、clone、prefill、decode 的有序请求流。两题文字前移后不能再共用旧图片语言状态，是否更快必须实测。说明 `AutoMoT/qwen3vl_local/qwen35/TEXT_PREFIX_CACHE_20261030.md`。本机 486 项 CPU 回归通过、1 项 Phase2 不适用隔离分支跳过，含真实小模型更换图片/网格、完整生成、非零 LoRA/状态隔离和来源篡改拒绝；未 GPU、未新训练、未 CARLA 闭环，不声明 4B 加速或精度通过。
+
 ### 2026-10-30 Phase2 错例根因审计与证据修订（用户要求先微调问题场景）
 
 用户要求结合错例和本地逐帧 RGB 判断是标定、提示词、数据量还是遮挡等客观原因，并先微调有问题的场景、不把好的改坏。本轮逐例看完 cee 新训练 81 个生产错例的四帧原始 RGB，并回放 LEAD metas/bboxes 客观量；结论与处理记录在 `AutoMoT/qwen3vl_local/audit_joint/phase12_retrain/EVIDENCE_20261030.md` 与 `sft_new_loop_phase2/HIGHWAY_UE3_OBJECTIVE_SPANS_20261030.md`。

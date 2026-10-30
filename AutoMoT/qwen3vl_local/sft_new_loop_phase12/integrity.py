@@ -10,6 +10,9 @@ from .data import resolve_rgb,phase1_targets
 def verify_ready(root,*,images=True,execution=False):
     root=Path(root);ready=proof.read(root/'ready.json')
     if ready['contract']!=CONTRACT:raise ValueError('Wrong fusion contract')
+    from qwen3vl_local.qwen35.text_prefix import identity as input_layout
+    if ready.get('input_layout','images_before_text_legacy')!=input_layout():
+        raise ValueError('CPU-ready input layout differs; use a fresh matching run')
     if execution and Path(__file__).resolve().parents[2]!=(Path(ready['version'])/'app').resolve():
         raise ValueError('Training/evaluation must use the exact CPU-admitted frozen source')
     runtime.verify(ready['version'])

@@ -41,8 +41,8 @@ def texts(first, second, mode):
 
 
 def messages(images, text, target=None):
-    result = [dict(role='system', content=SYSTEM), dict(role='user', content=[
-        *[dict(type='image', image=im) for im in images], dict(type='text', text=text)])]
+    from qwen3vl_local.qwen35.text_prefix import content
+    result = [dict(role='system', content=SYSTEM), dict(role='user', content=content(images,text))]
     if target is not None:
         result.append(dict(role='assistant', content=target))
     return result
@@ -53,7 +53,9 @@ def targets(answers, first, second):
 
 
 def identity(mode):
-    return dict(system_sha256=hashlib.sha256(SYSTEM.encode()).hexdigest(),
+    from qwen3vl_local.qwen35.text_prefix import identity as layout
+    from qwen3vl_local.qwen35.text_prefix import enabled
+    return dict(**({'input_layout':layout()} if enabled() else {}), system_sha256=hashlib.sha256(SYSTEM.encode()).hexdigest(),
                 phase1=P1.phase1_prompt_sha256(history_rgb_mode=mode),
                 phase2=P2.event_prompt_sha256(history_rgb_mode=mode),
                 phase1_keys=list(P1.ANSWER_KEYS),phase1_order='global_eight_key_shuffle_v1', inference='independent_prefix_forks',

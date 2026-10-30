@@ -1276,7 +1276,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             "exact_match_accuracy": float(invalid_subgroup_counts.get(f"{prefix}/exact", 0))
             / max(1.0, float(count)),
         }
+    from qwen3vl_local.qwen35.text_prefix import report as prefix_report
     metrics = {
+        "text_prefix": prefix_report(bundle),
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",

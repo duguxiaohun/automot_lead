@@ -426,13 +426,8 @@ def build_action_messages(
 ) -> List[Dict[str, object]]:
     """构造单轮 image+text user message。"""
 
-    content: List[Dict[str, object]] = [{"type": "image", "image": image} for image in images]
-    content.append(
-        {
-            "type": "text",
-            "text": build_action_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode),
-        }
-    )
+    from qwen3vl_local.qwen35.text_prefix import content as prompt_content
+    content = prompt_content(images, build_action_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     messages: List[Dict[str, object]] = [
         {"role": "system", "content": CHOICE_SYSTEM_PROMPT if spec.action_output_mode == "choice" else SYSTEM_PROMPT},
         {"role": "user", "content": content},
@@ -506,7 +501,8 @@ def action_prompt_sha256(
         for order in itertools.permutations(keys):
             parts.append(f"{domain}:{'|'.join(order)}")
     encoded = json.dumps(parts, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    from qwen3vl_local.qwen35.text_prefix import bind_hash
+    return bind_hash(hashlib.sha256(encoded).hexdigest())
 
 
 def parse_action_answer_lines(text: str, *, spec: PromptSpec) -> Dict[str, Optional[bool]]:

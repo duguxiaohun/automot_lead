@@ -80,6 +80,9 @@ def verify_ready(root,phase,version):
     ready=proof.read(root/'ready.json')
     if ready['phase']!=phase or ready['version']!=str(version) or ready['contract']!=CONTRACT:
         raise ValueError('CPU ready belongs to another phase/version')
+    from qwen3vl_local.qwen35.text_prefix import identity as input_layout
+    if ready.get('input_layout','images_before_text_legacy')!=input_layout():
+        raise ValueError('CPU-ready input layout differs; create a fresh matching run')
     runtime.verify(version)
     for path,sha in ready['files'].items():
         if proof.sha(path)!=sha:raise ValueError('CPU evidence changed: '+path)
@@ -165,7 +168,8 @@ def worker(args):
             if phase == 1:
                 from .history_holdout import FILES
                 files.update({str(index.parent/name):proof.sha(index.parent/name) for name in FILES})
-            ready=dict(contract=CONTRACT,phase=phase,version=str(version),index=str(index),
+            from qwen3vl_local.qwen35.text_prefix import identity as input_layout
+            ready=dict(input_layout=input_layout(),contract=CONTRACT,phase=phase,version=str(version),index=str(index),
                        data=proof.data_identity(index),files=files,mode_order=MODES,
                        expected_updates_per_mode=budget['expected_updates'],budget=budget,revision=revision)
             proof.write(root/'ready.json',ready)

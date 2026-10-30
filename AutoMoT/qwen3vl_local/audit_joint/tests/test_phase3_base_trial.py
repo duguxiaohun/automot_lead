@@ -233,15 +233,45 @@ def test_build_job_blocks_wrong_dataset_and_old_resume_before_writes(tmp_path,mo
     with pytest.raises(ValueError,match='stage complete'):trial.build_job(args,output)
 
 
-def test_published_sources_reference_and_native_production_unchanged():
+def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monkeypatch):
+    # Historical manifests must reject changed source; never overwrite their SHA
+    # just to make a new optional inference protocol look like the old release.
+    old_release=trial.RELEASE.with_name('phase3_base_trial_sources.json')
+    with monkeypatch.context() as historical:
+        historical.setattr(trial,'RELEASE',old_release)
+        with pytest.raises(ValueError,match='Published trial source mismatch'):
+            trial.verified_sources()
+    # Default image-first execution remains launchable against NEW source;
+    # old checkpoints still require their original release hash/source.
+    assert len(trial.verified_sources())==64
+    new_release=old_release.with_name('phase3_text_prefix_sources_20261030.json')
+    spec=trial.read(new_release)
+    assert spec['parent_release_sha256']==trial.file_sha(old_release)
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
+    monkeypatch.setattr(trial,'RELEASE',new_release)
+    monkeypatch.setattr(trial,'POLICY','phase3_independent_base_7680_text_prefix_v1')
     assert len(trial.verified_sources())==64
     prior=trial.read(Path(trial.__file__).with_name('release_sources_v88_resume_lifecycle_20261019.json'))
+    layout_changes={
+        'qwen3vl_local/sft_new_loop_phase3/prompts.py',
+        'qwen3vl_local/sft_new_loop_phase3/prompt_contract.py',
+        'qwen3vl_local/sft_new_loop_phase3/eval.py',
+        'qwen3vl_local/sft_new_loop_phase3/preflight.py',
+        'qwen3vl_local/batch_runtime.py',
+    }
     for name,sha in prior['files'].items():
         if name.startswith(('qwen3vl_local/sft_new_loop_phase3/','qwen3vl_local/sft_v2/','qwen3vl_local/qwen35/')) or name in ('qwen3vl_local/sequence_batch.py','qwen3vl_local/batch_runtime.py'):
+            if name in layout_changes:
+                continue  # New layout/rendering/metrics have dedicated tests.
             if name.endswith(('/train.py','/train.sh','/run_full_pipeline.sh')) and '/sft_new_loop_phase3/' in '/'+name:
                 continue  # CLI routing/guard changed; computational functions checked below.
             assert trial.file_sha(trial.APP/name)==sha,name
     import ast, subprocess
     old=subprocess.check_output(['git','show','06cda13d36a91253d9f81bba71299f825723ed9e:AutoMoT/qwen3vl_local/sft_new_loop_phase3/train.py'],text=True)
-    functions=lambda text:[ast.dump(n) for n in ast.parse(text).body if isinstance(n,(ast.FunctionDef,ast.ClassDef))]
+    functions=lambda text:[ast.dump(n) for n in ast.parse(text).body if isinstance(n,(ast.FunctionDef,ast.ClassDef))
+        and n.name not in ('_save_adapter','_write_run_metadata')]
     assert functions(old)==functions((trial.APP/'qwen3vl_local/sft_new_loop_phase3/train.py').read_text())
+    broken=copy.deepcopy(spec);broken['files']['qwen3vl_local/qwen35/text_prefix.py']='0'*64
+    monkeypatch.setattr(trial,'read',lambda path:broken)
+    with pytest.raises(ValueError,match='Published trial source mismatch'):
+        trial.verified_sources()

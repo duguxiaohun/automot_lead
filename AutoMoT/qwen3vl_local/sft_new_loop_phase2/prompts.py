@@ -311,13 +311,8 @@ def build_event_messages(
 ) -> List[Dict[str, object]]:
     """构造单轮 image+text user message；没有任何 synthetic assistant 前缀。"""
 
-    content: List[Dict[str, object]] = [{"type": "image", "image": image} for image in images]
-    content.append(
-        {
-            "type": "text",
-            "text": build_event_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode),
-        }
-    )
+    from qwen3vl_local.qwen35.text_prefix import content as prompt_content
+    content = prompt_content(images, build_event_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode))
     messages: List[Dict[str, object]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": content},
@@ -420,7 +415,8 @@ def event_prompt_sha256(
         payload = "\n\0\n".join(
             [SYSTEM_PROMPT, build_event_prompt(spec=spec, audit=audit, history_rgb_mode=history_rgb_mode)]
         )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        from qwen3vl_local.qwen35.text_prefix import bind_hash
+        return bind_hash(hashlib.sha256(payload.encode("utf-8")).hexdigest())
     parts = [
         json.dumps(
             {
@@ -447,4 +443,5 @@ def event_prompt_sha256(
             seed_key=f"sha:{question_domain}:{invalid}",
         )
         parts.append(build_event_prompt(spec=spec_obj, audit=audit, history_rgb_mode=history_rgb_mode))
-    return hashlib.sha256("\n\0\n".join(parts).encode("utf-8")).hexdigest()
+    from qwen3vl_local.qwen35.text_prefix import bind_hash
+    return bind_hash(hashlib.sha256("\n\0\n".join(parts).encode("utf-8")).hexdigest())

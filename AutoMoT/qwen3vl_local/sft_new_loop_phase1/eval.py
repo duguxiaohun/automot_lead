@@ -295,8 +295,8 @@ def _load_images(paths: Sequence[str]) -> List[Image.Image]:
 def _messages(images: List[Image.Image], prompt: str) -> List[Dict[str, Any]]:
     """构造自由生成 chat。"""
 
-    content: List[Dict[str, Any]] = [{"type": "image", "image": image} for image in images]
-    content.append({"type": "text", "text": prompt})
+    from qwen3vl_local.qwen35.text_prefix import content as prompt_content
+    content = prompt_content(images, prompt)
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}]
 
 
@@ -332,6 +332,11 @@ def _resolve_history_rgb_mode(
         )
     persisted = adapter_cfg.get("history_rgb_mode", DEFAULT_HISTORY_RGB_MODE)
     source = "adapter_config" if "history_rgb_mode" in adapter_cfg else "legacy_adapter_default_4rgb"
+    from qwen3vl_local.qwen35.text_prefix import enabled
+    expected = phase1_prompt_sha256(audit=False, history_rgb_mode=str(persisted))
+    saved = adapter_cfg.get('production_prompt_sha256')
+    if (saved and saved != expected) or (enabled() and not saved):
+        raise ValueError('adapter production prompt/input-layout mismatch; retrain with matching layout')
     return validate_history_rgb_mode(str(persisted)), source
 
 
@@ -741,7 +746,9 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         variant_weights=VARIANT_WEIGHTS,
         world_size=int(world_size),
     )
+    from qwen3vl_local.qwen35.text_prefix import report as prefix_report
     metrics = {
+        "text_prefix": prefix_report(bundle),
         "dataset_name": DATASET_NAME,
         "prompt_name": PROMPT_NAME,
         "prompt_mode": "audit" if bool(args.audit_prompt) else "production",

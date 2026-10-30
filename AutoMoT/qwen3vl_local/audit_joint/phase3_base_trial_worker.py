@@ -36,7 +36,9 @@ def legacy_single_generate(bundle, rows, *, max_new_tokens, phase3=False, reuse_
     row = rows[0]
     model = bundle.model.module if hasattr(bundle.model, 'module') else bundle.model
     with torch.no_grad():
-        out = model(**row, use_cache=True, return_dict=True)
+        from qwen3vl_local.qwen35 import text_prefix
+        out = (text_prefix.prefill(bundle,row) if text_prefix.enabled() else
+               model(**row, use_cache=True, return_dict=True))
         state = KVState(decoded_input_ids=row['input_ids'], cache_input_ids=row['input_ids'],
             attention_mask=row['attention_mask'], past_key_values=out.past_key_values,
             rope_deltas=getattr(out, 'rope_deltas', None), next_logits=out.logits[:, -1, :])

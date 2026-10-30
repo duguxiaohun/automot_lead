@@ -37,7 +37,8 @@ def prepare_data(args):
     validation.prepare(root,args.data_root,historical_groups=history.groups(historical))
     files={str(p.relative_to(root)):proof.sha(p) for sub in ('data','cpu','phase1_previous','phase1','phase2')
            for p in (root/sub).rglob('*') if p.is_file()}
-    proof.write(root/'ready.json',dict(contract=CONTRACT,version=str(args.version),data_root=str(args.data_root),
+    from qwen3vl_local.qwen35.text_prefix import identity as input_layout
+    proof.write(root/'ready.json',dict(input_layout=input_layout(),contract=CONTRACT,version=str(args.version),data_root=str(args.data_root),
         action_index=args.action_index,files=files,status='cpu_ready_model_training_not_started'))
     print('[CPU_READY] '+str(root),flush=True)
 
