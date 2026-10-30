@@ -21,21 +21,27 @@ def phase1_targets(visible,rs):
 
 def relative_rgb(value):
     parts = Path(value).parts
+    if '..' in parts:
+        raise ValueError('Invalid RGB member: '+str(value))
     if 'lead_data' in parts:
         parts = parts[parts.index('lead_data')+1:]
     elif Path(value).is_absolute():
         parts = parts[-4:]
     path = Path(*parts)
-    if path.is_absolute() or '..' in path.parts or len(path.parts) != 4:
+    if path.is_absolute() or len(path.parts) != 4 or path.parts[2] != 'rgb':
         raise ValueError('Invalid RGB member: '+str(value))
     return path.as_posix()
 
 
 def resolve_rgb(root, value):
-    root = Path(root).resolve();path=(root/relative_rgb(value)).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        raise ValueError('Missing/escaping RGB: '+str(value))
-    return path
+    # Dataset members may live on mounted disks reached through nested links.
+    # Use the same logical-path policy as reviewed labels; all callers retain
+    # their image SHA bindings. Source snapshot containment is unchanged.
+    from qwen3vl_local.audit_joint.phase1_visual_refine.calibration import resolve_rgb as resolve_asset
+    try:
+        return resolve_asset(root,relative_rgb(value))
+    except FileNotFoundError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def build(phase1, phase2, data_root, output, *, historical_groups=()):
