@@ -1,5 +1,14 @@
 # 项目规则 (CLAUDE.md)
 
+### 2026-10-30 Phase2 错例根因审计与证据修订（用户要求先微调问题场景）
+
+用户要求结合错例和本地逐帧 RGB 判断是标定、提示词、数据量还是遮挡等客观原因，并先微调有问题的场景、不把好的改坏。本轮逐例看完 cee 新训练 81 个生产错例的四帧原始 RGB，并回放 LEAD metas/bboxes 客观量；结论与处理记录在 `AutoMoT/qwen3vl_local/audit_joint/phase12_retrain/EVIDENCE_20261030.md` 与 `sft_new_loop_phase2/HIGHWAY_UE3_OBJECTIVE_SPANS_20261030.md`。
+- 高速切入 0/8 是数据问题：v1 训练正例只有 Town13 两条左侧匝道路线 28 帧，客观上车辆始终停留在相邻车道；测试是 Town12 右侧跨线。新增 `highway_ue3_objective_spans.py` 用切入车横向位置/偏航角客观给出窗口，生成 `highway_ue3_rgb_decisions_v2.jsonl`（训练 50 条路线 573 帧、验证 5 条 56 帧，测试三行与 v1 逐字相同；Town13 两条 v1 YES 改为 NO 对照），抽查 14 条路线 RGB 无误报。建库支持 YES 行 `true_rs_override: R3`，沿用 10-27 的 23 帧修正口径。
+- UE1 漏检主要是标定窗口过宽：训练池 67% 的 UE1 正例是停稳 >2 s 的静止队列、9% 是匀速无刹车前车；模型把静止队列答对、真正刹车的帧反而漏检；其它场景中前车明显刹车却标 NO 的矛盾负例 221 行。UE6 正例 33% 违规车缺席/车后/已远离；真实漏检集中在夜雨中应急车横穿。新增 `phase12_retrain/phase2_evidence.py` 只对 train 行做客观排除（不翻转标签、val/test 逐字节不变、六类桶必须齐全），排除行写 `evidence_exclusions.jsonl`；`--audit-holdouts` 只读列出 holdout 争议帧。
+- 提示词 v7（`direct_event_visual_v7_evidence_20261030`）在 v6 上补 UE1 尾灯/起步/队列边界、UE6 应急车与无违规车边界、UE3 左右两侧同判；UE5/问题域/INVALID/解析/采样/预算不变。入口 `run.sh all 2 --revision evidence_20261030 --budget-profile phase2_10k`，父库另建 `checkpoints/sft_new_loop_phase2_data_evidence_20261030`。
+- 必须预先说明：现有测试集与证据口径矛盾，每模式 39 个 UE1 静止队列正例和 25 个 UE6 无可见违规车正例当前靠场景记忆答对，新口径训练后最坏可能 −64/384；新权重须同时报告原评分和剔除争议帧后的评分，测试标签修正单列不改主评分。本机 114 项相关 CPU 回归通过，v2 文件重跑逐字节一致；codon 真实 CPU 准入通过（`p2_evidence_cpu_20261030`）：v2 建库 650 高速帧全匹配、test 794 行逐字节同成员、val 成员变化，证据排除 2127 行后 UE1 327/UE6 857/RE 1051，两模式六轮采样投影通过。未训练、未 GPU、未改默认模型。
+
+
 ### 2026-10-30 论文与 Overleaf 双仓库同步（用户明确，长期有效）
 
 - 完整论文继续在私有仓库 `git@github.com:duguxiaohun/paper.git` 的 `main` 维护；`paper/overleaf/` 的完整编译源码同时发布到 `git@github.com:zecheng-ai/event_centric.git` 的 `main` **根目录**。后者连接作者的在线 Overleaf。不得套一层 `overleaf/`，不上传整个 paper、内部笔记、参考文献原文、编译缓存或聊天历史。

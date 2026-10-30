@@ -8,6 +8,8 @@ from qwen3vl_local.audit_joint.phase1_visual_refine import calibration as cal
 from . import data
 
 REVISION = 'visual_20261029'
+REVISION_P2_EVIDENCE = 'evidence_20261030'
+REVISIONS = ('legacy_20261027', REVISION, REVISION_P2_EVIDENCE)
 REVIEW = Path(__file__).with_name('phase1_vulnerable_review_20261029.json')
 
 P1_RULE = '''
@@ -41,6 +43,32 @@ def phase1_prompt(source):
         ('RS1/RS2/RS4/RS5/RS_HIGHWAY/GROUP/DETAIL', 'RS1/RS2/RS4/RS5'),
         ('_rs2_rs4_trained"', '_direct8_visual_20261029"'),
     ]: source=replace_once(source,old,new)
+    ast.parse(source)
+    return source
+
+
+P2_UE1_RULE = '''
+UE1 evidence check (2026-10-30):
+A brake cue must be a visible change in the lead vehicle: brake lamps that turn on or brighten, a gap that visibly closes, or a lead that visibly stops ahead while ego is still rolling up or has just come to rest behind it. Steady red tail lamps at night, wet-road reflections, headlight glare, a lead that is pulling away, accelerating, or starting from a stop, and an ordinary red-light or traffic queue in which both vehicles have been stationary throughout the history are NO. Judge the newest moment: once the slowdown is over and following has become steady, return NO.'''
+
+P2_UE6_RULE = '''
+UE6 violator check (2026-10-30):
+Answer YES only when a specific other vehicle is visible in the frames: entering, crossing, or sweeping through ego's junction path, or visibly approaching that path at speed from the side while ego holds priority (ego's signal green, or ego halted inside/at the junction waiting for that vehicle). Ambulances, fire engines, and police cars are ordinary road users here; flashing lights do not grant them priority, so one driving across ego's path against ego's priority is UE6. If no such vehicle is visible anywhere in the history, answer NO even at a junction where a violation might be expected, and return NO once the vehicle has fully passed and ego's wait is no longer caused by it.'''
+
+P2_UE3_SIDE_RULE = '''
+Entry may come from the left or the right lane: on a multi-lane highway judge the vehicle in the right-hand lane exactly like one in the left-hand lane, using its changed heading toward ego's lane and the shrinking gap to the divider.'''
+
+
+def phase2_prompt_v7(source):
+    """Phase2 evidence revision: v6 UE3 rule plus bounded UE1/UE6 evidence clarifications."""
+    source=phase2_prompt(source)
+    source=replace_once(source,'sft_new_loop_phase2_direct_event_visual_v6_temporal_20261029',
+                        'sft_new_loop_phase2_direct_event_visual_v7_evidence_20261030')
+    anchor='\nDOMAIN_DESCRIPTIONS = {'
+    source=replace_once(source,anchor,
+        '\nEVENT_DEFINITIONS["UE3"] += '+repr(P2_UE3_SIDE_RULE)+
+        '\nEVENT_DEFINITIONS["UE1"] += '+repr(P2_UE1_RULE)+
+        '\nEVENT_DEFINITIONS["UE6"] += '+repr(P2_UE6_RULE)+'\n'+anchor)
     ast.parse(source)
     return source
 

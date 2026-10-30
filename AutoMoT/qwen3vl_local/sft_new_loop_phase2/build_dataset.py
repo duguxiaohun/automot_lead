@@ -399,6 +399,7 @@ def iter_base_frames(
                     continue
                 rs = _rs_label(ann)
                 event_codes = _event_codes(ann)
+                primary_event = str(ann.get("primary_event") or "UNKNOWN")
                 decision_key = (scenario, route_id, frame_id)
                 highway_decision = (highway_ue3_overrides or {}).get(decision_key)
                 if highway_decision is not None:
@@ -409,6 +410,16 @@ def iter_base_frames(
                             f"case={decision_key} expected={expected_split} actual={split}"
                         )
                     target_class = "UE3"
+                    rs_override = highway_decision.get("true_rs_override")
+                    if rs_override and rs != rs_override:
+                        # 2026-10-27 逐帧复核已确认高速切入窗口内的 R4/R-E4 来自信号灯候选误接管；
+                        # 2026-10-30 客观窗口沿用同一修正，只改道路类别与常规事件码，UE3 答案不变。
+                        if any(code.startswith("U-E") for code in event_codes):
+                            raise ValueError(f"true_rs_override cannot rewrite an unusual source event: {decision_key}")
+                        if risk_stats is not None:
+                            risk_stats["highway_ue3_true_rs_override_applied"] += 1
+                            risk_stats[f"highway_ue3_true_rs_override_from/{rs}"] += 1
+                        rs, primary_event, event_codes = str(rs_override), "R-E1", ("R-E1",)
                 else:
                     target_class = _target_class(rs, event_codes)
                 if target_class is None:
@@ -439,7 +450,7 @@ def iter_base_frames(
                     "split": split,
                     "frame_id": frame_id,
                     "rs": rs,
-                    "primary_event": str(ann.get("primary_event") or "UNKNOWN"),
+                    "primary_event": primary_event,
                     "event_codes": event_codes,
                     "target_event_class": target_class,
                     "ue3_subtype": HIGHWAY_UE3_SUBTYPE if highway_decision is not None else "",

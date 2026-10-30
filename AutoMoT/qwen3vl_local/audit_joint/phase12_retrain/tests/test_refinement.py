@@ -113,3 +113,27 @@ def test_standalone_package_can_import_phase2_native_audit(tmp_path):
         dest=target/name;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(proof.ROOT/name,dest)
     command='import sys; sys.path.insert(0,sys.argv[1]); from qwen3vl_local.sft_new_loop_phase2 import highway_ue3_audit; from lead_video_tools.abnormal_duration_filter import is_abnormal_lead_route'
     subprocess.run([sys.executable,'-I','-c',command,str(target)],cwd=tmp_path,check=True,capture_output=True)
+
+
+def test_phase2_prompt_v7_adds_bounded_evidence_rules_only(tmp_path):
+    src=Path(p2.__file__).read_text();m=module(r.phase2_prompt_v7(src),tmp_path,'event7')
+    assert m.PROMPT_NAME=='sft_new_loop_phase2_direct_event_visual_v7_evidence_20261030'
+    assert m.EVENT_DEFINITIONS['UE3']==p2.EVENT_DEFINITIONS['UE3']+r.P2_RULE+r.P2_UE3_SIDE_RULE
+    assert m.EVENT_DEFINITIONS['UE1']==p2.EVENT_DEFINITIONS['UE1']+r.P2_UE1_RULE
+    assert m.EVENT_DEFINITIONS['UE6']==p2.EVENT_DEFINITIONS['UE6']+r.P2_UE6_RULE
+    assert m.EVENT_DEFINITIONS['UE5']==p2.EVENT_DEFINITIONS['UE5']
+    assert m.DOMAIN_DESCRIPTIONS==p2.DOMAIN_DESCRIPTIONS and m.SYSTEM_PROMPT==p2.SYSTEM_PROMPT
+    for domain in p2.QUESTION_DOMAINS:
+        a={k:False for k in p2.ANSWER_KEYS};a[p2.DOMAIN_ANSWER_KEYS[domain]]=True
+        s=m.make_prompt_spec(variant='all_random_order',answers=a,seed_key='same')
+        assert m.prompt_spec_to_json(s)==p2.prompt_spec_to_json(p2.make_prompt_spec(variant='all_random_order',answers=a,seed_key='same'))
+        text=m.build_event_prompt(spec=s)
+        assert m.parse_event_output(m.build_event_target(s),spec=s)=={q.output_key:False for q in s.questions}
+        assert ('flashing lights do not grant them priority' in text)==(domain==p2.JUNCTION_DOMAIN)
+    assert Path(p2.__file__).read_text()==src
+
+
+def test_evidence_revision_is_phase2_only():
+    assert r.REVISION_P2_EVIDENCE in r.REVISIONS and r.REVISION_P2_EVIDENCE in launch.REVISIONS
+    with pytest.raises(ValueError):snapshot.prepare(launch.APP,1,r.REVISION_P2_EVIDENCE)
+    with pytest.raises(SystemExit):launch.main(['cpu','1','--revision',r.REVISION_P2_EVIDENCE,'--run-dir','/nonexistent/x'])

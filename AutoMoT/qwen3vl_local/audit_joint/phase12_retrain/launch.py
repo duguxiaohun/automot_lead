@@ -15,6 +15,9 @@ from qwen3vl_local import runtime_version as runtime
 from qwen3vl_local.sft_new_loop_phase1 import data_stage, local_assets, run_integrity as proof
 from . import CONTRACT, REVIEW_PATH
 from .budget import PROFILES, profile
+from .refinement import REVISIONS, REVISION_P2_EVIDENCE
+
+HIGHWAY_DECISIONS_V2='qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v2.jsonl'
 
 APP=Path(__file__).resolve().parents[3]
 MODES=('2rgb_endpoints','4rgb')
@@ -99,9 +102,13 @@ def worker(args):
             if action=='build':
                 # Explicit CPU stage, heartbeat + timeout. Native builder only,
                 # preserving existing labels/split rules before reviewed derivation.
-                stage('parent_build',[sys.executable,'-B','-m',f'qwen3vl_local.sft_new_loop_phase{phase}.build_dataset',
+                build=[sys.executable,'-B','-m',f'qwen3vl_local.sft_new_loop_phase{phase}.build_dataset',
                     '--output-dir',str(parent.parent),'--data-root',str(args.data_root),
-                    '--collection-dir',str(args.collection_dir)])
+                    '--collection-dir',str(args.collection_dir)]
+                if revision==REVISION_P2_EVIDENCE:
+                    # Objective highway cut-in spans (v2) replace the v1 Town13-only positives.
+                    build+=['--highway-ue3-rgb-decisions',str(APP/HIGHWAY_DECISIONS_V2)]
+                stage('parent_build',build)
             if phase==1:
                 labeled_data=root/'labeled_data'
                 initial_data=root/'parent_revision/data' if revision=='visual_20261029' else labeled_data
@@ -118,6 +125,12 @@ def worker(args):
                     'qwen3vl_local.audit_joint.phase12_retrain.history_holdout',
                     '--parent',str(labeled_data/'frame_index.jsonl'),
                     '--history-contract',str(args.history_contract),'--output',str(index.parent)])
+            elif revision==REVISION_P2_EVIDENCE:
+                # Train-only objective evidence filter; the 23-frame RS review is already
+                # applied inside the v2 decision build (true_rs_override), holdouts untouched.
+                stage('evidence_derivation',[sys.executable,'-B','-m',
+                    'qwen3vl_local.audit_joint.phase12_retrain.phase2_evidence',
+                    '--parent',str(parent),'--data-root',str(args.data_root),'--output',str(index.parent)])
             else:
                 stage('train_label_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.phase2_data',
@@ -130,6 +143,8 @@ def worker(args):
             if cpu['status']!='ready':raise ValueError('Native CPU admission did not pass')
             files={str(p):proof.sha(p) for p in (root/'cpu').rglob('*') if p.is_file()}
             files.update({str(p):proof.sha(p) for p in [root/'selected_train_reviews.json',index.parent/'training_revision.json',index.parent/'preservation.json']})
+            if (index.parent/'evidence_exclusions.jsonl').is_file():
+                files[str(index.parent/'evidence_exclusions.jsonl')]=proof.sha(index.parent/'evidence_exclusions.jsonl')
             if phase == 1:
                 from .history_holdout import FILES
                 files.update({str(index.parent/name):proof.sha(index.parent/name) for name in FILES})
@@ -159,6 +174,7 @@ def worker(args):
         # in the native per-mode bundles (each has its own size/integrity gate).
         files=[root/'completion_pending.json',root/'ready.json',version/'manifest.json']
         files += [root/'selected_train_reviews.json',root/'data/training_revision.json',root/'data/preservation.json']
+        if (root/'data/evidence_exclusions.jsonl').is_file():files.append(root/'data/evidence_exclusions.jsonl')
         if phase == 1:
             from .history_holdout import FILES
             files += [index.parent/name for name in FILES]
@@ -186,7 +202,8 @@ def main(argv=None):
     parser.add_argument('--train-timeout',type=float)
     parser.add_argument('--budget-profile',choices=PROFILES,default='bounded',
                         help='phase1_40k: three complete epochs, 40320 updates per mode; same labels/prompt/sampler')
-    parser.add_argument('--revision',choices=('legacy_20261027','visual_20261029'),default='legacy_20261027')
+    parser.add_argument('--revision',choices=REVISIONS,default='legacy_20261027',
+                        help='evidence_20261030: Phase2 only; objective highway spans v2 + train evidence filter + prompt v7')
     parser.add_argument('--history-contract',type=Path,default=APP/'checkpoints/phase12_history_20261030/contract.json',
                         help='Phase1 requires the released historical test contract for route isolation')
     parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
@@ -200,7 +217,12 @@ def main(argv=None):
     if args.run_dir is None:
         args.run_dir=APP/'checkpoints/phase12_retrain'/f'p{args.phase}_{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}'
     args.run_dir=args.run_dir.resolve()
-    args.parent_data=(args.parent_data or APP/f'checkpoints/sft_new_loop_phase{args.phase}_data').resolve()
+    if args.revision==REVISION_P2_EVIDENCE and args.phase!=2:parser.error('evidence_20261030 is a Phase2-only revision')
+    default_parent=APP/f'checkpoints/sft_new_loop_phase{args.phase}_data'
+    if args.revision==REVISION_P2_EVIDENCE:
+        # The v2 decision build is a different parent pool; never reuse the v1 parent silently.
+        default_parent=APP/'checkpoints/sft_new_loop_phase2_data_evidence_20261030'
+    args.parent_data=(args.parent_data or default_parent).resolve()
     for name in ('data_root','collection_dir','model_dir','history_contract'):setattr(args,name,getattr(args,name).resolve())
     if args.worker:return worker(args)
     if args.phase == 1 and args.command != 'train':

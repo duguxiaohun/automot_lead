@@ -74,6 +74,7 @@ def load_highway_ue3_decisions(
     frame_counts: Counter[str] = Counter()
     route_sets: Dict[str, set[Tuple[str, str]]] = {"YES": set(), "NO": set()}
     split_counts: Counter[str] = Counter()
+    override_spans = 0
     rows = list(_iter_jsonl(path))
     if not rows:
         raise ValueError(f"empty highway UE3 RGB decision file: {path}")
@@ -95,6 +96,12 @@ def load_highway_ue3_decisions(
             raise ValueError(f"invalid expected_split at {path}:{row['_line_no']}")
         if not str(row.get("rgb_review") or "") or not str(row.get("visible_cue") or ""):
             raise ValueError(f"RGB provenance and visible cue are required at {path}:{row['_line_no']}")
+        override = row.get("true_rs_override")
+        if override is not None and (override != "R3" or answer != "YES"):
+            # 2026-10-30：客观切入窗口可把源标注误判的 R4/R5 改回高速 R3，只允许 YES 行、只允许 R3。
+            raise ValueError(f"true_rs_override must be R3 on a YES row at {path}:{row['_line_no']}")
+        if override is not None:
+            override_spans += 1
         span_counts[answer] += 1
         route_sets[answer].add((scenario, route_id))
         for frame_id in range(start_frame, end_frame + 1):
@@ -125,6 +132,7 @@ def load_highway_ue3_decisions(
         },
         "split_frame_counts": dict(sorted(split_counts.items())),
         "positive_override_frames": len(positive),
+        "true_rs_override_spans": override_spans,
     }
     return positive, report
 
