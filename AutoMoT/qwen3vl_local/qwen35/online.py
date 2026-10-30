@@ -11,8 +11,7 @@ from qwen3vl_local.sft_v3.train import _kv_start_state, _student_generate_kv
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
 
 
-@torch.no_grad()
-def predict_phase(bundle, phase, images, *, history_rgb_mode=None, domain=None,
+def prepare_request(bundle, phase, images, *, history_rgb_mode=None, domain=None,
                   context_id=None, road_structure=None, context_detail='', goal_xy=None,
                   current_speed_mps=None, action_output_mode=None, prompt_variant=None, seed='online',
                   schedule=None, max_new_tokens=160):
@@ -45,11 +44,21 @@ def predict_phase(bundle, phase, images, *, history_rgb_mode=None, domain=None,
         from qwen3vl_local.sft_new_loop_phase3.prompt_contract import build_action_messages
         messages=build_action_messages(images=images,spec=spec,history_rgb_mode=history_rgb_mode,
                                        prompt_variant=contract.prompt_variant)
+    return dict(messages=messages,spec=spec,contract=contract,schedule=ticket)
+
+
+@torch.no_grad()
+def predict_phase(bundle, phase, images, **kwargs):
+    """Render the bound contract and execute one native online request."""
+    request=prepare_request(bundle,phase,images,**kwargs)
+    spec,contract,ticket=request['spec'],request['contract'],request['schedule']
+    module=contract.module
+    max_new_tokens=kwargs.get('max_new_tokens',160)
     bundle.model.eval()
-    state=_kv_start_state(bundle,messages)
+    state=_kv_start_state(bundle,request['messages'])
     text,_,tokens=_student_generate_kv(bundle,state,max_new_tokens)
     parser=getattr(module,{1:'parse_phase1_output',2:'parse_event_output',3:'parse_action_output'}[phase])
     return dict(phase=phase,text=text,answers=parser(text,spec=spec),tokens=int(tokens.numel()),
         question_order=list(spec.output_keys),schedule=ticket,text_prefix=text_prefix.report(bundle),
         prompt_contract=dict(prompt_sha256=contract.prompt_sha256,metadata_sha256=contract.metadata_sha256,
-            history_rgb_mode=history_rgb_mode,action_output_mode=action_output_mode,prompt_variant=contract.prompt_variant))
+            history_rgb_mode=contract.history_rgb_mode,action_output_mode=contract.action_output_mode,prompt_variant=contract.prompt_variant))

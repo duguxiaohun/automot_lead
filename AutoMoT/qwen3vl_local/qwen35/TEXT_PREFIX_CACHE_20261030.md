@@ -143,3 +143,45 @@ Phase3 新启动使用 `*_sources_r3_20261030.json`，父来源为 r2 清单；�
 r3 验证：在 `CUDA_VISIBLE_DEVICES=''` 下完整组合 **606 passed、1 skipped，57.56 秒**。覆盖原 r2 主组合、在线合同绑定/恢复/实际发送消息、未知与篡改合同拒绝、新 Phase1/2 direct8/event 调用链，以及 Phase2/GoalGen 的 12 组独立进程导入顺序/rank 组合和两个 CLI 选卡保护测试。恢复打包模块在该组合中通过；没有通过吞异常、清空环境报告或更换测试顺序规避错误。专项 111 项与本组合有重叠，不相加。额外 available/LoRA 打包检查仍在旧 `v23_io1` 外部 `highway_ue3_audit.py` SHA 不匹配处拒绝（42 passed、2 failed 后停止），该独立历史冻结依赖未放宽；不能称所有历史流水线已通过。
 
 回归使用真实小型 Qwen3.5 验证缓存数值/状态；在线提示词与复核协议测试使用合成回答，验证的是消息、解析和调用合同，不是 4B 判断能力。未 GPU、未 CARLA、未重训、未更改标定或新建标签库。日志与源码 SHA 保存在本机 `checkpoints/text_prefix_contract_r3_20261030/`，不随公开代码上传。
+
+## r4：原生在线输入流的成对验收入口
+
+新增 `qwen35.online_benchmark`，适用于独立 Phase1/2/3 与 shared Phase1+2。它复用在线接口的 `prepare_request`，按已验证 adapter 的提示词合同、RGB 模式和题序窗口构造输入；不接受手写提示词覆盖。shared 推理新增 `infer.load_online_bundle`，保留原生内容身份和 backend 校验，CPU 读 adapter 后放置到显式设备。此次提取请求构造函数未改变在线题目、训练、正式评测、复核或规划逻辑。
+
+请求是 JSONL，每行仅有 `images` 和 `context`。图片为**当前 adapter 已选好的 2 或 4 张**，按时间排列；相对路径以 JSONL 所在目录为基准，输入组保持原始流顺序，不按问题重排。允许 2–4096 组；测轮换时至少覆盖两个完整窗口，建议使用现场连续输入，不能仅反复播放同一张图。Phase1 的 context 为 `{}`；Phase2/12 必须传实际 `domain`，例如 `{"domain":"ROAD_CORRIDOR"}`；Phase3 必须传实际 `context_id` 和 `road_structure`，并按观测传 `context_detail`、`goal_xy`、`current_speed_mps`。不包含标签、不固定动态信息、不把场景名猜成 context。context 的值沿用相应原生提示词定义。
+
+```json
+{"images":["rgb/frame_000.png","rgb/frame_003.png"],"context":{}}
+{"images":["rgb/frame_004.png","rgb/frame_007.png"],"context":{}}
+```
+
+上面是 Phase1 两图格式示意。先在实际服务器的 AutoMoT 根目录、已激活环境下做 CPU 输入检查（不加载模型、不选 GPU）：
+
+```bash
+AUTOMOT_TEXT_PREFIX=1 python -m qwen3vl_local.qwen35.online_benchmark \
+  --phase 1 --requests "$REQUESTS_JSONL" \
+  --model-dir "$MODEL_DIR" --adapter-dir "$ADAPTER_DIR" --check-only
+```
+
+输入检查仅表示原生提示词合同、字段和图片数量匹配，不表示权重通过验收或图像质量达标。模型运行仍要通过原生加载器的完整来源校验。远程 GPU 实测命令去掉 `--check-only`，例如：
+
+```bash
+AUTOMOT_TEXT_PREFIX=1 python -m qwen3vl_local.qwen35.online_benchmark \
+  --phase 1 --requests "$REQUESTS_JSONL" \
+  --model-dir "$MODEL_DIR" --adapter-dir "$ADAPTER_DIR" \
+  --window-frames 32 --slots 1 --repeats 2 --max-new-tokens 160 \
+  --output "$NEW_OUTPUT_DIR"
+```
+
+`--phase 12` 为 shared 两题；需要对应的 `fusion_config.json` 权重，只允许 `--slots 1`（两题已占两槽）。独立阶段可 `--slots 2`。`--rank` 记录要模拟的卡号，单进程单卡顺序执行；并非 torchrun。默认选择一张空闲 GPU，也可用 `GPU_IDS` 指定一张空闲物理卡。所有路径由当前机器提供，不依赖 cr02/cee 的固定根路径或另一台的权重；输出目录必须新建。`--device cpu` 仅供小模型机制验证，本机 codon/wang 不跑 GPU。
+
+每条路径在每轮开始时清空**自己的**缓存和调度器，包含首次建缓存及换题重建。先执行一组完整冷缓存对照，再交替 `full→cached` / `cached→full`；主比例只来自成对轮次，每一轮仍包含全部输入，重复次数要求为偶数。这里的“冷”仅指文本缓存，不表示清空 OS 文件缓存或重置 GPU。整个实验保持同一权重、原生题目、生成预算、图片顺序与模型调用次数，逐条核验图片 SHA、完整编码输入 SHA、完整 token、EOS、截断状态和文本；权重、输入或输出变化立即失败。测试缓存与生产缓存、生产调度计数分离。
+
+`report.json` 和每轮 `trial_XX.json` 保存逐组、逐题证据。`saving_fraction` 计入读图/解码、提示词构造、processor、设备传输、完整 prefill/decode、缓存复制/失效检查和审计散列；`model_saving_fraction` 仅计模型与缓存操作。另报各部分耗时、全流 p50/p95、full/partial/miss 分类，以及首组/换窗口/变 context 的延迟（这几个分组可重叠）。`--deadline-ms` 可统计**该测量链路**超限次数，但含审计开销，不能当成 CARLA 控制截止时间。输入散列开销单列，主比例不会悄悄扣掉它。worker 捕获异常时落盘失败回执；外部超时由 `worker.json` 记录，不能将仍为 running 的报告视为完成。`--timeout` 默认 7200 秒，可按流长度显式调整；已有报告不覆盖。
+
+这不是 PriorEngine 全复核或 CARLA 控制器 benchmark：每组独立阶段调用一次，shared 调用两次；不与旧 direct8/层级复核的不同调用次数做加速比较，不认证复核质量。它也不与 Phase3 的历史 batch/reuse_rgb 路径比较，不能由此断言新串行布局优于原路径。正式报告仍需远端 4B 质量评测、旧正确损失和 CARLA 端到端控制延迟；结果中的 `quality_certified`、`carla_certified` 始终为 false。
+
+本轮不改标定、标签库、数据成员、采样或训练预算，不需要重建标签库；旧 image-first 权重仍不能直接用于 text-first。Phase3 新启动清单为 `*_sources_r4_20261030.json`，绑定本轮源码并以 r3 的 SHA 为父来源；旧清单不改写。历史 `v23_io1` 的 `highway_ue3_audit.py` 外部依赖仍与冻结 SHA 不同（期望 `9cddc3b0…`，当前 `f3b7f8a1…`），原有两项拒绝的根因未消除，需独立的新 release 验收，不能称旧流水线通过。
+
+
+r4 验证：CPU 完整组合 **630 passed、1 skipped，60.71 秒**；新增 24 项包含真实小型 Qwen3.5 四阶段流式输出等价、冷启动/换题/动态速度、两槽与部分命中、生产状态隔离、像素/权重漂移拒绝、合同篡改、失败回执及 CPU-only 输入检查。图像 processor 为合成夹具，不能把这些测试当作真实 4B 图像理解或 GPU 性能验收。后补 CLI 超时与 DDP 环境隔离检查后，流式 benchmark + Phase3 新清单专项 **35 passed，5.41 秒**，与组合范围重叠，不相加。未运行 GPU、CARLA 或重训，未生成新标签库。
