@@ -44,7 +44,8 @@ def setup(model,tmp_path,phase):
     context={}
     if phase==12:
         cfg=dict(contract=CONTRACT,prompt=prompts.identity('2rgb_endpoints'),mode='2rgb_endpoints')
-        b.fusion_config=cfg;context=dict(domain=prompts.P2.ROAD_DOMAIN)
+        from qwen3vl_local.sft_new_loop_phase12 import infer
+        infer.bind_online_contract(b,cfg);context=dict(domain=prompts.P2.ROAD_DOMAIN)
     elif phase==3:
         from qwen3vl_local.sft_new_loop_phase3 import prompts as p3
         cfg=phase3_metadata(mode='2rgb_endpoints')
@@ -75,7 +76,8 @@ def test_paired_native_stream_cold_switch_and_independent_state(model,tmp_path,m
     result=bench.benchmark(b,phase,rows,window_frames=2,max_new_tokens=3,repeats=2,deadline_ms=.001)
     calls=2 if phase==12 else 1
     assert result['complete_output_equivalence'] and not result['quality_certified'] and not result['carla_certified']
-    assert result['policy']['model_calls_per_frame']==calls and not result['policy']['prior_engine_rechecks']
+    assert result['policy']['generation_calls_per_frame']==calls and not result['policy']['prior_engine_rechecks']
+    assert not result['policy']['equal_forward_call_count_required']
     assert result['trials'][0]['order']==['full','cached'] and result['trials'][1]['order']==['cached','full']
     assert b._question_schedules=={'production':schedule} and schedule.requests==1
     assert tp.bank(b) is production and production.stats['requests']==0
@@ -149,11 +151,77 @@ def test_worker_failure_persists_receipt_without_certification(tmp_path):
     with pytest.raises(FileExistsError):bench.worker(args)
 
 
+@pytest.mark.parametrize('problem',['mode','layout','metadata','model','adapter'])
+def test_shared_production_rejects_contract_drift_before_scheduling(model,tmp_path,monkeypatch,problem):
+    from qwen3vl_local.sft_new_loop_phase12 import infer
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');b,rows,cfg=setup(model,tmp_path,12)
+    scheduler=QuestionSchedule();mode='2rgb_endpoints';images=[None]*2
+    if problem=='mode':mode='4rgb';images=[None]*4
+    elif problem=='layout':monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')
+    elif problem=='metadata':b.fusion_config['mode']='4rgb'
+    elif problem=='model':b.model=SimpleNamespace()
+    else:
+        b.model.active_adapters=['unexpected_adapter']
+    with pytest.raises(ValueError):infer.predict(b,images,mode,prompts.P2.ROAD_DOMAIN,schedule=scheduler)
+    assert scheduler.requests==0
+
+
+def test_first_pair_mismatch_keeps_both_original_outputs(model,tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');b,rows,_=setup(model,tmp_path,1)
+    original=bench._decode;calls=[];saved={};production=tp.bank(b)
+    def changed(*args):
+        answer=original(*args);calls.append(1)
+        if len(calls)==len(rows)+1:answer['text']+='changed'
+        return answer
+    monkeypatch.setattr(bench,'_decode',changed)
+    with pytest.raises(ValueError,match='token/EOS/text'):
+        bench.benchmark(b,1,rows,max_new_tokens=1,on_run=lambda name,run:saved.update({name:copy.deepcopy(run)}))
+    assert set(saved)=={'cold_cached','cold_full'}
+    assert all(len(run['frames'])==4 for run in saved.values())
+    assert saved['cold_full']['frames'][0]['queries'][0]['answer']['text'].endswith('changed')
+    assert tp.bank(b) is production and production.stats['requests']==0
+
+
+def test_mid_stream_failure_keeps_completed_inputs_outputs(model,tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');b,rows,_=setup(model,tmp_path,1)
+    original=bench._prepared;calls=[];saved={}
+    def fail(*args):
+        calls.append(1)
+        if len(calls)==2:raise RuntimeError('injected render error')
+        return original(*args)
+    monkeypatch.setattr(bench,'_prepared',fail)
+    with pytest.raises(RuntimeError,match='injected render'):
+        bench.benchmark(b,1,rows,max_new_tokens=1,on_run=lambda name,run:saved.update({name:run}))
+    partial=saved['cold_cached']
+    assert partial['status']=='failed' and partial['failed_frame']==1 and len(partial['frames'])==1
+    assert partial['frames'][0]['queries'][0]['answer']['token_ids']
+
+
+@pytest.mark.parametrize('changed',['requests','adapter','source'])
+def test_file_provenance_drift_rejected(tmp_path,changed):
+    requests=tmp_path/'requests.jsonl';requests.write_text('{}')
+    adapter=tmp_path/'adapter';adapter.mkdir();weight=adapter/'adapter_model.safetensors';weight.write_bytes(b'fixture')
+    package=tmp_path/'code';package.mkdir();code=package/'source.py';code.write_text('before')
+    args=SimpleNamespace(requests=requests,adapter_dir=adapter)
+    expected=bench.file_bindings(args,package);bench.verify_file_bindings(args,package,expected)
+    {'requests':requests,'adapter':weight,'source':code}[changed].write_bytes(b'changed')
+    with pytest.raises(ValueError,match='files changed'):bench.verify_file_bindings(args,package,expected)
+
+
+def test_cpu_plan_rejects_corrupt_image(model,tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');_,rows,cfg=setup(model,tmp_path,1)
+    (tmp_path/'sft_new_loop_phase1_adapter_config.json').write_text(json.dumps(cfg))
+    Path(rows[0]['images'][0]).write_bytes(b'not an image')
+    args=SimpleNamespace(phase=1,adapter_dir=tmp_path,window_frames=2,slots=1,seed='check',rank=0)
+    with pytest.raises(OSError):bench.check_plan(args,rows)
+
+
 def test_shared_single_task_predict_and_loader_preserve_contract(monkeypatch,tmp_path):
     from qwen3vl_local.sft_new_loop_phase12 import infer
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     model=SimpleNamespace(to=lambda device:model,eval=lambda:model)
     b=SimpleNamespace(model=model)
+    infer.bind_online_contract(b,dict(contract=CONTRACT,mode='2rgb_endpoints',prompt=prompts.identity('2rgb_endpoints')))
     monkeypatch.setattr(infer,'_kv_start_state',lambda *a:None)
     monkeypatch.setattr(infer,'_student_generate_kv',lambda *a:('',None,torch.tensor([6])))
     for task in ('phase1','phase2'):

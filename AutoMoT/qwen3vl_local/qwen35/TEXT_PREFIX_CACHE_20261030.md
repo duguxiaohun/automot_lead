@@ -175,7 +175,7 @@ AUTOMOT_TEXT_PREFIX=1 python -m qwen3vl_local.qwen35.online_benchmark \
 
 `--phase 12` 为 shared 两题；需要对应的 `fusion_config.json` 权重，只允许 `--slots 1`（两题已占两槽）。独立阶段可 `--slots 2`。`--rank` 记录要模拟的卡号，单进程单卡顺序执行；并非 torchrun。默认选择一张空闲 GPU，也可用 `GPU_IDS` 指定一张空闲物理卡。所有路径由当前机器提供，不依赖 cr02/cee 的固定根路径或另一台的权重；输出目录必须新建。`--device cpu` 仅供小模型机制验证，本机 codon/wang 不跑 GPU。
 
-每条路径在每轮开始时清空**自己的**缓存和调度器，包含首次建缓存及换题重建。先执行一组完整冷缓存对照，再交替 `full→cached` / `cached→full`；主比例只来自成对轮次，每一轮仍包含全部输入，重复次数要求为偶数。这里的“冷”仅指文本缓存，不表示清空 OS 文件缓存或重置 GPU。整个实验保持同一权重、原生题目、生成预算、图片顺序与模型调用次数，逐条核验图片 SHA、完整编码输入 SHA、完整 token、EOS、截断状态和文本；权重、输入或输出变化立即失败。测试缓存与生产缓存、生产调度计数分离。
+每条路径在每轮开始时清空**自己的**缓存和调度器，包含首次建缓存及换题重建。先执行一组完整冷缓存对照，再交替 `full→cached` / `cached→full`；主比例只来自成对轮次，每一轮仍包含全部输入，重复次数要求为偶数。这里的“冷”仅指文本缓存，不表示清空 OS 文件缓存或重置 GPU。整个实验保持同一权重、原生题目、生成预算、图片顺序与生成请求次数，逐条核验图片 SHA、完整编码输入 SHA、完整 token、EOS、截断状态和文本；权重、输入或输出变化立即失败。测试缓存与生产缓存、生产调度计数分离。
 
 `report.json` 和每轮 `trial_XX.json` 保存逐组、逐题证据。`saving_fraction` 计入读图/解码、提示词构造、processor、设备传输、完整 prefill/decode、缓存复制/失效检查和审计散列；`model_saving_fraction` 仅计模型与缓存操作。另报各部分耗时、全流 p50/p95、full/partial/miss 分类，以及首组/换窗口/变 context 的延迟（这几个分组可重叠）。`--deadline-ms` 可统计**该测量链路**超限次数，但含审计开销，不能当成 CARLA 控制截止时间。输入散列开销单列，主比例不会悄悄扣掉它。worker 捕获异常时落盘失败回执；外部超时由 `worker.json` 记录，不能将仍为 running 的报告视为完成。`--timeout` 默认 7200 秒，可按流长度显式调整；已有报告不覆盖。
 
@@ -185,3 +185,55 @@ AUTOMOT_TEXT_PREFIX=1 python -m qwen3vl_local.qwen35.online_benchmark \
 
 
 r4 验证：CPU 完整组合 **630 passed、1 skipped，60.71 秒**；新增 24 项包含真实小型 Qwen3.5 四阶段流式输出等价、冷启动/换题/动态速度、两槽与部分命中、生产状态隔离、像素/权重漂移拒绝、合同篡改、失败回执及 CPU-only 输入检查。图像 processor 为合成夹具，不能把这些测试当作真实 4B 图像理解或 GPU 性能验收。后补 CLI 超时与 DDP 环境隔离检查后，流式 benchmark + Phase3 新清单专项 **35 passed，5.41 秒**，与组合范围重叠，不相加。未运行 GPU、CARLA 或重训，未生成新标签库。
+
+
+## 审计修复 r5（2026-10-31）：共享合同、失败证据与输入绑定
+
+共享在线入口现在与独立入口一样，在每次请求消费调度计数之前核对已绑定的 RGB 模式、输入布局、提示词、模型实例及活动 adapter。通过 `infer.load_online_bundle` 加载会自动绑定；已经正确加载并通过原生权重核验的 bundle 可以调用 `infer.bind_online_contract(bundle, config)`。绑定函数只保护元数据和模型身份，不能代替权重来源核验，也不允许据此认证任意手工组装权重。
+
+统一验收在比较前保存 `cold_cached.json`、`cold_full.json` 和 `trial_XX_cached/full.json` 原始结果；首轮发生完整输出不一致时仍保留两路证据。某一路中途失败会保存已完成输入组及当前组的部分输出。写这些证据位于计时区间之外。成功的配对轮次仍另外保存 `trial_XX.json`，总体状态以 `report.json` 和进程退出码共同判断，失败不生成质量通过结论。
+
+CPU 预检查增加实际图片校验与解码；损坏图片在模型加载前拒绝。这不等于逐帧人工标定审计。worker 在读取请求和配置前记录请求文件、adapter 文件及 Python 源码 SHA，并在准备后、加载后、测量后核对，发现变化直接失败。原有逐题图片及编码输入 SHA、完整生成 token/EOS/截断对照、内存权重变更检查继续保留。
+
+“相同调用次数”指相同数量的生成请求：独立阶段每组一次，共享阶段两次。缓存首建会额外调用 forward，解码也包含多次 forward，不能要求或宣称底层 forward 次数相等；这些计算的时间全部保留。报告字段采用 `generation_calls_per_frame`，同时显式说明不要求 forward 次数相等。
+
+Phase3 新启动使用 `phase3_prefix_capable_sources_r5_20261031.json` 和 `phase3_text_prefix_sources_r5_20261031.json`，各自以对应 r4 清单的 SHA 为父来源。r4 及更早历史清单保持原样。本次没有修改标定、提示词文本、训练采样或更新预算；已匹配 text-first 合同的权重无需仅为这些守卫修复重训。旧 image-first 权重仍必须按新布局重新训练，不能直接作为新缓存正式验收权重。
+
+本轮 CPU 组合最初为 625 passed、4 failed、1 skipped（149.60 秒）；4 个失败均因临时目录 `/dev/shm` 小于 checkpoint 要求的 20 GiB 空间预留。原样改用空间充足的 `/tmp` 后，这 4 项全部通过（2.11 秒），未修改生产空间检查或测试断言。因此该组合最终为 **629 个不同测试通过、1 跳过**。额外专项 **56 通过**（7.31 秒），范围与组合重叠，不相加。真实小型 Qwen3.5 使用合成图像编码夹具，不代表完整 4B GPU、真实视觉理解、性能或 CARLA 验收。本机证据在 `checkpoints/text_prefix_review_r5_20261031/`，不随公开代码上传。
+
+
+## r5 远程一行式命令
+
+在各服务器 AutoMoT 根目录、已激活模型环境下运行。前四项各自独立启动新运行，不覆盖或热更新旧运行；前三项自动准备数据、从基座新训练、评测并打包。四卡训练会检查空闲资源，不操作其他任务。流式验收是第五项单独实验，训练流水线目前不会自动执行它。
+
+Phase1，两图和四图各 40320 更新：
+
+```bash
+bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-Phase1-see-error-above >&2" ERR; bash ./sync_automot.sh; export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1; GPU_IDS= bash qwen3vl_local/audit_joint/phase12_retrain/run.sh all 1 --revision visual_20261029 --budget-profile phase1_40k; echo "[DONE] Phase1 training/evaluation/package complete; quality pending audit"'
+```
+
+Phase2，两图和四图各 10752 更新：
+
+```bash
+bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-Phase2-see-error-above >&2" ERR; bash ./sync_automot.sh; export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1; GPU_IDS= bash qwen3vl_local/audit_joint/phase12_retrain/run.sh all 2 --revision evidence_20261030 --budget-profile phase2_10k; echo "[DONE] Phase2 training/evaluation/package complete; quality pending audit"'
+```
+
+共享 Phase1+2，两图和四图各 10752 更新：
+
+```bash
+bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-shared-Phase1-Phase2-see-error-above >&2" ERR; bash ./sync_automot.sh; export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1; GPU_IDS= bash qwen3vl_local/sft_new_loop_phase12/run.sh all; echo "[DONE] shared Phase1+2 training/evaluation/package complete; quality pending audit"'
+```
+
+Phase3 独立 base 四图新实验，先 export PHASE3_INDEX 为本机已有且通过原生身份检查的 frame_index.jsonl 路径；此命令不更改既定生产默认模型：
+
+```bash
+bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-Phase3-see-error-above >&2" ERR; : "${PHASE3_INDEX:?Set PHASE3_INDEX to the verified local frame_index.jsonl}"; test -s "$PHASE3_INDEX"; bash ./sync_automot.sh; export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1; GPU_IDS= bash qwen3vl_local/audit_joint/phase3_base_trial.sh --index "$PHASE3_INDEX" --output "checkpoints/phase3_text_prefix/run_$(date +%Y%m%d_%H%M%S)_$$" --stage complete; echo "[DONE] Phase3 experiment complete; quality pending audit"'
+```
+
+统一流式验收：先 export PHASE（1/2/3/12）、REQUESTS_JSONL、ADAPTER_DIR；后两项必须是真实有序输入流和对应新布局权重。MODEL_DIR 可选，默认本机 checkpoints/Qwen3.5-4B；需要超限计数时设置真实的 DEADLINE_MS：
+
+```bash
+bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-online-prefix-audit-see-error-above >&2" ERR; : "${PHASE:?Set PHASE to 1/2/3/12}" "${REQUESTS_JSONL:?Set ordered requests JSONL}" "${ADAPTER_DIR:?Set matching text-first adapter directory}"; bash ./sync_automot.sh; export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1; args=(--phase "$PHASE" --requests "$REQUESTS_JSONL" --adapter-dir "$ADAPTER_DIR" --model-dir "${MODEL_DIR:-checkpoints/Qwen3.5-4B}" --window-frames 32 --slots 1 --repeats 2 --max-new-tokens 160); if [[ -n "${DEADLINE_MS:-}" ]]; then args+=(--deadline-ms "$DEADLINE_MS"); fi; python -m qwen3vl_local.qwen35.online_benchmark "${args[@]}" --check-only; GPU_IDS= python -m qwen3vl_local.qwen35.online_benchmark "${args[@]}"; echo "[DONE] stream output parity and timing complete; quality/CARLA pending"'
+```
+
+每条命令遇非零退出码会输出 FAILED；没有报错本身不能证明训练在推进，请同时查看阶段心跳和 step。只有 DONE 表示该命令的执行流程完成，不代表模型质量达标。已训练完成且合同匹配的新布局权重可以直接执行第五项，无须仅为 r5 重训；旧 image-first 权重不得替换开关直接使用。

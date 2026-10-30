@@ -100,10 +100,8 @@ def _input_sha(inputs):
 
 def _prepared(bundle,phase,images,context,schedule):
     if phase==12:
-        from qwen3vl_local.sft_new_loop_phase12 import infer, prompts, CONTRACT
-        cfg=bundle.fusion_config
-        if cfg['contract']!=CONTRACT or cfg['prompt']!=prompts.identity(cfg['mode']):
-            raise ValueError('Shared adapter contract changed')
+        from qwen3vl_local.sft_new_loop_phase12 import infer
+        cfg=infer.bound_online_contract(bundle)
         request=infer.prepare_request(bundle,images,cfg['mode'],context['domain'],schedule=schedule)
         return request['messages'],request['schedule']
     request=online.prepare_request(bundle,phase,images,schedule=schedule,**context)
@@ -112,7 +110,7 @@ def _prepared(bundle,phase,images,context,schedule):
 
 @torch.no_grad()
 def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank=0,
-              max_new_tokens=160,repeats=2,deadline_ms=None,on_trial=None):
+              max_new_tokens=160,repeats=2,deadline_ms=None,on_trial=None,on_run=None):
     """Each arm replays identical original frames from an empty cache/schedule.
 
     Text cache and question schedule are private to this benchmark; production
@@ -131,13 +129,13 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         if not hasattr(bundle,'fusion_config'):raise ValueError('Load the verified shared online bundle first')
     weights=text_prefix._weight_identity(bundle.model)
 
-    def run(cached):
+    def run(cached,label):
         if text_prefix._weight_identity(bundle.model)!=weights:raise ValueError('Weights changed between trials')
         bank=text_prefix.TextPrefixCache();schedule=QuestionSchedule(window_frames,slots,seed,rank)
         frames=[];previous=None
         _sync(bundle.device);start=time.perf_counter()
         for number,row in enumerate(rows):
-            _sync(bundle.device);begin=time.perf_counter();images=[];image_sha=[]
+            _sync(bundle.device);begin=time.perf_counter();images=[];image_sha=[];queries=[];ticket=None
             try:
                 for name in row['images']:
                     data=Path(name).read_bytes();image_sha.append(hashlib.sha256(data).hexdigest())
@@ -174,6 +172,11 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
                     context_changed=number>0 and current!=previous,image_io_decode_seconds=io_seconds,
                     rendering_seconds=rendering_seconds,seconds=time.perf_counter()-begin,queries=queries))
                 previous=current
+            except BaseException as exc:
+                if on_run:on_run(label,dict(status='failed',error=f'{type(exc).__name__}: {exc}',
+                    frames=frames,failed_frame=number,partial_queries=queries,
+                    partial_images_sha256=image_sha,partial_schedule=ticket,cache=bank.report() if cached else None))
+                raise
             finally:
                 for image in images:image.close()
         _sync(bundle.device)
@@ -182,13 +185,19 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         result['summary']=summarize(result,deadline_ms)
         return result
 
-    cold=run(True);reference=run(False);assert_same(cold,reference)
+    def recorded_run(name,cached):
+        result=run(cached,name)
+        # Persist both raw arms BEFORE equality checks, including a failing pair.
+        # This callback runs outside all measurement clocks.
+        if on_run:on_run(name,result)
+        return result
+    cold=recorded_run('cold_cached',True);reference=recorded_run('cold_full',False);assert_same(cold,reference)
     trials=[]
     for repeat in range(repeats):
         order=('full','cached') if repeat%2==0 else ('cached','full')
         trial=dict(order=list(order))
         for name in order:
-            trial[name]=run(name=='cached');assert_same(reference,trial[name])
+            trial[name]=recorded_run(f'trial_{repeat:02d}_{name}',name=='cached');assert_same(reference,trial[name])
         trials.append(trial)
         if on_trial:on_trial(repeat,trial)
     cache_s=sum(t['cached']['seconds'] for t in trials);full_s=sum(t['full']['seconds'] for t in trials)
@@ -200,7 +209,9 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         saving_fraction=1-cache_s/full_s,model_saving_fraction=1-cache_model/full_model,
         complete_output_equivalence=True,quality_certified=False,carla_certified=False,
         policy=dict(window_frames=window_frames,slots=slots,seed=seed,rank=rank,max_new_tokens=max_new_tokens,
-                    model_calls_per_frame=2 if phase==12 else 1,prior_engine_rechecks=False),
+                    generation_calls_per_frame=2 if phase==12 else 1,prior_engine_rechecks=False,
+                    equal_forward_call_count_required=False,
+                    forward_call_note='cold cache builds and decode invoke additional forwards; equality is required for generation requests'),
         scope='native phase inputs + image IO/decode + processor/transfer + model + audit hashing; excludes model load, PriorEngine rechecks, batch/reuse_rgb and CARLA controller',
         timing=dict(quantile='nearest_rank',cache_reset='every arm starts empty',
                     cold_means='text cache cold, not OS disk or GPU hardware cold',
@@ -215,35 +226,52 @@ def check_plan(args,rows):
     from .online_contract import bind_prompt_contract
     if not text_prefix.enabled():raise ValueError('Set AUTOMOT_TEXT_PREFIX=1')
     if args.phase==12:
-        from qwen3vl_local.sft_new_loop_phase12 import CONTRACT, prompts
+        from qwen3vl_local.sft_new_loop_phase12 import CONTRACT, prompts, infer
         cfg=json.loads((args.adapter_dir/'fusion_config.json').read_text())
         if cfg['contract']!=CONTRACT or cfg['prompt']!=prompts.identity(cfg['mode']):
             raise ValueError('Shared prompt/history contract mismatch')
-        bundle=SimpleNamespace(fusion_config=cfg)
+        bundle=infer.bind_online_contract(SimpleNamespace(model=None),cfg)
     else:
         cfg=json.loads((args.adapter_dir/f'sft_new_loop_phase{args.phase}_adapter_config.json').read_text())
         bundle=SimpleNamespace(model=None);bind_prompt_contract(bundle,args.phase,cfg)
     if args.phase==12 and args.slots!=1:raise ValueError('Shared stream requires slots=1')
     scheduler=QuestionSchedule(args.window_frames,args.slots,args.seed,args.rank)
     for row in rows:_prepared(bundle,args.phase,[None]*len(row['images']),row['context'],scheduler)
+    for name in dict.fromkeys(name for row in rows for name in row['images']):
+        # Reject broken images before selecting a GPU or loading several GB of weights.
+        with Image.open(name) as image:image.verify()
+        with Image.open(name) as image:image.load()
     return cfg
 
 
-def worker(args):
+def file_bindings(args,package):
     from .text_prefix_benchmark import sha
+    return dict(requests_sha256=sha(args.requests),
+        adapter_sha256={p.name:sha(p) for p in args.adapter_dir.iterdir() if p.is_file() and
+            (p.suffix in ('.safetensors','.bin') or p.name.endswith('config.json') or p.name.startswith('qwen35_'))},
+        source_sha256={str(p.relative_to(package)):sha(p) for p in package.rglob('*.py') if p.is_file()})
+
+
+def verify_file_bindings(args,package,expected):
+    current=file_bindings(args,package)
+    if current!=expected:raise ValueError('Requests/adapter/source files changed during benchmark')
+
+
+def worker(args):
     from qwen3vl_local.sft_new_loop_phase1.run_integrity import write, environment
     output=args.output
     if (output/'report.json').exists():raise FileExistsError(output/'report.json')
     report=dict(status='running',quality_certified=False,carla_certified=False,optimizer_updates=0)
     write(output/'report.json',report)
     try:
-        rows=read_requests(args.requests,args.phase);cfg=check_plan(args,rows)
         package=Path(__file__).resolve().parents[1]
-        report.update(requests_sha256=sha(args.requests),requests_file=str(args.requests),requests=rows,
+        bindings=file_bindings(args,package)
+        report.update(bindings)
+        rows=read_requests(args.requests,args.phase);cfg=check_plan(args,rows)
+        verify_file_bindings(args,package,bindings)
+        report.update(requests_file=str(args.requests),requests=rows,
             model_dir=str(args.model_dir),adapter_dir=str(args.adapter_dir),adapter_config=cfg,
-            adapter_sha256={p.name:sha(p) for p in args.adapter_dir.iterdir() if p.is_file() and
-                (p.suffix in ('.safetensors','.bin') or p.name.endswith('config.json') or p.name.startswith('qwen35_'))},
-            source_sha256={str(p.relative_to(package)):sha(p) for p in package.rglob('*.py') if p.is_file()})
+            source_files_verified_after_load=False,source_files_verified_after_measurement=False)
         if args.phase==12:
             from qwen3vl_local.sft_new_loop_phase12.infer import load_online_bundle
             bundle=load_online_bundle(args.model_dir,args.adapter_dir,device=args.device,
@@ -252,12 +280,16 @@ def worker(args):
             bundle=online.load_online_bundle(args.model_dir,args.adapter_dir,args.phase,device=args.device,
                                             dtype=torch.float32 if args.device=='cpu' else torch.bfloat16)
         report.update(environment=environment(),base_asset_sha256=getattr(bundle.model.config,'local_asset_sha256',None))
+        verify_file_bindings(args,package,bindings);report['source_files_verified_after_load']=True
+        write(output/'report.json',report)
         def completed(number,trial):
             write(output/f'trial_{number:02d}.json',trial)
             print(f'[online-benchmark] paired trial {number+1}/{args.repeats} passed',flush=True)
         report['benchmark']=benchmark(bundle,args.phase,rows,window_frames=args.window_frames,slots=args.slots,
             seed=args.seed,rank=args.rank,max_new_tokens=args.max_new_tokens,repeats=args.repeats,
-            deadline_ms=args.deadline_ms,on_trial=completed)
+            deadline_ms=args.deadline_ms,on_trial=completed,
+            on_run=lambda name,value:write(output/(name+'.json'),value))
+        verify_file_bindings(args,package,bindings);report['source_files_verified_after_measurement']=True
         report['status']='output_parity_passed_speed_measured_quality_pending'
     except BaseException as exc:
         report.update(status='failed',error=f'{type(exc).__name__}: {exc}')

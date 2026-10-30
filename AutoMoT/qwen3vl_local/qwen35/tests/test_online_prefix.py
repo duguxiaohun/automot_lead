@@ -103,6 +103,7 @@ def test_fused_predict_automatic_window_and_explicit_fixed_seed(monkeypatch):
     def generate(bundle,images,texts):
         seen.append(texts);return dict(branches=[dict(text=''),dict(text='')])
     monkeypatch.setattr(infer.cache,'generate',generate)
+    infer.bind_online_contract(b,dict(contract=infer.CONTRACT,mode='4rgb',prompt=prompts.identity('4rgb')))
     rows=[infer.predict(b,[i]*4,'4rgb',prompts.P2.ROAD_DOMAIN) for i in range(3)]
     assert seen[0]==seen[1] and rows[0]['schedule']['window']==0 and rows[2]['schedule']['window']==1
     fixed=infer.predict(b,[1]*4,'4rgb',prompts.P2.ROAD_DOMAIN,schedule=False)

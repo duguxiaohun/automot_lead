@@ -1,6 +1,7 @@
 """Ask either task alone or both via one shared image prefix; no GT input needed."""
 import argparse
 import json
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from PIL import Image
@@ -14,7 +15,31 @@ from qwen3vl_local.sft_v3.train import _kv_start_state,_student_generate_kv
 from . import prompts,cache,evaluate,CONTRACT
 
 
+def bind_online_contract(bundle, config):
+    """Bind metadata for an already validated adapter; CPU planning uses model=None."""
+    from qwen3vl_local.qwen35.online_contract import _model_identity
+    if config.get('contract')!=CONTRACT or config.get('prompt')!=prompts.identity(config['mode']):
+        raise ValueError('Shared adapter/prompt/history contract mismatch')
+    serialized=json.dumps(config,sort_keys=True,allow_nan=False)
+    bundle.fusion_config=json.loads(serialized)
+    bundle._shared_online_contract=(_model_identity(bundle.model),hashlib.sha256(serialized.encode()).hexdigest())
+    return bundle
+
+
+def bound_online_contract(bundle, mode=None):
+    from qwen3vl_local.qwen35.online_contract import _model_identity
+    bound=getattr(bundle,'_shared_online_contract',None);cfg=getattr(bundle,'fusion_config',None)
+    if bound is None or cfg is None:raise ValueError('Bind the validated shared adapter before online inference')
+    current=(_model_identity(bundle.model),hashlib.sha256(json.dumps(cfg,sort_keys=True,allow_nan=False).encode()).hexdigest())
+    if current!=bound:raise ValueError('Shared model/active adapter/metadata changed; reload and bind')
+    if cfg.get('contract')!=CONTRACT or cfg.get('prompt')!=prompts.identity(cfg['mode']):
+        raise ValueError('Shared input layout/prompt contract changed')
+    if mode is not None and mode!=cfg['mode']:raise ValueError('Shared RGB mode differs from adapter training contract')
+    return cfg
+
+
 def prepare_request(bundle,images,mode,domain,task='both',seed='inference',*,schedule=None):
+    bound_online_contract(bundle,mode)
     if domain not in prompts.P2.QUESTION_DOMAINS or task not in ('both','phase1','phase2'):
         raise ValueError('Unknown task/question domain')
     if len(images)!=len(history_rgb_indices(mode)):raise ValueError('Wrong RGB count')
@@ -58,8 +83,8 @@ def load_online_bundle(model_dir,adapter_dir,*,device,mode=None,dtype=torch.bflo
     model=LocalModel.from_pretrained(str(model_dir),dtype=dtype)
     model=LocalPeftModel.from_pretrained(model,str(adapter_dir),is_trainable=False,torch_device='cpu').to(device).eval()
     processor=LocalProcessor.from_pretrained(str(model_dir))
-    return SimpleNamespace(model=model,processor=processor,tokenizer=processor.tokenizer,
-                           device=torch.device(device),fusion_config=config)
+    return bind_online_contract(SimpleNamespace(model=model,processor=processor,tokenizer=processor.tokenizer,
+                           device=torch.device(device)),config)
 
 
 def main():
