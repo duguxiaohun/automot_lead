@@ -130,7 +130,8 @@ def create_bundle(selected, destination, policy="available", extra_provenance=No
             snapshots.mkdir(exist_ok=True)
             # 源码仅存档，不动态执行迁移包里的 Python；目标仓库用已支持协议重建并核对 hash。
             module_file = Path(module.__file__)
-            shutil.copyfile(module_file, snapshots / f"{key}_{module_file.name}")
+            from qwen3vl_local.action_prior.prompt_versions import prompt_source
+            (snapshots / f"{key}_{module_file.name}").write_bytes(prompt_source(module))
             # 重新从复制品读取指标/配置，证明不依赖原 run 的其它 checkpoint。
             copied = candidate(target, phase, current["effective_base_model_dir"])
             if copied["fingerprint"] != source_item["fingerprint"]:

@@ -44,19 +44,10 @@ def inspect_adapter(path, phase, model_dir, *, base_assets=None):
     cfg_name = f"sft_new_loop_phase{phase}_adapter_config.json"
     cfg = read_json(path / cfg_name)
     peft = read_json(path / "adapter_config.json")
-    module = p1 if phase == 1 else p2
+    from qwen3vl_local.action_prior.prompt_versions import prompt_module
+    prompt_module(phase, cfg)
     mode = cfg["history_rgb_mode"]
     indices = list(history_rgb_indices(mode))
-    expected = (p1.phase1_prompt_sha256 if phase == 1 else p2.event_prompt_sha256)(
-        history_rgb_mode=mode
-    )
-    if (
-        cfg.get("prompt_name") != module.PROMPT_NAME
-        or cfg.get("production_prompt_sha256") != expected
-    ):
-        raise ValueError(
-            f"{path}: prompt version/hash differs from current Phase{phase}"
-        )
     if not cfg.get("git", {}).get("commit"):
         raise ValueError(f"{path}: missing training git.commit")
     if (

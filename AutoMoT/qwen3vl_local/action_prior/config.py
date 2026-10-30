@@ -16,7 +16,8 @@ from qwen3vl_local.action_prior.contracts import (
     select_adapter,
 )
 from qwen3vl_local.action_prior.action_token import separation_contract
-from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION
+from qwen3vl_local.action_prior.priors import PROTOCOL_VERSION, protocol_for_phase1
+from qwen3vl_local.action_prior.prompt_versions import prompt_module
 from qwen3vl_local.action_prior.scene_policy import resolve_scene_priors
 from qwen3vl_local.action_prior.optimization_config import (
     OPTIMIZATION_DEFAULTS, validate_optimization, optimization_plan,
@@ -507,7 +508,7 @@ def build_contract(args):
         phase1=p1["fingerprint"] if p1 else None,
         phase2=p2["fingerprint"] if p2 else None,
         bev=bev_hash,
-        protocol=PROTOCOL_VERSION,
+        protocol=protocol_for_phase1(prompt_module(1, p1["metadata"])) if p1 else PROTOCOL_VERSION,
         analysis=ANALYSIS_VERSION if args.generate_analysis else PREFILL_VERSION,
         system=system_prompt(generate_analysis=args.generate_analysis, rgb_frame_count=args.rgb_frame_count),
         generate_analysis=args.generate_analysis,

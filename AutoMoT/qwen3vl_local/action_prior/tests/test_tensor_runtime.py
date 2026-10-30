@@ -352,6 +352,9 @@ def test_generated_and_cached_final_kv_always_base(tmp_path, monkeypatch, review
     engine.prefill = prefill
     contract = {f"phase{i}": {"path": str(tmp_path / f"p{i}")} for i in (1, 2)}
     contract["identity"] = "identity"
+    from qwen3vl_local.sft_new_loop_phase1 import prompts as phase1_prompts
+    contract['phase1']['metadata'] = dict(prompt_name=phase1_prompts.PROMPT_NAME,history_rgb_mode='4rgb',
+        production_prompt_sha256=phase1_prompts.phase1_prompt_sha256())
     from qwen3vl_local.action_prior import phase2_v3_prompts as event_prompts
     contract["phase2"]["metadata"] = dict(
         prompt_name=event_prompts.PROMPT_NAME, history_rgb_mode="4rgb",

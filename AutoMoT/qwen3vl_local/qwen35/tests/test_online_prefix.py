@@ -70,6 +70,17 @@ def test_native_online_windows_keep_text_and_refresh_images_and_context(monkeypa
     b=SimpleNamespace(model=SimpleNamespace(eval=lambda:None));seen=[]
     monkeypatch.setattr(online,'_kv_start_state',lambda bundle,messages:seen.append(messages))
     monkeypatch.setattr(online,'_student_generate_kv',lambda *a:('invalid fixture',None,torch.tensor([1])))
+    from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
+    from qwen3vl_local.sft_new_loop_phase3 import prompt_contract
+    module={1:p1,2:p2,3:p3}[phase]
+    meta=dict(prompt_name=module.PROMPT_NAME,history_rgb_mode='4rgb',history_rgb_count=4,
+              history_rgb_selected_indices=[0,1,2,3],input_layout=tp.identity())
+    if phase==3:
+        meta.update(action_output_mode='binary',prompt_variant='baseline',
+                    production_prompt_sha256=prompt_contract.action_prompt_sha256())
+    else:
+        meta['production_prompt_sha256']=(p1.phase1_prompt_sha256 if phase==1 else p2.event_prompt_sha256)()
+    online.bind_prompt_contract(b,phase,meta)
     kwargs=dict(domain=p2.ROAD_DOMAIN)
     if phase==3:
         context=next(iter(p3.CONTEXT_BY_ID.values()))

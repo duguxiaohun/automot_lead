@@ -92,16 +92,21 @@ AUTOMOT_TEXT_PREFIX=1 python -m qwen3vl_local.qwen35.text_prefix_benchmark \
 1+2 的两种任务已占用两个缓存槽，因此 `task='both'` 只接受一个题序槽；`PriorEngine` 同样有两个 EVENT 域，只接受一个题序槽。问题域/上下文若继续变化，精确匹配仍会出现 miss，不能靠调度 seed 冒称完整命中。`max_tokens=4096` 截断的文本缓存命中记为 partial，不是 full。
 
 ```python
-# 环境提前设置 AUTOMOT_TEXT_PREFIX=1；bundle 已通过对应原生 adapter 合同检查。
+# 环境提前设置 AUTOMOT_TEXT_PREFIX=1；显式选择已获准使用的设备。
+# 校验对应原生 adapter / 基座 / prompt 合同，并一次性加载和绑定。
+from qwen3vl_local.qwen35.online import load_online_bundle, bind_prompt_contract, predict_phase
+phase1_bundle = load_online_bundle(base_dir, phase1_adapter_dir, 1, device='cuda:0')
+# 已由原生加载器校验并加载的 bundle，则显式执行：
+# bind_prompt_contract(bundle, phase, saved_adapter_config)
 # 不要在循环内重新加载模型或重建 bundle。
-from qwen3vl_local.qwen35.online import predict_phase
 from qwen3vl_local.sft_new_loop_phase12.infer import predict
 
 for images in rgb_stream:  # 当前按时间顺序选好的 4 张 RGB
     result = predict_phase(phase1_bundle, 1, images, history_rgb_mode='4rgb')
     # 独立 Phase2：predict_phase(phase2_bundle, 2, images, domain=phase2_prompts.ROAD_DOMAIN)
     # domain 使用该版本 prompts.QUESTION_DOMAINS 中的正式值。
-    # Phase3 还需传当前 context_id、road_structure、速度/导航等实际观测；
+    # Phase3 从绑定合同恢复 candidate/baseline、choice/binary 和 RGB 模式；
+    # 还需传当前 context_id、road_structure、速度/导航等实际观测；
     # 此 API 不提供自动场景识别，也不替代 CARLA 的上游上下文提供者。
     # shared 1+2：predict(shared_bundle, images, '4rgb', domain)
 ```
@@ -120,3 +125,21 @@ r2 验证记录：主组合 **512 passed、1 skipped，43.18 秒**；包含原 4
 扩展检查独立列报：加入历史 `test_pipeline_candidate.py` 的组合为 504 passed、1 skipped、3 failed；三个失败来自历史 shell 夹具未选择 legacy 入口、单 GPU 配置不符合当前四卡要求。进一步检查旧 `test_prefill_only.py` 时有两项因 `v23_io1` 冻结 release 的外部 `highway_ue3_audit.py` SHA 不匹配被拒绝（到第二项失败即停止）；使用提交前 runtime 在内存中重跑其中一项，得到相同拒绝。没有改写旧冻结 SHA、放宽生产准入或把这些失败称为通过。主组合和扩展组合均未复现审计所述 `No CUDA GPUs are available`，不能宣称已经定位/修复其根因。
 
 本轮未运行 4B GPU 训练/评测或 CARLA。Phase3 新模式仍逐请求生成并绕过原 `reuse_rgb`，1+2 仍分别计算两题对应的图像语言状态；这些取舍需要远程实测。旧 Phase3/Phase4 冻结依赖问题仍须独立新 release 验收，不能把此次在线 prior 接线称为整条 CARLA 已准入。
+
+
+## 审计修复 r3：实际提示词合同与导入隔离
+
+`qwen35.online.predict_phase` 不再默认选择 Phase3 baseline/binary/4rgb。必须先通过 `load_online_bundle` 加载并绑定，或对已经验证、正确加载的权重调用 `bind_prompt_contract`。后者只验证并绑定提示词/RGB/布局元数据，不能替代权重来源校验。每次推理由绑定合同决定实际 renderer、输出模式和图片数；显式覆盖只能与合同相同，缺失绑定、模型/活动 adapter 切换、布局变化或覆盖冲突都会拒绝。Phase3 消息经过原生 `prompt_contract.build_action_messages`，候选版本仍为训练使用的 `v23_rgb_stage_candidate_20261006`；预测回执记录 prompt SHA 与元数据 SHA。
+
+Phase1/2 恢复器仅执行仓库内已审查的训练转换函数，支持 Phase1 RS2/RS4 legacy 与 direct8 visual、Phase2 visual v6 与 evidence v7。它不执行权重包里的 Python；prompt 名称、RGB 模式、输入布局与完整 surface SHA 必须匹配。严格权重检查和 available 检查均使用同一恢复器；LoRA 打包时归档实际恢复出的源码，避免把原生旧模板误写成新版本来源。
+
+Phase1 direct8 使用首问 + 一次重新排序的八问复核，覆盖全部八个输出；不再发送该权重拒绝的 GROUP/DETAIL/hierarchical 问题。RS_HIGHWAY 未被该版本训练，明确记录为 unavailable/None，不拿 HIGHWAY 代填。格式失败、两次不一致、多 RS 同时 YES 仍拒绝相应条件；Phase2 保留两个问题域及 INVALID 保护。history/independent 通常共 6 次模型问答，compare 共 9 次；旧层级权重仍走原来的 9/15 次流程。新 direct8 复核协议单独写入 action contract 身份，不能复用旧协议的条件缓存或把调用次数变化当作 KV 缓存收益。此处改变的是新权重的在线复核协议，训练题库、标签、采样、预算及最终规划计算不变；复核质量需要实测。
+
+Phase2 eval 的自动 GPU 选择现在仅在 `__main__` 执行，仍位于 torch import 前。完整组合测试进一步定位到 `goalgen.eval` 的同类导入写入，亦作相同修复。导入二者不会调用 nvidia-smi、等待 torchrun 对端、改写 CUDA_VISIBLE_DEVICES 或 GOALGEN_LOCAL_CUDA_INDEX；Phase2 CLI 仍保留 --device cpu 和自动选卡；两者均保留既有 GPU_IDS pin 行为，GoalGen 没有新增 CPU CLI 选项。未改环境回执收集函数来吞掉 CUDA 错误。
+
+Phase3 新启动使用 `*_sources_r3_20261030.json`，父来源为 r2 清单；旧清单、旧权重、旧恢复包不改。在线合同修复没有改变训练提示词定义，因此无需为此重建标签库或重训已匹配的新布局权重；旧 image-first 权重仍不能直接使用 text-first 缓存。
+
+
+r3 验证：在 `CUDA_VISIBLE_DEVICES=''` 下完整组合 **606 passed、1 skipped，57.56 秒**。覆盖原 r2 主组合、在线合同绑定/恢复/实际发送消息、未知与篡改合同拒绝、新 Phase1/2 direct8/event 调用链，以及 Phase2/GoalGen 的 12 组独立进程导入顺序/rank 组合和两个 CLI 选卡保护测试。恢复打包模块在该组合中通过；没有通过吞异常、清空环境报告或更换测试顺序规避错误。专项 111 项与本组合有重叠，不相加。额外 available/LoRA 打包检查仍在旧 `v23_io1` 外部 `highway_ue3_audit.py` SHA 不匹配处拒绝（42 passed、2 failed 后停止），该独立历史冻结依赖未放宽；不能称所有历史流水线已通过。
+
+回归使用真实小型 Qwen3.5 验证缓存数值/状态；在线提示词与复核协议测试使用合成回答，验证的是消息、解析和调用合同，不是 4B 判断能力。未 GPU、未 CARLA、未重训、未更改标定或新建标签库。日志与源码 SHA 保存在本机 `checkpoints/text_prefix_contract_r3_20261030/`，不随公开代码上传。

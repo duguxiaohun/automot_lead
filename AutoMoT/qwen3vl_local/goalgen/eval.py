@@ -215,7 +215,9 @@ def _maybe_set_idle_gpu_mask() -> None:
         )
 
 
-_maybe_set_idle_gpu_mask()
+# Library imports must preserve the caller's CUDA mask and never select GPUs.
+if __name__ == "__main__":
+    _maybe_set_idle_gpu_mask()
 
 import torch  # noqa: E402
 import torch.distributed as dist  # noqa: E402

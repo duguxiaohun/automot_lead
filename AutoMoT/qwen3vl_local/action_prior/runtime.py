@@ -248,7 +248,8 @@ class PriorEngine:
                 priors = self.labels.priors(identity)
             else:
                 priors = collect_priors(ask, question_seed, recheck_mode=self.recheck_mode,
-                                        event_module=prompt_module(2, self.contract["phase2"]["metadata"]))
+                                        event_module=prompt_module(2, self.contract["phase2"]["metadata"]),
+                                        phase1_module=prompt_module(1, self.contract["phase1"]["metadata"]))
             if question_ticket:
                 from qwen3vl_local.qwen35.text_prefix import report as prefix_report
                 priors = dict(priors, question_schedule=question_ticket,

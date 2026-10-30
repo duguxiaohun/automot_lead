@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 from collections import defaultdict
-from qwen3vl_local.sft_new_loop_phase1 import prompts as p1
+from qwen3vl_local.sft_new_loop_phase1 import prompts as default_phase1
 from qwen3vl_local.sft_new_loop_phase2 import prompts as default_event_prompts
 
 PROTOCOL_VERSION = "rs_event_recheck_modes_v2"
+DIRECT8_PROTOCOL_VERSION = "direct8_event_recheck_modes_v1"
+
+
+def protocol_for_phase1(module):
+    from qwen3vl_local.action_prior.prompt_versions import phase1_recheck_policy
+    return DIRECT8_PROTOCOL_VERSION if phase1_recheck_policy(module) == 'direct8_reordered_consistency_v1' else PROTOCOL_VERSION
 
 
 def strict_answers(text, keys):
@@ -37,7 +43,7 @@ def reconcile(first, second, keys):
     return values, invalid
 
 
-def collect_priors(ask, sample_key, recheck_mode="history", event_module=None):
+def collect_priors(ask, sample_key, recheck_mode="history", event_module=None, phase1_module=None):
     """ask(phase, spec, history) 接受实际多轮历史，返回原始回答与 prompt。
 
     先遍历两个 EVENT 域，避免 RS 门控漏掉 interrupted junction 上的 UE3。
@@ -45,6 +51,9 @@ def collect_priors(ask, sample_key, recheck_mode="history", event_module=None):
     """
     if recheck_mode not in ("history", "independent", "compare"):
         raise ValueError("recheck_mode must be history/independent/compare")
+    from qwen3vl_local.action_prior.prompt_versions import phase1_recheck_policy
+    p1 = phase1_module or default_phase1
+    phase1_policy = phase1_recheck_policy(p1)
     p2 = event_module or default_event_prompts
     calls, comparisons, mode_disagreements = [], [], []
 
@@ -98,52 +107,66 @@ def collect_priors(ask, sample_key, recheck_mode="history", event_module=None):
     first, first_turn = query(1, spec)
     conditions = dict(first)
     invalid = {k: "format" for k, v in first.items() if v is None}
-    hierarchy = []
-    # 对四个 RS 全部复核，包括 NO；不能只确认第一次 YES 的类别。
-    groups = {
-        "RS1": "PLAIN_LANE_FOLLOWING_CORRIDOR",
-        "RS2": "OPEN_SURFACE_PATH",
-        "RS4": "JUNCTION_CONTROL_ZONE",
-        "RS5": "LOCAL_RIGHT_OF_WAY_RULE",
-    }
-    for key, group in groups.items():
-        hs = p1.make_prompt_spec(
-            variant="hierarchical_probe",
-            answers={},
-            seed_key=f"{sample_key}:{key}",
-            group_id=group,
-            detail_key=key,
-        )
-        second = recheck(1, hs, first, first_turn, key)
-        values, errors = reconcile(first, second, (*p1.PHASE1_ANSWER_KEYS, key))
-        for name, value in values.items():
-            if name not in invalid:
-                conditions[name] = value
-        invalid.update(errors)
-        # GROUP 要与第一次完整 RS 向量的集合 membership 一致；R3 是完整全 NO。
-        members = p1.GROUP_DEFINITIONS[group][3]
-        if all(first.get(k) in ("YES", "NO") for k in p1.PHASE2_ANSWER_KEYS):
-            expected = (
-                "YES"
-                if any(
-                    first[k] == "YES" and k.replace("RS", "R") in members
-                    for k in p1.PHASE2_ANSWER_KEYS
-                )
-                else "NO"
-            )
-            if second.get("GROUP") != expected:
-                invalid[key] = (
-                    "group_format"
-                    if second.get("GROUP") is None
-                    else "group_disagreement"
-                )
-        hierarchy.append(second.get("RS_HIGHWAY"))
-    # HIGHWAY 与 RS_HIGHWAY 不是同一标签，不能强行要求相等。
-    if None in hierarchy or len(set(hierarchy)) != 1:
-        invalid["RS_HIGHWAY"] = "format" if None in hierarchy else "disagreement"
-        conditions["RS_HIGHWAY"] = None
+    if phase1_policy == 'direct8_reordered_consistency_v1':
+        # This weight has learned only the direct eight-question surface. Keep
+        # all eight in the recheck; never synthesize GROUP/DETAIL/RS_HIGHWAY.
+        second_spec = p1.make_prompt_spec(variant='all_random_order', answers={},
+                                         seed_key=f'{sample_key}:phase1:recheck')
+        for attempt in range(16):
+            if second_spec.output_keys != spec.output_keys:break
+            second_spec = p1.make_prompt_spec(variant='all_random_order', answers={},
+                seed_key=f'{sample_key}:phase1:recheck:{attempt}')
+        second = recheck(1, second_spec, first, first_turn, 'phase1_direct8')
+        values, errors = reconcile(first, second, spec.output_keys)
+        conditions.update(values);invalid.update(errors)
+        conditions['RS_HIGHWAY'] = None  # unavailable, never an alias for HIGHWAY
     else:
-        conditions["RS_HIGHWAY"] = hierarchy[0]
+        hierarchy = []
+        # 对四个 RS 全部复核，包括 NO；不能只确认第一次 YES 的类别。
+        groups = {
+            "RS1": "PLAIN_LANE_FOLLOWING_CORRIDOR",
+            "RS2": "OPEN_SURFACE_PATH",
+            "RS4": "JUNCTION_CONTROL_ZONE",
+            "RS5": "LOCAL_RIGHT_OF_WAY_RULE",
+        }
+        for key, group in groups.items():
+            hs = p1.make_prompt_spec(
+                variant="hierarchical_probe",
+                answers={},
+                seed_key=f"{sample_key}:{key}",
+                group_id=group,
+                detail_key=key,
+            )
+            second = recheck(1, hs, first, first_turn, key)
+            values, errors = reconcile(first, second, (*p1.PHASE1_ANSWER_KEYS, key))
+            for name, value in values.items():
+                if name not in invalid:
+                    conditions[name] = value
+            invalid.update(errors)
+            # GROUP 要与第一次完整 RS 向量的集合 membership 一致；R3 是完整全 NO。
+            members = p1.GROUP_DEFINITIONS[group][3]
+            if all(first.get(k) in ("YES", "NO") for k in p1.PHASE2_ANSWER_KEYS):
+                expected = (
+                    "YES"
+                    if any(
+                        first[k] == "YES" and k.replace("RS", "R") in members
+                        for k in p1.PHASE2_ANSWER_KEYS
+                    )
+                    else "NO"
+                )
+                if second.get("GROUP") != expected:
+                    invalid[key] = (
+                        "group_format"
+                        if second.get("GROUP") is None
+                        else "group_disagreement"
+                    )
+            hierarchy.append(second.get("RS_HIGHWAY"))
+        # HIGHWAY 与 RS_HIGHWAY 不是同一标签，不能强行要求相等。
+        if None in hierarchy or len(set(hierarchy)) != 1:
+            invalid["RS_HIGHWAY"] = "format" if None in hierarchy else "disagreement"
+            conditions["RS_HIGHWAY"] = None
+        else:
+            conditions["RS_HIGHWAY"] = hierarchy[0]
     if all(first.get(k) in ("YES", "NO") for k in p1.PHASE2_ANSWER_KEYS):
         if sum(first[k] == "YES" for k in p1.PHASE2_ANSWER_KEYS) > 1:
             for k in p1.PHASE2_ANSWER_KEYS:
@@ -205,6 +228,9 @@ def collect_priors(ask, sample_key, recheck_mode="history", event_module=None):
         counts[reason] += 1
     return dict(
         conditions=conditions,
+        protocol=protocol_for_phase1(p1),
+        phase1_recheck_protocol=phase1_policy,
+        unavailable_fields=["RS_HIGHWAY"] if phase1_policy == "direct8_reordered_consistency_v1" else [],
         invalid=invalid,
         invalid_counts=dict(counts),
         calls=calls,

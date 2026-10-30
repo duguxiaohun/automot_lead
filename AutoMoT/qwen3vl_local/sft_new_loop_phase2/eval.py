@@ -142,7 +142,10 @@ def _maybe_set_idle_gpu_mask() -> None:
             print(f"[gpu] auto selected idle CUDA_VISIBLE_DEVICES={selected}")
 
 
-_maybe_set_idle_gpu_mask()
+# Importing sampling/evaluation helpers must not alter another caller's device mask.
+# Keep CLI selection before torch import, including torchrun module execution.
+if __name__ == "__main__":
+    _maybe_set_idle_gpu_mask()
 
 import torch
 import torch.distributed as dist
