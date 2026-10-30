@@ -4,13 +4,18 @@ import json
 from pathlib import Path
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 from qwen3vl_local.sft_new_loop_phase1.history_rgb import history_rgb_indices
-from . import prompts,evaluate,cache,validation,history,integrity,CONTRACT,UPDATES
+from . import prompts,evaluate,cache,cache_checks,validation,history,integrity,CONTRACT,UPDATES
 from .data import phase1_targets
 
 
 def verify_evaluations(root,mode):
     root=Path(root);members=proof.read(root/'cpu/evaluation_members.json')
     weight_binding=integrity.verify_evaluation_binding(root,mode)
+    probe=proof.read(root/'runs'/mode/'gpu_prefix_probe.json')
+    if probe.get('status')!='passed_before_optimizer_updates' or len(probe.get('reports',[]))!=2:
+        raise ValueError('Missing two-domain pre-training output parity probe')
+    for report in probe['reports']:
+        cache_checks.verify_output_evidence(report,report['branches'],require_logits=True)
     facts={tuple(r['key']):r for r in proof.read(root/'cpu/fusion_labels.json')}
     historical=history.load(root/'cpu/historical_contract.json')
     reference=proof.read(root/'cpu/reference_members.json')[mode]
@@ -61,11 +66,9 @@ def verify_evaluations(root,mode):
                 arm=case[f'phase{phase}']
                 if arm['gt']!=gt or arm['parsed']!=evaluate._parse(arm['text'],spec,phase):
                     raise ValueError('Ground truth/parser mismatch')
-            if folder.name=='fusion_test':
+            if folder.name=='fusion_test' or folder.name.startswith('val_step_'):
                 perf=case['performance']
-                if not perf['full_answer_equivalence_checked']:raise ValueError('Missing full-answer cache parity')
-                cache.assert_answers({'branches':[case['phase1'],case['phase2']]},
-                                     {'branches':perf['independent_branches']})
+                cache_checks.verify_output_evidence(perf,[case['phase1'],case['phase2']],require_logits=number==0)
                 cache.verify_benchmark(perf['paired_benchmark'],device=recorded['performance']['device'],
                                        dtype=recorded['performance']['model_dtype'])
                 for arm in [case['phase1'],case['phase2'],*perf['independent_branches']]:

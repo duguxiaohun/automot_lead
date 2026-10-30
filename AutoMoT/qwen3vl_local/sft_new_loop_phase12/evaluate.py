@@ -77,7 +77,7 @@ def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
             answers=facts[identity(item.row)];first,second=prompts.specs(item,answers)
             ims=[Image.open(item.row.history_rgb_paths[i]).convert('RGB') for i in history_rgb_indices(mode)]
             try:report=cache.generate(bundle,ims,prompts.texts(first,second,mode),check_full=check_cache and number==0,
-                verify_outputs=split=='test',benchmark_repeats=2 if split=='test' and number in benchmark_indices else 0)
+                verify_outputs=True,benchmark_repeats=2 if split=='test' and number in benchmark_indices else 0)
             finally:
                 for im in ims:im.close()
             case=dict(case_index=number,**receipt,performance={k:v for k,v in report.items() if k!='branches'})

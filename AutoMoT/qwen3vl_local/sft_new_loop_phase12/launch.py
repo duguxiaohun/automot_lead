@@ -91,7 +91,7 @@ def worker(args):
             integrity.verify_training(root/'runs'/mode,root,mode)
             stage(mode+'_test',[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase12.finish',
                 '--run-dir',str(root),'--model-dir',str(args.model_dir),'--mode',mode],86400,
-                {'CUDA_VISIBLE_DEVICES':ids[0]})
+                {'CUDA_VISIBLE_DEVICES':ids[0],'GPU_IDS':ids[0]})
         integrity.verify_ready(root);runtime.verify(args.version)
         bundles=list(root.glob('*_audit_bundle.tar.gz'))
         if len(bundles)!=2:raise ValueError('Missing fused two-mode audit bundles')

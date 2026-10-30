@@ -6,7 +6,7 @@ import sys
 from types import SimpleNamespace
 from PIL import Image
 import pytest
-from qwen3vl_local.sft_new_loop_phase12 import data, prompts, evaluate, audit, finish, validation, history, cache, CONTRACT, UPDATES
+from qwen3vl_local.sft_new_loop_phase12 import data, prompts, evaluate, audit, finish, validation, history, cache, cache_checks, CONTRACT, UPDATES
 from qwen3vl_local.sft_new_loop_phase1 import run_integrity as proof
 
 
@@ -93,6 +93,13 @@ def evidence(root):
         if folder.startswith('original_phase'):case['historical_case_id']=refs[str(phases[0])][0]['historical_case_id']
         if folder=='fusion_test':case['performance']=dict(full_answer_equivalence_checked=True,independent_branches=[dict(case['phase1']),dict(case['phase2'])],paired_benchmark={'trials':[{'shared_seconds':1.,'independent_seconds':2.}]*2})
         if folder=='fusion_test':
+            case['performance'].update(cache_acceptance_protocol=cache_checks.PROTOCOL,
+                full_forward_equivalence_checked=True,full_forward_equivalence_passed=True)
+            diagnostic=dict(elements=320,mismatches=0,nonfinite=0,max_abs_difference=0.,
+                mean_abs_difference=0.,atol=2e-5,rtol=2e-4,all_close=True,next_token_matches=True)
+            for phase in (1,2):case[f'phase{phase}']['full_comparison']=dict(diagnostic)
+            probe=dict(**case['performance'],branches=[case['phase1'],case['phase2']])
+            proof.write(root/'runs/4rgb/gpu_prefix_probe.json',dict(status='passed_before_optimizer_updates',reports=[probe,probe]))
             meta=case['performance']['paired_benchmark']
             meta.update(protocol=cache.BENCHMARK_PROTOCOL,scope=cache.BENCHMARK_SCOPE,batch_size=1,
                 same_encoded_inputs=True,synchronized=False,do_sample=False,repetition_penalty=1.05,
