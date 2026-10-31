@@ -46,17 +46,8 @@ def prepare_data(args):
 
 
 def gpu_ids(count=4):
-    raw=subprocess.check_output(['nvidia-smi','--query-gpu=index,memory.used,utilization.gpu',
-        '--format=csv,noheader,nounits'],text=True)
-    available={}
-    for line in raw.strip().splitlines():
-        index,memory,util=[x.strip() for x in line.split(',')]
-        available[index]=(float(memory),float(util))
-    requested=os.environ.get('GPU_IDS','')
-    ids=requested.split(',') if requested else [k for k,v in available.items() if v[0]<256 and v[1]<=5][:count]
-    if len(ids)!=count or len(set(ids))!=count or any(x not in available for x in ids):raise ValueError(f'{count} distinct idle physical GPUs required')
-    if any(available[x][0]>=256 or available[x][1]>5 for x in ids):raise ValueError('Requested GPU is busy; no process or compute-mode changes allowed')
-    return ids
+    from qwen3vl_local.qwen35.gpu_selection import select
+    return select(count)
 
 
 def worker(args):

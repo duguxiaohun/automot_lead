@@ -166,6 +166,13 @@ def test_wrong_gpu_count_fails_before_gpu(monkeypatch,tmp_path):
 
 
 @pytest.mark.parametrize('phase',[1,2])
+def test_default_gpu_ids_are_bound_without_querying_gpu(monkeypatch,tmp_path,phase):
+    monkeypatch.delenv('GPU_IDS',raising=False)
+    env=launch.environment(launch.APP,phase,tmp_path,tmp_path,tmp_path,tmp_path,tmp_path)
+    assert env['GPU_IDS']=='0,1,2,3'
+
+
+@pytest.mark.parametrize('phase',[1,2])
 @pytest.mark.parametrize('failure',[None,'cpu_admission','fresh_train_eval','historical_isolation'])
 def test_actual_worker_order_and_failure_stop_with_explicit_stage_doubles(tmp_path,monkeypatch,phase,failure):
     if phase==2 and failure=='historical_isolation':pytest.skip('Phase2 does not depend on Phase1 historical isolation')
@@ -175,6 +182,7 @@ def test_actual_worker_order_and_failure_stop_with_explicit_stage_doubles(tmp_pa
     monkeypatch.setattr(launch,'APP',app)
     monkeypatch.setattr(runtime,'verify',lambda p:{'training_revision':{'phase':phase}})
     monkeypatch.setattr(launch.local_assets,'ensure_data',lambda *args:('reuse',{}))
+    monkeypatch.setattr(launch,'select_gpus',lambda count,requested:requested.split(','))
     from qwen3vl_local.audit_joint.phase12_retrain import history_holdout
     monkeypatch.setattr(history_holdout,'verify',lambda *args: {})
     # No CUDA/model inference in this orchestration test.

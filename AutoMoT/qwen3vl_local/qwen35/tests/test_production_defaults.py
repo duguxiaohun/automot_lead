@@ -28,7 +28,7 @@ from qwen3vl_local.qwen35 import text_prefix as t,cache_policy as p
 from qwen3vl_local.audit_joint import phase3_base_trial as trial
 from qwen3vl_local.sft_new_loop_phase12 import prompts
 assert prompts.messages([None],"question")[1]['content'][0]['type']=='text'
-assert trial.RELEASE.name=='phase3_text_prefix_sources_r14_20261031.json'
+assert trial.RELEASE.name=='phase3_text_prefix_sources_r15_20261031.json'
 assert len(trial.verified_sources())==64
 assert t.enabled() and t.cache_enabled() and t.online_enabled()
 print(json.dumps(p.current()))

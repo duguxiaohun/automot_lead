@@ -12,6 +12,7 @@ import tarfile
 import time
 
 from qwen3vl_local import runtime_version as runtime
+from qwen3vl_local.qwen35.gpu_selection import select as select_gpus
 from qwen3vl_local.sft_new_loop_phase1 import data_stage, local_assets, run_integrity as proof
 from . import CONTRACT, REVIEW_PATH
 from .budget import PROFILES, profile
@@ -63,10 +64,11 @@ def environment(app,phase,root,index,data_root,model,collection,budget_profile='
     for key in ('WORLD_SIZE','RANK','LOCAL_RANK','LOCAL_WORLD_SIZE','ADAPTER_DIR','RESUME','RESUME_FROM_CHECKPOINT'):
         env.pop(key,None)
     env.update(preserve)
+    env['GPU_IDS']=env.get('GPU_IDS') or '0,1,2,3'
     if env.get('GPU_IDS'):
         ids=env['GPU_IDS'].split(',')
         if len(ids)!=4 or len(set(ids))!=4 or any(not x.isdigit() for x in ids):
-            raise ValueError('This release requires four distinct physical GPUs via GPU_IDS, or automatic four-GPU selection')
+            raise ValueError('This release requires four distinct physical GPUs via GPU_IDS; default is 0,1,2,3')
     env.update(PYTHONPATH=str(app),PYTHONDONTWRITEBYTECODE='1',PYTHONUNBUFFERED='1',
         PATH=str(Path(sys.executable).parent)+os.pathsep+os.environ.get('PATH',''),
         MODEL_DIR=str(model),DATA_ROOT=str(data_root),COLLECTION_DIR=str(collection),INDEX=str(index),
@@ -212,6 +214,7 @@ def worker(args):
         if ready['index']!=str(index):raise ValueError('Training dataset differs from prepared dataset')
         # A completed/failed GPU stage is never auto-restarted. Native output
         # reservation also refuses old weights, even in a different outer run.
+        env['GPU_IDS']=','.join(select_gpus(4,env['GPU_IDS']))
         stage('fresh_train_eval',['bash',f'qwen3vl_local/sft_new_loop_phase{phase}/run_full_pipeline.sh'],
               timeout=args.train_timeout)
         verify_ready(root,phase,version)

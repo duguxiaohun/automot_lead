@@ -1,5 +1,15 @@
 # Phase1 / Phase2：独立新训练、评测和交包
 
+## 2026-10-31 默认设置更正（r15）
+
+当前 Phase1、Phase2 taskmix、shared Phase1+2 全流程入口无需额外 export：文本前置=1、
+文本缓存=1、2 项/1024 MiB/8192 token 已是代码默认值，主干 BF16 不变。
+未设置（或为空）的 GPU_IDS 现在固定选择物理卡 0,1,2,3；忙卡/缺卡直接拒绝，
+不会自动切换到其它四张卡。可以显式 GPU_IDS=4,5,6,7 覆盖，仍须四卡和空闲检查。
+显式旧环境变量仍优先；若之前 export GPU_IDS=0，仅需清除这项旧覆盖，不能把单卡解释成四卡。
+单卡 probe/stream-probe 保留自动选一张空闲卡，不被训练四卡默认值影响。
+下文旧的“四卡自动选择”描述由本条覆盖；旧冻结运行不变，新启动使用新源码/CPU-ready。
+
 **2026-10-31 Phase2 任务组合 `taskmix_20261031`：** UE1/UE5 继承旧版，UE3/UE6/RE/INVALID
 继承证据版，默认文字前移并复用文本 KV；不新增标定规则。用户已选择 UE6 保留新版。
 入口 `bash qwen3vl_local/audit_joint/phase12_retrain/taskmix.sh all`，默认六轮 10752 更新。
