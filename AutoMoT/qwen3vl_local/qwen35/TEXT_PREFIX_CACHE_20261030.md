@@ -244,3 +244,17 @@ bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-online-prefix-audi
 shared Phase1+2 的 prefix_probe 现在从开始逐域保存实际布局、缓存开关和完整失败输出；输出不一致仍阻断训练，未放宽 logits 或 token/EOS 门。`sft_new_loop_phase12.cache_diagnose` 从原失败运行恢复输入合同，支持两种布局、重复输出稳定性、同历史首次分歧的候选分数，以及 BF16/FP32 对照。它执行原冻结模型/cache，补充诊断脚本另行绑定和打包，不改旧运行。命令与证据边界见 shared 包 README 的 2026-10-31 小节。
 
 Phase3 新启动清单为 `*_sources_r6_20261031.json`，父来源 r5 保留不动；仅绑定本轮共享依赖，Phase3 计算、数据与预算未改。该改动修复失败证据丢失和诊断工具只支持旧布局的问题，不宣称已解决 cr02 的 4B token 分歧；仍需原服务器单卡实测。
+
+
+## r7：针对 BF16 边界的局部精度实验（2026-10-31）
+
+cr02 原冻结运行诊断已复现 ROAD_CORRIDOR Phase1 在 HIGHWAY 答案处的稳定 YES/NO 分歧：
+惩罚后缓存路径 21.875/21.75，独立路径 21.875/21.875；全模型 FP32 同样本生成一致。
+这只支持精度敏感，不足以确定根因或改变生产精度。新增 `cache_diagnose --controls bf16 fp32_penalty fp32_head`
+分别测试重复惩罚，以及真实输出投影加重复惩罚的局部 FP32。主干保持 BF16，方法/后端开关退出时恢复，
+原冻结模型/cache 源码及 SHA 不动，补充干预源码单列绑定。报告同时提供自由生成完整对照、原始/惩罚后分数、
+固定历史条件探针及相对基线变化；不能把条件探针当实际输出。
+
+Phase3 新启动使用 `*_sources_r7_20261031.json`，父 r6 文件不改；绑定诊断依赖并保留原计算/数据/预算。
+不调整生产精度、缓存容量或一致性门。CPU 通过不能替代 H20/4B、训练和闭环速度验收。
+远端命令、原始包 SHA、5063-token 前缀超过缓存上限等证据边界详见 shared 包 README 的 r7 小节。

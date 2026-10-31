@@ -230,6 +230,55 @@ BF16 保持基座加载时的原旋转缓冲；FP32 是把同一份 BF16 已加�
 
 输出仍为独立 `checkpoints/phase12_cache_diagnose/run_*/report.json` 及 `[DIAGNOSTIC_BUNDLE] ...tar.gz`。包内附本次诊断脚本和 `cache_checks.py` 补充证据代码，计算模型与缓存则来自原冻结目录；未改旧源码 SHA。完整成对输出在额外分歧追踪和 logits 诊断之前保存，后续异常仍保留已得到的证据。外部超时以 worker.json / worker.log 为准，不能把 running 状态视为完成。默认 1800 秒上限、160 个生成 token；本工具不是速度 benchmark 或质量验收。
 
+## 2026-10-31 r7：局部精度对照（等待远端验收）
+
+已核对 cr02 返回的 `run_20261031_101418_2289572.tar.gz`（SHA256：
+`f5772f5506158de450c3fe518e8c5d76c475264034ae93ac12d206df48d1f45c`）。
+ROAD_CORRIDOR 的 Phase1 第 48 个生成 token（下标 47）首次分歧：缓存路径为 YES，独立路径为 NO。
+重复运行各自稳定；经过 1.05 重复惩罚后，缓存路径 YES/NO 为 21.875/21.75，独立路径为 21.875/21.875。
+FP32 对照两域两题的完整输出相同，支持“该样本对精度敏感”，尚不能确定是哪个运算环节造成分歧。
+失败请求为 miss、复用 token 为 0，首次拆分计算就能触发；不能归因于沿用了上一张图片的状态。
+该报告未保存惩罚前分数，所以不直接断言是重复惩罚造成，也不将正式训练改为 FP32。
+
+本轮增加两个可选诊断控制，主干保持原 BF16：
+
+| 控制 | 词表投影 | 重复惩罚 |
+| --- | --- | --- |
+| `bf16` | 原 BF16 | 原 BF16 |
+| `fp32_penalty` | 原 BF16 | 对已得到的 logits 提升为 FP32 后运算 |
+| `fp32_head` | 用同一份输出权重的临时 FP32 副本，实际执行 FP32 线性投影 | FP32 |
+| `fp32` | 整体模型提升为 FP32，仍是同一份 BF16 加载权重 | FP32 |
+
+`fp32_head` 同时包含 FP32 重复惩罚，与 `fp32_penalty` 的差别才是投影运算；它不是将已舍入的 BF16 logits 转成 FP32 冒称恢复精度。禁用该投影的 TF32；不改 tied embedding 的权重/类型，不对参数 `.data` 赋值。上下文退出或异常时恢复方法和后端开关。补充文件 `precision_controls.py` 只由诊断入口使用，记录 SHA 并附入诊断包。默认未传 `--controls` 仍为旧 BF16/全模型 FP32 对照，`fp32` 必须排最后。
+
+在 cr02 当前 AutoMoT 根、已激活原训练环境执行：
+
+```bash
+bash ./sync_automot.sh
+python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose \
+  --source-run checkpoints/phase12_shared/run_20261031_003849_2055418 \
+  --controls bf16 fp32_penalty fp32_head --check-only
+env -u GPU_IDS python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose \
+  --source-run checkpoints/phase12_shared/run_20261031_003849_2055418 \
+  --controls bf16 fp32_penalty fp32_head --timeout 3600
+```
+
+最后一条自动选一张空闲卡；需要指定时把 `env -u GPU_IDS` 换为 `env GPU_IDS=<单个空闲卡号>`。
+cee 同一入口可用，但必须替换为它本机存在并通过验证的 source-run；没有原运行时明确拒绝，不伪造恢复。
+不启动训练、不改旧目录，结果另存并打印 `[DIAGNOSTIC_BUNDLE]`；将该 tar.gz 下载回本机供审计。
+
+`control_comparison` 对齐样本/题序/图像/提示词/编码输入 SHA，报告各自输出一致性、重复稳定性及相对 BF16 的完整输出变化。
+若某控制在当前样本恢复一致，仅标 `parity_restored_on_this_case`，不是正确答案、缓存全量通过或加速证明。
+新追踪同时保存原始与惩罚后 logits 分数/类型。`fixed_history_probe` 让两路径消费 BF16 首次分歧前的固定历史，
+在原决策位置重算候选分数，并记录控制的贪心路径是否更早偏离该历史；它是条件诊断，不能代替独立自由生成输出。
+到达生成预算末尾才发现的终止/文本差异不额外越界生成。完整输出仍先落盘，附加诊断失败不会抹去已有证据。
+
+生产默认精度、完整 token/EOS/截断门、标定、采样、训练预算及缓存 4096-token/256-MiB 上限保持。
+原样本 Phase1 文本前缀 5063 token，不能据命中率称整题已缓存；全模型 FP32 对照有容量拒存，不能据此认证跨图收益。
+LOCAL_JUNCTION 的未训练 Phase1 输出包含分析并达到 160-token 上限，缓存/独立相同也不代表输出质量合格。
+本轮 CPU 测试验证干预实际生效、异常恢复、两种布局下真实小模型完整生成、诊断缓存隔离与交包；
+4B/H20 上局部干预是否消除该分歧、训练能否通过严格探针及闭环是否加速仍待远端结果。
+
 ## 选模、评测、交包
 
 每1000步及最终步评测融合val192题，并评测新增Phase1弱项保护集。本机保护集合并去重后254题，

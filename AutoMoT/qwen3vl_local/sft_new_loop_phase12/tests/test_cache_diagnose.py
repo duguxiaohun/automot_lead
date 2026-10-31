@@ -78,7 +78,7 @@ def test_diagnostic_launcher_preserves_source_and_packages_partial_evidence(tmp_
     else:cache_diagnose.main()
     assert {str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}==before
     with tarfile.open(str(output)+'.tar.gz') as archive:
-        assert set(archive.getnames())=={'worker.json','worker.log','cache_diagnose.py','cache_checks.py'}
+        assert set(archive.getnames())=={'worker.json','worker.log','cache_diagnose.py','cache_checks.py','precision_controls.py'}
 
 
 def source_fixture(tmp_path,layout='images_before_text_legacy'):
@@ -162,6 +162,13 @@ def test_trace_reports_first_disagreement_with_common_history(monkeypatch,eos):
     assert result['status']=='diverged' and result['token_index']==2
     assert result['common_token_ids']==[6,7] and result['cached_token_id']==8 and result['independent_token_id']==9
     assert result['independent_is_eos']==eos and result['cached']['margin']==2
+    assert result['raw_cached']['dtype']=='torch.float32' and not result['conditional_only']
+    fixed=cache_diagnose.trace_first_divergence(b,[dict(input_ids=ids,attention_mask=torch.ones_like(ids))],
+        cache,1,8,reference_tokens=[12,13])
+    assert fixed['status']=='fixed_history_decision' and fixed['conditional_only']
+    assert fixed['common_token_ids']==[12,13] and fixed['token_index']==2
+    assert fixed['first_greedy_deviations']['cached']==dict(token_index=0,greedy_token_id=6,forced_token_id=12)
+    assert fixed['first_greedy_deviations']['independent']==fixed['first_greedy_deviations']['cached']
 
 
 def test_output_evidence_is_retained_before_extra_diagnostics_fail(model,monkeypatch):
@@ -208,3 +215,52 @@ def test_text_cache_disabled_in_saved_probe_is_preserved(tmp_path):
         input_layout='text_before_images_v1',text_cache_enabled=False)))
     policy=cache_diagnose.source_policy(root,'2rgb_endpoints')
     assert not policy['text_cache_enabled'] and policy['cache_switch_source']=='probe_receipt'
+
+
+@pytest.mark.parametrize('arguments',[
+    ['--controls','fp32_head','bf16'],['--controls','bf16'],
+    ['--controls','bf16','fp32','fp32_head'],['--controls','bf16','bf16'],
+    ['--timeout','nan'],['--timeout','0']])
+def test_bad_controls_rejected_before_source_or_gpu(monkeypatch,arguments):
+    monkeypatch.setattr(sys,'argv',['diagnose','--source-run','missing',*arguments])
+    with pytest.raises(SystemExit):cache_diagnose.main()
+
+
+def test_local_controls_and_timeout_reach_worker(tmp_path,monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase1 import data_stage
+    root=source_fixture(tmp_path);output=tmp_path/'new'
+    monkeypatch.delenv('GPU_IDS',raising=False)
+    controls=['bf16','fp32_penalty','fp32_head']
+    monkeypatch.setattr(sys,'argv',['diagnose','--source-run',str(root),'--output',str(output),
+        '--controls',*controls,'--timeout','3600'])
+    monkeypatch.setattr(cache_diagnose.subprocess,'check_output',lambda *a,**k:'0,0,0\n')
+    calls=[]
+    def stage(command,status,timeout,env):
+        calls.append(command)
+        assert timeout==3600
+        start=command.index('--controls')+1
+        assert command[start:start+3]==controls
+        assert command[command.index('--timeout')+1]=='3600.0'
+    monkeypatch.setattr(data_stage,'run',stage)
+    cache_diagnose.main()
+    assert len(calls)==1
+
+
+def test_control_comparison_requires_matched_inputs_and_reports_changed_answers():
+    branch=dict(token_ids=[1],text='1',stop_token_id=2,reached_token_limit=False)
+    output=dict(branches=[branch.copy(),branch.copy()])
+    rows=[]
+    for control in ('bf16','fp32_head'):
+        for domain in ('A','B'):
+            rows.append(dict(control=control,domain=domain,key=[domain],input_sha256=['a','b'],prompt_sha256=['p','q'],
+                image_sha256={'rgb':'c'},question_order=[['q1'],['q2']],input_layout='text_before_images_v1',
+                text_cache_enabled=True,max_new_tokens=160,cached_repeat_identical=True,independent_repeat_identical=True,
+                full_answers_identical=control!='bf16',shared=copy.deepcopy(output),independent=copy.deepcopy(output)))
+    rows[0]['shared']['branches'][0]['token_ids']=[3]
+    report=cache_diagnose.compare_controls(rows,['bf16','fp32_head'])['fp32_head']['A']
+    assert report['parity_restored_on_this_case'] and not report['quality_certified'] and not report['cache_certified']
+    assert report['cached_change_from_bf16']['token_index']==0 and report['independent_change_from_bf16'] is None
+    rows[2]['cached_repeat_identical']=False
+    assert not cache_diagnose.compare_controls(rows,['bf16','fp32_head'])['fp32_head']['A']['parity_restored_on_this_case']
+    rows[2]['input_sha256']=['changed']
+    with pytest.raises(ValueError,match='input_sha256'):cache_diagnose.compare_controls(rows,['bf16','fp32_head'])

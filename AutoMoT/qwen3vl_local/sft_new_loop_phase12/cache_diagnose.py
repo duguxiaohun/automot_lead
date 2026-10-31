@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -32,13 +33,17 @@ def compare_logits(actual,expected):
         all_close=bad==0 and nonfinite==0,last_argmax_matches=bool(torch.equal(actual[:,-1].argmax(-1),expected[:,-1].argmax(-1))))
 
 
-def _helpers():
+def _supplement(name):
     # Supplemental evidence code stays beside this script; model/cache/prompts
     # below come exclusively from the failed run's verified frozen app.
     import importlib.util
-    spec=importlib.util.spec_from_file_location('_diagnostic_cache_checks',Path(__file__).with_name('cache_checks.py'))
+    spec=importlib.util.spec_from_file_location('_diagnostic_'+name,Path(__file__).with_name(name+'.py'))
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module
+
+
+def _helpers():
+    return _supplement('cache_checks')
 
 
 def source_policy(root,mode):
@@ -106,11 +111,14 @@ def _prime(bundle,pairs,cache,max_new_tokens):
                 del out,full
 
 
-def trace_first_divergence(bundle,inputs,cache,arm,max_new_tokens,warmup_inputs=()):
+def trace_first_divergence(bundle,inputs,cache,arm,max_new_tokens,warmup_inputs=(),*,reference_tokens=None):
     """Replay equal token history in lockstep; report penalized decision scores."""
     import torch
     from qwen3vl_local.sft_v3.train import KVState,_apply_repetition_penalty,_REPETITION_PENALTY,_append_token_ids,_eos_token_ids
     item=inputs[arm-1];ids=item['input_ids'];common=[];eos=_eos_token_ids(bundle)
+    deviations={}
+    if reference_tokens is not None and (len(reference_tokens)>=max_new_tokens or any(type(t)!=int or t<0 for t in reference_tokens)):
+        raise ValueError('Invalid fixed-history probe tokens')
     def state(out):
         # Clone only last logits, so a tiny view cannot retain gigabytes of
         # prompt logits while the other prefill / FP32 control executes.
@@ -129,25 +137,36 @@ def trace_first_divergence(bundle,inputs,cache,arm,max_new_tokens,warmup_inputs=
             if not bool(torch.isfinite(x).all() and torch.isfinite(y).all()):
                 return dict(status='nonfinite',arm=arm,token_index=step)
             left,right=int(x.argmax(-1).item()),int(y.argmax(-1).item())
-            if left!=right:
+            capture=(left!=right) if reference_tokens is None else step==len(reference_tokens)
+            if capture:
                 def scores(logits):
                     values,tokens=logits.float()[0].topk(min(5,logits.shape[-1]))
-                    return dict(top=[dict(token_id=int(t),text=_token_text(bundle,[int(t)]),score=float(v))
+                    return dict(dtype=str(logits.dtype),top=[dict(token_id=int(t),text=_token_text(bundle,[int(t)]),score=float(v))
                                      for v,t in zip(values,tokens)],margin=float(values[0]-values[1]),
                         cached_choice_score=float(logits[0,left]),independent_choice_score=float(logits[0,right]))
-                return dict(status='diverged',arm=arm,token_index=step,common_token_ids=common,
+                return dict(status='diverged' if reference_tokens is None else 'fixed_history_decision',
+                    conditional_only=reference_tokens is not None,first_greedy_deviations=deviations,
+                    arm=arm,token_index=step,common_token_ids=common,
                     common_text=_token_text(bundle,common),cached_token_id=left,independent_token_id=right,
                     cached_is_eos=left in eos,independent_is_eos=right in eos,
-                    cached=scores(x),independent=scores(y),repetition_penalty=_REPETITION_PENALTY,
+                    cached=scores(x),independent=scores(y),
+                    raw_cached=scores(a.next_logits),raw_independent=scores(b.next_logits),
+                    repetition_penalty=_REPETITION_PENALTY,
                     max_abs_next_logits=float((x.float()-y.float()).abs().max()))
-            if left in eos:return dict(status='identical_to_stop',arm=arm,generated_tokens=len(common),stop_token_id=left)
+            if reference_tokens is not None:
+                forced=reference_tokens[step]
+                for route,choice in (('cached',left),('independent',right)):
+                    if choice!=forced and route not in deviations:
+                        deviations[route]=dict(token_index=step,greedy_token_id=choice,forced_token_id=forced)
+                left=forced
+            elif left in eos:return dict(status='identical_to_stop',arm=arm,generated_tokens=len(common),stop_token_id=left)
             common.append(left)
             token=torch.tensor([[left]],device=ids.device,dtype=ids.dtype)
             a,_=_append_token_ids(bundle,a,token);b,_=_append_token_ids(bundle,b,token)
     return dict(status='identical_to_limit',arm=arm,generated_tokens=len(common))
 
 
-def measure(bundle,inputs,cache,max_new_tokens=160,*,warmup_inputs=(),on_evidence=None):
+def measure(bundle,inputs,cache,max_new_tokens=160,*,warmup_inputs=(),on_evidence=None,reference_difference=None):
     import torch
     from qwen3vl_local.qwen35 import text_prefix
     helpers=_helpers()
@@ -171,7 +190,7 @@ def measure(bundle,inputs,cache,max_new_tokens=160,*,warmup_inputs=(),on_evidenc
             full_answers_identical=error is None,answer_difference=error,first_difference=difference,
             shared=shared,independent=independent,cached_repeat=None,independent_repeat=None,
             cached_repeat_identical=None,independent_repeat_identical=None,
-            logits=[],decision_trace=None)
+            logits=[],decision_trace=None,fixed_history_probe=None)
         if on_evidence:on_evidence(result)
         full_repeat=pair(False);cached_repeat=pair(True)
         result.update(cached_repeat=cached_repeat,independent_repeat=full_repeat,
@@ -180,6 +199,13 @@ def measure(bundle,inputs,cache,max_new_tokens=160,*,warmup_inputs=(),on_evidenc
         if on_evidence:on_evidence(result)
         if difference is not None:
             result['decision_trace']=trace_first_divergence(bundle,inputs,cache,difference['arm'],max_new_tokens,warmup_inputs)
+            if on_evidence:on_evidence(result)
+        if reference_difference is not None:
+            if len(reference_difference['common_token_ids'])>=max_new_tokens:
+                result['fixed_history_probe']=dict(status='no_decision_within_generation_budget',conditional_only=True)
+            else:
+                result['fixed_history_probe']=trace_first_divergence(bundle,inputs,cache,reference_difference['arm'],
+                    max_new_tokens,warmup_inputs,reference_tokens=reference_difference['common_token_ids'])
             if on_evidence:on_evidence(result)
         # Prompt-logit diagnostics retain their old tolerances but are not a
         # replacement for the complete generated-output gate.
@@ -204,6 +230,30 @@ def precision_summary(bf16,fp32):
     return 'mismatch_not_reproduced_on_these_inputs'
 
 
+def compare_controls(results,controls):
+    """Compare matched inputs; baseline outputs are a reference, not ground truth."""
+    _supplement('precision_controls').validate_controls(controls)
+    baseline={r['domain']:r for r in results if r['control']=='bf16'}
+    if len(baseline)!=2 or len(results)!=2*len(controls):raise ValueError('Incomplete precision control cases')
+    comparisons={};helpers=_helpers()
+    for control in controls:
+        rows=[r for r in results if r['control']==control]
+        if len(rows)!=2 or {r['domain'] for r in rows}!=set(baseline):raise ValueError('Control domains differ')
+        comparisons[control]={}
+        for r in rows:
+            ref=baseline[r['domain']]
+            for key in ('key','input_sha256','prompt_sha256','image_sha256','question_order','input_layout','text_cache_enabled','max_new_tokens'):
+                if r[key]!=ref[key]:raise ValueError('Inputs changed across precision controls: '+key)
+            stable=all(x[k] for x in (ref,r) for k in ('cached_repeat_identical','independent_repeat_identical'))
+            comparisons[control][r['domain']]=dict(
+                repeated_outputs_stable=stable,full_answers_identical=r['full_answers_identical'],
+                parity_restored_on_this_case=stable and not ref['full_answers_identical'] and r['full_answers_identical'],
+                cached_change_from_bf16=helpers.first_difference(ref['shared'],r['shared']),
+                independent_change_from_bf16=helpers.first_difference(ref['independent'],r['independent']),
+                quality_certified=False,cache_certified=False)
+    return comparisons
+
+
 def worker(args,version):
     args.output=args.output.resolve()
     if args.output.is_relative_to(args.source_run.resolve()) or args.output.is_relative_to(version.resolve()):
@@ -222,7 +272,8 @@ def worker(args,version):
     from qwen3vl_local.qwen35.vendor import modeling_qwen3_5 as vendor
     report=dict(status='running',source_run=str(args.source_run),version=str(version),mode=args.mode,
         policy=policy,diagnostic_sha256={p.name:proof.sha(p) for p in
-            (Path(__file__),Path(__file__).with_name('cache_checks.py'))},results=[],
+            (Path(__file__),Path(__file__).with_name('cache_checks.py'),Path(__file__).with_name('precision_controls.py'))},
+        controls=args.controls,results=[],
         optimizer_updates=0,adapter_loaded=False,quality_certified=False,cache_certified=False)
     report_path=args.output/'report.json'
     if report_path.exists():raise FileExistsError(report_path)
@@ -252,44 +303,43 @@ def worker(args,version):
             model_code_sha256=proof.sha(Path(vendor.__file__)),cache_code_sha256=proof.sha(Path(cache.__file__)),
             fp32_control='FP32 compute after promoting BF16-loaded weights; not an original-FP32 weight reload')
         proof.write(report_path,report)
-        for dtype in (torch.bfloat16,torch.float32):
+        controls=_supplement('precision_controls');baseline={}
+        for control in controls.validate_controls(args.controls):
             warmup_inputs=[]
-            if dtype==torch.float32:
-                # Preserve original rotary buffers for baseline BF16. FP32
-                # disables TF32 explicitly and keeps the same rounded weights.
-                bundle.model.float()
-                torch.backends.cuda.matmul.allow_tf32=False;torch.backends.cudnn.allow_tf32=False
-            if next(bundle.model.parameters()).dtype!=dtype:raise ValueError('Requested dtype not applied')
-            for item in cases:
-                case=dict(dtype=str(dtype),domain=item.row.question_domain,key=list(plan.identity(item.row)),status='running')
-                report['results'].append(case);proof.write(report_path,report)
-                answers=facts[plan.identity(item.row)];first,second=prompts.specs(item,answers)
-                paths=[item.row.history_rgb_paths[i] for i in history_rgb_indices(args.mode)]
-                images=plan.native._load_images(paths)
-                try:
-                    texts=prompts.texts(first,second,args.mode)
-                    inputs=[cache._device(cache.encode(bundle,images,text),device) for text in texts]
-                    if any(x['input_ids'].shape[1]>8192 for x in inputs):raise ValueError('Native context limit exceeded')
-                    case.update(prompt_sha256=[hashlib.sha256(t.encode()).hexdigest() for t in texts],
-                        image_sha256={str(p):proof.sha(p) for p in paths},question_order=[list(s.output_keys) for s in (first,second)],
-                        matmul_tf32=torch.backends.cuda.matmul.allow_tf32,cudnn_tf32=torch.backends.cudnn.allow_tf32)
-                    print(f'[cache-diagnose] layout={policy["input_layout"]} {dtype} domain={item.row.question_domain} start',flush=True)
-                    def retain(evidence):
-                        case.update(evidence);proof.write(report_path,report)
-                    case.update(measure(bundle,inputs,cache,args.max_new_tokens,warmup_inputs=warmup_inputs,on_evidence=retain));case['status']='measured'
-                    proof.write(report_path,report)
-                    print(f'[cache-diagnose] {dtype} domain={item.row.question_domain} answers_identical={case["full_answers_identical"]} first_difference={case["first_difference"]}',flush=True)
-                    warmup_inputs.append(inputs)
-                finally:
-                    for image in images:image.close()
+            if control=='fp32':bundle.model.float()
+            dtype=next(bundle.model.parameters()).dtype
+            with controls.apply(bundle.model,control) as profile:
+                for item in cases:
+                    case=dict(control=control,precision_profile=profile,dtype=str(dtype),domain=item.row.question_domain,key=list(plan.identity(item.row)),status='running')
+                    report['results'].append(case);proof.write(report_path,report)
+                    answers=facts[plan.identity(item.row)];first,second=prompts.specs(item,answers)
+                    paths=[item.row.history_rgb_paths[i] for i in history_rgb_indices(args.mode)]
+                    images=plan.native._load_images(paths)
+                    try:
+                        texts=prompts.texts(first,second,args.mode)
+                        inputs=[cache._device(cache.encode(bundle,images,text),device) for text in texts]
+                        if any(x['input_ids'].shape[1]>8192 for x in inputs):raise ValueError('Native context limit exceeded')
+                        case.update(prompt_sha256=[hashlib.sha256(t.encode()).hexdigest() for t in texts],
+                            image_sha256={str(p):proof.sha(p) for p in paths},question_order=[list(s.output_keys) for s in (first,second)],
+                            matmul_tf32=torch.backends.cuda.matmul.allow_tf32,cudnn_tf32=torch.backends.cudnn.allow_tf32)
+                        print(f'[cache-diagnose] layout={policy["input_layout"]} {control} domain={item.row.question_domain} start',flush=True)
+                        def retain(evidence):
+                            case.update(evidence);proof.write(report_path,report)
+                        reference=baseline.get(item.row.question_domain,{}).get('first_difference')
+                        case.update(measure(bundle,inputs,cache,args.max_new_tokens,warmup_inputs=warmup_inputs,
+                            on_evidence=retain,reference_difference=reference));case['status']='measured'
+                        if control=='bf16':baseline[item.row.question_domain]=case
+                        proof.write(report_path,report)
+                        print(f'[cache-diagnose] {control} domain={item.row.question_domain} answers_identical={case["full_answers_identical"]} first_difference={case["first_difference"]}',flush=True)
+                        warmup_inputs.append(inputs)
+                    finally:
+                        for image in images:image.close()
         runtime_version.verify(version)
         if source_policy(args.source_run,args.mode)!=policy:raise ValueError('Failed run evidence changed')
-        # Identical processing is required for the precision comparison.
-        for i in range(2):
-            if report['results'][i]['input_sha256']!=report['results'][i+2]['input_sha256']:
-                raise ValueError('Encoded input changed across precision controls')
-        report['precision_comparison']={r['domain']:precision_summary(r,report['results'][i+2])
-                                        for i,r in enumerate(report['results'][:2])}
+        report['control_comparison']=compare_controls(report['results'],args.controls)
+        if 'fp32' in args.controls:
+            report['precision_comparison']={r['domain']:precision_summary(baseline[r['domain']],r)
+                for r in report['results'] if r['control']=='fp32'}
         report['status']='diagnostic_complete_not_training_or_cache_certification'
     except BaseException as exc:
         report.update(status='failed',error=f'{type(exc).__name__}: {exc}')
@@ -306,8 +356,13 @@ def main():
     p.add_argument('--output',type=Path);p.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--check-only',action='store_true',help='Read saved layout/source on CPU; no GPU or model load')
     p.add_argument('--max-new-tokens',type=int,default=160)
+    p.add_argument('--controls',nargs='+',choices=_supplement('precision_controls').CONTROLS,default=['bf16','fp32'])
+    p.add_argument('--timeout',type=float,default=1800,help='Diagnostic worker timeout in seconds')
     args=p.parse_args();args.source_run=args.source_run.resolve()
     if not 1<=args.max_new_tokens<=512:p.error('Use 1..512 generated tokens')
+    try:_supplement('precision_controls').validate_controls(args.controls)
+    except ValueError as exc:p.error(str(exc))
+    if not math.isfinite(args.timeout) or args.timeout<=0:p.error('Use a finite positive timeout')
     policy=source_policy(args.source_run,args.mode);version=Path(policy['version'])
     args.model_dir=(args.model_dir or Path(policy['base_model'])).resolve()
     if args.worker:
@@ -318,7 +373,7 @@ def main():
         return worker(args,version)
     if args.check_only:
         print(json.dumps(dict(status='saved_policy_read_only',policy=policy,model_dir=str(args.model_dir),
-                              source_and_weights_verified=False,inference_executed=False),ensure_ascii=False,indent=2))
+                              controls=args.controls,timeout=args.timeout,source_and_weights_verified=False,inference_executed=False),ensure_ascii=False,indent=2))
         return
     gpu=subprocess.check_output(['nvidia-smi','--query-gpu=index,memory.used,utilization.gpu','--format=csv,noheader,nounits'],text=True)
     idle=[r.split(',')[0].strip() for r in gpu.splitlines() if float(r.split(',')[1])<256 and float(r.split(',')[2])<=5]
@@ -332,19 +387,19 @@ def main():
     output.mkdir(parents=True,exist_ok=False)
     from qwen3vl_local.sft_new_loop_phase1 import data_stage
     command=[sys.executable,'-B',str(Path(__file__).resolve()),'--worker','--source-run',str(args.source_run),
-        '--model-dir',str(args.model_dir),'--mode',args.mode,'--output',str(output),'--max-new-tokens',str(args.max_new_tokens)]
+        '--model-dir',str(args.model_dir),'--mode',args.mode,'--output',str(output),'--max-new-tokens',str(args.max_new_tokens),'--controls',*args.controls,'--timeout',str(args.timeout)]
     env={**os.environ,'CUDA_VISIBLE_DEVICES':selected,'GPU_IDS':selected,
          'AUTOMOT_TEXT_PREFIX':'1' if policy['input_layout']=='text_before_images_v1' else '0',
          'AUTOMOT_TEXT_PREFIX_CACHE':'1' if policy['text_cache_enabled'] else '0',
          'PYTHONUNBUFFERED':'1','PYTHONDONTWRITEBYTECODE':'1'}
     for name in ('RANK','WORLD_SIZE','LOCAL_RANK','LOCAL_WORLD_SIZE'):env.pop(name,None)
     try:
-        data_stage.run(command,output/'worker.json',timeout=1800,env=env)
+        data_stage.run(command,output/'worker.json',timeout=args.timeout,env=env)
     finally:
         with tarfile.open(archive,'x:gz') as tar:
             for name in ('report.json','worker.json','worker.log'):
                 if (output/name).is_file():tar.add(output/name,arcname=name,recursive=False)
-            for name in ('cache_diagnose.py','cache_checks.py'):
+            for name in ('cache_diagnose.py','cache_checks.py','precision_controls.py'):
                 tar.add(Path(__file__).with_name(name),arcname=name,recursive=False)
         print('[DIAGNOSTIC_BUNDLE] '+str(archive),flush=True)
 
