@@ -20,6 +20,8 @@ def bind_online_contract(bundle, config):
     from qwen3vl_local.qwen35.online_contract import _model_identity
     if config.get('contract')!=CONTRACT or config.get('prompt')!=prompts.identity(config['mode']):
         raise ValueError('Shared adapter/prompt/history contract mismatch')
+    from qwen3vl_local.qwen35 import cache_policy
+    cache_policy.bind(bundle,cache_policy.from_metadata(config))
     serialized=json.dumps(config,sort_keys=True,allow_nan=False)
     bundle.fusion_config=json.loads(serialized)
     bundle._shared_online_contract=(_model_identity(bundle.model),hashlib.sha256(serialized.encode()).hexdigest())
@@ -34,6 +36,8 @@ def bound_online_contract(bundle, mode=None):
     if current!=bound:raise ValueError('Shared model/active adapter/metadata changed; reload and bind')
     if cfg.get('contract')!=CONTRACT or cfg.get('prompt')!=prompts.identity(cfg['mode']):
         raise ValueError('Shared input layout/prompt contract changed')
+    from qwen3vl_local.qwen35 import cache_policy
+    cache_policy.validate(cache_policy.from_metadata(cfg),bundle)
     if mode is not None and mode!=cfg['mode']:raise ValueError('Shared RGB mode differs from adapter training contract')
     return cfg
 
@@ -80,6 +84,8 @@ def load_online_bundle(model_dir,adapter_dir,*,device,mode=None,dtype=torch.bflo
     if (config['contract']!=CONTRACT or config['prompt']!=prompts.identity(config['mode'])
             or (mode is not None and mode!=config['mode'])):
         raise ValueError('Shared adapter/prompt/history contract mismatch')
+    from qwen3vl_local.qwen35.cache_policy import from_metadata
+    from_metadata(config)  # reject policy drift before loading any model weights
     model=LocalModel.from_pretrained(str(model_dir),dtype=dtype)
     model=LocalPeftModel.from_pretrained(model,str(adapter_dir),is_trainable=False,torch_device='cpu').to(device).eval()
     processor=LocalProcessor.from_pretrained(str(model_dir))

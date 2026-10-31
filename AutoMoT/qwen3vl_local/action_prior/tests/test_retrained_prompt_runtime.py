@@ -1,4 +1,5 @@
 """New trained prompt revisions: strict restoration and executable prior rechecks."""
+from qwen3vl_local.qwen35 import cache_policy
 import contextlib
 import json
 import sys
@@ -29,7 +30,7 @@ def trained_module(phase,revision):
 
 
 def metadata(module,phase,mode='4rgb'):
-    return dict(prompt_name=module.PROMPT_NAME,history_rgb_mode=mode,input_layout=text_prefix.identity(),
+    return dict(prompt_name=module.PROMPT_NAME,history_rgb_mode=mode,input_layout=text_prefix.identity(),text_cache_policy=cache_policy.current(),
         history_rgb_count=4 if mode=='4rgb' else 2,history_rgb_selected_indices=[0,1,2,3] if mode=='4rgb' else [0,3],
         production_prompt_sha256=(module.phase1_prompt_sha256 if phase==1 else module.event_prompt_sha256)(history_rgb_mode=mode))
 
@@ -98,6 +99,7 @@ def test_runtime_uses_restored_modules_for_both_spec_and_render(monkeypatch):
     runtime.contract=dict(identity='fixture',phase1=dict(metadata=metadata(one,1)),phase2=dict(metadata=metadata(two,2)))
     runtime.rgb_frame_count=4;runtime.labels=None;runtime.online_text_prefix=True
     runtime._online_question_schedule=QuestionSchedule();runtime._phase_prefix_bundles={}
+    runtime._prior_cache_policies={p:cache_policy.serialize(cache_policy.current()) for p in ('phase1','phase2')}
     runtime.high_level_action_prior=False;runtime.generate_analysis=False;runtime.analysis_review=False
     runtime.recheck_mode='history';runtime.text_cache=None
     runtime.mode=lambda name:contextlib.nullcontext()

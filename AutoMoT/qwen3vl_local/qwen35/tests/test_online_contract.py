@@ -1,4 +1,5 @@
 """Rendering/contract tests; fake generation is not evidence of 4B model quality."""
+from qwen3vl_local.qwen35 import cache_policy
 import copy
 from types import SimpleNamespace
 import pytest
@@ -11,7 +12,7 @@ from qwen3vl_local.sft_new_loop_phase3.prompt_candidate import CANDIDATE_NAME
 def metadata(mode='4rgb', output='choice', variant=CANDIDATE_NAME):
     return dict(prompt_variant=variant,prompt_name=pc.prompt_name(variant),action_output_mode=output,
         history_rgb_mode=mode,history_rgb_count=4 if mode=='4rgb' else 2,
-        history_rgb_selected_indices=[0,1,2,3] if mode=='4rgb' else [0,3],input_layout=text_prefix.identity(),
+        history_rgb_selected_indices=[0,1,2,3] if mode=='4rgb' else [0,3],input_layout=text_prefix.identity(),text_cache_policy=cache_policy.current(),
         production_prompt_sha256=pc.action_prompt_sha256(history_rgb_mode=mode,action_output_mode=output,prompt_variant=variant))
 
 

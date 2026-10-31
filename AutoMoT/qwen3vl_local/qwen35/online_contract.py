@@ -25,6 +25,7 @@ class OnlinePromptContract:
     module: object
     prompt_sha256: str
     metadata_sha256: str
+    cache_policy: str
 
 
 def bind_prompt_contract(bundle, phase, metadata):
@@ -40,6 +41,8 @@ def bind_prompt_contract(bundle, phase, metadata):
         raise ValueError('Online adapter RGB metadata mismatch')
     layout = metadata.get('input_layout', 'images_before_text_legacy')
     if layout != text_prefix.identity():raise ValueError('Online adapter input layout mismatch')
+    from . import cache_policy
+    policy=cache_policy.from_metadata(metadata)
     variant = output_mode = None
     if phase == 3:
         from qwen3vl_local.sft_new_loop_phase3 import prompts as module, prompt_contract
@@ -56,7 +59,8 @@ def bind_prompt_contract(bundle, phase, metadata):
         raise ValueError('Online adapter production prompt SHA mismatch')
     contract = OnlinePromptContract(phase, _model_identity(bundle.model), layout, mode,
         output_mode, variant, module, expected,
-        hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest())
+        hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest(),cache_policy.serialize(policy))
+    cache_policy.bind(bundle,policy)
     bundle._online_prompt_contract = contract
     return contract
 
@@ -68,6 +72,8 @@ def bound_contract(bundle, phase, *, history_rgb_mode=None, action_output_mode=N
     if contract.model_identity != _model_identity(bundle.model):
         raise ValueError('Online model/active adapter changed; reload and bind its contract')
     if contract.input_layout != text_prefix.identity():raise ValueError('Online input layout changed')
+    from . import cache_policy
+    cache_policy.validate(json.loads(contract.cache_policy),bundle)
     for name, requested in (('history_rgb_mode', history_rgb_mode), ('action_output_mode', action_output_mode),
                             ('prompt_variant', prompt_variant)):
         if requested not in (None, 'auto') and requested != getattr(contract, name):

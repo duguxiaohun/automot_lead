@@ -39,6 +39,7 @@ class PriorEngine:
         self.online_text_prefix = bool(online_text_prefix)
         self._active_prior_phase = None
         self._phase_prefix_bundles = {}
+        self._prior_cache_policies = {}
         if self.online_text_prefix:
             from qwen3vl_local.qwen35 import text_prefix
             if not text_prefix.enabled() or labels is not None or rgb_frame_count != 4:
@@ -48,6 +49,8 @@ class PriorEngine:
                 if meta.get('input_layout') != text_prefix.identity():
                     raise ValueError('Online text prefix requires adapters trained with text-before-images layout')
                 prompt_module(phase, meta)
+                from qwen3vl_local.qwen35 import cache_policy
+                self._prior_cache_policies[f'phase{phase}']=cache_policy.serialize(cache_policy.from_metadata(meta))
             from qwen3vl_local.qwen35.question_schedule import for_bundle
             self._online_question_schedule=for_bundle(self, 'prior_engine')
             if self._online_question_schedule.slots != 1:
@@ -99,6 +102,18 @@ class PriorEngine:
         self.adapters.eval().requires_grad_(False)
         report("setup/loras_ready", announce=True)
 
+    def _check_cache_policy(self):
+        import json
+        from qwen3vl_local.qwen35 import cache_policy
+        policies=getattr(self,'_prior_cache_policies',{})
+        if getattr(self,'online_text_prefix',False) and not policies:
+            raise ValueError('Bind adapter cache deployment policies before closed-loop inference')
+        if policies and not self.online_text_prefix:raise ValueError('Closed-loop text cache mode changed')
+        for phase,record in policies.items():
+            if cache_policy.serialize(self.contract[phase]['metadata'].get(cache_policy.FIELD))!=record:
+                raise ValueError('Closed-loop adapter cache policy metadata changed')
+            cache_policy.validate(json.loads(record),self._phase_prefix_bundles.get(phase))
+
     @contextlib.contextmanager
     def mode(self, name):
         """每次切换清除旧 cache；base 时整段生成都禁用所有 LoRA。"""
@@ -129,6 +144,7 @@ class PriorEngine:
         """真实 assistant 后续问答，重做完整图文 prefill 保证多轮 M-RoPE 对齐。"""
         from qwen3vl_local.engine import GenerationTrace
 
+        self._check_cache_policy()
         engine = self.engine
         engine._last_decode_state = None
         if history:
@@ -165,6 +181,9 @@ class PriorEngine:
                 self._phase_prefix_bundles[phase] = SimpleNamespace(model=engine.model)
             bundle = self._phase_prefix_bundles[phase]
             bundle.model = engine.model
+            from qwen3vl_local.qwen35 import cache_policy
+            import json
+            cache_policy.bind(bundle,json.loads(self._prior_cache_policies[phase]))
             output = text_prefix.prefill(bundle, inputs)
             trace.prefill_cache_summary = text_prefix.report(bundle)
         else:
@@ -186,6 +205,7 @@ class PriorEngine:
         if self.labels is not None and identity is None:
             raise ValueError("dataset priors need the (scenario, run_id, frame) identity")
 
+        self._check_cache_policy()
         question_ticket = None
         question_seed = sample_key
         if self.online_text_prefix:

@@ -244,9 +244,9 @@ def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monke
     # Default image-first execution remains launchable against NEW source;
     # old checkpoints still require their original release hash/source.
     assert len(trial.verified_sources())==64
-    new_release=old_release.with_name('phase3_text_prefix_sources_r10_20261031.json')
+    new_release=old_release.with_name('phase3_text_prefix_sources_r11_20261031.json')
     spec=trial.read(new_release)
-    assert spec['parent_release_sha256']==trial.file_sha(old_release.with_name('phase3_text_prefix_sources_r9_20261031.json'))
+    assert spec['parent_release_sha256']==trial.file_sha(old_release.with_name('phase3_text_prefix_sources_r10_20261031.json'))
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     monkeypatch.setattr(trial,'RELEASE',new_release)
     monkeypatch.setattr(trial,'POLICY','phase3_independent_base_7680_text_prefix_v1')
@@ -258,6 +258,7 @@ def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monke
         'qwen3vl_local/sft_new_loop_phase3/eval.py',
         'qwen3vl_local/sft_new_loop_phase3/preflight.py',
         'qwen3vl_local/batch_runtime.py',
+        'qwen3vl_local/qwen35/adapters.py',  # r11 native metadata guard; backend math unchanged.
     }
     for name,sha in prior['files'].items():
         if name.startswith(('qwen3vl_local/sft_new_loop_phase3/','qwen3vl_local/sft_v2/','qwen3vl_local/qwen35/')) or name in ('qwen3vl_local/sequence_batch.py','qwen3vl_local/batch_runtime.py'):
@@ -270,7 +271,11 @@ def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monke
     old=subprocess.check_output(['git','show','06cda13d36a91253d9f81bba71299f825723ed9e:AutoMoT/qwen3vl_local/sft_new_loop_phase3/train.py'],text=True)
     functions=lambda text:[ast.dump(n) for n in ast.parse(text).body if isinstance(n,(ast.FunctionDef,ast.ClassDef))
         and n.name not in ('_save_adapter','_write_run_metadata')]
-    assert functions(old)==functions((trial.APP/'qwen3vl_local/sft_new_loop_phase3/train.py').read_text())
+    current=(trial.APP/'qwen3vl_local/sft_new_loop_phase3/train.py').read_text()
+    policy_binding='    from qwen3vl_local.qwen35.cache_policy import start_training\n    start_training(bundle)\n'
+    assert current.count(policy_binding)==1
+    # Only the explicit startup metadata binding is new; all training math stays exact.
+    assert functions(old)==functions(current.replace(policy_binding,''))
     broken=copy.deepcopy(spec);broken['files']['qwen3vl_local/qwen35/text_prefix.py']='0'*64
     monkeypatch.setattr(trial,'read',lambda path:broken)
     with pytest.raises(ValueError,match='Published trial source mismatch'):

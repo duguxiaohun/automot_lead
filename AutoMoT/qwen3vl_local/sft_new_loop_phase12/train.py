@@ -17,10 +17,16 @@ from . import data,plan,prompts,objective,evaluate,integrity,cache,validation,di
 
 
 def save(bundle,path,root,mode,step):
+    from qwen3vl_local.qwen35.cache_policy import saved_fields
+    policy=saved_fields(bundle)
+    if policy:
+        ready=proof.read(Path(root)/'ready.json')
+        if ready['text_cache_limits']!=policy['text_cache_policy']['limits'] or ready['cache_acceptance_protocol']!=cache.cache_checks.protocol():
+            raise ValueError('Saved adapter policy differs from CPU-ready acceptance')
     path=Path(path);path.mkdir(parents=True,exist_ok=False)
     save_adapter(bundle.unwrap(),path,safe_serialization=True)
     proof.write(path/'fusion_config.json',dict(contract=CONTRACT,mode=mode,step=step,
-        prompt=prompts.identity(mode),budget=integrity.budget(),ready_sha256=proof.sha(Path(root)/'ready.json')))
+        prompt=prompts.identity(mode),budget=integrity.budget(),ready_sha256=proof.sha(Path(root)/'ready.json'),**policy))
     proof.stamp_adapter(path)
 
 
@@ -133,6 +139,8 @@ def run(args):
         facts,rows,sampler_args,work,expected=stages.run('prepare_training',prepare_training)
         bundle=stages.run('load_model',lambda:load_model_with_lora(args.model_dir,device=device,
             lora_rank=16,lora_alpha=32,lora_dropout=.05,lora_vision_scope='off',strict_vision_scope=True,gradient_checkpointing=True))
+        from qwen3vl_local.qwen35.cache_policy import start_training
+        start_training(bundle)
         stages.run('prefix_probe',lambda:probe(bundle,index,ready['data_root'],args.mode,output,facts),rank0_only=True)
         bundle.model=stages.run('ddp_wrap',lambda:DDP(bundle.model,device_ids=[local],output_device=local,
             find_unused_parameters=False),timeout=300)

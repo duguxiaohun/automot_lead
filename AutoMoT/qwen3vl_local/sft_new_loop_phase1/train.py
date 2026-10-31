@@ -2149,11 +2149,14 @@ def evaluate_generation_probe(
 def _save_adapter(bundle: Any, output_dir: pathlib.Path, args: argparse.Namespace, *, step: int, name: str = "final") -> pathlib.Path:
     """保存 LoRA adapter 和 fused-loop 自描述配置。"""
 
+    from qwen3vl_local.qwen35.cache_policy import saved_fields
+    policy=saved_fields(bundle)
     final_dir = output_dir / str(name)
     final_dir.mkdir(parents=True, exist_ok=True)
     from qwen3vl_local.qwen35.adapters import save_adapter
     save_adapter(bundle.unwrap(), str(final_dir))
     cfg = {
+        **policy,
         "schema": "sft_new_loop_phase1_adapter_config",
         "route": "sft_new_loop_phase1_phase1_phase2_visible_facts",
         "dataset_name": DATASET_NAME,
@@ -2454,6 +2457,8 @@ def train(args: argparse.Namespace) -> None:
         strict_vision_scope=bool(args.strict_vision_scope),
         gradient_checkpointing=bool(args.gradient_checkpointing),
     )
+    from qwen3vl_local.qwen35.cache_policy import start_training
+    start_training(bundle)
     if rank == 0:
         runtime_info = backend_report()
         (output_dir / "model_runtime.json").write_text(json.dumps(runtime_info, indent=2)+"\n")

@@ -34,6 +34,8 @@ def validate_adapter(path, model=None, *, base_assets=None):
         require_weight_identity(base_assets)
         if recorded_assets != base_assets:
             raise ValueError("Adapter/base weights, tokenizer, config or processor assets differ")
+    from .cache_policy import adapter_policy
+    adapter_policy(root)
     return root
 
 
@@ -45,4 +47,8 @@ class LocalPeftModel:
         if getattr(model.config, "model_type", None) != "qwen3_5":
             raise ValueError("Qwen3.5 adapter requires Qwen3.5 base model")
         kwargs["local_files_only"] = True
-        return PeftModel.from_pretrained(model, str(path), *args, **kwargs)
+        from .cache_policy import adapter_policy,bind
+        native,policy=adapter_policy(path)
+        result=PeftModel.from_pretrained(model, str(path), *args, **kwargs)
+        if native:bind(result.get_base_model(),policy)
+        return result

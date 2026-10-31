@@ -134,6 +134,11 @@ class TextPrefixCache:
             self.clear()
             raise ValueError('Persistent text prefix cache is inference-only')
         native = _native(model)
+        from . import cache_policy
+        if hasattr(native,cache_policy.ATTR):
+            import json
+            from types import SimpleNamespace
+            cache_policy.validate(json.loads(getattr(native,cache_policy.ATTR)),SimpleNamespace(_text_prefix_cache=self))
         ids = inputs['input_ids']
         mask = inputs.get('attention_mask', torch.ones_like(ids))
         if ids.ndim != 2 or ids.shape[0] != 1 or not bool((mask == 1).all()):
@@ -231,6 +236,8 @@ def bank(bundle):
 
 def prefill(bundle, inputs):
     """旧模式保持完整前向，新模式复用纯文本。"""
+    from .cache_policy import check
+    check(bundle)
     if cache_enabled():
         return bank(bundle).prefill(bundle.model, inputs)
     return bundle.model(**inputs, use_cache=True, return_dict=True)

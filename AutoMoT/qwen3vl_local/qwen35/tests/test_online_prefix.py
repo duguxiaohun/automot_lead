@@ -1,4 +1,5 @@
 """CPU regression: production cache isolation, question windows and online routing."""
+from qwen3vl_local.qwen35 import cache_policy
 import copy
 from types import SimpleNamespace
 import pytest
@@ -74,7 +75,7 @@ def test_native_online_windows_keep_text_and_refresh_images_and_context(monkeypa
     from qwen3vl_local.sft_new_loop_phase3 import prompt_contract
     module={1:p1,2:p2,3:p3}[phase]
     meta=dict(prompt_name=module.PROMPT_NAME,history_rgb_mode='4rgb',history_rgb_count=4,
-              history_rgb_selected_indices=[0,1,2,3],input_layout=tp.identity())
+              history_rgb_selected_indices=[0,1,2,3],input_layout=tp.identity(),text_cache_policy=cache_policy.current())
     if phase==3:
         meta.update(action_output_mode='binary',prompt_variant='baseline',
                     production_prompt_sha256=prompt_contract.action_prompt_sha256())
@@ -103,7 +104,7 @@ def test_fused_predict_automatic_window_and_explicit_fixed_seed(monkeypatch):
     def generate(bundle,images,texts):
         seen.append(texts);return dict(branches=[dict(text=''),dict(text='')])
     monkeypatch.setattr(infer.cache,'generate',generate)
-    infer.bind_online_contract(b,dict(contract=infer.CONTRACT,mode='4rgb',prompt=prompts.identity('4rgb')))
+    infer.bind_online_contract(b,dict(text_cache_policy=cache_policy.current(),contract=infer.CONTRACT,mode='4rgb',prompt=prompts.identity('4rgb')))
     rows=[infer.predict(b,[i]*4,'4rgb',prompts.P2.ROAD_DOMAIN) for i in range(3)]
     assert seen[0]==seen[1] and rows[0]['schedule']['window']==0 and rows[2]['schedule']['window']==1
     fixed=infer.predict(b,[1]*4,'4rgb',prompts.P2.ROAD_DOMAIN,schedule=False)
@@ -122,7 +123,7 @@ def test_prior_engine_routes_only_adapter_requests_and_retains_no_history(model,
         apply_chat_template=lambda messages:seen.append(messages),prepare_inputs=lambda *a:inputs(),
         prefill=lambda item:full.append(True) or model(**item,use_cache=True),decode=lambda *a:torch.tensor([[1]]))
     runtime=PriorEngine.__new__(PriorEngine)
-    runtime.engine=engine;runtime.online_text_prefix=True;runtime._active_prior_phase='phase1';runtime._phase_prefix_bundles={}
+    runtime.engine=engine;runtime.online_text_prefix=True;runtime.contract={p:{'metadata':{'text_cache_policy':cache_policy.current()}} for p in ('phase1','phase2')};runtime._prior_cache_policies={p:cache_policy.serialize(cache_policy.current()) for p in ('phase1','phase2')};runtime._active_prior_phase='phase1';runtime._phase_prefix_bundles={}
     for i in range(2):runtime.generate_messages('system','followup',[i],history=[('first',f'answer{i}')])
     retained=tp.bank(runtime._phase_prefix_bundles['phase1'])
     assert retained.stats['full_hits']==1 and all(len(k)==65 for k in retained.entries)

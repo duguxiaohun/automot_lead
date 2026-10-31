@@ -307,6 +307,8 @@ def _validate_phase1_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path)
     if not cfg_path.exists():
         raise FileNotFoundError(f"missing sft_new_loop_phase1 adapter config: {cfg_path}")
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    from qwen3vl_local.qwen35.cache_policy import from_metadata
+    from_metadata(cfg)
     if cfg.get("route") != "sft_new_loop_phase1_phase1_phase2_visible_facts":
         raise ValueError(f"adapter route mismatch: {cfg.get('route')!r}")
     adapter_dataset = cfg.get("dataset_name")

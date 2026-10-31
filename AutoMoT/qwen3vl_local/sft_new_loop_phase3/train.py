@@ -1309,11 +1309,14 @@ def _save_adapter(
 ) -> pathlib.Path:
     """保存 LoRA adapter 和 phase3 自描述配置。"""
 
+    from qwen3vl_local.qwen35.cache_policy import saved_fields
+    policy=saved_fields(bundle)
     final_dir = output_dir / str(name)
     final_dir.mkdir(parents=True, exist_ok=True)
     from qwen3vl_local.qwen35.adapters import save_adapter
     save_adapter(bundle.unwrap(), str(final_dir))
     cfg = {
+        **policy,
         "schema": "sft_new_loop_phase3_adapter_config",
         "route": "sft_new_loop_phase3_high_level_action",
         "dataset_name": DATASET_NAME,
@@ -1767,6 +1770,8 @@ def train(args: argparse.Namespace) -> None:
         strict_vision_scope=bool(args.strict_vision_scope),
         gradient_checkpointing=bool(args.gradient_checkpointing),
     )
+    from qwen3vl_local.qwen35.cache_policy import start_training
+    start_training(bundle)
     if world_size > 1:
         bundle.model = DDP(
             bundle.model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False

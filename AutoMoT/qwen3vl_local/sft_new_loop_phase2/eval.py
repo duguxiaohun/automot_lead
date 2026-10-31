@@ -627,6 +627,8 @@ def _validate_event_adapter(adapter_dir: pathlib.Path, model_dir: pathlib.Path) 
     if not cfg_path.exists():
         raise FileNotFoundError(f"missing new Phase2 adapter config: {cfg_path}")
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    from qwen3vl_local.qwen35.cache_policy import from_metadata
+    from_metadata(cfg)
     if cfg.get("route") != "sft_new_loop_phase2_direct_event":
         raise ValueError(f"adapter route mismatch: {cfg.get('route')!r}")
     adapter_dataset = cfg.get("dataset_name")

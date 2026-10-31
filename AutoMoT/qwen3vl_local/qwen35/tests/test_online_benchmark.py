@@ -1,4 +1,5 @@
 """Real tiny hybrid model, synthetic processor; no 4B speed/quality certification."""
+from qwen3vl_local.qwen35 import cache_policy
 import copy
 import hashlib
 import json
@@ -43,7 +44,7 @@ def setup(model,tmp_path,phase):
     b=SimpleNamespace(model=model,device=torch.device('cpu'),processor=Processor(),tokenizer=Processor.tokenizer)
     context={}
     if phase==12:
-        cfg=dict(contract=CONTRACT,prompt=prompts.identity('2rgb_endpoints'),mode='2rgb_endpoints')
+        cfg=dict(text_cache_policy=cache_policy.current(),contract=CONTRACT,prompt=prompts.identity('2rgb_endpoints'),mode='2rgb_endpoints')
         from qwen3vl_local.sft_new_loop_phase12 import infer
         infer.bind_online_contract(b,cfg);context=dict(domain=prompts.P2.ROAD_DOMAIN)
     elif phase==3:
@@ -55,7 +56,7 @@ def setup(model,tmp_path,phase):
         name=versions.DIRECT8_NAME if phase==1 else 'sft_new_loop_phase2_direct_event_visual_v7_evidence_20261030'
         module=versions._restore(phase,name)
         cfg=dict(prompt_name=name,history_rgb_mode='2rgb_endpoints',history_rgb_count=2,
-                 history_rgb_selected_indices=[0,3],input_layout=tp.identity(),
+                 history_rgb_selected_indices=[0,3],input_layout=tp.identity(),text_cache_policy=cache_policy.current(),
                  production_prompt_sha256=(module.phase1_prompt_sha256 if phase==1 else module.event_prompt_sha256)(history_rgb_mode='2rgb_endpoints'))
         if phase==2:context=dict(domain=module.ROAD_DOMAIN)
     if phase!=12:online.bind_prompt_contract(b,phase,cfg)
@@ -221,13 +222,13 @@ def test_shared_single_task_predict_and_loader_preserve_contract(monkeypatch,tmp
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     model=SimpleNamespace(to=lambda device:model,eval=lambda:model)
     b=SimpleNamespace(model=model)
-    infer.bind_online_contract(b,dict(contract=CONTRACT,mode='2rgb_endpoints',prompt=prompts.identity('2rgb_endpoints')))
+    infer.bind_online_contract(b,dict(text_cache_policy=cache_policy.current(),contract=CONTRACT,mode='2rgb_endpoints',prompt=prompts.identity('2rgb_endpoints')))
     monkeypatch.setattr(infer,'_kv_start_state',lambda *a:None)
     monkeypatch.setattr(infer,'_student_generate_kv',lambda *a:('',None,torch.tensor([6])))
     for task in ('phase1','phase2'):
         result=infer.predict(b,[None]*2,'2rgb_endpoints',prompts.P2.ROAD_DOMAIN,task=task)
         assert result['task']==task and result['tokens']==1
-    cfg=dict(contract=CONTRACT,mode='2rgb_endpoints',prompt=prompts.identity('2rgb_endpoints'))
+    cfg=dict(text_cache_policy=cache_policy.current(),contract=CONTRACT,mode='2rgb_endpoints',prompt=prompts.identity('2rgb_endpoints'))
     (tmp_path/'fusion_config.json').write_text(json.dumps(cfg))
     calls=[]
     monkeypatch.setattr(infer.proof,'verify_adapter',lambda p:calls.append('identity'))
