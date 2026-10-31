@@ -1,5 +1,12 @@
 # 跨图片的文本前缀缓存（2026-10-30）
 
+## r13 CPU 基准修复（2026-10-31）
+
+`online_benchmark --device cpu` 和 GPU 均遵循 BF16 主干合同。独立 Phase1/2/3 与 shared
+Phase1+2 不再按 CPU 设备强制选择 FP32；完整前向对照也使用同一 BF16 模型。
+`--check-only` 不加载权重，不代替实际 worker 执行验证。CPU 仅用于小模型机制验证，
+独立 FP32 数值诊断仍保留，生产精度约束不放宽。Phase3 新清单 r13 保留所有历史清单。
+
 ## 当前默认：r12（2026-10-31，覆盖下文旧的默认关闭说明）
 
 新运行默认 `AUTOMOT_TEXT_PREFIX=1`、`AUTOMOT_TEXT_PREFIX_CACHE=1`，Phase1/2/3 当前原生/独立 base

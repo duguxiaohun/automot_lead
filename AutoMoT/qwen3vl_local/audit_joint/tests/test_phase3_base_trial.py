@@ -213,7 +213,7 @@ def test_preflight_real_sequence_plan_and_frozen_validation_without_model(tmp_pa
 def test_build_job_blocks_wrong_dataset_and_old_resume_before_writes(tmp_path,monkeypatch):
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')
     monkeypatch.setattr(trial,'POLICY','phase3_independent_base_7680_v1')
-    monkeypatch.setattr(trial,'RELEASE',Path(trial.__file__).with_name('phase3_prefix_capable_sources_r12_20261031.json'))
+    monkeypatch.setattr(trial,'RELEASE',Path(trial.__file__).with_name('phase3_prefix_capable_sources_r13_20261031.json'))
     index=tmp_path/'data/frame_index.jsonl';index.parent.mkdir();index.write_text('{}')
     base=tmp_path/'base';base.mkdir();(base/'config.json').write_text('{}')
     args=SimpleNamespace(index=index,data_root=index.parent,model_dir=base,resume=None,stage='quick')
@@ -239,7 +239,7 @@ def test_build_job_blocks_wrong_dataset_and_old_resume_before_writes(tmp_path,mo
 def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monkeypatch):
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')
     monkeypatch.setattr(trial,'POLICY','phase3_independent_base_7680_v1')
-    monkeypatch.setattr(trial,'RELEASE',Path(trial.__file__).with_name('phase3_prefix_capable_sources_r12_20261031.json'))
+    monkeypatch.setattr(trial,'RELEASE',Path(trial.__file__).with_name('phase3_prefix_capable_sources_r13_20261031.json'))
     # Historical manifests must reject changed source; never overwrite their SHA
     # just to make a new optional inference protocol look like the old release.
     old_release=trial.RELEASE.with_name('phase3_base_trial_sources.json')
@@ -250,9 +250,9 @@ def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monke
     # Explicit legacy image-first execution remains launchable against NEW source;
     # old checkpoints still require their original release hash/source.
     assert len(trial.verified_sources())==64
-    new_release=old_release.with_name('phase3_text_prefix_sources_r12_20261031.json')
+    new_release=old_release.with_name('phase3_text_prefix_sources_r13_20261031.json')
     spec=trial.read(new_release)
-    assert spec['parent_release_sha256']==trial.file_sha(old_release.with_name('phase3_text_prefix_sources_r11_20261031.json'))
+    assert spec['parent_release_sha256']==trial.file_sha(old_release.with_name('phase3_text_prefix_sources_r12_20261031.json'))
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     monkeypatch.setattr(trial,'RELEASE',new_release)
     monkeypatch.setattr(trial,'POLICY','phase3_independent_base_7680_text_prefix_v1')

@@ -25,12 +25,12 @@ from .phase3_continue import write, read, gpu_ids
 
 APP = Path(__file__).resolve().parents[2]
 REFERENCE = Path(__file__).with_name('phase3_sequence_reference.json')
-RELEASE = Path(__file__).with_name('phase3_prefix_capable_sources_r12_20261031.json')
+RELEASE = Path(__file__).with_name('phase3_prefix_capable_sources_r13_20261031.json')
 POLICY = 'phase3_independent_base_7680_v1'
 # New release only: old manifests/checkpoints remain strict and unmodified.
 from qwen3vl_local.qwen35.text_prefix import enabled as text_prefix_enabled
 if text_prefix_enabled():
-    RELEASE = Path(__file__).with_name('phase3_text_prefix_sources_r12_20261031.json')
+    RELEASE = Path(__file__).with_name('phase3_text_prefix_sources_r13_20261031.json')
     POLICY = 'phase3_independent_base_7680_text_prefix_v1'
 
 

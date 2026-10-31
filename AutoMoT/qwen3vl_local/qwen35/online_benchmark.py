@@ -345,10 +345,10 @@ def worker(args):
         if args.phase==12:
             from qwen3vl_local.sft_new_loop_phase12.infer import load_online_bundle
             bundle=load_online_bundle(args.model_dir,args.adapter_dir,device=args.device,
-                                      dtype=torch.float32 if args.device=='cpu' else torch.bfloat16)
+                                      dtype=torch.bfloat16)
         else:
             bundle=online.load_online_bundle(args.model_dir,args.adapter_dir,args.phase,device=args.device,
-                                            dtype=torch.float32 if args.device=='cpu' else torch.bfloat16)
+                                            dtype=torch.bfloat16)
         report.update(environment=environment(),base_asset_sha256=getattr(bundle.model.config,'local_asset_sha256',None))
         verify_file_bindings(args,package,bindings);report['source_files_verified_after_load']=True
         write(output/'report.json',report)
@@ -384,7 +384,8 @@ def main():
     parser.add_argument('--repeats',type=int,default=2)
     parser.add_argument('--deadline-ms',type=float)
     parser.add_argument('--timeout',type=float,default=7200,help='Worker timeout in seconds')
-    parser.add_argument('--device',choices=('cpu','cuda:0'),default='cuda:0')
+    parser.add_argument('--device',choices=('cpu','cuda:0'),default='cuda:0',
+                        help='Execution device; both use the BF16 production contract. CPU is for small-model checks.')
     parser.add_argument('--check-only',action='store_true',help='CPU-only request/prompt validation; no model load')
     parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     args=parser.parse_args()
