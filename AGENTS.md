@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-31 固定窗口文本缓存计时补充（r14）
+
+用户提交的 cr02 4B/BF16 probe 已通过两图/四图、两个域的常驻正确性检查；原计时流零完整命中、部分输出截断，不能称已加速。新增 shared `stream-probe` 单卡入口，从新 CPU-ready 原有验证成员取两组不同像素 RGB，固定域，回放两个题序窗口；无已训练 adapter 也可运行，不更新参数。要求换图命中、窗口轮换引发新前缀及新窗口再次命中，独立记录失败和截断；这是机制 smoke，不是自然驾驶流或任务质量验收。
+
+Phase1/2/3/1+2 原生在线基准 v4 增加重复同分段重算 `fresh` 对照，输出/停止状态必须与复用一致；正反交替计时，主指标为 `same_partition_saving_fraction`，完整前向对照单列。保留完整前向差异诊断、严格状态/驻留检查、BF16 与训练完整反传；不改标定、采样、预算和标签库。Phase3 新发布 r14 清单，旧清单/冻结运行不改。远程命令和打包见 `AutoMoT/qwen3vl_local/sft_new_loop_phase12/README.md` r14，需要新 CPU-ready 绑定源码；本轮新增计时仍待 4B GPU 实测，不能将旧 probe 冒称新版速度验收。
+
 ### 2026-10-31 新运行统一默认文本 KV 与 BF16（用户明确，覆盖早先默认关闭）
 
 Phase1/2/3 当前独立 base、shared Phase1+2 新运行默认 `text_before_images_v1`，推理默认跨图片复用 system＋问题的纯文本 KV；不同图片重新计算视觉及其语言状态。训练同布局但仍完整反传，不跨 optimizer 更新保留推理 KV。`AUTOMOT_TEXT_PREFIX=0` 明确选择旧布局，历史冻结源码、回执及旧权重不重写；旧 image-first 权重不得直接切换到新默认布局。PriorEngine 在 LoRA 先验模式随布局默认开启；数据集真值先验不做模型问答，保持原行为。

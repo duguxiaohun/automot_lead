@@ -74,7 +74,10 @@ def summarize(run,deadline_ms=None):
                      for kind in ('first','window_changed','context_changed')},
         deadline_ms=deadline_ms,
         deadline_exceeded=sum(f['seconds']*1000>deadline_ms for f in frames) if deadline_ms is not None else None,
-        generation_calls=len(queries),generated_tokens=sum(q['answer']['generated_tokens'] for q in queries))
+        generation_calls=len(queries),generated_tokens=sum(q['answer']['generated_tokens'] for q in queries),
+        token_limit_calls=sum(q['answer']['reached_token_limit'] for q in queries),
+        token_limit_fraction=sum(q['answer']['reached_token_limit'] for q in queries)/len(queries) if queries else None,
+        stopped_calls=sum(q['answer']['stop_token_id'] is not None for q in queries))
 
 
 def assert_same(left,right,*,require_outputs=True):
@@ -208,19 +211,24 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
                             max_new_tokens=max_new_tokens,on_evidence=(lambda r:on_run('resident_text_stream',r)) if on_run else None)
     trials=[]
     for repeat in range(repeats):
-        order=('full','cached') if repeat%2==0 else ('cached','full')
+        order=('full','fresh','cached') if repeat%2==0 else ('cached','fresh','full')
         trial=dict(order=list(order))
         for name in order:
-            trial[name]=recorded_run(f'trial_{repeat:02d}_{name}',name=='cached');assert_same(cold if name=='cached' else reference,trial[name])
+            trial[name]=recorded_run(f'trial_{repeat:02d}_{name}','fresh' if name=='fresh' else name=='cached')
+            assert_same(reference if name=='full' else cold,trial[name])
         trials.append(trial)
         if on_trial:on_trial(repeat,trial)
     cache_s=sum(t['cached']['seconds'] for t in trials);full_s=sum(t['full']['seconds'] for t in trials)
     cache_model=sum(t['cached']['summary']['model']['total_seconds'] for t in trials)
     full_model=sum(t['full']['summary']['model']['total_seconds'] for t in trials)
-    return dict(protocol='native_online_stream_v3',phase=phase,cold_cached=cold,cold_full=reference,trials=trials,
+    fresh_s=sum(t['fresh']['seconds'] for t in trials)
+    fresh_model=sum(t['fresh']['summary']['model']['total_seconds'] for t in trials)
+    return dict(protocol='native_online_stream_v4',phase=phase,cold_cached=cold,cold_full=reference,trials=trials,
         summary={name:summarize(dict(frames=[f for t in trials for f in t[name]['frames']]),deadline_ms)
-                 for name in ('cached','full')},
+                 for name in ('cached','fresh','full')},
         saving_fraction=1-cache_s/full_s,model_saving_fraction=1-cache_model/full_model,
+        same_partition_saving_fraction=1-cache_s/fresh_s,
+        same_partition_model_saving_fraction=1-cache_model/fresh_model,
         complete_output_equivalence=not differences,full_output_differences=differences,
         recomputed_split=recomputed,same_partition_equivalence=True,resident_text_stream=resident,
         quality_certified=False,carla_certified=False,
@@ -231,7 +239,8 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         scope='native phase inputs + image IO/decode + processor/transfer + model + audit hashing; excludes model load, PriorEngine rechecks, batch/reuse_rgb and CARLA controller',
         timing=dict(quantile='nearest_rank',cache_reset='every arm starts empty',
                     cold_means='text cache cold, not OS disk or GPU hardware cold',
-                    primary='all requests in alternating replay trials, including cache builds and switches',
+                    primary='same_partition_saving_fraction: cached versus freshly rebuilt canonical split; all requests, including builds and switches',
+                    full_control='saving_fraction/model_saving_fraction compare full forward; different output lengths may confound these diagnostics',
                     clone_and_invalidation_included=True,hashing_included=True,
                     output_work_note='full control may decode different tokens/length; savings are not pure equal-output KV savings'),
         device=str(bundle.device),dtype=str(next(bundle.model.parameters()).dtype))

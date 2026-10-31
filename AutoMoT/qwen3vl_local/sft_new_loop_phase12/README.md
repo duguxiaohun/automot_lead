@@ -1,10 +1,65 @@
 # 单个 LoRA 的 Phase1 + Phase2 独立问答实验
 
 用户于2026-10-29明确要求新增融合实验。现有独立 Phase1/Phase2、历史权重与运行保持原状。
-当前新运行合同为 `phase12_shared_lora_v4_phase2_authority_20261030`；旧v1/v2/v3冻结源码/ready不覆盖或迁移。
+当前新运行合同为 `phase12_shared_lora_v5_output_parity_20261030`；旧v1/v2/v3冻结源码/ready不覆盖或迁移。
 每个图像模式训练一个共用 LoRA：两图模型同时回答P1/P2，四图模型也同时回答P1/P2；
 两图与四图仍是两个独立实验，并非把两种图数混成一个训练集。
 
+
+## 2026-10-31 r14：固定题序窗口的单卡计时检查
+
+cr02 上一轮真实 4B/BF16 probe 的两图/四图、两个问题域均通过双题常驻控制：
+每组 2 次建缓存、4 次完整命中、0 淘汰，约 292–317 MiB；这只支持受检缓存正确性。
+原普通计时流没有完整命中，且有回答达到 160 token 上限，不能用来认定缓存加速或任务质量。
+
+新增 `stream-probe` 从 CPU-ready 的原有验证成员取同域两组 RGB，按 A→B→A→B 回放，
+每两组输入轮换一次原生题序，检查首次换图的双题完整命中、换题产生新前缀及新窗口再次命中。
+同一个未训练 LoRA 顺序检查两种图数、两个问题域，不保存训练权重、不更新参数。
+这是固定上下文的机制/计时 smoke，不代表自然闭环流量、训练后质量或默认 32 组窗口收益。
+
+各阶段 `qwen35.online_benchmark` 统一升级到 v4：重复回放三条路径，
+顺序为 `full→fresh→cached`、`cached→fresh→full`，每条从空缓存和同一题序起步。
+`fresh` 每次请求重新计算同一规范文本分段，必须与复用路径逐 token/停止状态一致；
+主指标 `same_partition_saving_fraction`（含图片 IO、processor、传输、审计哈希）及
+`same_partition_model_saving_fraction`（模型部分）使用这个相同输出工作量的对照，
+包括首次建缓存、换题与 clone。负值如实保留；没有达到某个速度阈值的自动认证。
+旧 `saving_fraction` 保留为完整前向对照，生成长度不同时不能当作纯缓存收益。
+所有路径单列 `token_limit_calls/token_limit_fraction/stopped_calls`，达到上限不算质量通过。
+默认 smoke 上限 32 token，可用 `--stream-max-new-tokens 160` 扩大，最长 512。
+
+无需已训练 adapter；需要新建 CPU-ready 绑定本轮源码，旧目录和旧回执不覆盖。
+原始标签库不必重建；继续保留你原先 CPU 命令的 `--phase1-data`、`--phase2-data`、
+`--history-contract` 等路径参数。cr02/cee 都在当前 AutoMoT 根目录、激活原环境执行：
+
+```bash
+(
+set -e
+ulimit -S -c 0
+bash ./sync_automot.sh
+export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1
+export AUTOMOT_TEXT_PREFIX_CACHE_ENTRIES=2 AUTOMOT_TEXT_PREFIX_CACHE_MIB=1024
+export AUTOMOT_TEXT_PREFIX_CACHE_TOKENS=8192
+STREAM_RUN="checkpoints/phase12_shared/stream_$(date +%Y%m%d_%H%M%S)_$$"
+python -B -m qwen3vl_local.sft_new_loop_phase12 cpu --run-dir "$STREAM_RUN"
+result=0
+env -u GPU_IDS python -B -m qwen3vl_local.sft_new_loop_phase12 stream-probe   --run-dir "$STREAM_RUN" || result=$?
+# 测试失败也打包已存在的证据；不包含模型、数据或训练源码快照。
+artifacts=()
+for name in ready.json execution.json status.json stream_probes; do
+  if [ -e "$STREAM_RUN/$name" ]; then artifacts+=("$name"); fi
+done
+tar -czf "${STREAM_RUN}_stream.tar.gz" -C "$STREAM_RUN" "${artifacts[@]}"
+echo "请下载：${STREAM_RUN}_stream.tar.gz（测试退出码 $result）"
+exit "$result"
+)
+```
+
+自动选择一张空闲卡；指定卡时将 `env -u GPU_IDS` 换成 `env GPU_IDS=0`。
+成功回执为 `stream_reuse_and_timing_checked_quality_pending`，并要求
+`source_verified_after_measurement=true`。即使成功，也要检查耗时、命中和截断数再解释收益。
+训练后的 Phase1/2/3/1+2 adapter 继续用 `qwen35.online_benchmark` 和真实顺序的 requests JSONL
+做同一三路径比较；Phase3 实际流的速度/导航上下文仍逐帧保留，不为提高命中冻结动态输入。
+Phase3 单独发布 r14 新源码清单，旧清单/失败目录不重写。标定、采样、训练预算与 BF16 合同未改。
 
 ## 2026-10-31 r13：CPU 在线基准也遵循 BF16 合同
 

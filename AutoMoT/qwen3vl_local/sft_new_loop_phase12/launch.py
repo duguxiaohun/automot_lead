@@ -84,17 +84,23 @@ def worker(args):
               "training sampler unchanged; highway validation NOT certified; historical quality pending",flush=True)
         if args.command=='cpu':
             state.update(status='cpu_ready_model_training_not_started');return
-        if args.command=='probe':
+        if args.command in ('probe','stream-probe'):
             ids=gpu_ids(count=1)
-            output=root/'probes'/f'run_{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}'
+            stream=args.command=='stream-probe'
+            output=root/('stream_probes' if stream else 'probes')/f'run_{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}'
             output.mkdir(parents=True,exist_ok=False)
             command=[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase12.train',
                 '--run-dir',str(root),'--model-dir',str(args.model_dir),'--mode','2rgb_endpoints',
                 '--probe-only','--probe-output',str(output)]
+            if stream:
+                command=[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase12.stream_probe',
+                    '--run-dir',str(root),'--model-dir',str(args.model_dir),'--output',str(output),
+                    '--max-new-tokens',str(args.stream_max_new_tokens)]
             data_stage.run(command,output/'worker.json',timeout=3600,
                 env={**env,'CUDA_VISIBLE_DEVICES':ids[0],'GPU_IDS':ids[0]})
             runtime.verify(args.version);integrity.verify_ready(root)
-            state.update(status='single_gpu_probe_passed_training_not_started',probe=str(output))
+            state.update(status=('single_gpu_stream_probe_passed_training_not_started' if stream
+                                 else 'single_gpu_probe_passed_training_not_started'),probe=str(output))
             print('[PREFIX_PROBE] '+str(output),flush=True)
             return
         ids=gpu_ids()
@@ -120,7 +126,9 @@ def worker(args):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('command',choices=('all','cpu','train','prepare','probe'))
+    p=argparse.ArgumentParser();p.add_argument('command',choices=('all','cpu','train','prepare','probe','stream-probe'))
+    p.add_argument('--stream-max-new-tokens',type=int,default=32,
+                   help='stream-probe generation cap (1..512); truncations are reported, not quality-certified')
     p.add_argument('--run-dir',type=Path);p.add_argument('--version',type=Path,help=argparse.SUPPRESS)
     p.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--phase1-data',type=Path,default=APP/'checkpoints/sft_new_loop_phase1_data')
@@ -131,10 +139,11 @@ def main():
     p.add_argument('--action-index',default='auto')
     p.add_argument('--history-contract',type=Path,default=APP/'checkpoints/phase12_history_20261030/contract.json')
     args=p.parse_args()
+    if not 1<=args.stream_max_new_tokens<=512:p.error('Use 1..512 stream tokens')
     for name in ('phase1_data','phase2_data','data_root','collection_dir','model_dir','history_contract'):
         setattr(args,name,getattr(args,name).resolve())
     if args.run_dir is None:
-        if args.command in ('train','prepare','probe'):p.error('Exact --run-dir required')
+        if args.command in ('train','prepare','probe','stream-probe'):p.error('Exact --run-dir required')
         args.run_dir=APP/'checkpoints/phase12_shared'/f'run_{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}'
     args.run_dir=args.run_dir.resolve()
     if args.command=='prepare':
@@ -151,9 +160,11 @@ def main():
     if not args.run_dir.is_dir():raise ValueError('Missing CPU-ready directory')
     with (args.run_dir/'launch.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        if args.command in ('train','probe'):
+        if args.command in ('train','probe','stream-probe'):
             execution=proof.read(args.run_dir/'execution.json');version=Path(execution['version'])
             if execution['origin']!=str(APP):raise ValueError('CPU-ready run belongs to another machine')
+            if args.command=='stream-probe' and not (version/'app/qwen3vl_local/sft_new_loop_phase12/stream_probe.py').is_file():
+                raise ValueError('Old CPU-ready lacks stream-probe; create a new CPU-ready run, do not rewrite the old one')
             if args.command=='train' and ((args.run_dir/'runs').exists() or list(args.run_dir.glob('*_train.json'))):
                 raise ValueError('Training already attempted; no implicit restart or overwrite')
         else:
@@ -163,6 +174,7 @@ def main():
             '--version',str(version),'--run-dir',str(args.run_dir),'--phase1-data',str(args.phase1_data),
             '--phase2-data',str(args.phase2_data),'--data-root',str(args.data_root),'--collection-dir',str(args.collection_dir),
             '--model-dir',str(args.model_dir),'--action-index',args.action_index,'--history-contract',str(args.history_contract)]
+        if args.command=='stream-probe':cmd.extend(['--stream-max-new-tokens',str(args.stream_max_new_tokens)])
         subprocess.run(cmd,cwd=version/'app',env={**os.environ,'PYTHONPATH':str(version/'app')},check=True)
         runtime.verify(version)
 

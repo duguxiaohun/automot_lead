@@ -80,11 +80,11 @@ def test_paired_native_stream_cold_switch_and_independent_state(model,tmp_path,m
     assert result['complete_output_equivalence'] and not result['quality_certified'] and not result['carla_certified']
     assert result['policy']['generation_calls_per_frame']==calls and not result['policy']['prior_engine_rechecks']
     assert not result['policy']['equal_forward_call_count_required']
-    assert result['trials'][0]['order']==['full','cached'] and result['trials'][1]['order']==['cached','full']
+    assert result['trials'][0]['order']==['full','fresh','cached'] and result['trials'][1]['order']==['cached','fresh','full']
     assert b._question_schedules=={'production':schedule} and schedule.requests==1
     assert tp.bank(b) is production and production.stats['requests']==0
     for trial in result['trials']:
-        for arm in ('full','cached'):
+        for arm in ('full','fresh','cached'):
             run=trial[arm];summary=run['summary']
             assert summary['generation_calls']==4*calls
             assert summary['deadline_exceeded']==4
@@ -98,6 +98,11 @@ def test_paired_native_stream_cold_switch_and_independent_state(model,tmp_path,m
         assert cached['cache']['requests']==4*calls
         if phase==3:assert cached['frames'][3]['queries'][0]['cache_class']!='full_hit'
     assert result['summary']['cached']['generation_calls']==8*calls
+    assert result['same_partition_saving_fraction']==1-sum(t['cached']['seconds'] for t in result['trials'])/sum(t['fresh']['seconds'] for t in result['trials'])
+    for trial in result['trials']:
+        bench.assert_same(trial['cached'],trial['fresh'])
+        assert trial['fresh']['summary']['cache_classes']['miss']['count']==4*calls
+        assert trial['cached']['summary']['token_limit_calls']+trial['cached']['summary']['stopped_calls']==4*calls
     assert result['saving_fraction']==1-sum(t['cached']['seconds'] for t in result['trials'])/sum(t['full']['seconds'] for t in result['trials'])
 
 
@@ -312,4 +317,21 @@ def test_stable_full_path_difference_is_recorded_without_waiving_reuse(model,tmp
     result=bench.benchmark(b,1,rows,max_new_tokens=1)
     assert result['same_partition_equivalence'] and not result['complete_output_equivalence']
     assert len(result['full_output_differences'])==4
-    assert result['protocol']=='native_online_stream_v3' and not result['quality_certified']
+    assert result['protocol']=='native_online_stream_v4' and not result['quality_certified']
+
+
+def test_repeated_fresh_baseline_must_match_output_and_keeps_failure(model,tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');b,rows,_=setup(model,tmp_path,1)
+    decode=bench._decode;saved={};corrupt=[False]
+    def changed(*args):
+        answer=decode(*args)
+        if corrupt[0]:answer['text']+=' injected fresh baseline drift'
+        return answer
+    def record(name,value):
+        saved[name]=value
+        if name=='trial_00_full':corrupt[0]=True
+    monkeypatch.setattr(bench,'_decode',changed)
+    with pytest.raises(ValueError,match='token/EOS/text'):
+        bench.benchmark(b,1,rows,max_new_tokens=1,on_run=record)
+    assert 'trial_00_fresh' in saved and 'trial_00_cached' not in saved
+    assert saved['trial_00_fresh']['frames'][0]['queries'][0]['answer']['text'].endswith('baseline drift')

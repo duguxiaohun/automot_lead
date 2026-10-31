@@ -1,5 +1,18 @@
 # 跨图片的文本前缀缓存（2026-10-30）
 
+## r14 同分段计时与远程 smoke（2026-10-31）
+
+`online_benchmark` 对 Phase1/2/3/1+2 增加重复的 `fresh` 对照：每次重建相同文本分段，
+与复用输出严格一致。主指标 `same_partition_saving_fraction` 包含所有首次建缓存/换题成本，
+模型部分另见 `same_partition_model_saving_fraction`；完整前向对照仅作单独诊断。
+三路径顺序正反交替，单列截断次数/比例及正常停止次数，短输出 smoke 不冒称回答质量通过。
+
+无新布局 adapter 时，用 `sft_new_loop_phase12 stream-probe --run-dir NEW_CPU_READY` 单卡检查：
+两图/四图、两个域，各两组现有验证 RGB 回放两个固定题序窗口，要求换图完整命中和换题重建。
+默认 32 token、不执行训练更新、回执明确标记未训练 LoRA；说明和失败也打包的命令见
+[共享 README](../sft_new_loop_phase12/README.md)。需新 CPU-ready，无需重建原始标签库。
+历史 4B probe 已通过受检缓存正确性，本次新增计时路径仍待远程实测，不能宣称加速。
+
 ## r13 CPU 基准修复（2026-10-31）
 
 `online_benchmark --device cpu` 和 GPU 均遵循 BF16 主干合同。独立 Phase1/2/3 与 shared
