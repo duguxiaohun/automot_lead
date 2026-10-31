@@ -4,14 +4,41 @@ from pathlib import Path
 
 FIELD='text_cache_policy'
 ATTR='_text_cache_policy'
-SCHEMA='text_cache_deployment_v1_20261031'
+SCHEMA='text_cache_deployment_v2_bf16_20261031'
 
 
 def current():
     from . import text_prefix as tp
     if not tp.enabled():return None
     return dict(schema=SCHEMA,input_layout=tp.identity(),enabled=tp.cache_enabled(),
-                limits=tp.cache_limits(),partition='canonical_complete_or_capped_text_v1')
+                limits=tp.cache_limits(),partition='canonical_complete_or_capped_text_v1',
+                precision='bf16_base_native_fp32_v1')
+
+
+def inference_dtype(dtype=None):
+    """BF16 is the production text-prefix contract; FP32 controls remain diagnostic."""
+    import torch
+    from . import text_prefix as tp
+    dtype = torch.bfloat16 if dtype is None else dtype
+    aliases={'bfloat16':torch.bfloat16,'float16':torch.float16,'float32':torch.float32}
+    dtype=aliases.get(dtype,dtype)
+    if tp.enabled() and dtype != torch.bfloat16:
+        raise ValueError('Text-prefix production requires BF16; use isolated diagnostics for other precisions')
+    return dtype
+
+
+def check_model_precision(model):
+    """Base weights stay BF16; LoRA masters and native internal FP32 math are preserved."""
+    import torch
+    model=getattr(model,'module',model)
+    if hasattr(model,'get_base_model'):model=model.get_base_model()
+    if getattr(getattr(model,'config',None),'model_type',None)!='qwen3_5':return
+    wrong=[(name,str(p.dtype)) for name,p in model.named_parameters()
+           if p.is_floating_point() and p.dtype!=(torch.float32 if 'lora_' in name else torch.bfloat16)]
+    if wrong:raise ValueError(f'Text-prefix production requires BF16 base weights and FP32 LoRA masters; mismatched parameters: {wrong[:3]}')
+    for device in ('cpu','cuda'):
+        if torch.is_autocast_enabled(device) and torch.get_autocast_dtype(device)!=torch.bfloat16:
+            raise ValueError('Text-prefix production requires BF16 autocast')
 
 
 def serialize(policy):
@@ -25,6 +52,8 @@ def validate(policy,owner=None):
         raise ValueError(f'Text cache deployment policy differs from adapter; expected={policy}, actual={actual}. '
                          'Use the adapter settings; changed settings require new acceptance.')
     if policy is not None:
+        import torch
+        check_model_precision(owner if isinstance(owner,torch.nn.Module) else getattr(owner,'model',None))
         bank=getattr(owner,'_text_prefix_cache',None)
         if bank is not None and {k:getattr(bank,k) for k in ('max_entries','max_bytes','max_tokens')}!=policy['limits']:
             raise ValueError('Resident cache limits differ from adapter deployment policy')

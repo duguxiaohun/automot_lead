@@ -95,9 +95,9 @@ def verify_ready(root,phase,version):
     from qwen3vl_local.qwen35.text_prefix import identity as input_layout
     if ready.get('input_layout','images_before_text_legacy')!=input_layout():
         raise ValueError('CPU-ready input layout differs; create a fresh matching run')
-    if ready.get('revision')==REVISION_P2_TASKMIX:
+    if input_layout()=='text_before_images_v1':
         from qwen3vl_local.qwen35 import cache_policy
-        cache_policy.validate(ready['text_cache_policy'])
+        cache_policy.validate(ready.get('text_cache_policy'))
     runtime.verify(version)
     for path,sha in ready['files'].items():
         if proof.sha(path)!=sha:raise ValueError('CPU evidence changed: '+path)
@@ -199,7 +199,7 @@ def worker(args):
             ready=dict(input_layout=input_layout(),contract=CONTRACT,phase=phase,version=str(version),index=str(index),
                        data=proof.data_identity(index),files=files,mode_order=MODES,
                        expected_updates_per_mode=budget['expected_updates'],budget=budget,revision=revision)
-            if revision==REVISION_P2_TASKMIX:
+            if input_layout()=='text_before_images_v1':
                 from qwen3vl_local.qwen35 import cache_policy
                 ready['text_cache_policy']=cache_policy.current()
             proof.write(root/'ready.json',ready)

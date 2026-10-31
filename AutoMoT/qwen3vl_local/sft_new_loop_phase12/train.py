@@ -21,6 +21,8 @@ def save(bundle,path,root,mode,step):
     policy=saved_fields(bundle)
     if policy:
         ready=proof.read(Path(root)/'ready.json')
+        if ready.get('text_cache_policy')!=policy['text_cache_policy']:
+            raise ValueError('Saved adapter precision/cache policy differs from CPU-ready acceptance')
         if ready['text_cache_limits']!=policy['text_cache_policy']['limits'] or ready['cache_acceptance_protocol']!=cache.cache_checks.protocol():
             raise ValueError('Saved adapter policy differs from CPU-ready acceptance')
     path=Path(path);path.mkdir(parents=True,exist_ok=False)

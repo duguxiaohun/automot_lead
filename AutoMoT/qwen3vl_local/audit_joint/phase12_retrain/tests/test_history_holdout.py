@@ -61,6 +61,7 @@ def test_wrong_contract_rejected_before_output(tmp_path,monkeypatch):
 
 
 def test_launcher_rejects_old_ready_without_historical_isolation(tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Historical ready intentionally lacks a layout.
     from qwen3vl_local.audit_joint.phase12_retrain import launch
     index,contract,out=fixture(tmp_path,monkeypatch)
     version=tmp_path/'version'

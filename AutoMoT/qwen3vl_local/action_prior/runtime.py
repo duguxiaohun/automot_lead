@@ -33,10 +33,11 @@ class PriorEngine:
         generate_analysis=False,
         high_level_action_prior=False,
         rgb_frame_count=4,
-        online_text_prefix=False,
+        online_text_prefix=None,
     ):
         self.engine, self.contract = engine, contract
-        self.online_text_prefix = bool(online_text_prefix)
+        from qwen3vl_local.qwen35 import text_prefix
+        self.online_text_prefix = (text_prefix.online_enabled() if labels is None else False) if online_text_prefix is None else bool(online_text_prefix)
         self._active_prior_phase = None
         self._phase_prefix_bundles = {}
         self._prior_cache_policies = {}
@@ -57,7 +58,7 @@ class PriorEngine:
                 raise ValueError('PriorEngine already uses two EVENT domains; set question slots=1')
         elif labels is None and any(contract.get(f'phase{p}', {}).get('metadata', {}).get('input_layout')
                                      == 'text_before_images_v1' for p in (1,2)):
-            raise ValueError('New-layout adapters require explicit online_text_prefix=True')
+            raise ValueError('New-layout adapters require online_text_prefix=True')
         self.analysis_tokens = analysis_tokens
         self.text_cache = text_cache
         self.recheck_mode = recheck_mode
@@ -109,6 +110,7 @@ class PriorEngine:
         if getattr(self,'online_text_prefix',False) and not policies:
             raise ValueError('Bind adapter cache deployment policies before closed-loop inference')
         if policies and not self.online_text_prefix:raise ValueError('Closed-loop text cache mode changed')
+        if policies:cache_policy.check_model_precision(getattr(getattr(self,'engine',None),'model',None))
         for phase,record in policies.items():
             if cache_policy.serialize(self.contract[phase]['metadata'].get(cache_policy.FIELD))!=record:
                 raise ValueError('Closed-loop adapter cache policy metadata changed')
@@ -470,10 +472,9 @@ def make_runtime(args, device, contract):
         """沿用已有状态和 BEV 的 forward，显式复制 inference KV 供 autograd 使用。"""
 
         def __init__(self):
-            import os
-            online_prefix = os.environ.get('AUTOMOT_ONLINE_TEXT_PREFIX', '0')
-            if online_prefix not in ('0', '1'):
-                raise ValueError('AUTOMOT_ONLINE_TEXT_PREFIX must be 0 or 1')
+            from qwen3vl_local.qwen35 import text_prefix, cache_policy
+            online_prefix = text_prefix.online_enabled() if not getattr(args,'dataset_priors',False) else False
+            if online_prefix:cache_policy.inference_dtype(args.qwen_dtype)
             import torch
             from types import SimpleNamespace
             from qwen3vl_local.leadmot import train as old
@@ -535,7 +536,7 @@ def make_runtime(args, device, contract):
                 generate_analysis=args.generate_analysis,
                 high_level_action_prior=getattr(args, "high_level_action_prior", False),
                 rgb_frame_count=args.rgb_frame_count,
-                online_text_prefix=online_prefix == '1',
+                online_text_prefix=online_prefix,
             )
             self.action_index = (
                 HighLevelActionIndex(args.high_level_action_index)

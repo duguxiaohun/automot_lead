@@ -1,6 +1,6 @@
 """跨图片的有界纯文本前缀缓存；仅用于固定权重、单进程串行推理。
 
-AUTOMOT_TEXT_PREFIX=1 启用新输入合同，=0 保留旧合同。训练仍全量反传。
+默认启用新输入合同，AUTOMOT_TEXT_PREFIX=0 显式使用旧合同。训练仍全量反传。
 缓存只在内存中存在，包含完整 hybrid 状态，绝不保存图片相关状态。
 """
 from collections import OrderedDict
@@ -13,7 +13,7 @@ CONTRACT = 'text_before_images_v1'
 
 def enabled():
     """严格读取开关，防止拼写错误静默改变输入合同。"""
-    value = os.environ.get('AUTOMOT_TEXT_PREFIX', '0')
+    value = os.environ.get('AUTOMOT_TEXT_PREFIX', '1')
     if value not in ('0', '1'):
         raise ValueError('AUTOMOT_TEXT_PREFIX must be 0 or 1')
     return value == '1'
@@ -30,6 +30,16 @@ def cache_enabled():
     if value not in ('0', '1'):
         raise ValueError('AUTOMOT_TEXT_PREFIX_CACHE must be 0 or 1')
     return enabled() and value == '1'
+
+
+def online_enabled():
+    """Closed-loop LoRA priors follow the layout default; legacy opt-out stays explicit."""
+    value = os.environ.get('AUTOMOT_ONLINE_TEXT_PREFIX', '1' if enabled() else '0')
+    if value not in ('0', '1'):
+        raise ValueError('AUTOMOT_ONLINE_TEXT_PREFIX must be 0 or 1')
+    if value == '1' and not enabled():
+        raise ValueError('Online text prefix requires text-before-images layout')
+    return value == '1'
 
 
 def bind_hash(digest):
@@ -138,7 +148,9 @@ class TextPrefixCache:
         if hasattr(native,cache_policy.ATTR):
             import json
             from types import SimpleNamespace
-            cache_policy.validate(json.loads(getattr(native,cache_policy.ATTR)),SimpleNamespace(_text_prefix_cache=self))
+            policy=json.loads(getattr(native,cache_policy.ATTR))
+            cache_policy.validate(policy,SimpleNamespace(_text_prefix_cache=self))
+            if policy is not None:cache_policy.check_model_precision(native)
         ids = inputs['input_ids']
         mask = inputs.get('attention_mask', torch.ones_like(ids))
         if ids.ndim != 2 or ids.shape[0] != 1 or not bool((mask == 1).all()):

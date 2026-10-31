@@ -39,7 +39,8 @@ def test_real_model_reuse_logits_and_language_gradients(model,frames):
 
 @pytest.mark.parametrize('frames',[2,4])
 @pytest.mark.parametrize('phase3',[False,True])
-def test_real_model_batch_generation_matches_single(model,frames,phase3):
+def test_real_model_batch_generation_matches_single(model,frames,phase3,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # This test exercises legacy reuse_rgb batching.
     model.model.visual.requires_grad_(False)
     shared=torch.randn(16,1536)
     inputs=[row(frames,0,shared.repeat(frames,1)),row(frames,3,shared.repeat(frames,1))]

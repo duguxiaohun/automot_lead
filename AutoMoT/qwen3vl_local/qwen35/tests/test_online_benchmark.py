@@ -41,6 +41,7 @@ class Processor:
 
 
 def setup(model,tmp_path,phase):
+    model.to(dtype=torch.bfloat16)
     b=SimpleNamespace(model=model,device=torch.device('cpu'),processor=Processor(),tokenizer=Processor.tokenizer)
     context={}
     if phase==12:

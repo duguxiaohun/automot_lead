@@ -8,7 +8,8 @@ from qwen3vl_local.qwen35.tests.test_backend import model
 from test_data_delivery import evidence
 
 
-def bundle_for(model, monkeypatch):
+def bundle_for(model, monkeypatch,layout='0'):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX',layout)
     prefix=[10,2,4,4,4,4,3,2,4,4,4,4,3]
     pixels=torch.randn(32,3*2*16*16);grid=torch.tensor([[1,4,4]]*2)
     def encode(bundle,images,text):
@@ -108,7 +109,7 @@ def text_bundle(model,monkeypatch):
     from qwen3vl_local.qwen35.tests.test_text_prefix import inputs
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX_CACHE','1')
-    b=bundle_for(model,monkeypatch);item=inputs(prefix=65)
+    b=bundle_for(model,monkeypatch,layout='1');item=inputs(prefix=65)
     def encode(bundle,images,text):
         result={k:v.clone() for k,v in item.items()}
         result['input_ids'][0,60]=111 if text=='a' else 112

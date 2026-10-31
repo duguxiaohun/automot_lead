@@ -114,6 +114,7 @@ def test_fused_predict_automatic_window_and_explicit_fixed_seed(monkeypatch):
 
 
 def test_prior_engine_routes_only_adapter_requests_and_retains_no_history(model,monkeypatch):
+    model.to(dtype=torch.bfloat16)
     from qwen3vl_local.action_prior.runtime import PriorEngine
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     seen=[];full=[]

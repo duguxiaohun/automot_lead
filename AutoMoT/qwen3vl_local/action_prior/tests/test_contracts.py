@@ -7,6 +7,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import pytest
+
+@pytest.fixture(autouse=True)
+def legacy_adapter_fixtures(monkeypatch):
+    """These frozen identity fixtures predate text-prefix adapters."""
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')
+
 from qwen3vl_local.action_prior.contracts import (
     inspect_adapter,
     select_adapter,

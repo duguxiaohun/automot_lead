@@ -18,6 +18,8 @@ def verify_ready(root,*,images=True,execution=False):
         raise ValueError('CPU-ready cache acceptance differs; use a fresh matching run')
     if cache_enabled() and ready.get('text_cache_limits')!=cache_limits():
         raise ValueError('CPU-ready text cache limits differ; use matching capacity settings')
+    from qwen3vl_local.qwen35.cache_policy import validate
+    validate(ready.get('text_cache_policy'))
     if execution and Path(__file__).resolve().parents[2]!=(Path(ready['version'])/'app').resolve():
         raise ValueError('Training/evaluation must use the exact CPU-admitted frozen source')
     runtime.verify(ready['version'])

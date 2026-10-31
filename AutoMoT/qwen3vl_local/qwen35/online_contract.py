@@ -88,6 +88,8 @@ def load_online_bundle(model_dir, adapter_dir, phase, *, device, dtype=None):
     No new training, download, label generation or checkpoint rewriting.
     """
     import torch
+    from .cache_policy import inference_dtype
+    dtype=inference_dtype(dtype)
     from .backend import LocalModel, LocalProcessor
     from .adapters import LocalPeftModel, validate_adapter
     from .identity import base_asset_hashes
@@ -102,7 +104,7 @@ def load_online_bundle(model_dir, adapter_dir, phase, *, device, dtype=None):
     else:raise ValueError('Expected phase 1, 2 or 3')
     # Fail metadata/layout errors before loading model weights.
     bind_prompt_contract(SimpleNamespace(model=None), phase, metadata)
-    model = LocalModel.from_pretrained(str(model_dir), dtype=dtype or torch.bfloat16)
+    model = LocalModel.from_pretrained(str(model_dir), dtype=dtype)
     model = LocalPeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False,
                                           torch_device='cpu').to(device).eval()
     processor = LocalProcessor.from_pretrained(str(model_dir))

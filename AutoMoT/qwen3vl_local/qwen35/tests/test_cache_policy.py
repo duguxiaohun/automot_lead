@@ -57,7 +57,7 @@ def test_native_writers_embed_startup_policy_without_ready_dependency(tmp_path,m
     if phase==12:
         from qwen3vl_local.sft_new_loop_phase12 import train,cache_checks
         monkeypatch.setattr(train,'save_adapter',lambda *a,**kw:None)
-        (tmp_path/'ready.json').write_text(json.dumps(dict(text_cache_limits=tp.cache_limits(),cache_acceptance_protocol=cache_checks.protocol())))
+        (tmp_path/'ready.json').write_text(json.dumps(dict(text_cache_policy=policy.current(),text_cache_limits=tp.cache_limits(),cache_acceptance_protocol=cache_checks.protocol())))
         train.save(b,tmp_path/'final',tmp_path,'4rgb',1)
         file=tmp_path/'final/fusion_config.json'
     else:
@@ -76,6 +76,7 @@ def test_native_writers_embed_startup_policy_without_ready_dependency(tmp_path,m
 
 
 def test_direct_native_prefill_and_actual_bank_cannot_bypass_loaded_policy(model,monkeypatch):
+    model.to(dtype=torch.bfloat16)
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');policy.bind(model,policy.current())
     b=SimpleNamespace(model=model);tp.prefill(b,inputs())
     tp.bank(b).max_entries=1
@@ -130,7 +131,7 @@ def test_real_native_lora_load_binds_policy_on_model(model,tmp_path,monkeypatch)
     from qwen3vl_local.qwen35.backend import LocalModel
     from qwen3vl_local.qwen35.adapters import save_adapter,LocalPeftModel
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
-    model.save_pretrained(tmp_path/'base');base=LocalModel.from_pretrained(tmp_path/'base')
+    model.save_pretrained(tmp_path/'base');base=LocalModel.from_pretrained(tmp_path/'base',dtype=torch.bfloat16)
     adapted=get_peft_model(base,LoraConfig(r=2,target_modules=['q_proj'],task_type=TaskType.CAUSAL_LM))
     target=tmp_path/'adapter';save_adapter(adapted,target)
     (target/'sft_new_loop_phase1_adapter_config.json').write_text(json.dumps(

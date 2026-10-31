@@ -44,13 +44,15 @@ def test_phase2_authority_does_not_invent_missing_visual_facts(bad):
     with pytest.raises(ValueError):data.phase1_targets(facts,rs)
 
 
-def test_bundle_rejects_rs_labels_not_derived_from_phase2(tmp_path):
+def test_bundle_rejects_rs_labels_not_derived_from_phase2(tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Legacy complete-output evidence fixture.
     evidence(tmp_path);p=tmp_path/'cpu/fusion_labels.json';rows=proof.read(p)
     rows[0]['phase2_rs']='R4';proof.write(p,rows)
     with pytest.raises(ValueError,match='authoritative Phase2'):audit.verify_evaluations(tmp_path,'4rgb')
 
 
-def test_bundle_rejects_shared_guard_with_old_rs(tmp_path):
+def test_bundle_rejects_shared_guard_with_old_rs(tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Legacy complete-output evidence fixture.
     evidence(tmp_path);p=tmp_path/'cpu/guard_members.json';rows=proof.read(p)
     rows[0]['answers']['RS1']=False;rows[0]['answers']['RS4']=True;proof.write(p,rows)
     with pytest.raises(ValueError,match='guard labels'):audit.verify_evaluations(tmp_path,'4rgb')

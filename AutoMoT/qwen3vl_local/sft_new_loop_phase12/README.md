@@ -6,6 +6,28 @@
 两图与四图仍是两个独立实验，并非把两种图数混成一个训练集。
 
 
+## 2026-10-31 r12：新运行默认文本缓存与 BF16
+
+Phase1/2/3 当前原生及独立 base、shared Phase1+2 的新运行现在不需要 export：
+默认文字前置，固定权重推理跨图片复用文本 KV；LoRA 先验闭环默认随该布局启用。
+训练使用相同输入顺序但完整反传，不跨样本或 optimizer 更新复用推理 KV。
+图像变化后仍重新计算图像相关状态；这不是复用上一张图片的 KV。
+
+新 adapter 的 `text_cache_policy` v2 和新 CPU-ready 绑定 BF16 主干及既有混合计算策略。
+生产加载拒绝 FP16/FP32 覆盖，每次复用检查主干权重和 autocast 精度；LoRA 主参数及模型内部
+必要 FP32 运算不强制降精度。独立数值诊断仍可以明确选择 FP32，对照不作为生产合同。
+默认容量保持两项、1024 MiB、8192 token，容量与跨图准入仍强制执行。
+
+旧布局需要显式 `AUTOMOT_TEXT_PREFIX=0`，PriorEngine 随之关闭新文本路径；
+`AUTOMOT_TEXT_PREFIX_CACHE=0` 仅为新布局的无复用独立对照，必须从新准备/训练时一致设置。
+已经绑定为启用缓存的权重不能在部署时切换这个开关。旧 image-first 或缺少新合同的
+text-first adapter 仍用其原冻结源码，不自动换序或补写合同。
+
+远程在当前 AutoMoT 根目录及激活环境下，先 `bash ./sync_automot.sh`，
+确认 shell 没有遗留的显式关闭设置，然后按下方新建 CPU-ready → 单卡 probe 命令执行。
+默认值仅适用于未设置的变量，显式覆盖仍需匹配产物合同；原始标签库无需重建。
+新 Phase3 r12 保留所有旧清单，历史 dense 等限制不变；未据此声明 GPU/CARLA 质量或加速通过。
+
 ## 2026-10-31 r11：评测与部署绑定同一缓存配置
 
 新 `fusion_config.json` 及独立 Phase1/2/3 adapter 配置携带 `text_cache_policy`，

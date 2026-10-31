@@ -133,7 +133,8 @@ def evidence(root):
         if step==1000:proof.write(root/'runs/4rgb/selection.json',dict(step=step,score=review['score'],adapter='best_step_1000'))
 
 
-def test_audit_reparses_text_and_rejects_missing_or_relabelled_case(tmp_path):
+def test_audit_reparses_text_and_rejects_missing_or_relabelled_case(tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Legacy complete-output evidence fixture.
     evidence(tmp_path);assert audit.verify_evaluations(tmp_path,'4rgb')['evaluations']==25
     file=tmp_path/'evaluation/4rgb/fusion_test/cases.jsonl';original=file.read_text();case=json.loads(original)
     case['phase1']['text']='RS1: NO'
@@ -144,6 +145,7 @@ def test_audit_reparses_text_and_rejects_missing_or_relabelled_case(tmp_path):
 
 
 def test_real_package_source_closure_is_standalone_and_tamper_rejected(tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Legacy complete-output evidence fixture.
     evidence(tmp_path);proof.write(tmp_path/'ready.json',{'contract':CONTRACT});proof.write(tmp_path/'execution.json',{})
     (tmp_path/'runs/4rgb').mkdir(parents=True,exist_ok=True)
     monkeypatch.setattr(finish.integrity,'verify_ready',lambda root:{'version':'explicit_fixture_no_model'})

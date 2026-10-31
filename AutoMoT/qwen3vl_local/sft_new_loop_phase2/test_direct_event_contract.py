@@ -868,6 +868,7 @@ class DirectEventContractTest(unittest.TestCase):
 
     def test_adapter_validation_rejects_prompt_or_base_model_mismatch(self) -> None:
         """旧 prompt adapter 和错误 base model 都必须在加载权重前硬失败。"""
+        from qwen3vl_local.qwen35 import text_prefix,cache_policy
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             root = pathlib.Path(raw_tmp)
@@ -878,6 +879,7 @@ class DirectEventContractTest(unittest.TestCase):
             model_dir.mkdir()
             wrong_model_dir.mkdir()
             cfg = {
+                "input_layout": text_prefix.identity(), "text_cache_policy": cache_policy.current(),
                 "route": "sft_new_loop_phase2_direct_event",
                 "dataset_name": "sft_new_loop_phase2_direct_event",
                 "prompt_name": PROMPT_NAME,

@@ -79,6 +79,8 @@ def predict(bundle,images,mode,domain,task='both',seed='inference',*,schedule=No
 
 def load_online_bundle(model_dir,adapter_dir,*,device,mode=None,dtype=torch.bfloat16):
     """Load one verified shared adapter; preserve its native prompt/history contract."""
+    from qwen3vl_local.qwen35.cache_policy import inference_dtype
+    dtype=inference_dtype(dtype)
     model_dir,adapter_dir=Path(model_dir),Path(adapter_dir)
     config=proof.read(adapter_dir/'fusion_config.json');proof.verify_adapter(adapter_dir)
     if (config['contract']!=CONTRACT or config['prompt']!=prompts.identity(config['mode'])

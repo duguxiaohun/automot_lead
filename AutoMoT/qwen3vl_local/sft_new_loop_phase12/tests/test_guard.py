@@ -41,6 +41,7 @@ def test_complete_correct_comparison_can_pass():
 
 @pytest.mark.parametrize('frames',[2,4])
 def test_real_nonzero_lora_full_generations_and_alternating_benchmark(model,frames,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Explicit legacy image-prefix parity control.
     from peft import LoraConfig,get_peft_model
     adapted=get_peft_model(model,LoraConfig(r=2,lora_alpha=4,lora_dropout=0,
         target_modules=['q_proj','v_proj','o_proj'],task_type='CAUSAL_LM')).eval()

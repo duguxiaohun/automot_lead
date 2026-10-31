@@ -38,8 +38,9 @@ def prepare_data(args):
     files={str(p.relative_to(root)):proof.sha(p) for sub in ('data','cpu','phase1_previous','phase1','phase2')
            for p in (root/sub).rglob('*') if p.is_file()}
     from qwen3vl_local.qwen35.text_prefix import identity as input_layout,cache_limits
+    from qwen3vl_local.qwen35.cache_policy import current as deployment_policy
     from .cache_checks import protocol as cache_protocol
-    proof.write(root/'ready.json',dict(input_layout=input_layout(),contract=CONTRACT,cache_acceptance_protocol=cache_protocol(),text_cache_limits=cache_limits(),version=str(args.version),data_root=str(args.data_root),
+    proof.write(root/'ready.json',dict(input_layout=input_layout(),contract=CONTRACT,cache_acceptance_protocol=cache_protocol(),text_cache_limits=cache_limits(),text_cache_policy=deployment_policy(),version=str(args.version),data_root=str(args.data_root),
         action_index=args.action_index,files=files,status='cpu_ready_model_training_not_started'))
     print('[CPU_READY] '+str(root),flush=True)
 

@@ -30,6 +30,7 @@ class TinyBase(nn.Module):
 
 @pytest.fixture
 def algebra_adapter_loader(monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','0')  # Algebra fixtures have legacy metadata.
     from peft import PeftModel
     from qwen3vl_local.qwen35 import adapters
     monkeypatch.setattr(adapters, 'LocalPeftModel', PeftModel)
