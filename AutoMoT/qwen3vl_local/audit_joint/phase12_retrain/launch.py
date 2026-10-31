@@ -15,9 +15,11 @@ from qwen3vl_local import runtime_version as runtime
 from qwen3vl_local.sft_new_loop_phase1 import data_stage, local_assets, run_integrity as proof
 from . import CONTRACT, REVIEW_PATH
 from .budget import PROFILES, profile
-from .refinement import REVISIONS, REVISION_P2_EVIDENCE
+from .refinement import REVISIONS, REVISION_P2_EVIDENCE, REVISION_P2_TASKMIX
 
 HIGHWAY_DECISIONS_V2='qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v2.jsonl'
+HIGHWAY_DECISIONS_V1='qwen3vl_local/sft_new_loop_phase2/highway_ue3_rgb_decisions_v1.jsonl'
+EVIDENCE_REVISIONS=(REVISION_P2_EVIDENCE,REVISION_P2_TASKMIX)
 
 
 def verify_parent_decisions(parent_index,decisions):
@@ -34,14 +36,24 @@ def verify_parent_decisions(parent_index,decisions):
 
 APP=Path(__file__).resolve().parents[3]
 MODES=('2rgb_endpoints','4rgb')
-EVIDENCE_FILES=('evidence_exclusions.jsonl','val_exclusions.jsonl','val_original.jsonl','holdout_disputes.jsonl','evidence_sources.json')
+EVIDENCE_FILES=('evidence_exclusions.jsonl','val_exclusions.jsonl','val_original.jsonl','holdout_disputes.jsonl','evidence_sources.json','task_sources.json','evidence_parent_receipt.json')
+
+
+def configure_revision(revision,phase):
+    if revision in EVIDENCE_REVISIONS and phase!=2:
+        raise ValueError(f'{revision} is a Phase2-only revision')
+    if revision==REVISION_P2_TASKMIX:
+        os.environ.setdefault('AUTOMOT_TEXT_PREFIX','1')
+        os.environ.setdefault('AUTOMOT_TEXT_PREFIX_CACHE','1')
+        if os.environ['AUTOMOT_TEXT_PREFIX']!='1':
+            raise ValueError('Taskmix requires text_before_images_v1; cache=0 requires a separate matching run')
 
 
 def environment(app,phase,root,index,data_root,model,collection,budget_profile='bounded'):
     """Ignore stale shell knobs; only the explicitly selected budget applies."""
     budget=profile(phase,budget_profile)
     env=dict(os.environ)
-    preserve={k:env[k] for k in ('GPU_IDS','ACTION_INDEX') if k in env}
+    preserve={k:env[k] for k in ('GPU_IDS','ACTION_INDEX','AUTOMOT_TEXT_PREFIX','AUTOMOT_TEXT_PREFIX_CACHE') if k in env}
     # Native script options must not silently turn fresh train into eval/plan-only,
     # change sampling/budget, or redirect one stage into another output directory.
     for stage in (1,2):
@@ -83,6 +95,9 @@ def verify_ready(root,phase,version):
     from qwen3vl_local.qwen35.text_prefix import identity as input_layout
     if ready.get('input_layout','images_before_text_legacy')!=input_layout():
         raise ValueError('CPU-ready input layout differs; create a fresh matching run')
+    if ready.get('revision')==REVISION_P2_TASKMIX:
+        from qwen3vl_local.qwen35 import cache_policy
+        cache_policy.validate(ready['text_cache_policy'])
     runtime.verify(version)
     for path,sha in ready['files'].items():
         if proof.sha(path)!=sha:raise ValueError('CPU evidence changed: '+path)
@@ -97,6 +112,7 @@ def worker(args):
     root=args.run_dir.resolve();version=args.version.resolve();phase=args.phase
     record=runtime.verify(version)
     revision=getattr(args,'revision','legacy_20261027')
+    configure_revision(revision,phase)
     if record.get('training_revision',{}).get('revision','legacy_20261027')!=revision:
         raise ValueError('Requested revision differs from the frozen source')
     if record.get('training_revision',{}).get('phase')!=phase or (version/'app').resolve()!=APP:
@@ -122,11 +138,11 @@ def worker(args):
                 build=[sys.executable,'-B','-m',f'qwen3vl_local.sft_new_loop_phase{phase}.build_dataset',
                     '--output-dir',str(parent.parent),'--data-root',str(args.data_root),
                     '--collection-dir',str(args.collection_dir)]
-                if revision==REVISION_P2_EVIDENCE:
+                if revision in EVIDENCE_REVISIONS:
                     # Objective highway cut-in spans (v2) replace the v1 Town13-only positives.
                     build+=['--highway-ue3-rgb-decisions',str(APP/HIGHWAY_DECISIONS_V2)]
                 stage('parent_build',build)
-            if revision==REVISION_P2_EVIDENCE:
+            if revision in EVIDENCE_REVISIONS:
                 # Reuse or build: refuse a pool built with another decision file (e.g. the v1 parent).
                 verify_parent_decisions(parent,APP/HIGHWAY_DECISIONS_V2)
             if phase==1:
@@ -145,12 +161,23 @@ def worker(args):
                     'qwen3vl_local.audit_joint.phase12_retrain.history_holdout',
                     '--parent',str(labeled_data/'frame_index.jsonl'),
                     '--history-contract',str(args.history_contract),'--output',str(index.parent)])
-            elif revision==REVISION_P2_EVIDENCE:
+            elif revision in EVIDENCE_REVISIONS:
                 # Train/val evidence views; test stays intact. The 23-frame RS review
                 # is already applied inside the v2 decision build (true_rs_override).
+                evidence_data=root/'components/evidence/data' if revision==REVISION_P2_TASKMIX else index.parent
                 stage('evidence_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.phase2_evidence',
-                    '--parent',str(parent),'--data-root',str(args.data_root),'--output',str(index.parent)])
+                    '--parent',str(parent),'--data-root',str(args.data_root),'--output',str(evidence_data)])
+                if revision==REVISION_P2_TASKMIX:
+                    legacy=args.legacy_parent_data.resolve()/'frame_index.jsonl'
+                    action,_=local_assets.ensure_data(legacy,2,'auto')
+                    if action=='build':
+                        stage('legacy_parent_build',[sys.executable,'-B','-m','qwen3vl_local.sft_new_loop_phase2.build_dataset',
+                            '--output-dir',str(legacy.parent),'--data-root',str(args.data_root),
+                            '--collection-dir',str(args.collection_dir),'--highway-ue3-rgb-decisions',str(APP/HIGHWAY_DECISIONS_V1)])
+                    verify_parent_decisions(legacy,APP/HIGHWAY_DECISIONS_V1)
+                    stage('task_composition',[sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase12_retrain.phase2_taskmix',
+                        '--legacy',str(legacy),'--evidence',str(evidence_data/'frame_index.jsonl'),'--output',str(index.parent)])
             else:
                 stage('train_label_derivation',[sys.executable,'-B','-m',
                     'qwen3vl_local.audit_joint.phase12_retrain.phase2_data',
@@ -172,6 +199,9 @@ def worker(args):
             ready=dict(input_layout=input_layout(),contract=CONTRACT,phase=phase,version=str(version),index=str(index),
                        data=proof.data_identity(index),files=files,mode_order=MODES,
                        expected_updates_per_mode=budget['expected_updates'],budget=budget,revision=revision)
+            if revision==REVISION_P2_TASKMIX:
+                from qwen3vl_local.qwen35 import cache_policy
+                ready['text_cache_policy']=cache_policy.current()
             proof.write(root/'ready.json',ready)
         ready=verify_ready(root,phase,version)
         if ready.get('budget',profile(phase))!=budget:
@@ -185,9 +215,9 @@ def worker(args):
         stage('fresh_train_eval',['bash',f'qwen3vl_local/sft_new_loop_phase{phase}/run_full_pipeline.sh'],
               timeout=args.train_timeout)
         verify_ready(root,phase,version)
-        if revision==REVISION_P2_EVIDENCE:
+        if revision in EVIDENCE_REVISIONS:
             # Primary score stays the native one; the second view removes frames frozen before training.
-            stage('dual_score',[sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase12_retrain.phase2_evidence',
+            stage('dual_score_stage',[sys.executable,'-B','-m','qwen3vl_local.audit_joint.phase12_retrain.phase2_evidence',
                 '--dual-score',str(root/'pipeline'),str(index.parent/'holdout_disputes.jsonl'),str(root/'dual_score.json')])
         bundles=sorted((root/'pipeline').rglob('*_audit_bundle.tar.gz'))
         if len(bundles)<2:raise ValueError('Missing two-mode audit bundles after training')
@@ -221,6 +251,7 @@ def main(argv=None):
     parser.add_argument('phase',type=int,choices=(1,2))
     parser.add_argument('--run-dir',type=Path)
     parser.add_argument('--parent-data',type=Path)
+    parser.add_argument('--legacy-parent-data',type=Path,help='Taskmix v1 parent; exact decision SHA is required')
     parser.add_argument('--data-root',type=Path,default=APP/'lead_data')
     parser.add_argument('--collection-dir',type=Path,default=APP/'keyframe_filter/collection_output')
     parser.add_argument('--model-dir',type=Path,default=APP/'checkpoints/Qwen3.5-4B')
@@ -235,6 +266,8 @@ def main(argv=None):
     parser.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--version',type=Path,help=argparse.SUPPRESS)
     args=parser.parse_args(argv)
+    try:configure_revision(args.revision,args.phase)
+    except ValueError as exc:parser.error(str(exc))
     budget=profile(args.phase,args.budget_profile)
     if args.train_timeout is None:args.train_timeout=budget['train_timeout']
     if any(not math.isfinite(t) or t<=0 for t in (args.cpu_timeout,args.train_timeout)):
@@ -243,13 +276,14 @@ def main(argv=None):
     if args.run_dir is None:
         args.run_dir=APP/'checkpoints/phase12_retrain'/f'p{args.phase}_{datetime.now():%Y%m%d_%H%M%S}_{os.getpid()}'
     args.run_dir=args.run_dir.resolve()
-    if args.revision==REVISION_P2_EVIDENCE and args.phase!=2:parser.error('evidence_20261030 is a Phase2-only revision')
     default_parent=APP/f'checkpoints/sft_new_loop_phase{args.phase}_data'
-    if args.revision==REVISION_P2_EVIDENCE:
+    if args.revision in EVIDENCE_REVISIONS:
         # The v2 decision build is a different parent pool; never reuse the v1 parent silently.
         # Pool identity follows the decision file content, so an edited v2 never reuses a stale pool.
         default_parent=APP/f'checkpoints/sft_new_loop_phase2_data_evidence_20261030_{proof.sha(APP/HIGHWAY_DECISIONS_V2)[:12]}'
     args.parent_data=(args.parent_data or default_parent).resolve()
+    if args.revision==REVISION_P2_TASKMIX:
+        args.legacy_parent_data=(args.legacy_parent_data or APP/f'checkpoints/sft_new_loop_phase2_data_taskmix_legacy_{proof.sha(APP/HIGHWAY_DECISIONS_V1)[:12]}').resolve()
     for name in ('data_root','collection_dir','model_dir','history_contract'):setattr(args,name,getattr(args,name).resolve())
     if args.worker:return worker(args)
     if args.phase == 1 and args.command != 'train':
@@ -281,6 +315,7 @@ def main(argv=None):
              '--model-dir',str(args.model_dir),'--cpu-timeout',str(args.cpu_timeout),'--train-timeout',str(args.train_timeout),
              '--budget-profile',args.budget_profile,'--revision',args.revision,
              '--history-contract',str(args.history_contract)]
+        if args.revision==REVISION_P2_TASKMIX:cmd+=['--legacy-parent-data',str(args.legacy_parent_data)]
         print(f'[START] Phase{args.phase} {args.command}; run={args.run_dir}; version={version.name}',flush=True)
         subprocess.run(cmd,cwd=tree,env={**os.environ,'PYTHONPATH':str(tree),'PYTHONDONTWRITEBYTECODE':'1'},check=True)
         runtime.verify(version)

@@ -1,5 +1,10 @@
 # Phase1 / Phase2：独立新训练、评测和交包
 
+**2026-10-31 Phase2 任务组合 `taskmix_20261031`：** UE1/UE5 继承旧版，UE3/UE6/RE/INVALID
+继承证据版，默认文字前移并复用文本 KV；不新增标定规则。用户已选择 UE6 保留新版。
+入口 `bash qwen3vl_local/audit_joint/phase12_retrain/taskmix.sh all`，默认六轮 10752 更新。
+来源矩阵、输入协议、远程命令与限制见 [TASKMIX_20261031.md](TASKMIX_20261031.md)。
+
 **2026-10-30 Phase2 证据修订 `--revision evidence_20261030`：** 对新训练 81 个错例逐帧 RGB 与
 metas 回放后，高速切入改用客观标定 v2（训练正例 28→573 帧、Town12 右侧切入入池），
 训练池按客观证据排除无刹车的 UE1 正例、无可见违规车的 UE6 正例、前车明显刹车的 RE 负例

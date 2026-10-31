@@ -13,10 +13,11 @@ _REVISIONS = {
     (1, DIRECT8_NAME): 'visual',
     (2, 'sft_new_loop_phase2_direct_event_visual_v6_temporal_20261029'): 'visual',
     (2, 'sft_new_loop_phase2_direct_event_visual_v7_evidence_20261030'): 'evidence',
+    (2, 'sft_new_loop_phase2_direct_event_taskmix_20261031'): 'taskmix',
 }
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=5)
 def _restore(phase, name):
     # Exactly the same transformations as snapshot.prepare. No code from an
     # adapter directory / migration bundle is imported or executed.
@@ -28,7 +29,9 @@ def _restore(phase, name):
         source = snapshot.training_prompt(source)
         if revision == 'visual':source = refinement.phase1_prompt(source)
     else:
-        source = (refinement.phase2_prompt_v7 if revision == 'evidence' else refinement.phase2_prompt)(source)
+        transform={'visual':refinement.phase2_prompt,'evidence':refinement.phase2_prompt_v7,
+                   'taskmix':refinement.phase2_prompt_taskmix}[revision]
+        source = transform(source)
     module_name = __name__ + f'._phase{phase}_{revision}'
     module = types.ModuleType(module_name)
     module.__package__ = native.__package__

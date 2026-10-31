@@ -1,5 +1,11 @@
 # AGENTS.md
 
+### 2026-10-31 Phase2 继承已有任务版本，不重新扩展标定
+
+用户要求按任务组合已有较优版本，新版默认复用提示词 KV；明确选择 UE6 保留证据版，优先有可见违规证据的评分口径。`taskmix_20261031` 的 UE1/UE5 训练与验证桶继承 v1/visual_20261029，UE3/UE6/RE/INVALID 继承 v2/evidence_policy_v3_20261030；提示词分别逐字继承 v6 UE1/UE5 与 v7 UE3/UE6。没有新标定规则，不逐测试题拼接，不修改 test 与冻结争议清单。
+
+入口 `bash qwen3vl_local/audit_joint/phase12_retrain/taskmix.sh all`，默认 Phase2 六轮 10752 更新和文字前移/文本缓存开启；旧入口与旧权重布局不改。训练仍完整反传，缓存只用于固定权重推理；CPU-ready/adapter 绑定布局及缓存设置。新提示词已接入在线恢复和 SHA 核验。按任务组合不保证各自历史最优同时保留，必须新训练评测，不冒称 GPU 或速度通过。详情 `AutoMoT/qwen3vl_local/audit_joint/phase12_retrain/TASKMIX_20261031.md`。
+
 ### 2026-10-30 Phase1/2/3 与 1+2 跨图片文本前缀缓存
 
 用户要求从闭环角度复用固定 system/问题的 KV，保留标定。新增显式 `AUTOMOT_TEXT_PREFIX=1` 输入合同 `text_before_images_v1`，训练与推理同时使用 system→问题→图片；默认关闭以保护已有权重协议。Phase1/2 原生入口、Phase3 原生/独立 base、shared Phase1+2 已接入；每个 bundle 默认两项/256 MiB 纯文本 LRU，复制完整 hybrid K/V/conv/recurrent 状态，按当前图片重算 M-RoPE，权重/adapter/精度/设备变化失效。训练仍完整反传，不跨 optimizer 更新复用；采样、随机题序、标定、split、预算不变。闭环不等待凑批、不重排帧；Phase3 新模式批量入口逐请求执行，不能冒称并行批处理收益。

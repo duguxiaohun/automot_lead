@@ -37,8 +37,8 @@ def prepare(app, phase, revision='legacy_20261027'):
     from . import refinement
     if revision not in refinement.REVISIONS:
         raise ValueError('Unknown training revision')
-    if revision == refinement.REVISION_P2_EVIDENCE and phase != 2:
-        raise ValueError('evidence_20261030 is a Phase2-only revision')
+    if revision in (refinement.REVISION_P2_EVIDENCE, refinement.REVISION_P2_TASKMIX) and phase != 2:
+        raise ValueError('This revision is Phase2-only')
     app=Path(app).resolve()
     cache=app/'checkpoints/phase12_retrain_runtime'
     cache.mkdir(parents=True,exist_ok=True)
@@ -74,6 +74,9 @@ def prepare(app, phase, revision='legacy_20261027'):
         elif revision == refinement.REVISION_P2_EVIDENCE:
             name='qwen3vl_local/sft_new_loop_phase2/prompts.py'
             replacements[name]=refinement.phase2_prompt_v7((app/name).read_text()).encode()
+        elif revision == refinement.REVISION_P2_TASKMIX:
+            name='qwen3vl_local/sft_new_loop_phase2/prompts.py'
+            replacements[name]=refinement.phase2_prompt_taskmix((app/name).read_text()).encode()
         for name,content in replacements.items():
             record['files'][name]=hashlib.sha256(content).hexdigest()
         record['training_revision']={'contract':CONTRACT,'phase':phase,'revision':revision,

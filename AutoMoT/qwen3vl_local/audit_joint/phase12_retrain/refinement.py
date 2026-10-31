@@ -9,7 +9,8 @@ from . import data
 
 REVISION = 'visual_20261029'
 REVISION_P2_EVIDENCE = 'evidence_20261030'
-REVISIONS = ('legacy_20261027', REVISION, REVISION_P2_EVIDENCE)
+REVISION_P2_TASKMIX = 'taskmix_20261031'
+REVISIONS = ('legacy_20261027', REVISION, REVISION_P2_EVIDENCE, REVISION_P2_TASKMIX)
 REVIEW = Path(__file__).with_name('phase1_vulnerable_review_20261029.json')
 
 P1_RULE = '''
@@ -81,6 +82,19 @@ def phase2_prompt(source):
     source=replace_once(source,'EVENT_DEFINITIONS = {','EVENT_DEFINITIONS = {')
     anchor='\nDOMAIN_DESCRIPTIONS = {'
     source=replace_once(source,anchor,'\nEVENT_DEFINITIONS["UE3"] += '+repr(P2_RULE)+'\n'+anchor)
+    ast.parse(source)
+    return source
+
+
+def phase2_prompt_taskmix(source):
+    """Reuse v6 UE1/UE5 and v7 UE3/UE6 verbatim; no new event rules."""
+    source=phase2_prompt(source)
+    source=replace_once(source,'sft_new_loop_phase2_direct_event_visual_v6_temporal_20261029',
+                        'sft_new_loop_phase2_direct_event_taskmix_20261031')
+    anchor='\nDOMAIN_DESCRIPTIONS = {'
+    source=replace_once(source,anchor,
+        '\nEVENT_DEFINITIONS["UE3"] += '+repr(P2_UE3_SIDE_RULE)+
+        '\nEVENT_DEFINITIONS["UE6"] += '+repr(P2_UE6_RULE)+'\n'+anchor)
     ast.parse(source)
     return source
 
