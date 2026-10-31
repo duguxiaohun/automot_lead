@@ -258,3 +258,74 @@ cr02 原冻结运行诊断已复现 ROAD_CORRIDOR Phase1 在 HIGHWAY 答案处�
 Phase3 新启动使用 `*_sources_r7_20261031.json`，父 r6 文件不改；绑定诊断依赖并保留原计算/数据/预算。
 不调整生产精度、缓存容量或一致性门。CPU 通过不能替代 H20/4B、训练和闭环速度验收。
 远端命令、原始包 SHA、5063-token 前缀超过缓存上限等证据边界详见 shared 包 README 的 r7 小节。
+
+## r8：缓存数值差异、实现错误与验收容忍度（2026-10-31 调研）
+
+**结论：使用 KV cache 不必然改变答案；浮点实现中，完整计算与分段计算也不保证逐位或逐 token 相同。**
+先前将完整贪心输出完全一致视为缓存正确性的普遍必要条件，过于严格。它仍是有用的强回归门，
+但失败本身不能证明 KV 算法有错。反过来，也不能把任何状态错误或 YES/NO 改变解释成“正常舍入”后放行。
+
+### 官方依据及适用边界
+
+- [Hugging Face 缓存原理](https://huggingface.co/docs/transformers/main/cache_explanation)：因果注意力使已处理前缀的 K/V 可复用。
+  数学等价要求相同权重、输入合同、位置、mask 和完整状态。Qwen3.5 还须保留 conv/recurrent 状态，不能只复制 K/V。
+- [PyTorch **2.7** 数值精度说明](https://docs.pytorch.org/docs/2.7/notes/numerical_accuracy.html)：浮点运算不满足结合律，批量/切片计算不承诺逐位相同。
+  版本与 cr02 的 torch 2.7.1 对齐；固定 seed 不能消除计算形状变化带来的数值差别。
+- [PyTorch **2.7** SDPA 说明](https://docs.pytorch.org/docs/2.7/generated/torch.nn.functional.scaled_dot_product_attention.html)：不同融合后端可得到不同浮点输出。
+  math 后端对半精度输入保留 FP32 中间值；这不能保证整个 BF16 网络的最终答案相同，也不意味着切换后端一定更快。
+- [Qwen3.5 上游调查 #46190](https://github.com/huggingface/transformers/issues/46190)：必须读到 2026-06-06 的后续核查，不能只引用开帖的“FP32 也相同”结论。
+  贡献者报告最初 dtype 控制未真正生效；显式 `.float()` 后差异缩小，并用 FP64 检验 chunk/recurrent 数学等价，认为该复现中的 BF16 差异来自舍入。
+  这是与本项目现象一致的独立证据，不是本项目 4B 多图自定义续算路径已通过的证明。我们的回包记录了实际参数类型，并显式 `.float()`，不存在该报告最初的伪 FP32 对照口径。
+- [Transformers v5.3.0 源码](https://github.com/huggingface/transformers/blob/v5.3.0/src/transformers/models/qwen3_5/modeling_qwen3_5.py)：原版 GDN 对多 token 续算没有沿用初始递归状态。
+  本地 vendor 已有多 token 状态接续修正，不能因为数值差异“常见”就撤销这个修正，也不能直接升级依赖覆盖冻结源码。
+- [上游续算 padding 修复 #47087](https://github.com/huggingface/transformers/pull/47087)：存在真实 mask 错误会污染递归状态，说明缓存差异也可能是实现 bug。
+  本次 text cache 限定无 padding，本地 `_update_linear_attn_mask` 已按当前段切片，该 PR 不能直接解释这次 H20 失败。
+- [vLLM batch invariance](https://docs.vllm.ai/en/latest/features/batch_invariance/)：通过固定数值行为可增强跨计算形状的一致性，同时存在性能代价和模型覆盖限制。
+  这支持“输出改变不是缓存数学上的必然”，不构成将本项目切换至另一推理引擎或其最新版本的验收。
+
+### 本项目证据与容忍度
+
+cr02 `run_20261031_110358_2311261.tar.gz` 的 SHA256 为
+`05ba87dea3b0e1e0a8623c00631ca8362e9fbc79b6034bbc7e9e50a161b8b0a6`。
+三种控制的输入/脚本/RGB 绑定一致，重复输出各自稳定。原 HIGHWAY 分歧在重复惩罚前即存在；
+FP32 head 消除该点分歧，却在另一条未训练基座的分析文本中产生不同词语，不能称为全量修复。
+该 LOCAL_JUNCTION 输出既不符合原生严格格式，又达到 160-token 上限；`residential`/`suburban` 的差异
+不是已确认的结构化决策退化，也不能通过提取片段把两个无效答案认证为“语义相同”。
+
+| 层级 | 判定方法 | 当前容忍边界 |
+| --- | --- | --- |
+| 结构合同 | 权重/输入/位置/mask/层结构，K/V/conv/recurrent 保存及独立复制 | 错位、缺状态、跨图污染、非有限值不容忍 |
+| 重复与复用 | 相同分段的重新计算、真实 hit、换图再返回；先测同路径重复稳定性 | 期望观察到相同张量；若不同先查不稳定或复用问题，不冒称分段舍入已解释 |
+| 分段数值 | fresh split 对完整 forward；逐层采样、全量最终状态、FP32 对照 | 不要求 BF16 位相等；报告 max/RMS/相对 L2，不为过关临时放大 atol/rtol |
+| 决策稳定性 | 同一 token 历史下的惩罚后分数与候选间隔 | 接近平局能解释敏感性，不能单独作为接受理由 |
+| 任务质量 | 原生严格解析、完整终止、逐字段变化、训练后验证及旧正确样本保护 | YES/NO 改变、无效格式、截断分别统计；不拿无效输出证明任务等价，不改标定或主评分 |
+| 性能 | 同输入布局、真实请求顺序的建缓存/换题/clone/prefill/decode 时间 | 不用命中率、诊断时间或减问次数代替闭环加速 |
+
+对于同一历史的两个分数向量，令 `epsilon=max(abs(cached-full))`，令 `m` 为 full 的第一、第二候选分差。
+`m > 2*epsilon` 是当前两向量 argmax 不变的充分条件；不满足时只是无法用这个界保证一致，并不证明实现有错。
+它不是允许误差阈值，也不保证后续 token、未见图片或闭环质量。代码将该量单列 `stability_bound`，不据此自动放行。
+
+这次保留生产/历史完整输出门及其回执协议，没有将两个失败样本调成“通过”。研究结论已改变**诊断分类**：
+逐 token 不同不再等价于“缓存实现错误”，无效分析文本也不再等价于“结构化答案退化”。
+下一步若 H20 显示 fresh split 与 hit/换图复用一致、位置和完整状态正常、真正 FP32 的分段误差收敛，
+才有依据另立新运行的数值/语义验收合同，将预训练结构准入与训练后任务质量分开；历史失败回执仍保留。
+若真实 hit 与 fresh split 不同，则优先修复复制/状态生命周期；若差异首先出现在位置/mask，则修合同；
+若只有 full-vs-split 的渐进误差，则优先评估保持计算分段一致、定位敏感算子后局部提精度，或有明确成本的回退方案。
+不继续盲目给整个模型加 FP32，也不保证固定分块能消除所有后端差异。
+
+### 新诊断与本机验证
+
+`cache_diagnose --structure-only` 仍使用原冻结模型/cache，补充 `cache_structure.py` 单列 SHA 并入包。
+每个原样本/问题分别执行完整 forward 两次、fresh split、同图 hit、换另一组真实 RGB 后 hit、该新图 fresh split、返回原图 hit。
+换图控制只检查状态，不沿用原图标签做评分。两阶段问题都检查，跨精度核验原/替换图片和编码输入绑定。
+
+对 decoder 的输入、归一化、attention/GDN、MLP 和输出，在绝对 token 位置 0、切分边界两侧和末尾取样；
+**K/V/conv/recurrent 最终状态全量比较**，同时比较位置、rope delta、长度、非有限值、next logits 和保留前缀指纹。
+记录后端/核名称。中间激活只有采样，不能称所有 token 的全部中间状态都检查过；此入口也不执行 decode 或最终质量验收。
+FP32 仍沿用原 256 MiB 容量，拒存导致未发生真实 hit 时明确标记 `reuse_not_exercised`。
+hooks、bundle 缓存和 rope delta 在异常时也恢复；诊断不改变权重、LoRA、输入布局、采样或预算。
+
+本机新增真实小模型 BF16/FP32、64/65-token 边界、变图片网格、非零 LoRA、拒存、故意污染循环状态、故意错位、异常清理测试。
+另仅在测试副本中将 GDN 核心 FP32 临时运算提升到 FP64，对比 chunk、逐 token recurrence 和状态交接：
+T=83、cut=10/64/70、弱/强衰减均在 `atol=rtol=2e-14` 下相符；生产 kernel 没有被替换。
+这些结果支持方法，不替代 H20/4B 的本次续算实测。具体远端命令见 shared 包 README r8 小节。

@@ -7,8 +7,8 @@ from contextlib import contextmanager
 CONTROLS=('bf16','fp32_penalty','fp32_head','fp32')
 
 
-def validate_controls(controls):
-    if (len(controls)<2 or controls[0]!='bf16' or len(set(controls))!=len(controls)
+def validate_controls(controls,*,allow_single=False):
+    if (len(controls)<(1 if allow_single else 2) or controls[0]!='bf16' or len(set(controls))!=len(controls)
             or any(c not in CONTROLS for c in controls)
             or ('fp32' in controls and controls[-1]!='fp32')):
         raise ValueError('Use unique controls: bf16 first, at least one control, whole-model fp32 last')

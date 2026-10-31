@@ -15,6 +15,9 @@ import sys
 import tarfile
 
 
+SUPPLEMENTS=('cache_diagnose.py','cache_checks.py','precision_controls.py','cache_structure.py')
+
+
 def compare_logits(actual,expected):
     import torch
     if actual.shape!=expected.shape:raise ValueError('Logit shapes differ')
@@ -82,6 +85,10 @@ def _input_sha(item):
         h.update(str((key,str(value.dtype),tuple(value.shape))).encode())
         h.update(value.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes())
     return h.hexdigest()
+
+
+def check_context(inputs):
+    if any(x['input_ids'].shape[1]>8192 for x in inputs):raise ValueError('Native context limit exceeded')
 
 
 def _token_text(bundle,ids):
@@ -152,6 +159,7 @@ def trace_first_divergence(bundle,inputs,cache,arm,max_new_tokens,warmup_inputs=
                     cached=scores(x),independent=scores(y),
                     raw_cached=scores(a.next_logits),raw_independent=scores(b.next_logits),
                     repetition_penalty=_REPETITION_PENALTY,
+                    stability_bound=_supplement('cache_structure').decision_margin(x,y),
                     max_abs_next_logits=float((x.float()-y.float()).abs().max()))
             if reference_tokens is not None:
                 forced=reference_tokens[step]
@@ -230,6 +238,29 @@ def precision_summary(bf16,fp32):
     return 'mismatch_not_reproduced_on_these_inputs'
 
 
+def assess_outputs(result,specs,prompts):
+    """Separate invalid/truncated output, changed decisions and surface differences.
+
+    Native strict parsers are authoritative; this report never relaxes the gate.
+    """
+    rows=[]
+    for arm,spec in enumerate(specs):
+        parse=prompts.P1.parse_phase1_output if arm==0 else prompts.P2.parse_event_output
+        branches=[result[route]['branches'][arm] for route in ('shared','independent')]
+        values=[parse(b['text'],spec=spec) for b in branches]
+        valid=[set(v)==set(spec.output_keys) and all(type(x)==bool or x in ('YES','NO') for x in v.values())
+            and not b['reached_token_limit'] and type(b['stop_token_id'])==int for v,b in zip(values,branches)]
+        normalized=[{k:(x=='YES' if isinstance(x,str) else x) for k,x in v.items()} for v in values]
+        token_equal=all(branches[0][k]==branches[1][k] for k in ('token_ids','stop_token_id','reached_token_limit','text'))
+        changed=[k for k in spec.output_keys if normalized[0][k]!=normalized[1][k]] if all(valid) else None
+        category=('invalid_or_truncated_cannot_assess_semantic_parity' if not all(valid) else
+            'structured_decision_changed' if changed else 'exact_output_match' if token_equal else
+            'valid_structured_decisions_equal_surface_or_stop_differs')
+        rows.append(dict(arm=arm+1,category=category,valid=valid,parsed=normalized,changed_keys=changed,
+            token_and_stop_equal=token_equal,production_gate_changed=False,quality_certified=False))
+    return rows
+
+
 def compare_controls(results,controls):
     """Compare matched inputs; baseline outputs are a reference, not ground truth."""
     _supplement('precision_controls').validate_controls(controls)
@@ -272,8 +303,8 @@ def worker(args,version):
     from qwen3vl_local.qwen35.vendor import modeling_qwen3_5 as vendor
     report=dict(status='running',source_run=str(args.source_run),version=str(version),mode=args.mode,
         policy=policy,diagnostic_sha256={p.name:proof.sha(p) for p in
-            (Path(__file__),Path(__file__).with_name('cache_checks.py'),Path(__file__).with_name('precision_controls.py'))},
-        controls=args.controls,results=[],
+            [Path(__file__).with_name(name) for name in SUPPLEMENTS]},
+        controls=args.controls,structure_only=args.structure_only,results=[],
         optimizer_updates=0,adapter_loaded=False,quality_certified=False,cache_certified=False)
     report_path=args.output/'report.json'
     if report_path.exists():raise FileExistsError(report_path)
@@ -304,7 +335,7 @@ def worker(args,version):
             fp32_control='FP32 compute after promoting BF16-loaded weights; not an original-FP32 weight reload')
         proof.write(report_path,report)
         controls=_supplement('precision_controls');baseline={}
-        for control in controls.validate_controls(args.controls):
+        for control in controls.validate_controls(args.controls,allow_single=args.structure_only):
             warmup_inputs=[]
             if control=='fp32':bundle.model.float()
             dtype=next(bundle.model.parameters()).dtype
@@ -318,26 +349,53 @@ def worker(args,version):
                     try:
                         texts=prompts.texts(first,second,args.mode)
                         inputs=[cache._device(cache.encode(bundle,images,text),device) for text in texts]
-                        if any(x['input_ids'].shape[1]>8192 for x in inputs):raise ValueError('Native context limit exceeded')
+                        check_context(inputs)
                         case.update(prompt_sha256=[hashlib.sha256(t.encode()).hexdigest() for t in texts],
                             image_sha256={str(p):proof.sha(p) for p in paths},question_order=[list(s.output_keys) for s in (first,second)],
                             matmul_tf32=torch.backends.cuda.matmul.allow_tf32,cudnn_tf32=torch.backends.cudnn.allow_tf32)
                         print(f'[cache-diagnose] layout={policy["input_layout"]} {control} domain={item.row.question_domain} start',flush=True)
                         def retain(evidence):
                             case.update(evidence);proof.write(report_path,report)
-                        reference=baseline.get(item.row.question_domain,{}).get('first_difference')
-                        case.update(measure(bundle,inputs,cache,args.max_new_tokens,warmup_inputs=warmup_inputs,
-                            on_evidence=retain,reference_difference=reference));case['status']='measured'
+                        case['input_sha256']=[_input_sha(x) for x in inputs]
+                        if args.structure_only:
+                            alternate=next(other for other in cases if other.row.question_domain!=item.row.question_domain)
+                            alternate_paths=[alternate.row.history_rgb_paths[i] for i in history_rgb_indices(args.mode)]
+                            alternate_images=plan.native._load_images(alternate_paths)
+                            try:
+                                other_inputs=[cache._device(cache.encode(bundle,alternate_images,text),device) for text in texts]
+                                check_context(other_inputs)
+                                case['alternate_image_sha256']={str(p):proof.sha(p) for p in alternate_paths}
+                                case['alternate_input_sha256']=[_input_sha(x) for x in other_inputs]
+                                case['structure']=[]
+                                for arm,(encoded,other_encoded) in enumerate(zip(inputs,other_inputs),1):
+                                    entry=dict(arm=arm,status='running');case['structure'].append(entry)
+                                    def retain_structure(evidence):
+                                        entry.update(evidence);proof.write(report_path,report)
+                                    entry.update(_supplement('cache_structure').measure(bundle,encoded,cache,
+                                        other_item=other_encoded,on_evidence=retain_structure))
+                            finally:
+                                for image in alternate_images:image.close()
+                        else:
+                            reference=baseline.get(item.row.question_domain,{}).get('first_difference')
+                            case.update(measure(bundle,inputs,cache,args.max_new_tokens,warmup_inputs=warmup_inputs,
+                                on_evidence=retain,reference_difference=reference))
+                            case['output_assessment']=assess_outputs(case,(first,second),prompts)
+                        case['status']='measured'
                         if control=='bf16':baseline[item.row.question_domain]=case
                         proof.write(report_path,report)
-                        print(f'[cache-diagnose] {control} domain={item.row.question_domain} answers_identical={case["full_answers_identical"]} first_difference={case["first_difference"]}',flush=True)
+                        outcome=([x['status'] for x in case['structure']] if args.structure_only else case['full_answers_identical'])
+                        print(f'[cache-diagnose] {control} domain={item.row.question_domain} outcome={outcome}',flush=True)
                         warmup_inputs.append(inputs)
                     finally:
                         for image in images:image.close()
         runtime_version.verify(version)
         if source_policy(args.source_run,args.mode)!=policy:raise ValueError('Failed run evidence changed')
-        report['control_comparison']=compare_controls(report['results'],args.controls)
-        if 'fp32' in args.controls:
+        if args.structure_only:
+            for row in report['results']:
+                for key in ('key','input_sha256','prompt_sha256','image_sha256','question_order','alternate_image_sha256','alternate_input_sha256'):
+                    if row[key]!=baseline[row['domain']][key]:raise ValueError('Structure control input changed: '+key)
+        else:report['control_comparison']=compare_controls(report['results'],args.controls)
+        if 'fp32' in args.controls and not args.structure_only:
             report['precision_comparison']={r['domain']:precision_summary(baseline[r['domain']],r)
                 for r in report['results'] if r['control']=='fp32'}
         report['status']='diagnostic_complete_not_training_or_cache_certification'
@@ -355,15 +413,18 @@ def main():
     p.add_argument('--mode',choices=('2rgb_endpoints','4rgb'),default='2rgb_endpoints')
     p.add_argument('--output',type=Path);p.add_argument('--worker',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--check-only',action='store_true',help='Read saved layout/source on CPU; no GPU or model load')
+    p.add_argument('--structure-only',action='store_true',help='Prefill states/layers and real cross-image reuse; no generation or training')
     p.add_argument('--max-new-tokens',type=int,default=160)
     p.add_argument('--controls',nargs='+',choices=_supplement('precision_controls').CONTROLS,default=['bf16','fp32'])
     p.add_argument('--timeout',type=float,default=1800,help='Diagnostic worker timeout in seconds')
     args=p.parse_args();args.source_run=args.source_run.resolve()
     if not 1<=args.max_new_tokens<=512:p.error('Use 1..512 generated tokens')
-    try:_supplement('precision_controls').validate_controls(args.controls)
+    try:_supplement('precision_controls').validate_controls(args.controls,allow_single=args.structure_only)
     except ValueError as exc:p.error(str(exc))
     if not math.isfinite(args.timeout) or args.timeout<=0:p.error('Use a finite positive timeout')
     policy=source_policy(args.source_run,args.mode);version=Path(policy['version'])
+    if args.structure_only and (policy['input_layout']!='text_before_images_v1' or not policy['text_cache_enabled']):
+        p.error('Structure-only requires a saved text-first run with cache enabled')
     args.model_dir=(args.model_dir or Path(policy['base_model'])).resolve()
     if args.worker:
         if args.output is None:p.error('worker requires output')
@@ -373,7 +434,7 @@ def main():
         return worker(args,version)
     if args.check_only:
         print(json.dumps(dict(status='saved_policy_read_only',policy=policy,model_dir=str(args.model_dir),
-                              controls=args.controls,timeout=args.timeout,source_and_weights_verified=False,inference_executed=False),ensure_ascii=False,indent=2))
+                              controls=args.controls,structure_only=args.structure_only,timeout=args.timeout,source_and_weights_verified=False,inference_executed=False),ensure_ascii=False,indent=2))
         return
     gpu=subprocess.check_output(['nvidia-smi','--query-gpu=index,memory.used,utilization.gpu','--format=csv,noheader,nounits'],text=True)
     idle=[r.split(',')[0].strip() for r in gpu.splitlines() if float(r.split(',')[1])<256 and float(r.split(',')[2])<=5]
@@ -388,6 +449,7 @@ def main():
     from qwen3vl_local.sft_new_loop_phase1 import data_stage
     command=[sys.executable,'-B',str(Path(__file__).resolve()),'--worker','--source-run',str(args.source_run),
         '--model-dir',str(args.model_dir),'--mode',args.mode,'--output',str(output),'--max-new-tokens',str(args.max_new_tokens),'--controls',*args.controls,'--timeout',str(args.timeout)]
+    if args.structure_only:command.append('--structure-only')
     env={**os.environ,'CUDA_VISIBLE_DEVICES':selected,'GPU_IDS':selected,
          'AUTOMOT_TEXT_PREFIX':'1' if policy['input_layout']=='text_before_images_v1' else '0',
          'AUTOMOT_TEXT_PREFIX_CACHE':'1' if policy['text_cache_enabled'] else '0',
@@ -399,7 +461,7 @@ def main():
         with tarfile.open(archive,'x:gz') as tar:
             for name in ('report.json','worker.json','worker.log'):
                 if (output/name).is_file():tar.add(output/name,arcname=name,recursive=False)
-            for name in ('cache_diagnose.py','cache_checks.py','precision_controls.py'):
+            for name in SUPPLEMENTS:
                 tar.add(Path(__file__).with_name(name),arcname=name,recursive=False)
         print('[DIAGNOSTIC_BUNDLE] '+str(archive),flush=True)
 

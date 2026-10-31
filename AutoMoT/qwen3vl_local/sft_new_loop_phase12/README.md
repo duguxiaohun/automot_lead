@@ -341,3 +341,35 @@ P2问题域用 `--domain ROAD_CORRIDOR|LOCAL_JUNCTION`。both才共享前缀；�
 
 
 2026-10-31 本轮验证：CPU 完整组合 **670 passed、1 skipped，63.73 秒**；最终诊断/失败回执/原有缓存验收及 Phase3 来源清单专项 **65 passed，6.64 秒**，范围与组合重叠，不相加。包含真实小型 Qwen3.5 在两种布局下的 BF16/FP32、缓存隔离、重复输出及同历史追踪；强制分歧、终止边界与训练失败落盘另用夹具验证。没有运行 4B GPU、新训练或 CARLA，未修改标签库；cr02 原失败仍需上述单卡诊断后定位，不能称本轮已经修复数值根因。
+
+## 2026-10-31 r8：先区分分段数值误差与缓存复用错误
+
+官方依据、上游 Qwen3.5 调查、容忍度和改进条件见
+[TEXT_PREFIX_CACHE_20261030.md 的 r8 调研](../qwen35/TEXT_PREFIX_CACHE_20261030.md#r8缓存数值差异实现错误与验收容忍度2026-10-31-调研)。
+BF16 的完整与分段计算不保证逐 token 一致；这既不是必然改变答案，也不是可忽略所有差异的理由。
+新增 `output_assessment` 用原生严格解析器区分有效字段改变、仅表面差异、无效/截断；
+新 `stability_bound` 报告同历史候选间隔与误差上界关系。两者不自动放宽现有训练/评测门。
+
+原 cr02 回包的分歧出现在首次 miss，之前的“重复缓存路径”也会重新清空并预热缓存，
+不能单凭重复输出稳定就认证真实跨图 hit。新入口直接分开检查 full / fresh split / hit / 换图及返回：
+
+```bash
+bash ./sync_automot.sh
+python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose \
+  --source-run checkpoints/phase12_shared/run_20261031_003849_2055418 \
+  --controls bf16 fp32 --structure-only --check-only
+env -u GPU_IDS python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose \
+  --source-run checkpoints/phase12_shared/run_20261031_003849_2055418 \
+  --controls bf16 fp32 --structure-only --timeout 3600
+```
+
+在 cr02 AutoMoT 根、原训练环境执行；单卡自动选择空闲 GPU，不装/换依赖，不训练，只做 prefill，
+不再重复生成 160-token 分析文本。只要 BF16 对照可传 `--controls bf16`；生成诊断仍至少两种控制，旧命令保持兼容。
+cee 同入口可用，但 source-run 必须是其本机实际存在的 text-first/cache-enabled 运行；旧布局或禁用缓存的回执在占卡前拒绝。
+输出仍为新目录及 `[DIAGNOSTIC_BUNDLE]` tar.gz，新增结构脚本随包绑定；旧 run/source/SHA 不改。
+
+`structure` 的四类结果：`structural_contract_violation`（位置/长度/形状/类型/非有限值问题）、
+`reuse_not_exercised`（容量等原因没有真实 hit）、`repeat_or_reuse_difference_requires_investigation`（重复或真实复用不同）、
+`reuse_matches_fresh_split_on_observed_tensors_not_full_forward_certification`（观察到的复用状态与 fresh split 一致）。
+任何一种都不是训练或质量通过凭据。full-vs-split 单独保留逐层采样与全量最终状态误差；这次输出可决定应修状态实现，
+还是制定数值/任务质量分开的新验收合同。Phase3 新启动清单 r8 只绑定这些共享诊断依赖，r7 及更早清单不变。

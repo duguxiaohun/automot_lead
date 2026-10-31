@@ -78,7 +78,7 @@ def test_diagnostic_launcher_preserves_source_and_packages_partial_evidence(tmp_
     else:cache_diagnose.main()
     assert {str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}==before
     with tarfile.open(str(output)+'.tar.gz') as archive:
-        assert set(archive.getnames())=={'worker.json','worker.log','cache_diagnose.py','cache_checks.py','precision_controls.py'}
+        assert set(archive.getnames())=={'worker.json','worker.log','cache_diagnose.py','cache_checks.py','precision_controls.py','cache_structure.py'}
 
 
 def source_fixture(tmp_path,layout='images_before_text_legacy'):
@@ -264,3 +264,57 @@ def test_control_comparison_requires_matched_inputs_and_reports_changed_answers(
     assert not cache_diagnose.compare_controls(rows,['bf16','fp32_head'])['fp32_head']['A']['parity_restored_on_this_case']
     rows[2]['input_sha256']=['changed']
     with pytest.raises(ValueError,match='input_sha256'):cache_diagnose.compare_controls(rows,['bf16','fp32_head'])
+
+
+@pytest.mark.parametrize('layout',['images_before_text_legacy','text_before_images_v1'])
+def test_structure_cli_preserves_saved_contract_and_needs_no_gpu_for_check(tmp_path,monkeypatch,capsys,layout):
+    root=source_fixture(tmp_path,layout)
+    monkeypatch.setattr(sys,'argv',['diagnose','--source-run',str(root),'--structure-only','--controls','bf16','--check-only'])
+    monkeypatch.setattr(cache_diagnose.subprocess,'check_output',lambda *a,**k:pytest.fail('CPU check used GPU'))
+    if layout=='images_before_text_legacy':
+        with pytest.raises(SystemExit):cache_diagnose.main()
+    else:
+        cache_diagnose.main();report=json.loads(capsys.readouterr().out)
+        assert report['structure_only'] and report['controls']==['bf16'] and not report['inference_executed']
+
+
+def test_structure_option_reaches_worker(tmp_path,monkeypatch):
+    from qwen3vl_local.sft_new_loop_phase1 import data_stage
+    root=source_fixture(tmp_path,'text_before_images_v1');output=tmp_path/'new'
+    monkeypatch.delenv('GPU_IDS',raising=False)
+    monkeypatch.setattr(sys,'argv',['diagnose','--source-run',str(root),'--output',str(output),
+        '--controls','bf16','--structure-only'])
+    monkeypatch.setattr(cache_diagnose.subprocess,'check_output',lambda *a,**k:'0,0,0\n')
+    commands=[]
+    monkeypatch.setattr(data_stage,'run',lambda command,*a,**k:commands.append(command))
+    cache_diagnose.main()
+    assert '--structure-only' in commands[0]
+
+
+def test_native_semantic_assessment_never_accepts_truncation_or_analysis_as_equal():
+    from qwen3vl_local.sft_new_loop_phase12 import prompts
+    # Use the real strict native parsers with their expected spec keys.
+    p1=SimpleNamespace(output_keys=('HIGHWAY',))
+    p2=SimpleNamespace(output_keys=('UE1',),questions=(SimpleNamespace(output_key='UE1'),))
+    def branch(text,limit=False):return dict(text=text,token_ids=[1],stop_token_id=None if limit else 2,reached_token_limit=limit)
+    result=dict(shared=dict(branches=[branch('HIGHWAY: YES'),branch('UE1: NO')]),
+        independent=dict(branches=[branch('HIGHWAY: NO'),branch('UE1: NO')]))
+    assessment=cache_diagnose.assess_outputs(result,(p1,p2),prompts)
+    assert assessment[0]['category']=='structured_decision_changed' and assessment[0]['changed_keys']==['HIGHWAY']
+    assert assessment[1]['category']=='exact_output_match'
+    result['independent']['branches'][0]=branch('HIGHWAY: YES  ')
+    assert cache_diagnose.assess_outputs(result,(p1,p2),prompts)[0]['category']=='valid_structured_decisions_equal_surface_or_stop_differs'
+    result['shared']['branches'][0]=branch('HIGHWAY: YES',True)
+    assert cache_diagnose.assess_outputs(result,(p1,p2),prompts)[0]['category'].startswith('invalid_or_truncated')
+    result['shared']['branches'][0]=branch('Analysis: residential')
+    result['independent']['branches'][0]=branch('Analysis: suburban')
+    assessment=cache_diagnose.assess_outputs(result,(p1,p2),prompts)[0]
+    assert assessment['valid']==[False,False] and assessment['changed_keys'] is None and not assessment['production_gate_changed']
+
+
+@pytest.mark.parametrize('length',[8192,8193])
+def test_original_and_cross_image_controls_share_context_limit(length):
+    values=[dict(input_ids=torch.zeros(1,length,dtype=torch.long))]
+    if length>8192:
+        with pytest.raises(ValueError,match='context limit'):cache_diagnose.check_context(values)
+    else:cache_diagnose.check_context(values)
