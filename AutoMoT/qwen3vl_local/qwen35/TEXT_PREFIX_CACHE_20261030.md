@@ -237,3 +237,10 @@ bash -c 'set -Eeuo pipefail; ulimit -c 0; trap "echo [FAILED]-online-prefix-audi
 ```
 
 每条命令遇非零退出码会输出 FAILED；没有报错本身不能证明训练在推进，请同时查看阶段心跳和 step。只有 DONE 表示该命令的执行流程完成，不代表模型质量达标。已训练完成且合同匹配的新布局权重可以直接执行第五项，无须仅为 r5 重训；旧 image-first 权重不得替换开关直接使用。
+
+
+## r6：训练前真实 token 分歧的定位（2026-10-31）
+
+shared Phase1+2 的 prefix_probe 现在从开始逐域保存实际布局、缓存开关和完整失败输出；输出不一致仍阻断训练，未放宽 logits 或 token/EOS 门。`sft_new_loop_phase12.cache_diagnose` 从原失败运行恢复输入合同，支持两种布局、重复输出稳定性、同历史首次分歧的候选分数，以及 BF16/FP32 对照。它执行原冻结模型/cache，补充诊断脚本另行绑定和打包，不改旧运行。命令与证据边界见 shared 包 README 的 2026-10-31 小节。
+
+Phase3 新启动清单为 `*_sources_r6_20261031.json`，父来源 r5 保留不动；仅绑定本轮共享依赖，Phase3 计算、数据与预算未改。该改动修复失败证据丢失和诊断工具只支持旧布局的问题，不宣称已解决 cr02 的 4B token 分歧；仍需原服务器单卡实测。

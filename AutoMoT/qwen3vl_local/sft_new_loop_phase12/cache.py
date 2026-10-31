@@ -125,8 +125,7 @@ def assert_answers(cached,independent):
                 raise ValueError('Invalid generated-token/termination evidence')
         for key in ('token_ids','stop_token_id','reached_token_limit','text'):
             if a[key]!=b[key]:
-                raise ValueError(f'Shared cache changes generated answer arm={number} field={key}; '
-                                 f'shared={str(a[key])[:512]} independent={str(b[key])[:512]}')
+                raise cache_checks.CacheParityError(cached,independent)
 
 
 @torch.no_grad()
@@ -146,7 +145,13 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     checked=check_full or verify_outputs or bool(benchmark_repeats)
     independent=None;trials=[];comparisons=[]
     if checked:
-        independent=_pair(bundle,inputs,max_new_tokens,False);assert_answers(cached,independent)
+        independent=_pair(bundle,inputs,max_new_tokens,False)
+        try:assert_answers(cached,independent)
+        except cache_checks.CacheParityError as exc:
+            exc.evidence.update(input_layout=text_prefix.identity(),text_cache_enabled=text_prefix.cache_enabled(),
+                dtype=str(next(bundle.model.parameters()).dtype),device=str(device),
+                input_tokens=[int(item['input_ids'].shape[1]) for item in inputs],max_new_tokens=max_new_tokens)
+            raise
     if check_full:
         with isolated_text_cache(bundle):
             prefix=None

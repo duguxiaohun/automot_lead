@@ -44,24 +44,42 @@ def validate(bundle,index,data_root,mode,output,step,root,best):
 
 def probe(bundle,index,data_root,mode,output,facts):
     """Check both question domains and full-vs-prefix logits before any update."""
+    from qwen3vl_local.qwen35 import text_prefix
     bundle.model.eval();seen=set();reports=[]
-    for item in plan.evaluation(index,data_root,'val'):
-        if item.row.question_domain in seen:continue
-        seen.add(item.row.question_domain)
-        answers=facts[plan.identity(item.row)];first,second=prompts.specs(item,answers)
-        texts=prompts.texts(first,second,mode);targets=prompts.targets(answers,first,second)
-        images=plan.native._load_images([item.row.history_rgb_paths[i] for i in history_rgb_indices(mode)])
-        try:
-            print(f'[fusion-probe] domain={item.row.question_domain} packing both tasks',flush=True)
-            for b,spec in enumerate((first,second)):
-                objective.pack(bundle,images,texts[b],targets[b],spec)
-            print(f'[fusion-probe] domain={item.row.question_domain} checking complete cache outputs',flush=True)
-            reports.append(cache.generate(bundle,images,texts,check_full=True))
-            print(f'[fusion-probe] domain={item.row.question_domain} passed',flush=True)
-        finally:
-            for im in images:im.close()
-    if len(seen)!=2:raise ValueError('Both question domains required for GPU pre-training probe')
-    proof.write(output/'gpu_prefix_probe.json',dict(status='passed_before_optimizer_updates',reports=reports))
+    receipt=dict(status='running_before_optimizer_updates',reports=reports,cases=[],optimizer_updates=0,
+        input_layout=text_prefix.identity(),text_cache_enabled=text_prefix.cache_enabled(),
+        mode=mode,device=str(bundle.device),dtype=str(next(bundle.model.parameters()).dtype))
+    path=output/'gpu_prefix_probe.json'
+    proof.write(path,receipt)
+    print(f"[fusion-probe] input_layout={receipt['input_layout']} text_cache_enabled={receipt['text_cache_enabled']}",flush=True)
+    try:
+        for item in plan.evaluation(index,data_root,'val'):
+            if item.row.question_domain in seen:continue
+            seen.add(item.row.question_domain)
+            case=dict(domain=item.row.question_domain,key=list(plan.identity(item.row)),status='running')
+            receipt['cases'].append(case);proof.write(path,receipt)
+            answers=facts[plan.identity(item.row)];first,second=prompts.specs(item,answers)
+            texts=prompts.texts(first,second,mode);targets=prompts.targets(answers,first,second)
+            case.update(question_order=[list(s.output_keys) for s in (first,second)],prompt_sha256=[proof.digest(t) for t in texts])
+            images=plan.native._load_images([item.row.history_rgb_paths[i] for i in history_rgb_indices(mode)])
+            try:
+                print(f'[fusion-probe] domain={item.row.question_domain} packing both tasks',flush=True)
+                for b,spec in enumerate((first,second)):
+                    objective.pack(bundle,images,texts[b],targets[b],spec)
+                print(f'[fusion-probe] domain={item.row.question_domain} checking complete cache outputs',flush=True)
+                reports.append(cache.generate(bundle,images,texts,check_full=True))
+                case['status']='passed';proof.write(path,receipt)
+                print(f'[fusion-probe] domain={item.row.question_domain} passed',flush=True)
+            finally:
+                for im in images:im.close()
+        if len(seen)!=2:raise ValueError('Both question domains required for GPU pre-training probe')
+        receipt['status']='passed_before_optimizer_updates'
+    except BaseException as exc:
+        receipt.update(status='failed_before_optimizer_updates',error=f'{type(exc).__name__}: {exc}')
+        if receipt['cases']:
+            receipt['cases'][-1].update(status='failed',failure_evidence=getattr(exc,'evidence',None))
+        raise
+    finally:proof.write(path,receipt)
     bundle.model.train()
 
 

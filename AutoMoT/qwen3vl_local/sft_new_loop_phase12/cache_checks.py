@@ -1,8 +1,36 @@
 """Output parity is a gate; floating-point prompt logits remain diagnostic evidence."""
 import math
+import copy
 import torch
 
 PROTOCOL = 'exact_generated_tokens_and_stop_v1_20261030'
+
+
+def first_difference(cached, independent):
+    """Describe the first differing decision, including EOS and token limits."""
+    if len(cached['branches'])!=2 or len(independent['branches'])!=2:
+        raise ValueError('Missing paired output')
+    for arm, (a, b) in enumerate(zip(cached['branches'], independent['branches']), 1):
+        for key in ('token_ids', 'stop_token_id', 'reached_token_limit', 'text'):
+            if a[key] == b[key]:continue
+            x, y = a['token_ids'], b['token_ids']
+            index = next((i for i in range(min(len(x),len(y))) if x[i] != y[i]), min(len(x),len(y)))
+            def decision(answer, ids):
+                if index < len(ids):return dict(kind='token', token_id=ids[index])
+                return dict(kind='limit' if answer['reached_token_limit'] else 'stop', token_id=answer['stop_token_id'])
+            return dict(arm=arm, field=key, token_index=index, common_token_ids=x[:index],
+                        cached=decision(a,x), independent=decision(b,y))
+    return None
+
+
+class CacheParityError(ValueError):
+    """Strict failure carrying complete JSON evidence rather than truncated logs."""
+    def __init__(self, cached, independent):
+        difference=first_difference(cached,independent)
+        self.evidence=copy.deepcopy(dict(first_difference=difference,cached=cached,independent=independent))
+        super().__init__(f"Shared cache changes generated answer arm={difference['arm']} "
+                         f"field={difference['field']} token_index={difference['token_index']}; "
+                         f"cached={difference['cached']} independent={difference['independent']}")
 
 
 def logits(actual, expected):

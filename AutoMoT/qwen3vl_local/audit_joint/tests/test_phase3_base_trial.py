@@ -244,9 +244,9 @@ def test_new_prefix_release_preserves_legacy_gate_and_training_computation(monke
     # Default image-first execution remains launchable against NEW source;
     # old checkpoints still require their original release hash/source.
     assert len(trial.verified_sources())==64
-    new_release=old_release.with_name('phase3_text_prefix_sources_r5_20261031.json')
+    new_release=old_release.with_name('phase3_text_prefix_sources_r6_20261031.json')
     spec=trial.read(new_release)
-    assert spec['parent_release_sha256']==trial.file_sha(old_release.with_name('phase3_text_prefix_sources_r4_20261030.json'))
+    assert spec['parent_release_sha256']==trial.file_sha(old_release.with_name('phase3_text_prefix_sources_r5_20261031.json'))
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1')
     monkeypatch.setattr(trial,'RELEASE',new_release)
     monkeypatch.setattr(trial,'POLICY','phase3_independent_base_7680_text_prefix_v1')

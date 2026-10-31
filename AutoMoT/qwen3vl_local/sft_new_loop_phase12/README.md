@@ -199,6 +199,37 @@ BF16的atol0.08/rtol0.03保留作诊断，分16-token块统计全部logits；逐
 确定性生成、repetition penalty、同一编码输入、同步状态和计时scope，并与本次新权重的评测绑定对照。
 缺项、条件冲突、汇总不一致均拒绝，不再接受只有trials的计时证据。
 
+## 2026-10-31 完整输出分歧的诊断与证据保存
+
+本次 cr02 `run_20261031_003849_2055418` 在 ROAD_CORRIDOR 的第一分支出现实际生成 token 差异，不能用前一天另两个样本的诊断通过来覆盖，也不能以放宽 logits 容差、跳过断言或改标签继续训练。本轮保持输出 token/EOS/截断的一致性门和原精度阈值；尚未确认该 4B 失败究竟来自数值敏感还是状态/位置实现。
+
+新训练的 `gpu_prefix_probe.json` 从检查开始就逐域落盘，保存实际 input_layout、文本缓存开关、dtype、题序、样本身份、已通过域与失败域。`CacheParityError` 仍是 ValueError，会阻断训练；附带两条路径的完整输出，以及首次分歧的分支、零起始 token 下标和终止类型，不再只留下截断的异常字符串。失败状态是 `failed_before_optimizer_updates`，不能作通过回执；本轮不更改 optimizer 创建顺序、标定、提示词、采样和更新预算。
+
+单卡诊断入口已支持旧图片前缀和新文本前缀。它先读取原 run 的 ready / training_inputs / execution，恢复绑定布局，不依赖当前 shell 的 AUTOMOT_TEXT_PREFIX。若有新 probe 回执则恢复记录的缓存开关；旧运行没有记录该开关时，明确标为 `default_not_recorded_in_old_run`，文本布局按启用缓存诊断，不能宣称恢复了未知环境。基座默认读取原 training_inputs；`--model-dir` 可显式指定本机资源，仍由冻结加载器校验。
+
+在当前服务器 AutoMoT 根、已激活训练环境下执行。先做无需 GPU 的只读检查：
+
+```bash
+python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose \
+  --source-run checkpoints/phase12_shared/run_20261031_003849_2055418 --check-only
+```
+
+这只确认保存的策略/路径和部分回执关联，不加载模型、不认证完整源码或权重。随后单卡实测：
+
+```bash
+python -B -m qwen3vl_local.sft_new_loop_phase12.cache_diagnose \
+  --source-run checkpoints/phase12_shared/run_20261031_003849_2055418 \
+  --mode 2rgb_endpoints
+```
+
+默认自动选择一张空闲卡；若指定 `GPU_IDS`，只可填一个空闲物理卡号，不是训练时的四卡列表。诊断采用原冻结源码和原验证成员，核验原准备文件/RGB，零次 optimizer 更新；不会重新训练、重建数据或改旧目录。两台 GPU 服务器通用，但上述 run 名仅对应 cr02，cee 必须使用它自己实际存在的失败运行，不能跨机器伪造恢复路径。不要在 codon/wang 执行 GPU 部分，也不需要先安装加速扩展来改变复现环境。
+
+每个精度分别按原问题域顺序重放；后一个域恢复前一个域已建立的缓存历史，两题第二分支的追踪也恢复首题状态。缓存和独立路径各重复一次，另报重复输出是否稳定。首次分歧追踪让两边在分歧前消费完全相同的 token 历史，记录经过原生 repetition penalty=1.05 的 top-5 候选、top-2 分差、双方所选 token 的分数、文本与 EOS。若重放不再分歧，会如实记录，不能用一次重放取代原失败。
+
+BF16 保持基座加载时的原旋转缓冲；FP32 是把同一份 BF16 已加载权重提升为 FP32 运算，并禁用 TF32，不是重新获得原始 FP32 权重。只在编码输入 SHA 一致时给出精度对照：`precision_sensitive...` 表示该样本对精度敏感，不是根因或全量缓存认证；FP32 仍不一致则继续查状态/位置路径；重复路径本身不稳定则优先报告不稳定。fast-path 可用性和原模型/cache 源码 SHA 同时记录。
+
+输出仍为独立 `checkpoints/phase12_cache_diagnose/run_*/report.json` 及 `[DIAGNOSTIC_BUNDLE] ...tar.gz`。包内附本次诊断脚本和 `cache_checks.py` 补充证据代码，计算模型与缓存则来自原冻结目录；未改旧源码 SHA。完整成对输出在额外分歧追踪和 logits 诊断之前保存，后续异常仍保留已得到的证据。外部超时以 worker.json / worker.log 为准，不能把 running 状态视为完成。默认 1800 秒上限、160 个生成 token；本工具不是速度 benchmark 或质量验收。
+
 ## 选模、评测、交包
 
 每1000步及最终步评测融合val192题，并评测新增Phase1弱项保护集。本机保护集合并去重后254题，
@@ -258,3 +289,6 @@ P2问题域用 `--domain ROAD_CORRIDOR|LOCAL_JUNCTION`。both才共享前缀；�
 本地CPU可核对数据、容量、严格打包，以及真实小型Qwen3.5混合缓存和LoRA梯度。
 本机无完整4B权重，不跑GPU训练/测试。远程4B吞吐、峰值显存、收敛质量、旧正确损失和推理节省比例
 都必须等新训练后的完整审计包，不能把CPU通过描述为效果已好或保证加速。
+
+
+2026-10-31 本轮验证：CPU 完整组合 **670 passed、1 skipped，63.73 秒**；最终诊断/失败回执/原有缓存验收及 Phase3 来源清单专项 **65 passed，6.64 秒**，范围与组合重叠，不相加。包含真实小型 Qwen3.5 在两种布局下的 BF16/FP32、缓存隔离、重复输出及同历史追踪；强制分歧、终止边界与训练失败落盘另用夹具验证。没有运行 4B GPU、新训练或 CARLA，未修改标签库；cr02 原失败仍需上述单卡诊断后定位，不能称本轮已经修复数值根因。
