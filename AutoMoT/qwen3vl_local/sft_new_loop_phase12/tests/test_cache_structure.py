@@ -52,6 +52,7 @@ def test_corrupted_retained_state_is_not_hidden_by_numerical_tolerance(model,mon
     assert not result['retained_prefix_unchanged_after_hit']
     assert not result['comparisons']['warm_vs_cold']['exact_on_observed_tensors']
     assert result['status']=='repeat_or_reuse_difference_requires_investigation'
+    with pytest.raises(ValueError,match='mutated'):structure.verify_reuse(result)
     assert not hasattr(bundle,'_text_prefix_cache')
 
 
@@ -138,6 +139,7 @@ def test_position_errors_are_structural_failures_even_when_reuse_is_repeatable(m
     result=structure.measure(SimpleNamespace(model=model),inputs(),cache)
     assert not result['comparisons']['cold_split_vs_full']['position_metadata_equal']
     assert result['status']=='structural_contract_violation'
+    with pytest.raises(ValueError,match='structure failure'):structure.verify_reuse(result)
 
 
 def test_real_nonzero_lora_state_reuse_is_exact(model,monkeypatch):

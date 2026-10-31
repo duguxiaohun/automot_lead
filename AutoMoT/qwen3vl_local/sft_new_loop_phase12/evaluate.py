@@ -41,6 +41,28 @@ def metrics(cases,phases=(1,2)):
     return result
 
 
+
+def full_control_metrics(cases):
+    """Score full-forward controls against the same labels, without selecting on them."""
+    controls=[dict(c,**c['full_forward_control']) for c in cases]
+    changes={}
+    for phase in (1,2):
+        counts=Counter(output_differences=0,valid_decision_changes=0,invalid_or_truncated=0,
+                       cached_correct_full_wrong=0,full_correct_cached_wrong=0)
+        for case,control in zip(cases,controls):
+            a,b=case[f'phase{phase}'],control[f'phase{phase}'];gt=a['gt']
+            counts['output_differences']+=any(a[k]!=b[k] for k in ('token_ids','stop_token_id','reached_token_limit','text'))
+            valid=all(type(x['parsed'].get(k)) is bool for x in (a,b) for k in gt)
+            complete=all(not x['reached_token_limit'] and x['stop_token_id'] is not None for x in (a,b))
+            counts['invalid_or_truncated']+=not (valid and complete)
+            counts['valid_decision_changes']+=valid and complete and a['parsed']!=b['parsed']
+            ac=a['parsed']==gt;bc=b['parsed']==gt
+            counts['cached_correct_full_wrong']+=ac and not bc
+            counts['full_correct_cached_wrong']+=bc and not ac
+        changes[f'phase{phase}']=dict(counts)
+    return dict(metrics=metrics(controls),changes=changes,
+                role='diagnostic_only_selection_and_primary_scores_use_text_cache')
+
 def benchmark_summary(cases):
     trials=[t for c in cases for t in c['performance']['paired_benchmark']['trials']]
     separate=sum(t['independent_seconds'] for t in trials);shared=sum(t['shared_seconds'] for t in trials)
@@ -92,7 +114,10 @@ def stream_summary(cases):
         saving_fraction=1-shared/baseline if baseline else None,
         with_encoding_saving_fraction=1-(shared+encoding)/(baseline+encoding) if baseline+encoding else None,
         cache=previous,baseline_order='production_then_independent',
-        scope='original ordered model stream from empty cache; not CARLA end-to-end speed')
+        full_output_difference_cases=sum(c['performance'].get('full_answer_equivalence_passed') is False for c in cases),
+        cached_generated_tokens=sum(c[f'phase{p}']['generated_tokens'] for c in cases for p in (1,2)),
+        full_generated_tokens=sum(b['generated_tokens'] for c in cases for b in c['performance']['independent_branches']),
+        scope='original ordered model stream from empty cache; full control may decode different tokens/length; not pure equal-output KV savings or CARLA end-to-end speed')
 
 
 @torch.no_grad()
@@ -131,6 +156,10 @@ def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
             for p,spec in enumerate((first,second),1):
                 branch=report['branches'][p-1];case[f'phase{p}']=dict(**branch,gt=receipt[f'phase{p}_gt'],
                     parsed=_parse(branch['text'],spec,p))
+            if cache.text_prefix.cache_enabled():
+                case['full_forward_control']={f'phase{p}':dict(**report['independent_branches'][p-1],
+                    gt=receipt[f'phase{p}_gt'],parsed=_parse(report['independent_branches'][p-1]['text'],spec,p))
+                    for p,spec in enumerate((first,second),1)}
             handle.write(json.dumps(case,ensure_ascii=False)+'\n');handle.flush();cases.append(case)
             print(f'[fusion-eval:{split}:{mode}] {number+1}/{len(items)}',flush=True)
     result=metrics(cases);result['performance']=dict(seconds=time.perf_counter()-start,
@@ -138,6 +167,7 @@ def run(bundle,index,data_root,mode,split,output,*,check_cache=True):
         device=str(bundle.device),model_dtype=str(next(bundle.model.parameters()).dtype),mode=mode,
         shared_prefix=True,cache_equivalence_first_case=check_cache,
         peak_memory_scope='whole evaluation including independent baseline and diagnostics; not shared-only memory')
+    if cache.text_prefix.cache_enabled():result['full_forward_control']=full_control_metrics(cases)
     result['performance']['paired_benchmark']=benchmark_summary(cases)
     result['performance']['stream_benchmark']=stream_summary(cases)
     result['performance']['primary_speed_measurement']='stream_benchmark'

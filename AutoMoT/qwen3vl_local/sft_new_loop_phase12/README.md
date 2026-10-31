@@ -5,6 +5,57 @@
 每个图像模式训练一个共用 LoRA：两图模型同时回答P1/P2，四图模型也同时回答P1/P2；
 两图与四图仍是两个独立实验，并非把两种图数混成一个训练集。
 
+
+## 2026-10-31：文本 KV 正式路径的新验收（r9，覆盖下文旧的逐 token 硬门槛）
+
+新建 `AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1` 运行采用
+`text_reuse_same_partition_v2_20261031`。训练仍文字前置、完整前向反传；
+不使用脱离梯度的文本缓存训练，不跨 optimizer 更新复用。BF16 加载及既有必要的
+FP32 运算保持，未改变提示词、标定、采样、数据成员、训练预算或质量选优规则。
+
+- 正式验证、选优、测试及在线推理使用文本缓存的回答。旧正确损失否决规则保持。
+- 完整前向是独立对照：保存完整 token/EOS/截断、首次分歧、logits 及其下一 token 分歧，
+  不再以两条不同数值路径的逐 token 相同为硬门槛。非有限值和形状异常仍拒绝。
+- 每个正式评测请求额外独立重算文本分段、完整解码，与生产缓存答案严格比较；
+  这些诊断不能暖生产缓存，也不进入主速度计时。两域训练前 probe 和首个评测样本另检查
+  实际命中、最终 K/V/conv/recurrent 全部张量、采样位置/隐藏状态及保留前缀指纹。
+  不存储/不命中不能冒充复用验收通过；同分段状态变化仍阻断，不能用 BF16 容差绕过。
+- 完整前向对照也按相同标签重新解析评分，`full_forward_control` 另报有效决策变化、
+  无效/截断及双方各自答对的数量；不把完整前向当成真值，不用对照分数选权重。
+- 缓存中只有较短问题时，完整重建新问题的规范前缀，不再从短前缀续算；
+  避免数值结果依赖历史分段。`promotions` 统计这种重建，当前请求记 miss、复用 0 token。
+  4096 token / 256 MiB 默认容量未变，因此部分前缀命中和拒绝存储仍须如实记录。
+- 完整前向仍是耗时基线，不偷换成更慢的“每次重建文本前缀”。输出长度可能不同，
+  因此同时报告生成 token 数及输出差异，不能把时间比全称为等输出工作量的纯 KV 收益。
+- 独立文本流及 Phase1/2/3/1+2 原生在线基准同步采用 v2：同路径重复与冷重算严格检查，
+  完整前向差异单列。它们不含真实标签，不认证任务质量或 CARLA 闭环。
+- 旧 image-first 路径和同布局关缓存对照保留原严格合同；旧冻结源码/清单/失败回执不改。
+  新 CPU ready 绑定缓存验收协议，不能准备时开缓存、训练/评测时关缓存绕过。
+
+远程先更新，在当前 AutoMoT 根、已激活环境下**新建** CPU-ready 运行：
+
+```bash
+bash ./sync_automot.sh
+AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1 \
+  python -B -m qwen3vl_local.sft_new_loop_phase12 cpu
+```
+
+保留此前实际使用的 `--phase1-data`、`--phase2-data` 等资源参数；不指定时仍按原默认资源。
+将下面占位路径替换成上述命令打印的 **新 `[CPU_READY]` 路径**，不能填旧失败 run：
+
+```bash
+env -u GPU_IDS AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1 \
+  python -B -m qwen3vl_local.sft_new_loop_phase12 probe \
+  --run-dir checkpoints/phase12_shared/NEW_CPU_READY_RUN
+```
+
+`probe` 自动选择一张空闲卡（或 `GPU_IDS=单个空闲物理卡号`），执行已绑定冻结源码，
+同时验证两图/四图的两个问题域；3600 秒超时、零 optimizer 更新，不创建训练 `runs/`。
+输出在新运行的 `probes/run_*/`，包括逐域完整回执、worker 日志和 `result.json`。
+通过只表示新验收在该基座/初始化 LoRA/样本上通过，不等于新训练质量或速度通过。
+随后使用同一个新 CPU-ready 目录执行原 `train` 命令，正式训练仍独立重做两域 probe。
+旧 run 仅作证据保留，不迁移、不重写 SHA，也不要求重建原始标签库。
+
 ## 问答与缓存
 
 ```text

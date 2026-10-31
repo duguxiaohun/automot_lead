@@ -13,7 +13,7 @@ def verify_evaluations(root,mode):
     weight_binding=integrity.verify_evaluation_binding(root,mode)
     probe=proof.read(root/'runs'/mode/'gpu_prefix_probe.json')
     if probe.get('status')!='passed_before_optimizer_updates' or len(probe.get('reports',[]))!=2:
-        raise ValueError('Missing two-domain pre-training output parity probe')
+        raise ValueError('Missing two-domain pre-training cache acceptance probe')
     for report in probe['reports']:
         cache_checks.verify_output_evidence(report,report['branches'],require_logits=True)
     facts={tuple(r['key']):r for r in proof.read(root/'cpu/fusion_labels.json')}
@@ -69,12 +69,25 @@ def verify_evaluations(root,mode):
             if folder.name=='fusion_test' or folder.name.startswith('val_step_'):
                 perf=case['performance']
                 cache_checks.verify_output_evidence(perf,[case['phase1'],case['phase2']],require_logits=number==0)
+                if cache.text_prefix.cache_enabled():
+                    for phase in (1,2):
+                        control=case['full_forward_control'][f'phase{phase}']
+                        arm=perf['independent_branches'][phase-1]
+                        module=prompts.P1 if phase==1 else prompts.P2
+                        spec=module.make_prompt_spec(variant='all_random_order',
+                            answers=label['answers'] if phase==1 else item['answers'],seed_key=item['seed_key'])
+                        if (any(control[k]!=v for k,v in arm.items()) or control['gt']!=case[f'phase{phase}']['gt']
+                                or control['parsed']!=evaluate._parse(arm['text'],spec,phase)):
+                            raise ValueError('Full-forward quality control mismatch')
                 cache.verify_benchmark(perf['paired_benchmark'],device=recorded['performance']['device'],
                                        dtype=recorded['performance']['model_dtype'])
                 for arm in [case['phase1'],case['phase2'],*perf['independent_branches']]:
                     if arm['generated_tokens']>160 or arm['reached_token_limit']!=(arm['generated_tokens']==160):
                         raise ValueError('Generated length contradicts timing conditions')
         calculated=evaluate.metrics(cases,phases);recorded=proof.read(folder/'metrics.json')
+        if len(phases)==2 and cache.text_prefix.cache_enabled():
+            if recorded.get('full_forward_control')!=evaluate.full_control_metrics(cases):
+                raise ValueError('Full-forward control metrics mismatch')
         if any(recorded[k]!=v for k,v in calculated.items()):raise ValueError('Metrics do not reproduce original text')
         if folder.name.startswith('original_phase'):
             from .compare import compare

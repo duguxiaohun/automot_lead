@@ -78,7 +78,8 @@ def test_shorter_text_is_promoted_without_mutation(model):
     retained=next(iter(cache.entries.values()))[0]
     check(model,cache,inputs(prefix=65))
     assert retained.get_seq_length()==50
-    assert cache.last['reused_tokens']==50 and cache.last['computed_tokens']==15
+    assert cache.last['reused_tokens']==0 and cache.last['computed_tokens']==65
+    assert not cache.last['hit']
     assert not cache.last['full_hit'] and cache.stats['promotions']==1
     check(model,cache,inputs(prefix=65,grid=6))
     assert cache.last['full_hit'] and cache.last['computed_tokens']==0
@@ -177,7 +178,8 @@ def test_all_native_message_builders_keep_targets_and_candidate_text(monkeypatch
         assert msg[-1]['content']=='KEEP'
 
 
-def test_ordered_stream_benchmark_uses_native_decode_and_real_misses(model):
+def test_ordered_stream_benchmark_uses_native_decode_and_real_misses(model,monkeypatch):
+    monkeypatch.setenv("AUTOMOT_TEXT_PREFIX","1")
     class Tokenizer:
         eos_token_id=1
         def convert_tokens_to_ids(self,text):return 1
@@ -236,3 +238,16 @@ def test_new_layout_cpu_ready_rejects_old_mode(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match='layout differs'):integrity.verify_ready(tmp_path)
     (tmp_path/'ready.json').write_text(json.dumps(dict(contract=launch.CONTRACT,phase=1,version='source')))
     with pytest.raises(ValueError,match='layout differs'):launch.verify_ready(tmp_path,1,'source')
+
+
+def test_short_prefix_history_does_not_change_canonical_bf16_state(model):
+    model.to(dtype=torch.bfloat16)
+    small=inputs(prefix=50);large=inputs(prefix=65)
+    for item in (small,large):item['pixel_values']=item['pixel_values'].bfloat16()
+    cache=tp.TextPrefixCache();cache.prefill(model,small)
+    promoted=cache.prefill(model,large)
+    fresh=tp.TextPrefixCache().prefill(model,large)
+    assert torch.equal(promoted.logits,fresh.logits)
+    for name in ('key_cache','value_cache','conv_states','recurrent_states'):
+        for a,b in zip(getattr(promoted.past_key_values,name),getattr(fresh.past_key_values,name)):
+            if a is not None:assert torch.equal(a,b)

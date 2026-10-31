@@ -43,7 +43,7 @@ def validate(bundle,index,data_root,mode,output,step,root,best):
 
 
 def probe(bundle,index,data_root,mode,output,facts):
-    """Check both question domains and full-vs-prefix logits before any update."""
+    """Check both domains: reuse mechanics gate, full-forward numerical control."""
     from qwen3vl_local.qwen35 import text_prefix
     bundle.model.eval();seen=set();reports=[]
     receipt=dict(status='running_before_optimizer_updates',reports=reports,cases=[],optimizer_updates=0,
@@ -66,7 +66,7 @@ def probe(bundle,index,data_root,mode,output,facts):
                 print(f'[fusion-probe] domain={item.row.question_domain} packing both tasks',flush=True)
                 for b,spec in enumerate((first,second)):
                     objective.pack(bundle,images,texts[b],targets[b],spec)
-                print(f'[fusion-probe] domain={item.row.question_domain} checking complete cache outputs',flush=True)
+                print(f'[fusion-probe] domain={item.row.question_domain} checking cache acceptance and complete output controls',flush=True)
                 reports.append(cache.generate(bundle,images,texts,check_full=True))
                 case['status']='passed';proof.write(path,receipt)
                 print(f'[fusion-probe] domain={item.row.question_domain} passed',flush=True)
@@ -184,6 +184,27 @@ def run(args):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--run-dir',type=Path,required=True)
     p.add_argument('--model-dir',type=Path,required=True);p.add_argument('--mode',choices=('2rgb_endpoints','4rgb'),required=True)
-    run(p.parse_args())
+    p.add_argument('--probe-only',action='store_true',help='Frozen single-GPU acceptance check; no optimizer or DDP')
+    p.add_argument('--probe-output',type=Path,help=argparse.SUPPRESS)
+    args=p.parse_args()
+    if not args.probe_only:return run(args)
+    from qwen3vl_local import runtime_version
+    root=args.run_dir.resolve();version=Path(proof.read(root/'execution.json')['version'])
+    if Path(__file__).resolve().parents[2]!=(version/'app').resolve():
+        raise ValueError('Probe must execute the CPU-ready frozen source')
+    runtime_version.verify(version);ready=integrity.verify_ready(root,execution=True)
+    if args.probe_output is None or not args.probe_output.is_dir():raise ValueError('Missing reserved probe directory')
+    device=torch.device('cuda:0');torch.cuda.set_device(device)
+    torch.manual_seed(plan.SEED);torch.cuda.manual_seed_all(plan.SEED)
+    bundle=load_model_with_lora(args.model_dir,device=device,lora_rank=16,lora_alpha=32,
+        lora_dropout=.05,lora_vision_scope='off',strict_vision_scope=True,gradient_checkpointing=True)
+    index=root/'data/frame_index.jsonl';facts=data.labels(index)
+    for mode in ('2rgb_endpoints','4rgb'):
+        output=args.probe_output/mode;output.mkdir(exist_ok=False)
+        probe(bundle,index,ready['data_root'],mode,output,facts)
+    runtime_version.verify(version);integrity.verify_ready(root)
+    proof.write(args.probe_output/'result.json',dict(status='acceptance_passed_quality_and_speed_pending',
+        optimizer_updates=0,modes=['2rgb_endpoints','4rgb'],ready_sha256=proof.sha(root/'ready.json'),
+        execution_sha256=proof.sha(root/'execution.json'),cache_acceptance_protocol=cache.cache_checks.protocol()))
 
 if __name__=='__main__':main()

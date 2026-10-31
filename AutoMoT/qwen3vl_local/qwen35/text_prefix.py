@@ -148,7 +148,10 @@ class TextPrefixCache:
         from qwen3vl_local.engine import _clone_cache
         key = tuple(ids[0, :n].tolist())
         candidates = [k for k in self.entries if len(k) <= n and key[:len(k)] == k]
-        old_key = max(candidates, key=len) if candidates else None
+        # A shorter retained prefix introduces an extra arithmetic partition.
+        # Canonically rebuild the new prefix so answers do not depend on cache history.
+        promoting = bool(candidates) and key not in self.entries
+        old_key = key if key in self.entries else None
         reused = len(old_key) if old_key else 0
         hit = old_key is not None
         full_hit = reused == int(starts[0])
@@ -160,8 +163,7 @@ class TextPrefixCache:
             self.stats['reused_text_tokens'] += reused
             self.stats['full_hits' if full_hit else 'partial_hits'] += 1
         if reused < n:
-            # Extend a retained SHORTER text state, never crop hybrid recurrence.
-            # On eviction/switch build the complete new question, not a common stub.
+            # Build the canonical complete (or token-capped) text prefix in one call.
             kwargs = dict(past_key_values=_clone_cache(prefix)) if hit else {}
             out = model(input_ids=ids[:, reused:n], attention_mask=mask[:, :n],
                 position_ids=positions[:, :, reused:n],
@@ -173,7 +175,7 @@ class TextPrefixCache:
             size = _cache_bytes(prefix)
             del out
             self.stats['computed_text_prefix_tokens'] += n - reused
-            self.stats['promotions'] += int(hit)
+            self.stats['promotions'] += int(promoting)
             # Oversized entries do not evict otherwise useful retained entries.
             if size <= self.max_bytes:
                 while self.entries and (len(self.entries) >= self.max_entries or
@@ -226,7 +228,7 @@ def report(bundle):
 
 @torch.no_grad()
 def benchmark(bundle, requests, *, max_new_tokens=160, repeats=2):
-    """同题完整 token/EOS 配对及冷/热整段流计时，包含 clone 与失效检查。
+    """同分段重算/复用严格配对；完整前向差异单列，流计时包含 clone 与失效检查。
 
     requests 为已经 processor 编码、已移至设备的独立输入；图片处理不在计时内。
     每轮清空缓存后按原顺序回放，报告真实 miss，不能只计理想命中。
@@ -241,12 +243,13 @@ def benchmark(bundle, requests, *, max_new_tokens=160, repeats=2):
         if bundle.device.type == 'cuda':
             torch.cuda.synchronize(bundle.device)
 
-    def run(shared):
+    def run(shared, *, fresh=False):
         """完整回放一次流，缓存不跨独立计时试验。"""
         cache = TextPrefixCache()
         answers, times = [], []
         sync(); started = time.perf_counter()
         for item in requests:
+            if fresh:cache = TextPrefixCache()
             sync(); begin = time.perf_counter()
             out = (cache.prefill(bundle.model, item) if shared else
                    bundle.model(**item, use_cache=True, return_dict=True))
@@ -263,18 +266,29 @@ def benchmark(bundle, requests, *, max_new_tokens=160, repeats=2):
             if left != right:
                 raise ValueError(f'Text prefix changes generated tokens/stop/text at request {number}')
 
-    cold = run(True); reference = run(False); assert_same(cold, reference)
+    cold = run(True); reference = run(False)
+    recomputed = run(True,fresh=True); assert_same(cold,recomputed)
+    from qwen3vl_local.sft_new_loop_phase12 import cache as paired,cache_structure
+    boundary=min(int(torch.where(requests[0]['input_ids'][0]==_native(bundle.model).config.vision_start_token_id)[0][0]),cold['cache']['max_tokens'])
+    other=next((x for x in requests[1:] if torch.equal(x['input_ids'][:,:boundary],
+        requests[0]['input_ids'][:,:boundary]) and
+        not torch.equal(x['pixel_values'],requests[0]['pixel_values'])),None)
+    structure=cache_structure.measure(bundle,requests[0],paired,other_item=other)
+    cache_structure.verify_reuse(structure)
+    differences=[i for i,(a,b) in enumerate(zip(cold['answers'],reference['answers'])) if a!=b]
     trials = []
     for repeat in range(repeats):
         trial = {}
         for shared in ((False, True) if repeat % 2 == 0 else (True, False)):
-            result = run(shared); assert_same(reference, result)
+            result = run(shared); assert_same(cold if shared else reference, result)
             trial['cached' if shared else 'full'] = result
         trials.append(trial)
     cached = sum(t['cached']['seconds'] for t in trials)
     full = sum(t['full']['seconds'] for t in trials)
-    return dict(protocol='text_prefix_ordered_stream_v1', cold=cold, reference=reference, trials=trials,
-                saving_fraction=1-cached/full, complete_output_equivalence=True,
-                scope='preencoded ordered stream; includes misses, cloning, prefill and decode; excludes processor',
+    return dict(protocol='text_prefix_ordered_stream_v2', cold=cold, reference=reference, trials=trials,
+                recomputed_split=recomputed,text_reuse_structure=structure,same_partition_equivalence=True,
+                full_output_difference_requests=differences,
+                saving_fraction=1-cached/full, complete_output_equivalence=not differences,
+                scope='preencoded ordered stream; includes misses, cloning, prefill and decode; full control may decode different tokens/length; excludes processor',
                 model_dtype=str(next(bundle.model.parameters()).dtype), device=str(bundle.device),
                 max_new_tokens=max_new_tokens, quality_certified=False)

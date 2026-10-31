@@ -77,7 +77,8 @@ def summarize(run,deadline_ms=None):
         generation_calls=len(queries),generated_tokens=sum(q['answer']['generated_tokens'] for q in queries))
 
 
-def assert_same(left,right):
+def assert_same(left,right,*,require_outputs=True):
+    differences=[]
     if len(left['frames'])!=len(right['frames']):raise ValueError('Input stream length changed')
     for i,(a,b) in enumerate(zip(left['frames'],right['frames'])):
         for field in ('schedule','images_sha256','context_sha256'):
@@ -86,7 +87,9 @@ def assert_same(left,right):
         for number,(x,y) in enumerate(zip(a['queries'],b['queries'])):
             if x['input_sha256']!=y['input_sha256']:raise ValueError(f'Encoded input differs: frame {i}, query {number}')
             if any(x['answer'][k]!=y['answer'][k] for k in PARITY_FIELDS):
-                raise ValueError(f'Output token/EOS/text mismatch: frame {i}, query {number}')
+                differences.append(dict(frame=i,query=number))
+                if require_outputs:raise ValueError(f'Output token/EOS/text mismatch: frame {i}, query {number}')
+    return differences
 
 
 def _input_sha(inputs):
@@ -118,7 +121,7 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
     which is also separately reported. It is not CARLA/controller wall latency.
     """
     validate_rows(rows,phase)
-    if not text_prefix.enabled() or bundle.model.training:raise ValueError('Requires text-first layout and eval model')
+    if not text_prefix.cache_enabled() or bundle.model.training:raise ValueError('Requires enabled text cache and eval model')
     if type(repeats) is not int or repeats<2 or repeats%2 or not 0<max_new_tokens<=512:
         raise ValueError('Use an even number of repeats >=2 and 1..512 generated tokens')
     if deadline_ms is not None and (not math.isfinite(deadline_ms) or deadline_ms<=0):raise ValueError('Invalid deadline')
@@ -132,7 +135,7 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
     def run(cached,label):
         if text_prefix._weight_identity(bundle.model)!=weights:raise ValueError('Weights changed between trials')
         bank=text_prefix.TextPrefixCache();schedule=QuestionSchedule(window_frames,slots,seed,rank)
-        frames=[];previous=None
+        frames=[];previous=None;structures=[]
         _sync(bundle.device);start=time.perf_counter()
         for number,row in enumerate(rows):
             _sync(bundle.device);begin=time.perf_counter();images=[];image_sha=[];queries=[];ticket=None
@@ -154,6 +157,12 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
                     transfer_start=time.perf_counter()
                     inputs={k:v.to(bundle.device) for k,v in cpu.items()}
                     _sync(bundle.device);encoding_seconds+=time.perf_counter()-transfer_start
+                    if cached=='fresh':
+                        bank=text_prefix.TextPrefixCache()
+                        if number==0:
+                            from qwen3vl_local.sft_new_loop_phase12 import cache as paired,cache_structure
+                            structural=cache_structure.measure(bundle,inputs,paired)
+                            cache_structure.verify_reuse(structural);structures.append(structural)
                     model_start=time.perf_counter()
                     out=bank.prefill(bundle.model,inputs) if cached else bundle.model(**inputs,use_cache=True,return_dict=True)
                     answer=_decode(bundle,inputs,out,max_new_tokens);del out
@@ -180,7 +189,8 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
             finally:
                 for image in images:image.close()
         _sync(bundle.device)
-        result=dict(seconds=time.perf_counter()-start,frames=frames,cache=bank.report() if cached else None)
+        result=dict(seconds=time.perf_counter()-start,frames=frames,cache=bank.report() if cached else None,
+                    text_reuse_structure=structures)
         if text_prefix._weight_identity(bundle.model)!=weights:raise ValueError('Weights changed during a trial')
         result['summary']=summarize(result,deadline_ms)
         return result
@@ -191,23 +201,27 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         # This callback runs outside all measurement clocks.
         if on_run:on_run(name,result)
         return result
-    cold=recorded_run('cold_cached',True);reference=recorded_run('cold_full',False);assert_same(cold,reference)
+    cold=recorded_run('cold_cached',True);reference=recorded_run('cold_full',False)
+    differences=assert_same(cold,reference,require_outputs=False)
+    recomputed=recorded_run('recomputed_split','fresh');assert_same(cold,recomputed)
     trials=[]
     for repeat in range(repeats):
         order=('full','cached') if repeat%2==0 else ('cached','full')
         trial=dict(order=list(order))
         for name in order:
-            trial[name]=recorded_run(f'trial_{repeat:02d}_{name}',name=='cached');assert_same(reference,trial[name])
+            trial[name]=recorded_run(f'trial_{repeat:02d}_{name}',name=='cached');assert_same(cold if name=='cached' else reference,trial[name])
         trials.append(trial)
         if on_trial:on_trial(repeat,trial)
     cache_s=sum(t['cached']['seconds'] for t in trials);full_s=sum(t['full']['seconds'] for t in trials)
     cache_model=sum(t['cached']['summary']['model']['total_seconds'] for t in trials)
     full_model=sum(t['full']['summary']['model']['total_seconds'] for t in trials)
-    return dict(protocol='native_online_stream_v1',phase=phase,cold_cached=cold,cold_full=reference,trials=trials,
+    return dict(protocol='native_online_stream_v2',phase=phase,cold_cached=cold,cold_full=reference,trials=trials,
         summary={name:summarize(dict(frames=[f for t in trials for f in t[name]['frames']]),deadline_ms)
                  for name in ('cached','full')},
         saving_fraction=1-cache_s/full_s,model_saving_fraction=1-cache_model/full_model,
-        complete_output_equivalence=True,quality_certified=False,carla_certified=False,
+        complete_output_equivalence=not differences,full_output_differences=differences,
+        recomputed_split=recomputed,same_partition_equivalence=True,
+        quality_certified=False,carla_certified=False,
         policy=dict(window_frames=window_frames,slots=slots,seed=seed,rank=rank,max_new_tokens=max_new_tokens,
                     generation_calls_per_frame=2 if phase==12 else 1,prior_engine_rechecks=False,
                     equal_forward_call_count_required=False,
@@ -216,7 +230,8 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         timing=dict(quantile='nearest_rank',cache_reset='every arm starts empty',
                     cold_means='text cache cold, not OS disk or GPU hardware cold',
                     primary='all requests in alternating replay trials, including cache builds and switches',
-                    clone_and_invalidation_included=True,hashing_included=True),
+                    clone_and_invalidation_included=True,hashing_included=True,
+                    output_work_note='full control may decode different tokens/length; savings are not pure equal-output KV savings'),
         device=str(bundle.device),dtype=str(next(bundle.model.parameters()).dtype))
 
 
@@ -290,7 +305,7 @@ def worker(args):
             deadline_ms=args.deadline_ms,on_trial=completed,
             on_run=lambda name,value:write(output/(name+'.json'),value))
         verify_file_bindings(args,package,bindings);report['source_files_verified_after_measurement']=True
-        report['status']='output_parity_passed_speed_measured_quality_pending'
+        report['status']='text_reuse_checked_full_control_recorded_quality_pending'
     except BaseException as exc:
         report.update(status='failed',error=f'{type(exc).__name__}: {exc}')
         raise

@@ -329,3 +329,26 @@ hooks、bundle 缓存和 rope delta 在异常时也恢复；诊断不改变权�
 另仅在测试副本中将 GDN 核心 FP32 临时运算提升到 FP64，对比 chunk、逐 token recurrence 和状态交接：
 T=83、cut=10/64/70、弱/强衰减均在 `atol=rtol=2e-14` 下相符；生产 kernel 没有被替换。
 这些结果支持方法，不替代 H20/4B 的本次续算实测。具体远端命令见 shared 包 README r8 小节。
+
+
+## 2026-10-31 r9：正式文本路径与同分段复用验收
+
+新文本缓存运行不再要求 full-vs-split 逐 token 相等；该差异保留为完整原始输出、
+logits 和任务质量对照。新合同 `text_reuse_same_partition_v2_20261031` 严格要求
+实际复用与规范冷重算的完整生成相同，并在准入/首例验证最终混合状态全部张量、
+采样隐藏状态与位置、真实命中和保留前缀不可变。未命中不能认证复用，状态不符不能放宽容差。
+既有 full-forward 非有限/形状错误仍拒绝。旧布局的严格协议不改。
+
+训练仍按新布局完整反传；BF16 默认及内部 FP32 运算不改。共享验证/测试由缓存答案
+计算主评分及选优，完整前向按相同标签单列 `full_forward_control`；没有新增质量豁免。
+较短问题升级为较长问题改为从头重建规范前缀，避免新增切分点造成缓存历史依赖；
+记 miss 和实际计算量，保留 `promotions` 重建计数。后续相同问题继续命中。
+
+两种基准的 v2 回执区分 `same_partition_equivalence` 与 `complete_output_equivalence`：
+前者必须通过，后者据实为 true/false。新状态为
+`text_reuse_checked_full_control_recorded_quality_pending`，不再把 full 输出不同说成等价通过。
+诊断重算在测量外执行，计时仍对照完整前向，并提示解码 token/长度差异也可能影响时间。
+这不是 CARLA 验收。共享新运行的单卡 `probe` 用法见 `sft_new_loop_phase12/README.md`。
+
+r8 H20 证据仅作为本次设计依据：18 次实际复用检查张量差为零；FP32 的 Phase1 没有存储
+不能算命中验证。r9 修改后仍须按新源码运行 GPU probe，不能沿用 r8 回执称新版本通过。

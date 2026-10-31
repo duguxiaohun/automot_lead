@@ -25,7 +25,7 @@ def test_production_stream_includes_cold_start_and_isolates_replays(model,monkey
     for number,pair in enumerate((('a','b'),('a','b'),('c','d'),('c','d'))):
         result=cache.generate(b,[],pair,max_new_tokens=4,check_full=True,
                               verify_outputs=True,benchmark_repeats=2)
-        cases.append(dict(performance=result))
+        cases.append(dict(performance=result,phase1=result['branches'][0],phase2=result['branches'][1]))
         stats=tp.bank(b).stats
         assert stats['requests']==(number+1)*2
         assert stats['full_hits']==(0,2,2,4)[number]

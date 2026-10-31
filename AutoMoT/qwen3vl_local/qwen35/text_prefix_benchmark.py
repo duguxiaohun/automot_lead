@@ -81,7 +81,7 @@ def worker(args):
             base_asset_sha256=getattr(model.config,'local_asset_sha256',None))
         torch.cuda.reset_peak_memory_stats(device)
         report['benchmark']=text_prefix.benchmark(bundle,encoded,max_new_tokens=args.max_new_tokens)
-        report.update(status='output_parity_passed_speed_measured_quality_pending',
+        report.update(status='text_reuse_checked_full_control_recorded_quality_pending',
                       peak_memory_bytes=torch.cuda.max_memory_allocated(device),
                       memory_scope='encoded stream and both model paths; not cache-only peak')
     except BaseException as exc:

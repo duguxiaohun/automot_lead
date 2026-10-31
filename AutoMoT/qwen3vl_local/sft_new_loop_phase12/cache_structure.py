@@ -1,6 +1,7 @@
 """Frozen-model prefill diagnostics: numerical partitioning vs retained-state reuse.
 
-Not a training gate. No import-time torch/CUDA access or production precision change.
+measure collects evidence; verify_reuse applies the new same-partition gate.
+No import-time torch/CUDA access or production precision change.
 """
 from contextlib import contextmanager
 import hashlib
@@ -154,7 +155,7 @@ def measure(bundle,item,cache,*,other_item=None,on_evidence=None):
         for layer in language.layers if hasattr(layer,'linear_attn')})
         for name in ('chunk_gated_delta_rule','recurrent_gated_delta_rule','causal_conv1d_update')}
     report=dict(scope='prefill_only_not_complete_generation',sampled_positions=positions,prefix_tokens=n,
-        cache_certified=False,quality_certified=False,production_gate_changed=False,comparisons={},
+        cache_certified=False,quality_certified=False,measurement_applies_no_gate=True,comparisons={},
         backend=dict(attention=getattr(language.config,'_attn_implementation',None),kernels=kernels,
             deterministic_algorithms=torch.are_deterministic_algorithms_enabled(),
             matmul_precision=torch.get_float32_matmul_precision(),
@@ -214,3 +215,42 @@ def measure(bundle,item,cache,*,other_item=None,on_evidence=None):
         if not had_bank and hasattr(bundle,'_text_prefix_cache'):delattr(bundle,'_text_prefix_cache')
         elif had_bank:bundle._text_prefix_cache=previous_bank
     return report
+
+
+def verify_reuse(report):
+    """New runs gate on same-partition evidence; full-vs-split values are diagnostic.
+
+    Recompute acceptance from individual metrics, never trust a status string alone.
+    A cache that did not retain an entry has not demonstrated reuse correctness.
+    """
+    required={'full_repeat_vs_full','cold_split_vs_full','warm_vs_cold'}
+    comparisons=report.get('comparisons',{})
+    if not required<=set(comparisons):raise ValueError('Missing text state comparisons')
+    cross='cross_image_cache' in report
+    if cross:
+        required|={'cross_image_hit_vs_fresh_split','return_after_other_image_vs_cold'}
+        if not required<=set(comparisons):raise ValueError('Missing cross-image comparisons')
+    for name in ('warm_cache','cross_image_cache','return_cache') if cross else ('warm_cache',):
+        state=report[name]
+        if (state.get('hit') is not True or state.get('reused_tokens')!=report['prefix_tokens']
+                or not report['prefix_tokens']>0):raise ValueError('Text cache reuse not exercised')
+    for name in ('retained_prefix_unchanged_after_hit','retained_prefix_unchanged_after_other_image',
+                 'retained_prefix_unchanged_after_return') if cross else ('retained_prefix_unchanged_after_hit',):
+        if report.get(name) is not True:raise ValueError('Retained text prefix mutated')
+    for name,result in comparisons.items():
+        for field in ('layer_coverage_complete','sequence_length_equal','position_metadata_equal',
+                      'shapes_and_dtypes_compatible','all_finite'):
+            if result.get(field) is not True:raise ValueError('Text state structure failure: '+field)
+        if not result.get('sampled_layers') or not result.get('full_final_states'):
+            raise ValueError('Missing observed text state tensors')
+        metrics={**result['sampled_layers'],**result['full_final_states'],
+                 'next_logits':result['next_logits'],'rope_delta':result['rope_delta']}
+        for key,metric in metrics.items():
+            if metric.get('comparable') is not True or metric.get('nonfinite')!=0:
+                raise ValueError('Incompatible or nonfinite text state')
+            exact_required=(name!='cold_split_vs_full' or key=='rope_delta'
+                            or '.position_ids@' in key or '.cache_position@' in key)
+            if exact_required and (metric.get('exact') is not True or metric.get('differing_elements')!=0
+                                   or metric.get('max_abs')!=0):
+                raise ValueError('Same-partition text state changed: '+name+' '+key)
+    return True

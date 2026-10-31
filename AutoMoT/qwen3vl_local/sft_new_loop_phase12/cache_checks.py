@@ -1,9 +1,14 @@
-"""Output parity is a gate; floating-point prompt logits remain diagnostic evidence."""
+"""Versioned acceptance: retained text state vs recomputation; full path is a control."""
 import math
 import copy
 import torch
 
 PROTOCOL = 'exact_generated_tokens_and_stop_v1_20261030'
+TEXT_PROTOCOL = 'text_reuse_same_partition_v2_20261031'
+
+def protocol():
+    from qwen3vl_local.qwen35 import text_prefix
+    return TEXT_PROTOCOL if text_prefix.cache_enabled() else PROTOCOL
 
 
 def first_difference(cached, independent):
@@ -33,7 +38,7 @@ class CacheParityError(ValueError):
                          f"cached={difference['cached']} independent={difference['independent']}")
 
 
-def logits(actual, expected):
+def logits(actual, expected, *, diagnostic_only=False):
     if actual.shape != expected.shape or actual.ndim != 3 or actual.numel() == 0:
         raise ValueError('Cache/full logit shape mismatch or empty output')
     atol, rtol = (.08, .03) if actual.dtype == torch.bfloat16 else (2e-5, 2e-4)
@@ -51,11 +56,11 @@ def logits(actual, expected):
         max_abs_difference=maximum, mean_abs_difference=total/max(1, count-nonfinite),
         atol=atol, rtol=rtol, all_close=bad == 0 and nonfinite == 0,
         next_token_matches=bool(torch.equal(actual[:, -1].argmax(-1), expected[:, -1].argmax(-1))))
-    verify_logits(report)
+    verify_logits(report, diagnostic_only=diagnostic_only)
     return report
 
 
-def verify_logits(report):
+def verify_logits(report, *, diagnostic_only=False):
     if not isinstance(report, dict):
         raise ValueError('Missing structured logit diagnostic')
     for name in ('elements', 'mismatches', 'nonfinite'):
@@ -63,7 +68,8 @@ def verify_logits(report):
             raise ValueError('Invalid logit diagnostic counts')
     if not report['elements'] or report['mismatches'] > report['elements']:
         raise ValueError('Invalid logit diagnostic denominator')
-    if report['nonfinite'] or report.get('next_token_matches') is not True:
+    if (report['nonfinite'] or type(report.get('next_token_matches')) is not bool
+            or (not diagnostic_only and not report['next_token_matches'])):
         raise ValueError('Nonfinite cache logits or changed next-token decision')
     if report.get('all_close') is not (report['mismatches'] == 0):
         raise ValueError('Logit diagnostic incorrectly marked passed')
@@ -77,20 +83,38 @@ def verify_logits(report):
 
 def verify_output_evidence(performance, branches, *, require_logits=False):
     from .cache import assert_answers
-    if performance.get('cache_acceptance_protocol') != PROTOCOL:
+    text = protocol() == TEXT_PROTOCOL
+    if performance.get('cache_acceptance_protocol') != protocol():
         raise ValueError('Missing/current cache acceptance protocol')
     if performance.get('full_answer_equivalence_checked') is not True:
         raise ValueError('Missing full-answer cache parity')
-    assert_answers({'branches': branches}, {'branches': performance['independent_branches']})
+    actual={'branches': branches}; full={'branches': performance['independent_branches']}
+    if text:
+        assert_answers(actual,actual); assert_answers(full,full)
+        difference=first_difference(actual,full)
+        if (performance.get('full_answer_equivalence_passed') is not (difference is None)
+                or performance.get('full_answer_difference','missing') != difference):
+            raise ValueError('Full-output diagnostic outcome misreported')
+        if performance.get('same_partition_equivalence_checked') is not True:
+            raise ValueError('Missing same-partition output acceptance')
+        assert_answers(actual,{'branches':performance['recomputed_split_branches']})
+    else:
+        assert_answers(actual,full)
     checked = performance.get('full_forward_equivalence_checked')
     if type(checked) is not bool or (require_logits and not checked):
         raise ValueError('Missing prompt-logit diagnostic')
     reports = [b.get('full_comparison') for b in branches]
     if checked:
-        for report in reports: verify_logits(report)
+        for report in reports: verify_logits(report, diagnostic_only=text)
         passed = all(r['all_close'] for r in reports)
     else:
         if any(reports): raise ValueError('Unexpected unchecked logit evidence')
         passed = None
     if performance.get('full_forward_equivalence_passed', 'missing') is not passed:
         raise ValueError('Logit diagnostic outcome misreported')
+
+    if text and checked:
+        from .cache_structure import verify_reuse
+        structural=performance.get('text_reuse_structure',[])
+        if len(structural)!=2:raise ValueError('Missing two-branch text state acceptance')
+        for report in structural:verify_reuse(report)

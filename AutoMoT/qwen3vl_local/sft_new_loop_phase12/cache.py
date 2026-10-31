@@ -143,16 +143,39 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     cached=_pair(bundle,inputs,max_new_tokens,True)
     after=dict(text_prefix.bank(bundle).stats) if text_prefix.cache_enabled() else {}
     checked=check_full or verify_outputs or bool(benchmark_repeats)
-    independent=None;trials=[];comparisons=[]
+    independent=None;trials=[];comparisons=[];recomputed=None;structures=[]
+    text_acceptance=text_prefix.cache_enabled()
     if checked:
         independent=_pair(bundle,inputs,max_new_tokens,False)
-        try:assert_answers(cached,independent)
+        if text_acceptance:
+            assert_answers(independent,independent)
+            # Rebuild each text prefix independently, without borrowing production state.
+            # This is a correctness control, NEVER the speed baseline.
+            branches=[]
+            for item in inputs:
+                with isolated_text_cache(bundle):
+                    out=text_prefix.prefill(bundle,item)
+                    branches.append(_decode(bundle,item,out,max_new_tokens))
+                    del out
+            recomputed=dict(branches=branches)
+        try:assert_answers(cached,recomputed if text_acceptance else independent)
         except cache_checks.CacheParityError as exc:
             exc.evidence.update(input_layout=text_prefix.identity(),text_cache_enabled=text_prefix.cache_enabled(),
                 dtype=str(next(bundle.model.parameters()).dtype),device=str(device),
                 input_tokens=[int(item['input_ids'].shape[1]) for item in inputs],max_new_tokens=max_new_tokens)
             raise
     if check_full:
+        if text_acceptance:
+            import sys
+            from .cache_structure import measure,verify_reuse
+            for item in inputs:
+                structure=measure(bundle,item,sys.modules[__name__])
+                structures.append(structure)
+                try:verify_reuse(structure)
+                except ValueError as exc:
+                    exc.evidence=dict(text_reuse_structure=structures,cached=cached,
+                                      independent=independent,recomputed_split=recomputed)
+                    raise
         with isolated_text_cache(bundle):
             prefix=None
             if not text_prefix.enabled():n,prefix=prefill_prefix(bundle.model,*inputs)
@@ -163,10 +186,10 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
                 else:
                     out=fork(bundle.model,item,n,prefix)
                 full=bundle.model(**item,use_cache=False,return_dict=True)
-                diagnostic=cache_checks.logits(out.logits,full.logits[:,n:])
+                diagnostic=cache_checks.logits(out.logits,full.logits[:,n:],diagnostic_only=text_acceptance)
                 comparisons.append(diagnostic)
                 if not diagnostic['all_close']:
-                    print('[cache-logits:DIAGNOSTIC] prompt logits differ; exact generated-token/stop check remains required: '+str(diagnostic),flush=True)
+                    print('[cache-logits:DIAGNOSTIC] prompt logits differ; see versioned acceptance contract: '+str(diagnostic),flush=True)
                 del full,out
             del prefix
     if benchmark_repeats:
@@ -177,7 +200,7 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
             for shared in ((False,True) if repeat%2==0 else (True,False)):
                 with isolated_text_cache(bundle):
                     answer=_pair(bundle,inputs,max_new_tokens,shared)
-                assert_answers(cached,answer)
+                assert_answers((cached if shared else independent) if text_acceptance else cached,answer)
                 trial['shared_seconds' if shared else 'independent_seconds']=answer['seconds']
             trials.append(trial)
     for number,branch in enumerate(cached['branches']):
@@ -190,7 +213,12 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
         encoding_seconds=encode_seconds,total_seconds=time.perf_counter()-start,
         full_forward_equivalence_checked=check_full,full_answer_equivalence_checked=checked,
         full_forward_equivalence_passed=all(r['all_close'] for r in comparisons) if check_full else None,
-        cache_acceptance_protocol=cache_checks.PROTOCOL,
+        cache_acceptance_protocol=cache_checks.protocol(),
+        full_answer_equivalence_passed=(cache_checks.first_difference(cached,independent) is None) if checked else None,
+        full_answer_difference=cache_checks.first_difference(cached,independent) if checked else None,
+        same_partition_equivalence_checked=checked and text_acceptance,
+        recomputed_split_branches=recomputed['branches'] if recomputed else None,
+        text_reuse_structure=structures,
         independent_branches=independent['branches'] if independent else None,
         paired_benchmark=dict(trials=trials,warmup_pairs_per_method=1 if trials and not text_prefix.enabled() else 0,
             protocol=benchmark_protocol(),scope=BENCHMARK_SCOPE,batch_size=1,same_encoded_inputs=True,

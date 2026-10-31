@@ -176,7 +176,7 @@ def test_first_pair_mismatch_keeps_both_original_outputs(model,tmp_path,monkeypa
     monkeypatch.setattr(bench,'_decode',changed)
     with pytest.raises(ValueError,match='token/EOS/text'):
         bench.benchmark(b,1,rows,max_new_tokens=1,on_run=lambda name,run:saved.update({name:copy.deepcopy(run)}))
-    assert set(saved)=={'cold_cached','cold_full'}
+    assert set(saved)=={'cold_cached','cold_full','recomputed_split','trial_00_full'}
     assert all(len(run['frames'])==4 for run in saved.values())
     assert saved['cold_full']['frames'][0]['queries'][0]['answer']['text'].endswith('changed')
     assert tp.bank(b) is production and production.stats['requests']==0
@@ -261,7 +261,7 @@ def test_cli_check_only_never_selects_gpu_or_loads_weights(model,tmp_path,monkey
 def test_two_slots_and_partial_prefixes_counted_honestly(model,tmp_path,monkeypatch):
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');b,rows,_=setup(model,tmp_path,1)
     factory=tp.TextPrefixCache
-    monkeypatch.setattr(tp,'TextPrefixCache',lambda:factory(max_tokens=48))
+    monkeypatch.setattr(tp,'TextPrefixCache',lambda *args,**kw:factory(*args,**kw) if args or kw else factory(max_tokens=48))
     result=bench.benchmark(b,1,rows,window_frames=4,slots=2,max_new_tokens=1)
     run=result['trials'][0]['cached']
     assert [f['schedule']['slot'] for f in run['frames']]==[0,1,0,1]
@@ -291,3 +291,21 @@ def test_cpu_cli_worker_isolated_from_ddp_and_respects_timeout(model,tmp_path,mo
     assert env['GPU_IDS']==env['CUDA_VISIBLE_DEVICES']==''
     assert not {'RANK','LOCAL_RANK','WORLD_SIZE','LOCAL_WORLD_SIZE'}&set(env)
     with pytest.raises(FileExistsError):bench.main()
+
+
+def test_stable_full_path_difference_is_recorded_without_waiving_reuse(model,tmp_path,monkeypatch):
+    monkeypatch.setenv('AUTOMOT_TEXT_PREFIX','1');b,rows,_=setup(model,tmp_path,1)
+    forward=model.forward;decode=bench._decode
+    def tagged(**kw):
+        out=forward(**kw)
+        out.full_control=kw.get('past_key_values') is None and 'pixel_values' in kw
+        return out
+    def changed(bundle,item,out,budget):
+        result=decode(bundle,item,out,budget)
+        if getattr(out,'full_control',False):result['text']+='full control difference'
+        return result
+    monkeypatch.setattr(model,'forward',tagged);monkeypatch.setattr(bench,'_decode',changed)
+    result=bench.benchmark(b,1,rows,max_new_tokens=1)
+    assert result['same_partition_equivalence'] and not result['complete_output_equivalence']
+    assert len(result['full_output_differences'])==4
+    assert result['protocol']=='native_online_stream_v2' and not result['quality_certified']
