@@ -131,10 +131,13 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
     else:
         if not hasattr(bundle,'fusion_config'):raise ValueError('Load the verified shared online bundle first')
     weights=text_prefix._weight_identity(bundle.model)
+    source=getattr(bundle,'_text_prefix_cache',None) or text_prefix.TextPrefixCache()
+    limits={k:getattr(source,k) for k in ('max_entries','max_bytes','max_tokens')}
+    new_bank=lambda:text_prefix.TextPrefixCache(**limits)
 
     def run(cached,label):
         if text_prefix._weight_identity(bundle.model)!=weights:raise ValueError('Weights changed between trials')
-        bank=text_prefix.TextPrefixCache();schedule=QuestionSchedule(window_frames,slots,seed,rank)
+        bank=new_bank();schedule=QuestionSchedule(window_frames,slots,seed,rank)
         frames=[];previous=None;structures=[]
         _sync(bundle.device);start=time.perf_counter()
         for number,row in enumerate(rows):
@@ -158,11 +161,7 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
                     inputs={k:v.to(bundle.device) for k,v in cpu.items()}
                     _sync(bundle.device);encoding_seconds+=time.perf_counter()-transfer_start
                     if cached=='fresh':
-                        bank=text_prefix.TextPrefixCache()
-                        if number==0:
-                            from qwen3vl_local.sft_new_loop_phase12 import cache as paired,cache_structure
-                            structural=cache_structure.measure(bundle,inputs,paired)
-                            cache_structure.verify_reuse(structural);structures.append(structural)
+                        bank=new_bank()
                     model_start=time.perf_counter()
                     out=bank.prefill(bundle.model,inputs) if cached else bundle.model(**inputs,use_cache=True,return_dict=True)
                     answer=_decode(bundle,inputs,out,max_new_tokens);del out
@@ -203,7 +202,10 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
         return result
     cold=recorded_run('cold_cached',True);reference=recorded_run('cold_full',False)
     differences=assert_same(cold,reference,require_outputs=False)
+    if not cold['cache']['full_hits']:raise ValueError('Production stream exercised no complete text cache hits')
     recomputed=recorded_run('recomputed_split','fresh');assert_same(cold,recomputed)
+    resident=resident_probe(bundle,phase,rows,window_frames=window_frames,slots=slots,seed=seed,rank=rank,
+                            max_new_tokens=max_new_tokens,on_evidence=(lambda r:on_run('resident_text_stream',r)) if on_run else None)
     trials=[]
     for repeat in range(repeats):
         order=('full','cached') if repeat%2==0 else ('cached','full')
@@ -215,12 +217,12 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
     cache_s=sum(t['cached']['seconds'] for t in trials);full_s=sum(t['full']['seconds'] for t in trials)
     cache_model=sum(t['cached']['summary']['model']['total_seconds'] for t in trials)
     full_model=sum(t['full']['summary']['model']['total_seconds'] for t in trials)
-    return dict(protocol='native_online_stream_v2',phase=phase,cold_cached=cold,cold_full=reference,trials=trials,
+    return dict(protocol='native_online_stream_v3',phase=phase,cold_cached=cold,cold_full=reference,trials=trials,
         summary={name:summarize(dict(frames=[f for t in trials for f in t[name]['frames']]),deadline_ms)
                  for name in ('cached','full')},
         saving_fraction=1-cache_s/full_s,model_saving_fraction=1-cache_model/full_model,
         complete_output_equivalence=not differences,full_output_differences=differences,
-        recomputed_split=recomputed,same_partition_equivalence=True,
+        recomputed_split=recomputed,same_partition_equivalence=True,resident_text_stream=resident,
         quality_certified=False,carla_certified=False,
         policy=dict(window_frames=window_frames,slots=slots,seed=seed,rank=rank,max_new_tokens=max_new_tokens,
                     generation_calls_per_frame=2 if phase==12 else 1,prior_engine_rechecks=False,
@@ -233,6 +235,59 @@ def benchmark(bundle,phase,rows,*,window_frames=32,slots=1,seed='benchmark',rank
                     clone_and_invalidation_included=True,hashing_included=True,
                     output_work_note='full control may decode different tokens/length; savings are not pure equal-output KV savings'),
         device=str(bundle.device),dtype=str(next(bundle.model.parameters()).dtype))
+
+
+
+def resident_probe(bundle,phase,rows,*,window_frames,slots,seed,rank,max_new_tokens,on_evidence=None):
+    """Hold native questions/context fixed only in this diagnostic; use two real RGB groups."""
+    from qwen3vl_local.sft_new_loop_phase12 import cache as paired,cache_structure
+    def sha_images(row):return [hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in row['images']]
+    first=rows[0];first_sha=sha_images(first)
+    other=next((row for row in rows[1:] if sha_images(row)!=first_sha),None)
+    if other is None:raise ValueError('Resident probe requires another real image group')
+    images=[];alternate=[]
+    try:
+        for path in first['images']:
+            with Image.open(path) as im:images.append(im.convert('RGB'))
+        for path in other['images']:
+            with Image.open(path) as im:alternate.append(im.convert('RGB'))
+        schedule=QuestionSchedule(window_frames,slots,seed,rank)
+        messages,_=_prepared(bundle,phase,images,first['context'],schedule)
+        if phase!=12 and slots==2:
+            extra,_=_prepared(bundle,phase,images,first['context'],schedule);messages+=extra
+        original=[];changed=[]
+        for message in messages:
+            replacement=[];index=0
+            for turn in message:
+                content=turn['content']
+                if isinstance(content,list):
+                    parts=[]
+                    for part in content:
+                        if part.get('type')=='image':
+                            parts.append(dict(part,image=alternate[index]));index+=1
+                        else:parts.append(dict(part))
+                    content=parts
+                replacement.append(dict(turn,content=content))
+            if index!=len(alternate):raise ValueError('Native message/image count mismatch')
+            for msg,ims,target in ((message,images,original),(replacement,alternate,changed)):
+                chat=bundle.processor.apply_chat_template(msg,tokenize=False,add_generation_prompt=True)
+                encoded=bundle.processor(text=[chat],images=ims,return_tensors='pt',padding=False)
+                target.append({k:v.to(bundle.device) for k,v in encoded.items()})
+        # Two schedule slots may render the same permutation (especially two-key P2).
+        # Count actual distinct complete prefixes; never claim two resident entries for one.
+        selected=[];seen=set()
+        for index,item in enumerate(original):
+            n=int(torch.where(item['input_ids'][0]==text_prefix._native(bundle.model).config.vision_start_token_id)[0][0])
+            key=tuple(item['input_ids'][0,:n].tolist())
+            if key not in seen:selected.append(index);seen.add(key)
+        if phase==12 and len(selected)!=2:raise ValueError('Shared stream requires two distinct task prefixes')
+        def save(report):
+            report['scheduled_question_calls']=len(messages)
+            if on_evidence:on_evidence(report)
+        return cache_structure.measure_stream(bundle,[original[i] for i in selected],[changed[i] for i in selected],
+            paired,max_new_tokens=max_new_tokens,on_evidence=save)
+    finally:
+        for image in images+alternate:image.close()
 
 
 def check_plan(args,rows):

@@ -6,6 +6,59 @@
 两图与四图仍是两个独立实验，并非把两种图数混成一个训练集。
 
 
+## 2026-10-31 r10：两题实际驻留及跨图闭环准入（覆盖 r9 的容量与检查范围）
+
+新文本验收协议 `text_reuse_resident_stream_v3_20261031`：默认每个模型/rank 两项、
+总计 **1024 MiB**、每项最多 **8192 token**。这只是按需分配的保留缓存上限，
+不预分配 1 GiB，不包含模型、图片、解码状态及临时 clone。多个 adapter 各有自己的 bank。
+可通过 `AUTOMOT_TEXT_PREFIX_CACHE_ENTRIES/MIB/TOKENS` 显式设置正整数；
+CPU-ready 绑定三项实际配置，后续 probe/训练/评测配置不一致拒绝。不能降低设置绕过验收。
+旧失败运行的诊断会从原回执恢复容量；旧回执无容量字段时沿用其冻结源码默认，不继承当前 shell 设置。
+
+默认扩大不代表任意问题一定放得下。准入实际计算每题完整文本缓存的 `prefix_bytes`，
+报告 `required_bytes` 和 `required_entries`；两题总和超过预算、只有一个槽位、
+token 上限不能容纳完整前缀，都明确拒绝，要求用户根据实际空闲显存调整配置再新建运行。
+不会自动突破用户预算，也不通过只缓存共同短前缀冒称两种完整问题已驻留。
+
+共享训练前 probe 与正式评测首例，从既有验证/评测成员中读取另一组真实 RGB，
+保持当前两题文本不变，在**同一个与生产容量相同的 bank**执行：
+
+```text
+A/图组1 → B/图组1 → A/图组2 → B/图组2 → A/图组1 → B/图组1
+```
+
+必须前两次 miss、后四次完整 hit，两项同时驻留，无相互淘汰。每一步比较独立冷重算的
+完整 K/V/conv/recurrent 状态、采样隐藏状态/位置与完整 token/EOS/截断；
+图组切换、返回和完整解码之后，保留前缀的字节指纹必须不变。哈希忽略 LRU 顺序，
+不能把命中导致的排序变化误判为状态污染。两组图像张量必须真正不同，缺少替代 RGB 拒绝。
+准入在单独 bank 中回放整条流程，保护正式流的计时和命中计数；不再把单题隔离命中当成两题驻留。
+报告 `resident_text_stream` 保存六步及实际容量，打包审计缺项/假命中/不同容量均拒绝。
+
+Phase1/2/3/1+2 原生在线基准同样执行上述驻留控制（单题为三步子集），并验证生产回放
+出现完整命中；零完整命中不再报告复用验收通过。两调度槽若实际生成完全相同的题序，
+按真实不同前缀数记录，不冒称两个缓存项。诊断中固定问题与动态文字仅用于同题换图控制，
+实际 Phase3 回放仍使用每帧真实速度/导航，正式成员、随机题序和评分不变。
+
+训练、精度、标定、采样、预算及完整前向数值对照规则不变。8192 上限可能改变旧 4096
+切分点的数值路径，必须用新源码、新 CPU-ready 做 GPU 验证，不能沿用 r9 的回执。
+无需重建原始标签库。cr02/cee 均在当前 AutoMoT 根目录及激活环境下执行：
+
+```bash
+bash ./sync_automot.sh
+export AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1
+export AUTOMOT_TEXT_PREFIX_CACHE_ENTRIES=2
+export AUTOMOT_TEXT_PREFIX_CACHE_MIB=1024
+export AUTOMOT_TEXT_PREFIX_CACHE_TOKENS=8192
+python -B -m qwen3vl_local.sft_new_loop_phase12 cpu
+# 保留原先实际使用的数据/历史合同参数；下行替换为新打印的 CPU_READY 目录。
+env -u GPU_IDS python -B -m qwen3vl_local.sft_new_loop_phase12 probe \
+  --run-dir checkpoints/phase12_shared/NEW_CPU_READY_RUN
+```
+
+单卡 probe 仍零 optimizer 更新，依次检查两图/四图和两个问题域。结果写在新 run 的
+`probes/run_*/`；失败时 `gpu_prefix_probe.json` 保留容量或跨图检查证据。
+新 Phase3 源码清单 r10 单独发布，旧清单/冻结源码/失败目录保持原样。
+
 ## 2026-10-31：文本 KV 正式路径的新验收（r9，覆盖下文旧的逐 token 硬门槛）
 
 新建 `AUTOMOT_TEXT_PREFIX=1 AUTOMOT_TEXT_PREFIX_CACHE=1` 运行采用

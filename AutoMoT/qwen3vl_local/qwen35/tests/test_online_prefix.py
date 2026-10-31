@@ -20,11 +20,11 @@ def test_production_stream_includes_cold_start_and_isolates_replays(model,monkey
     b=bundle(model)
     data={key:inputs() for key in ('a','b','c','d')}
     for number,item in enumerate(data.values()):item['input_ids'][0,50]=150+number
-    monkeypatch.setattr(cache,'encode',lambda bundle,images,text:data[text])
+    monkeypatch.setattr(cache,'encode',lambda bundle,images,text:dict(data[text],pixel_values=-data[text]['pixel_values']) if images else data[text])
     cases=[]
     for number,pair in enumerate((('a','b'),('a','b'),('c','d'),('c','d'))):
         result=cache.generate(b,[],pair,max_new_tokens=4,check_full=True,
-                              verify_outputs=True,benchmark_repeats=2)
+                              verify_outputs=True,benchmark_repeats=2,other_images=["alternate"])
         cases.append(dict(performance=result,phase1=result['branches'][0],phase2=result['branches'][1]))
         stats=tp.bank(b).stats
         assert stats['requests']==(number+1)*2

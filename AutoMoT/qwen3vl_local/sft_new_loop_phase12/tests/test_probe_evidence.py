@@ -33,7 +33,7 @@ def test_first_difference_keeps_terminal_evidence(field):
 def test_probe_persists_prior_pass_and_current_complete_failure(tmp_path,monkeypatch,layout,fails):
     monkeypatch.setenv('AUTOMOT_TEXT_PREFIX',layout)
     b=SimpleNamespace(model=torch.nn.Linear(2,2),device=torch.device('cpu'))
-    items=[SimpleNamespace(row=SimpleNamespace(question_domain=d,history_rgb_paths=['x']*4)) for d in ('LOCAL_JUNCTION','ROAD_CORRIDOR')]
+    items=[SimpleNamespace(row=SimpleNamespace(question_domain=d,history_rgb_paths=[d]*4)) for d in ('LOCAL_JUNCTION','ROAD_CORRIDOR')]
     monkeypatch.setattr(train.plan,'evaluation',lambda *a:items)
     monkeypatch.setattr(train.plan,'identity',lambda row:(row.question_domain,))
     spec=SimpleNamespace(output_keys=('A','B'))
@@ -61,7 +61,7 @@ def test_probe_persists_prior_pass_and_current_complete_failure(tmp_path,monkeyp
         with pytest.raises(cache_checks.CacheParityError):run()
     else:run()
     receipt=json.loads((tmp_path/'gpu_prefix_probe.json').read_text())
-    assert receipt['optimizer_updates']==0 and closed==[True]*4
+    assert receipt['optimizer_updates']==0 and closed==[True]*(8 if layout=='1' else 4)
     assert receipt['input_layout']==('text_before_images_v1' if layout=='1' else 'images_before_text_legacy')
     if fails:
         assert receipt['status']=='failed_before_optimizer_updates' and len(receipt['reports'])==1

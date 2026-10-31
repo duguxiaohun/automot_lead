@@ -129,7 +129,7 @@ def assert_answers(cached,independent):
 
 
 @torch.no_grad()
-def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_outputs=False,benchmark_repeats=0):
+def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_outputs=False,benchmark_repeats=0,other_images=None):
     if bundle.model.training:raise ValueError('Shared prefix is inference-only; switch model to eval')
     if max_new_tokens<=0 or benchmark_repeats<0:raise ValueError('Invalid generation/benchmark budget')
     device=bundle.device;_sync(device);start=time.perf_counter()
@@ -143,7 +143,7 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     cached=_pair(bundle,inputs,max_new_tokens,True)
     after=dict(text_prefix.bank(bundle).stats) if text_prefix.cache_enabled() else {}
     checked=check_full or verify_outputs or bool(benchmark_repeats)
-    independent=None;trials=[];comparisons=[];recomputed=None;structures=[]
+    independent=None;trials=[];comparisons=[];recomputed=None;structures=[];resident_stream=None
     text_acceptance=text_prefix.cache_enabled()
     if checked:
         independent=_pair(bundle,inputs,max_new_tokens,False)
@@ -167,11 +167,14 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
     if check_full:
         if text_acceptance:
             import sys
-            from .cache_structure import measure,verify_reuse
-            for item in inputs:
-                structure=measure(bundle,item,sys.modules[__name__])
+            from .cache_structure import measure,verify_reuse,measure_stream
+            if other_images is None:raise ValueError('Text acceptance requires alternate real images')
+            others=[_device(encode(bundle,other_images,t),device) for t in texts]
+            resident_stream=measure_stream(bundle,inputs,others,sys.modules[__name__],max_new_tokens=max_new_tokens)
+            for item,other in zip(inputs,others):
+                structure=measure(bundle,item,sys.modules[__name__],other_item=other)
                 structures.append(structure)
-                try:verify_reuse(structure)
+                try:verify_reuse(structure,require_cross=True)
                 except ValueError as exc:
                     exc.evidence=dict(text_reuse_structure=structures,cached=cached,
                                       independent=independent,recomputed_split=recomputed)
@@ -218,7 +221,7 @@ def generate(bundle,images,texts,max_new_tokens=160,*,check_full=False,verify_ou
         full_answer_difference=cache_checks.first_difference(cached,independent) if checked else None,
         same_partition_equivalence_checked=checked and text_acceptance,
         recomputed_split_branches=recomputed['branches'] if recomputed else None,
-        text_reuse_structure=structures,
+        text_reuse_structure=structures,resident_text_stream=resident_stream,
         independent_branches=independent['branches'] if independent else None,
         paired_benchmark=dict(trials=trials,warmup_pairs_per_method=1 if trials and not text_prefix.enabled() else 0,
             protocol=benchmark_protocol(),scope=BENCHMARK_SCOPE,batch_size=1,same_encoded_inputs=True,

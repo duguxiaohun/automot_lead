@@ -4,7 +4,7 @@ import copy
 import torch
 
 PROTOCOL = 'exact_generated_tokens_and_stop_v1_20261030'
-TEXT_PROTOCOL = 'text_reuse_same_partition_v2_20261031'
+TEXT_PROTOCOL = 'text_reuse_resident_stream_v3_20261031'
 
 def protocol():
     from qwen3vl_local.qwen35 import text_prefix
@@ -114,7 +114,11 @@ def verify_output_evidence(performance, branches, *, require_logits=False):
         raise ValueError('Logit diagnostic outcome misreported')
 
     if text and checked:
-        from .cache_structure import verify_reuse
+        from .cache_structure import verify_reuse,verify_stream
         structural=performance.get('text_reuse_structure',[])
         if len(structural)!=2:raise ValueError('Missing two-branch text state acceptance')
-        for report in structural:verify_reuse(report)
+        for report in structural:verify_reuse(report,require_cross=True)
+        stream=performance.get('resident_text_stream',{})
+        verify_stream(stream,questions=2)
+        limits={k:performance['text_prefix']['cache'][k] for k in ('max_entries','max_bytes','max_tokens')}
+        if stream['limits']!=limits:raise ValueError('Resident stream used different cache limits')

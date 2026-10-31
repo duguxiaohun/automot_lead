@@ -71,10 +71,27 @@ def source_policy(root,mode):
     flag=saved.get('text_cache_enabled',layout=='text_before_images_v1')
     if type(flag)!=bool or (flag and layout!='text_before_images_v1'):
         raise ValueError('Invalid saved cache switch')
-    return dict(version=str(version),input_layout=layout,text_cache_enabled=flag,
+    limits=ready.get('text_cache_limits')
+    capacity_environment(limits)  # validate recorded limits before GPU selection
+    return dict(version=str(version),input_layout=layout,text_cache_enabled=flag,text_cache_limits=limits,
         cache_switch_source='probe_receipt' if 'text_cache_enabled' in saved else 'default_not_recorded_in_old_run',
         base_model=training['base_model'],source_sha256={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest()
             for p in (root/'execution.json',root/'ready.json',root/'runs'/mode/'training_inputs.json',probe) if p.is_file()})
+
+
+
+def capacity_environment(limits):
+    names={'max_entries':'AUTOMOT_TEXT_PREFIX_CACHE_ENTRIES','max_bytes':'AUTOMOT_TEXT_PREFIX_CACHE_MIB',
+           'max_tokens':'AUTOMOT_TEXT_PREFIX_CACHE_TOKENS'}
+    if limits is None:return {}
+    if not isinstance(limits,dict) or set(limits)!=set(names) or any(type(v) is not int or v<=0 for v in limits.values()) or limits['max_bytes']%1024**2:
+        raise ValueError('Invalid saved text cache capacity')
+    return {env:str(limits[key]//1024**2 if key=='max_bytes' else limits[key]) for key,env in names.items()}
+
+
+def restore_capacity(env,policy):
+    for suffix in ('ENTRIES','MIB','TOKENS'):env.pop('AUTOMOT_TEXT_PREFIX_CACHE_'+suffix,None)
+    env.update(capacity_environment(policy.get('text_cache_limits')))
 
 
 def _input_sha(item):
@@ -293,6 +310,7 @@ def worker(args,version):
     if str(version.resolve())!=policy['version']:raise ValueError('Frozen version changed')
     os.environ['AUTOMOT_TEXT_PREFIX']='1' if policy['input_layout']=='text_before_images_v1' else '0'
     os.environ['AUTOMOT_TEXT_PREFIX_CACHE']='1' if policy['text_cache_enabled'] else '0'
+    restore_capacity(os.environ,policy)
     sys.path.insert(0,str(version/'app'))
     import torch
     from qwen3vl_local import runtime_version
@@ -456,6 +474,7 @@ def main():
          'PYTHONUNBUFFERED':'1','PYTHONDONTWRITEBYTECODE':'1'}
     for name in ('RANK','WORLD_SIZE','LOCAL_RANK','LOCAL_WORLD_SIZE'):env.pop(name,None)
     try:
+        restore_capacity(env,policy)
         data_stage.run(command,output/'worker.json',timeout=args.timeout,env=env)
     finally:
         with tarfile.open(archive,'x:gz') as tar:

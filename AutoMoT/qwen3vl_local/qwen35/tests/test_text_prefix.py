@@ -141,7 +141,7 @@ def test_fused_path_and_native_start_use_persistent_text_cache(model,monkeypatch
     assert tp.bank(bundle).stats['hits']==1
     monkeypatch.setattr(fused,'_decode',lambda *args:dict(text='fixture',token_ids=[1],
         generated_tokens=1,stop_token_id=2,reached_token_limit=False))
-    result=fused.generate(bundle,[object()],['question1','question2'],check_full=True,verify_outputs=True)
+    result=fused.generate(bundle,[object()],['question1','question2'],check_full=False,verify_outputs=True)
     assert result['full_answer_equivalence_checked']
     assert result['cache_scope']=='process_local_cross_image_text_prefix'
     assert tp.bank(bundle).stats['hits']>=3

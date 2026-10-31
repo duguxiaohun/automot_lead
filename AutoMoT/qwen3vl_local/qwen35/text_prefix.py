@@ -84,12 +84,29 @@ def _cache_bytes(cache):
     return sum(t.numel() * t.element_size() for t in tensors.values())
 
 
+def cache_limits():
+    """Per-model/rank upper bounds, allocated lazily; never silently override a budget."""
+    result={}
+    for key,env,default in (('max_entries','AUTOMOT_TEXT_PREFIX_CACHE_ENTRIES',2),
+                            ('max_bytes','AUTOMOT_TEXT_PREFIX_CACHE_MIB',1024),
+                            ('max_tokens','AUTOMOT_TEXT_PREFIX_CACHE_TOKENS',8192)):
+        raw=os.environ.get(env,str(default))
+        if not raw.isascii() or not raw.isdecimal() or int(raw)<=0:
+            raise ValueError(env+' must be a positive integer')
+        result[key]=int(raw)*(1024**2 if key=='max_bytes' else 1)
+    return result
+
+
 class TextPrefixCache:
     """每张卡/模型实例独立的 LRU，换图片保留前缀，换权重立即失效。"""
 
-    def __init__(self, max_entries=2, max_bytes=256 * 1024**2, max_tokens=4096):
+    def __init__(self, max_entries=None, max_bytes=None, max_tokens=None):
         """容量同时按条目、实际字节和 token 限制。"""
-        if min(max_entries, max_bytes, max_tokens) <= 0:
+        defaults=cache_limits()
+        max_entries=defaults['max_entries'] if max_entries is None else max_entries
+        max_bytes=defaults['max_bytes'] if max_bytes is None else max_bytes
+        max_tokens=defaults['max_tokens'] if max_tokens is None else max_tokens
+        if any(type(v) is not int for v in (max_entries,max_bytes,max_tokens)) or min(max_entries, max_bytes, max_tokens) <= 0:
             raise ValueError('Positive cache limits required')
         self.max_entries, self.max_bytes, self.max_tokens = max_entries, max_bytes, max_tokens
         self.entries = OrderedDict()
@@ -199,7 +216,7 @@ class TextPrefixCache:
         self.last = dict(hit=hit, full_hit=full_hit, reused_tokens=reused,
                          computed_tokens=n-reused, complete_text_tokens=int(starts[0]),
                          prefix_tokens=n, suffix_tokens=ids.shape[1]-n,
-                         stored=size <= self.max_bytes)
+                         stored=size <= self.max_bytes, prefix_bytes=size)
         return output
 
 
@@ -243,13 +260,15 @@ def benchmark(bundle, requests, *, max_new_tokens=160, repeats=2):
         if bundle.device.type == 'cuda':
             torch.cuda.synchronize(bundle.device)
 
+    source=getattr(bundle,'_text_prefix_cache',None) or TextPrefixCache()
+    limits={k:getattr(source,k) for k in ('max_entries','max_bytes','max_tokens')}
     def run(shared, *, fresh=False):
         """完整回放一次流，缓存不跨独立计时试验。"""
-        cache = TextPrefixCache()
+        cache = TextPrefixCache(**limits)
         answers, times = [], []
         sync(); started = time.perf_counter()
         for item in requests:
-            if fresh:cache = TextPrefixCache()
+            if fresh:cache = TextPrefixCache(**limits)
             sync(); begin = time.perf_counter()
             out = (cache.prefill(bundle.model, item) if shared else
                    bundle.model(**item, use_cache=True, return_dict=True))
@@ -274,7 +293,19 @@ def benchmark(bundle, requests, *, max_new_tokens=160, repeats=2):
         requests[0]['input_ids'][:,:boundary]) and
         not torch.equal(x['pixel_values'],requests[0]['pixel_values'])),None)
     structure=cache_structure.measure(bundle,requests[0],paired,other_item=other)
-    cache_structure.verify_reuse(structure)
+    cache_structure.verify_reuse(structure,require_cross=True)
+    if not cold['cache']['full_hits']:raise ValueError('Production stream exercised no complete text cache hits')
+    targets=[];alternates=[];keys=set()
+    for item in requests:
+        n=int(torch.where(item['input_ids'][0]==_native(bundle.model).config.vision_start_token_id)[0][0])
+        key=tuple(item['input_ids'][0,:n].tolist())
+        if key in keys:continue
+        match=next((x for x in requests if torch.equal(x['input_ids'][:,:n],item['input_ids'][:,:n])
+            and not torch.equal(x['pixel_values'],item['pixel_values'])),None)
+        if match is None:raise ValueError('Each target question needs alternate real images')
+        targets.append(item);alternates.append(match);keys.add(key)
+        if len(targets)==2:break
+    resident=cache_structure.measure_stream(bundle,targets,alternates,paired,max_new_tokens=max_new_tokens)
     differences=[i for i,(a,b) in enumerate(zip(cold['answers'],reference['answers'])) if a!=b]
     trials = []
     for repeat in range(repeats):
@@ -286,7 +317,7 @@ def benchmark(bundle, requests, *, max_new_tokens=160, repeats=2):
     cached = sum(t['cached']['seconds'] for t in trials)
     full = sum(t['full']['seconds'] for t in trials)
     return dict(protocol='text_prefix_ordered_stream_v2', cold=cold, reference=reference, trials=trials,
-                recomputed_split=recomputed,text_reuse_structure=structure,same_partition_equivalence=True,
+                recomputed_split=recomputed,text_reuse_structure=structure,same_partition_equivalence=True,resident_text_stream=resident,
                 full_output_difference_requests=differences,
                 saving_fraction=1-cached/full, complete_output_equivalence=not differences,
                 scope='preencoded ordered stream; includes misses, cloning, prefill and decode; full control may decode different tokens/length; excludes processor',

@@ -58,7 +58,7 @@ def _state(cache):
 def _fingerprint(bank):
     """All retained prefix states, not just sequence lengths or tensor addresses."""
     h=hashlib.sha256()
-    for key,(state,size) in bank.entries.items():
+    for key,(state,size) in sorted(bank.entries.items()):
         h.update(repr((key,size,state.get_seq_length())).encode())
         for name,tensor in _state(state).items():
             h.update(repr((name,str(tensor.dtype),tuple(tensor.shape))).encode())
@@ -104,13 +104,14 @@ def _observe(model,positions):
         for handle in handles:handle.remove()
 
 
-def _capture(bundle,item,forward,positions):
+def _capture(bundle,item,forward,positions,decode=None):
     with _observe(bundle.model,positions) as layers:
         out=forward(item)
         result=dict(layers=layers,states=_state(out.past_key_values),
             next_logits=_copy(out.logits[:,-1,:]),rope_delta=_copy(out.rope_deltas),
             sequence_length=out.past_key_values.get_seq_length())
-        del out
+    if decode is not None:result['answer']=decode(out)
+    del out
     return result
 
 
@@ -217,7 +218,7 @@ def measure(bundle,item,cache,*,other_item=None,on_evidence=None):
     return report
 
 
-def verify_reuse(report):
+def verify_reuse(report,*,require_cross=False):
     """New runs gate on same-partition evidence; full-vs-split values are diagnostic.
 
     Recompute acceptance from individual metrics, never trust a status string alone.
@@ -227,6 +228,7 @@ def verify_reuse(report):
     comparisons=report.get('comparisons',{})
     if not required<=set(comparisons):raise ValueError('Missing text state comparisons')
     cross='cross_image_cache' in report
+    if require_cross and not cross:raise ValueError('Missing cross-image reuse evidence')
     if cross:
         required|={'cross_image_hit_vs_fresh_split','return_after_other_image_vs_cold'}
         if not required<=set(comparisons):raise ValueError('Missing cross-image comparisons')
@@ -238,19 +240,124 @@ def verify_reuse(report):
                  'retained_prefix_unchanged_after_return') if cross else ('retained_prefix_unchanged_after_hit',):
         if report.get(name) is not True:raise ValueError('Retained text prefix mutated')
     for name,result in comparisons.items():
-        for field in ('layer_coverage_complete','sequence_length_equal','position_metadata_equal',
-                      'shapes_and_dtypes_compatible','all_finite'):
-            if result.get(field) is not True:raise ValueError('Text state structure failure: '+field)
-        if not result.get('sampled_layers') or not result.get('full_final_states'):
-            raise ValueError('Missing observed text state tensors')
-        metrics={**result['sampled_layers'],**result['full_final_states'],
-                 'next_logits':result['next_logits'],'rope_delta':result['rope_delta']}
-        for key,metric in metrics.items():
-            if metric.get('comparable') is not True or metric.get('nonfinite')!=0:
-                raise ValueError('Incompatible or nonfinite text state')
-            exact_required=(name!='cold_split_vs_full' or key=='rope_delta'
-                            or '.position_ids@' in key or '.cache_position@' in key)
-            if exact_required and (metric.get('exact') is not True or metric.get('differing_elements')!=0
-                                   or metric.get('max_abs')!=0):
-                raise ValueError('Same-partition text state changed: '+name+' '+key)
+        verify_comparison(result,exact=name!='cold_split_vs_full')
+    return True
+
+
+def verify_comparison(result,*,exact=True):
+    for field in ('layer_coverage_complete','sequence_length_equal','position_metadata_equal',
+                  'shapes_and_dtypes_compatible','all_finite'):
+        if result.get(field) is not True:raise ValueError('Text state structure failure: '+field)
+    if not result.get('sampled_layers') or not result.get('full_final_states'):
+        raise ValueError('Missing observed text state tensors')
+    metrics={**result['sampled_layers'],**result['full_final_states'],
+             'next_logits':result['next_logits'],'rope_delta':result['rope_delta']}
+    for key,metric in metrics.items():
+        if metric.get('comparable') is not True or metric.get('nonfinite')!=0:
+            raise ValueError('Incompatible or nonfinite text state')
+        exact_required=(exact or key=='rope_delta'
+                        or '.position_ids@' in key or '.cache_position@' in key)
+        if exact_required and (metric.get('exact') is not True or metric.get('differing_elements')!=0
+                               or metric.get('max_abs')!=0):
+            raise ValueError('Same-partition text state changed: '+key)
+
+
+STREAM_PROTOCOL='resident_text_questions_cross_image_v1'
+
+
+def measure_stream(bundle,items,other_items,cache,*,max_new_tokens=160,on_evidence=None):
+    """One bank: A/X, B/X, A/Y, B/Y, A/X, B/X (or the one-question subset).
+
+    Actual bounded cache, fresh references in separate banks, full decode included.
+    Diagnostics are outside production timing and never warm its bank.
+    """
+    import torch
+    from qwen3vl_local.qwen35 import text_prefix as tp
+    if bundle.model.training or not tp.cache_enabled() or len(items) not in (1,2) or len(items)!=len(other_items):
+        raise ValueError('Expected one or two text questions and alternate real images')
+    report=dict(protocol=STREAM_PROTOCOL,questions=len(items),steps=[],status='running',quality_certified=False)
+    def save():
+        if on_evidence:on_evidence(report)
+    native=tp._native(bundle.model);previous_delta=getattr(native.model,'rope_deltas',None)
+    try:
+        with torch.no_grad(),cache.isolated_text_cache(bundle):
+            bank=tp.bank(bundle);report['limits']={k:getattr(bank,k) for k in ('max_entries','max_bytes','max_tokens')}
+            prefixes=[];bindings=[]
+            for a,b in zip(items,other_items):
+                n=int(torch.where(a['input_ids'][0]==native.config.vision_start_token_id)[0][0])
+                if not 0<n<=bank.max_tokens:raise ValueError(f'Full text prefix requires {n} tokens; configured max_tokens={bank.max_tokens}')
+                if max(a['input_ids'].shape[1],b['input_ids'].shape[1])>8192:raise ValueError('Stream probe exceeds context limit')
+                if (not torch.equal(a['input_ids'][:,:n],b['input_ids'][:,:n]) or
+                        int(torch.where(b['input_ids'][0]==native.config.vision_start_token_id)[0][0])!=n or
+                        torch.equal(a['pixel_values'],b['pixel_values'])):
+                    raise ValueError('Stream probe requires same text and different real image tensors')
+                key=tuple(a['input_ids'][0,:n].tolist());prefixes.append(n)
+                def sha(t):return hashlib.sha256(t.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes()).hexdigest()
+                bindings.append(dict(prefix_sha256=hashlib.sha256(repr(key).encode()).hexdigest(),
+                    image_sha256=[sha(a['pixel_values']),sha(b['pixel_values'])]))
+            if len({b['prefix_sha256'] for b in bindings})!=len(items):raise ValueError('Expected distinct complete question prefixes')
+            report['inputs']=bindings;save()
+            fingerprint=None
+            for image_index,group in ((0,items),(1,other_items),(0,items)):
+                for arm,item in enumerate(group):
+                    n=prefixes[arm];length=item['input_ids'].shape[1];positions=sorted({0,n-1,n,min(n+1,length-1),length-1})
+                    decode=lambda out:cache._decode(bundle,item,out,max_new_tokens)
+                    actual=_capture(bundle,item,lambda x:tp.prefill(bundle,x),positions,decode)
+                    step=dict(question=arm,image=image_index,cache=dict(bank.last),resident_entries=len(bank.entries),
+                        resident_bytes=sum(v[1] for v in bank.entries.values()),prefix_fingerprint=_fingerprint(bank))
+                    report['steps'].append(step);save()
+                    if len(report['steps'])==len(items):
+                        fingerprint=step['prefix_fingerprint']
+                        report['required_bytes']=sum(s['cache']['prefix_bytes'] for s in report['steps'])
+                        report['required_entries']=len(items);save()
+                        if bank.max_entries<len(items) or report['required_bytes']>bank.max_bytes:
+                            raise ValueError(f'Text questions cannot coexist: required_bytes={report["required_bytes"]}, max_bytes={bank.max_bytes}, required_entries={len(items)}')
+                    with cache.isolated_text_cache(bundle):
+                        fresh=_capture(bundle,item,lambda x:tp.prefill(bundle,x),positions,decode)
+                    step.update(comparison=_compare(actual,fresh,from_position=n),answer=actual['answer'],reference=fresh['answer'])
+                    del actual,fresh
+                    if image_index==1 or len(report['steps'])>2*len(items):
+                        step['resident_prefixes_unchanged']=fingerprint==step['prefix_fingerprint']
+                    save()
+            report['cache']=bank.report()
+            verify_stream(report,questions=len(items))
+            report['status']='passed';save()
+    except BaseException as exc:
+        report.update(status='failed',error=f'{type(exc).__name__}: {exc}');save()
+        exc.evidence=report
+        raise
+    finally:native.model.rope_deltas=previous_delta
+    return report
+
+
+def verify_stream(report,*,questions=2):
+    from .cache import assert_answers
+    if report.get('protocol')!=STREAM_PROTOCOL or report.get('questions')!=questions:
+        raise ValueError('Missing resident cross-image stream acceptance')
+    steps=report.get('steps',[]);bindings=report.get('inputs',[]);limits=report['limits']
+    if len(steps)!=3*questions or len(bindings)!=questions:
+        raise ValueError('Incomplete cross-image/return stream')
+    if len({b['prefix_sha256'] for b in bindings})!=questions or any(b['image_sha256'][0]==b['image_sha256'][1] for b in bindings):
+        raise ValueError('Missing distinct questions or alternate images')
+    required=sum(s['cache']['prefix_bytes'] for s in steps[:questions])
+    if report.get('required_bytes')!=required or report.get('required_entries')!=questions:
+        raise ValueError('Missing or incorrect measured text capacity')
+    if limits['max_entries']<questions or required>limits['max_bytes']:
+        raise ValueError(f'Text questions cannot coexist: required_bytes={required}, max_bytes={limits["max_bytes"]}, required_entries={questions}')
+    for i,step in enumerate(steps):
+        state=step['cache'];warm=i>=questions
+        if step['question']!=i%questions or step['image']!=(1 if questions<=i<2*questions else 0):
+            raise ValueError('Wrong alternating question/image order')
+        if (state['prefix_tokens']!=state['complete_text_tokens'] or state['stored'] is not True or
+                state['hit'] is not warm or state['full_hit'] is not warm or
+                state['reused_tokens']!=(state['prefix_tokens'] if warm else 0) or
+                state['computed_tokens']!=(0 if warm else state['prefix_tokens'])):
+            raise ValueError('Resident text stream did not exercise complete reuse')
+        if step['resident_entries']!=min(i+1,questions) or step['resident_bytes']>limits['max_bytes']:
+            raise ValueError('Text stream evicted required question')
+        if warm and (step.get('resident_prefixes_unchanged') is not True or
+                     step['prefix_fingerprint']!=steps[questions-1]['prefix_fingerprint']):
+            raise ValueError('Cross-image/decode mutated retained questions')
+        verify_comparison(step['comparison'])
+        assert_answers({'branches':[step['answer']]*2},{'branches':[step['reference']]*2})
     return True

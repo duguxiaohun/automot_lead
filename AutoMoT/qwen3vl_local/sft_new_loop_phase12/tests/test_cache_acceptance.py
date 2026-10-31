@@ -112,6 +112,7 @@ def text_bundle(model,monkeypatch):
     def encode(bundle,images,text):
         result={k:v.clone() for k,v in item.items()}
         result['input_ids'][0,60]=111 if text=='a' else 112
+        if images:result['pixel_values']=-result['pixel_values']
         return result
     monkeypatch.setattr(cache,'encode',encode)
     return b
@@ -133,7 +134,7 @@ def test_text_contract_accepts_full_path_decision_change_but_audits_it(model,mon
             out.logits=out.logits.clone();out.logits[:,-1,0]+=100
         return out
     monkeypatch.setattr(model,'forward',different_logits)
-    report=cache.generate(b,[],['a','b'],max_new_tokens=3,check_full=True,benchmark_repeats=2)
+    report=cache.generate(b,[],['a','b'],max_new_tokens=3,check_full=True,benchmark_repeats=2,other_images=['alternate'])
     assert report['cache_acceptance_protocol']==cache_checks.TEXT_PROTOCOL
     assert not report['full_answer_equivalence_passed'] and report['full_answer_difference']['arm']==1
     assert not report['branches'][0]['full_comparison']['next_token_matches']
@@ -169,8 +170,8 @@ def test_text_generation_rejects_changed_reused_output(model,monkeypatch):
 def test_no_retained_prefix_cannot_claim_structural_acceptance(model,monkeypatch):
     b=text_bundle(model,monkeypatch)
     b._text_prefix_cache=cache.text_prefix.TextPrefixCache(max_bytes=1)
-    with pytest.raises(ValueError,match='not exercised'):
-        cache.generate(b,[],['a','b'],max_new_tokens=1,check_full=True)
+    with pytest.raises(ValueError,match='cannot coexist'):
+        cache.generate(b,[],['a','b'],max_new_tokens=1,check_full=True,other_images=['alternate'])
 
 
 def test_full_control_metrics_distinguish_decisions_from_invalid_outputs():

@@ -42,6 +42,16 @@ def validate(bundle,index,data_root,mode,output,step,root,best):
     bundle.model.train();return best
 
 
+def alternate_paths(items,item,mode):
+    """Read-only validation control; never change labels, members or question order."""
+    indices=history_rgb_indices(mode)
+    paths=[item.row.history_rgb_paths[i] for i in indices]
+    for candidate in items:
+        other=[candidate.row.history_rgb_paths[i] for i in indices]
+        if other!=paths:return other
+    raise ValueError('Cross-image acceptance requires another real image group')
+
+
 def probe(bundle,index,data_root,mode,output,facts):
     """Check both domains: reuse mechanics gate, full-forward numerical control."""
     from qwen3vl_local.qwen35 import text_prefix
@@ -53,7 +63,8 @@ def probe(bundle,index,data_root,mode,output,facts):
     proof.write(path,receipt)
     print(f"[fusion-probe] input_layout={receipt['input_layout']} text_cache_enabled={receipt['text_cache_enabled']}",flush=True)
     try:
-        for item in plan.evaluation(index,data_root,'val'):
+        items=list(plan.evaluation(index,data_root,'val'))
+        for item in items:
             if item.row.question_domain in seen:continue
             seen.add(item.row.question_domain)
             case=dict(domain=item.row.question_domain,key=list(plan.identity(item.row)),status='running')
@@ -61,17 +72,21 @@ def probe(bundle,index,data_root,mode,output,facts):
             answers=facts[plan.identity(item.row)];first,second=prompts.specs(item,answers)
             texts=prompts.texts(first,second,mode);targets=prompts.targets(answers,first,second)
             case.update(question_order=[list(s.output_keys) for s in (first,second)],prompt_sha256=[proof.digest(t) for t in texts])
-            images=plan.native._load_images([item.row.history_rgb_paths[i] for i in history_rgb_indices(mode)])
+            paths=[item.row.history_rgb_paths[i] for i in history_rgb_indices(mode)]
+            other_paths=alternate_paths(items,item,mode) if text_prefix.cache_enabled() else []
+            case['alternate_rgb']=[str(p) for p in other_paths]
+            images=plan.native._load_images(paths);other_images=[]
             try:
+                if other_paths:other_images=plan.native._load_images(other_paths)
                 print(f'[fusion-probe] domain={item.row.question_domain} packing both tasks',flush=True)
                 for b,spec in enumerate((first,second)):
                     objective.pack(bundle,images,texts[b],targets[b],spec)
                 print(f'[fusion-probe] domain={item.row.question_domain} checking cache acceptance and complete output controls',flush=True)
-                reports.append(cache.generate(bundle,images,texts,check_full=True))
+                reports.append(cache.generate(bundle,images,texts,check_full=True,other_images=other_images or None))
                 case['status']='passed';proof.write(path,receipt)
                 print(f'[fusion-probe] domain={item.row.question_domain} passed',flush=True)
             finally:
-                for im in images:im.close()
+                for im in images+other_images:im.close()
         if len(seen)!=2:raise ValueError('Both question domains required for GPU pre-training probe')
         receipt['status']='passed_before_optimizer_updates'
     except BaseException as exc:
